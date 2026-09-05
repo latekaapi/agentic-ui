@@ -361,6 +361,16 @@ pub static ENTRIES: &[Entry] = &[
         theme: CardTheme::Light,
         build: crate::cards::citations::build,
     },
+    Entry {
+        id: "screens/assistant",
+        group: "Screens",
+        title: "Assistant",
+        subtitle: "The day-job assistant: roles, grounded answer with citations, document pane \u{2014} live, assembled from the library",
+        width: 1440.0,
+        height: 900.0,
+        theme: CardTheme::Light,
+        build: crate::assistant::build,
+    },
 ];
 
 /// Looks an entry up by id.

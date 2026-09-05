@@ -464,8 +464,8 @@ fn command_row(
     let mut row = menu_row(id, p, on, index, on_hover, window, cx);
 
     let matched = match item.command.find(query.as_ref()) {
-        Some(at) if !query.is_empty() => vec![at..at + query.len()],
-        _ => Vec::new(),
+        Some(at) if !query.is_empty() => Some(at..at + query.len()),
+        _ => None,
     };
     row = row
         .child(
@@ -524,11 +524,11 @@ fn mention_row(
 
     let matched = if item.matched.is_empty() {
         match item.label.find(query.as_ref()) {
-            Some(at) if !query.is_empty() => vec![at..at + query.len()],
-            _ => Vec::new(),
+            Some(at) if !query.is_empty() => Some(at..at + query.len()),
+            _ => None,
         }
     } else {
-        vec![item.matched.clone()]
+        Some(item.matched.clone())
     };
     // `.c{width:auto}` here: the name takes its natural width and the detail
     // line takes the rest of the row.
@@ -561,7 +561,7 @@ fn mention_row(
 }
 
 /// `.it mark`: the typed characters, in accent-ink 600.
-fn highlighted(p: &Palette, text: &SharedString, matched: &[Range<usize>]) -> StyledText {
+fn highlighted(p: &Palette, text: &SharedString, matched: &Option<Range<usize>>) -> StyledText {
     let highlight = HighlightStyle { color: Some(p.accent_ink), font_weight: Some(FontWeight::SEMIBOLD), ..Default::default() };
     StyledText::new(text.clone()).with_highlights(matched.iter().map(|r| (r.clone(), highlight)).collect::<Vec<_>>())
 }

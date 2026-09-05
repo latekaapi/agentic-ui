@@ -172,6 +172,7 @@ impl RenderOnce for SidebarHeader {
 pub struct CentreHeader {
     id: ElementId,
     provider: Option<Provider>,
+    glyph: Option<IconName>,
     title: SharedString,
     branch: Option<SharedString>,
     trailing: Option<AnyElement>,
@@ -182,13 +183,19 @@ pub struct CentreHeader {
 /// The centre header: provider mark + worktree name + branch tag, spacer,
 /// overflow menu, right-pane toggle. Nothing else lives here.
 pub fn centre_header(id: impl Into<ElementId>, title: impl Into<SharedString>) -> CentreHeader {
-    CentreHeader { id: id.into(), provider: None, title: title.into(), branch: None, trailing: None, on_overflow: None, on_toggle_right: None }
+    CentreHeader { id: id.into(), provider: None, glyph: None, title: title.into(), branch: None, trailing: None, on_overflow: None, on_toggle_right: None }
 }
 
 impl CentreHeader {
     /// The 16 px provider mark before the title.
     pub fn provider(mut self, provider: Provider) -> Self {
         self.provider = Some(provider);
+        self
+    }
+
+    /// A 14 px ink-3 glyph before the title instead of a provider mark (the assistant's role icon).
+    pub fn glyph(mut self, glyph: IconName) -> Self {
+        self.glyph = Some(glyph);
         self
     }
 
@@ -224,6 +231,9 @@ impl RenderOnce for CentreHeader {
         let mut title = h_flex().min_w(px(0.0)).gap(px(TITLE_GAP)).text_color(p.ink).ui(scale::FS_13).semibold();
         if let Some(provider) = self.provider {
             title = title.child(provider_mark(provider));
+        }
+        if let Some(glyph) = self.glyph {
+            title = title.child(aui_icons::icon(glyph).color(p.ink_3));
         }
         title = title.child(div().min_w(px(0.0)).truncate().child(self.title));
         if let Some(branch) = self.branch {

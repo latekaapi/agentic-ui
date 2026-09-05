@@ -12,6 +12,7 @@
 //! cargo run -p aui-gallery -- --list
 //! ```
 
+mod assistant;
 mod cards;
 mod gallery;
 mod registry;
