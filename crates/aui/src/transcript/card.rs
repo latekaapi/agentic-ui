@@ -27,13 +27,15 @@ pub struct TranscriptCard {
     body: Option<AnyElement>,
     chevron: bool,
     hover_tint: bool,
+    header_height: Option<gpui::Pixels>,
+    body_border: bool,
     on_toggle: Option<ClickHandler>,
 }
 
 /// An empty card; add header parts with [`TranscriptCard::header`] and a body
 /// with [`TranscriptCard::body`].
 pub fn transcript_card(id: impl Into<ElementId>, open: bool) -> TranscriptCard {
-    TranscriptCard { id: id.into(), open, header: Vec::new(), body: None, chevron: true, hover_tint: true, on_toggle: None }
+    TranscriptCard { id: id.into(), open, header: Vec::new(), body: None, chevron: true, hover_tint: true, header_height: None, body_border: true, on_toggle: None }
 }
 
 impl TranscriptCard {
@@ -46,6 +48,18 @@ impl TranscriptCard {
     /// The body, drawn behind a 1 px top border and collapsed when closed.
     pub fn body(mut self, el: impl IntoElement) -> Self {
         self.body = Some(el.into_any_element());
+        self
+    }
+
+    /// Overrides the 34 px header (the thinking block and todo list use 32).
+    pub fn header_height(mut self, height: impl Into<gpui::Pixels>) -> Self {
+        self.header_height = Some(height.into());
+        self
+    }
+
+    /// Drops the 1 px line between header and body (the thinking block).
+    pub fn body_border(mut self, border: bool) -> Self {
+        self.body_border = border;
         self
     }
 
@@ -80,7 +94,7 @@ impl RenderOnce for TranscriptCard {
         let mut header = h_flex()
             .id(header_id.clone())
             .w_full()
-            .h(cx.aui().metrics.card_header)
+            .h(self.header_height.unwrap_or(cx.aui().metrics.card_header))
             .flex_none()
             .gap(px(HEADER_GAP))
             .px(px(HEADER_PAD))
@@ -107,7 +121,7 @@ impl RenderOnce for TranscriptCard {
             .overflow_hidden()
             .child(header);
         if let Some(body) = self.body {
-            let body = div().w_full().border_t_1().border_color(p.line).child(body).into_any_element();
+            let body = div().w_full().when(self.body_border, |d| d.border_t_1().border_color(p.line)).child(body).into_any_element();
             let (reveal, _) = collapse((id, "body"), self.open, body, window, cx);
             card = card.child(reveal);
         }
