@@ -418,11 +418,24 @@ fn vitest_call() -> Block {
         duration_ms: Some(12_400),
         body: ToolBody::Shell {
             output_lines: vec![
-                "✓ validators.test.ts (18)".into(),
-                "✓ AddressForm.test.tsx (9)".into(),
+                "\u{1b}[2m$\u{1b}[0m pnpm vitest run src/checkout".into(),
+                "\u{1b}[32m✓\u{1b}[0m validators.test.ts \u{1b}[2m(18)\u{1b}[0m".into(),
+                "\u{1b}[32m✓\u{1b}[0m AddressForm.test.tsx \u{1b}[2m(9)\u{1b}[0m".into(),
                 "".into(),
-                "Test Files  2 passed (2)".into(),
-                "Tests  27 passed (27)".into(),
+                "Test Files  \u{1b}[32m2 passed\u{1b}[0m (2)".into(),
+                "     Tests  \u{1b}[32m27 passed\u{1b}[0m (27)".into(),
+                "".into(),
+                "  Start at  09:41:12".into(),
+                "  Duration  12.4 s".into(),
+                "".into(),
+                "  ✓ validators › US ZIP".into(),
+                "  ✓ validators › US ZIP+4".into(),
+                "  ✓ validators › CA postal".into(),
+                "  ✓ validators › GB postcode".into(),
+                "  ✓ validators › empty country".into(),
+                "  ✓ AddressForm › renders".into(),
+                "  ✓ AddressForm › submits".into(),
+                "  ✓ AddressForm › keeps copy".into(),
             ],
             exit_code: Some(0),
             live: false,
@@ -440,12 +453,12 @@ fn dev_server_call() -> Block {
         duration_ms: Some(72_000),
         body: ToolBody::Shell {
             output_lines: vec![
-                "▲ Next.js 16.2.1 (Turbopack)".into(),
+                "\u{1b}[2m▲\u{1b}[0m Next.js 16.2.1 (Turbopack)".into(),
                 "- Local: http://localhost:3000".into(),
-                "✓ Ready in 731ms".into(),
+                "\u{1b}[32m✓\u{1b}[0m Ready in 731ms".into(),
                 "○ Compiling /checkout ...".into(),
-                "✓ Compiled /checkout in 812ms".into(),
-                "⚠ Unsupported engine: wanted node 24".into(),
+                "\u{1b}[32m✓\u{1b}[0m Compiled /checkout in 812ms".into(),
+                "\u{1b}[33m⚠\u{1b}[0m Unsupported engine: wanted node 24".into(),
             ],
             exit_code: None,
             live: true,
@@ -523,6 +536,7 @@ fn web_call() -> Block {
                     domain: "canada.ca".into(),
                 },
             ],
+            hidden: 3,
         },
     }
 }
@@ -537,8 +551,8 @@ fn lint_call() -> Block {
         duration_ms: Some(3_200),
         body: ToolBody::Shell {
             output_lines: vec![
-                "✖ src/checkout/validators.ts".into(),
-                "  46:5  error  'validateCanadianPostal' is not defined  no-undef".into(),
+                "\u{1b}[31m✖\u{1b}[0m src/checkout/validators.ts".into(),
+                "  46:5  \u{1b}[31merror\u{1b}[0m  'validateCanadianPostal' is not defined  no-undef".into(),
             ],
             exit_code: Some(1),
             live: false,
@@ -557,6 +571,7 @@ fn browser_call() -> Block {
         body: ToolBody::Browser {
             action: "3 actions".into(),
             screenshot: Some("design/reference/screens/harness-Main.png".into()),
+            caption: Some("click \u{201c}Try free\u{201d}".into()),
         },
     }
 }
@@ -644,6 +659,20 @@ fn validators_diff() -> Diff {
                     text: "  if (values.country === 'CA') return validateCanadianPostal(values);"
                         .into(),
                 },
+            ],
+        },
+        Hunk {
+            header: "@@ -61,2 +63,4 @@ function validateCanadianPostal".into(),
+            lines: vec![
+                DiffLine { kind: DiffKind::Add, old_no: None, new_no: Some(63), text: "  const POSTAL = /^[A-Z]\\d[A-Z] ?\\d[A-Z]\\d$/i;".into() },
+                DiffLine { kind: DiffKind::Add, old_no: None, new_no: Some(64), text: "  return { ok: POSTAL.test(values.postal), field: 'postal' };".into() },
+            ],
+        },
+        Hunk {
+            header: "@@ -88,3 +92,5 @@ export function validateGb".into(),
+            lines: vec![
+                DiffLine { kind: DiffKind::Del, old_no: Some(89), new_no: None, text: "  return true;".into() },
+                DiffLine { kind: DiffKind::Add, old_no: None, new_no: Some(93), text: "  return { ok: GB.test(values.postal), field: 'postal' };".into() },
             ],
         }],
         added: 8,

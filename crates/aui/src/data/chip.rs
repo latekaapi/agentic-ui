@@ -28,6 +28,7 @@ pub struct Chip {
     id: ElementId,
     label: SharedString,
     leading: Option<AnyElement>,
+    trailing: Option<AnyElement>,
     chevron: bool,
     composer: bool,
     active: bool,
@@ -37,7 +38,7 @@ pub struct Chip {
 
 /// A chip with a label.
 pub fn chip(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Chip {
-    Chip { id: id.into(), label: label.into(), leading: None, chevron: false, composer: false, active: false, accent: false, on_click: None }
+    Chip { id: id.into(), label: label.into(), leading: None, trailing: None, chevron: false, composer: false, active: false, accent: false, on_click: None }
 }
 
 impl Chip {
@@ -49,6 +50,12 @@ impl Chip {
     /// Any leading element (a provider mark, a file-type icon).
     pub fn leading(mut self, element: impl IntoElement) -> Self {
         self.leading = Some(element.into_any_element());
+        self
+    }
+
+    /// A trailing element (the remove `x` of a context chip).
+    pub fn trailing(mut self, element: impl IntoElement) -> Self {
+        self.trailing = Some(element.into_any_element());
         self
     }
 
@@ -124,6 +131,9 @@ impl RenderOnce for Chip {
         el = el.child(self.label);
         if self.chevron {
             el = el.child(icon(IconName::ChevronDown).size(px(CHEVRON)).color(text));
+        }
+        if let Some(trailing) = self.trailing {
+            el = el.child(trailing);
         }
         if let Some(on_click) = self.on_click {
             el = el.on_click(move |e, w, cx| on_click(e, w, cx));

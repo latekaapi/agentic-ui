@@ -88,6 +88,9 @@ pub enum ToolBody {
     Web {
         /// The results, ranked.
         results: Vec<WebResult>,
+        /// Results beyond the listed ones (`+3 more`).
+        #[serde(default)]
+        hidden: usize,
     },
     /// One browser action with an optional screenshot tile.
     Browser {
@@ -95,6 +98,9 @@ pub enum ToolBody {
         action: String,
         /// Path or data URI of the screenshot thumbnail.
         screenshot: Option<String>,
+        /// The last action's caption on the screenshot, e.g. `click “Try free”`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caption: Option<String>,
     },
     /// A nested transcript from a sub-agent.
     SubAgent {

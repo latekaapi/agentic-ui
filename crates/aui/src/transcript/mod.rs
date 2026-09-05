@@ -4,6 +4,7 @@
 //! rows, citations and sources (cards 30–38, 55).
 
 mod activity;
+mod ansi;
 mod approval;
 mod card;
 mod code;
@@ -12,6 +13,7 @@ mod plan;
 mod question;
 mod status;
 mod summary;
+mod syntax;
 mod thinking;
 mod todo;
 mod tool_card;
@@ -24,8 +26,13 @@ pub use thinking::{thinking_block, ThinkingBlock};
 pub use prose::{prose, ProseStyle};
 pub use marker::{marker_row, HandOff, MarkerRow};
 pub use turns::{assistant_turn, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction};
-// card 34 exports
-// card 35 exports
-// card 36 exports
-// card 37 exports
-// card 38 exports
+pub use ansi::{ansi_runs, parse_ansi, AnsiSpan};
+pub use tool_card::{format_duration, tool_card, ToolCard, ToolCardIntent, SHELL_FOLD};
+pub use approval::{approval_card, ApprovalCard};
+pub use question::{answered_row, question_card, AnsweredRow, QuestionCard};
+pub use plan::{plan_card, PlanCard};
+pub use todo::{todo_list, TodoList};
+pub use code::{code_block, diff_block, diff_note, CodeBlock, CodeBlockAction, DiffBlock, DiffBlockAction, DiffNote};
+pub use syntax::{syntax_runs, token_color, tokenize_line, TokenKind};
+pub use summary::{summary_card, SummaryAction, SummaryCard};
+pub use status::{error_card, jump_pill, needs_you_banner, status_row, ErrorCard, JumpPill, NeedsYouBanner, StatusLead, StatusRow};
