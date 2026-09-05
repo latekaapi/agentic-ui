@@ -31,6 +31,8 @@ The design is the contract. Three artefacts define it, in this order of authorit
 - Animated states (pulse rings, spinners, shimmer) are compared at their resting frame; the motion itself is checked by hand in the gallery.
 - No element rotation: the drag ghost tab (card 11) is drawn straight instead of at −2°.
 - Inline code inside prose runs at the body size (13.5 px) rather than 12 px, and without the 1 × 5 px padding: a `TextRun` cannot change size, and a run background hugs the glyphs. Bullet lists use an 18 px indent as designed. The streaming caret is not drawn inline yet (gpui text hosts no inline element); the composer phase will measure the last line.
+- The composer embeds gpui-kit's multi-line input, which always pads its editor by 8 / 10 px and sets its own line box; the composer subtracts the padding and pushes the design's 14 px / 1.55 text onto it, landing within ~3 px of the CSS.
+- In the slash menu the fixed 100 px command column breaks `/release-notes` mid-word where Chrome breaks at the hyphen.
 - Syntax colours in code blocks come from a small lexer (keywords, calls, strings, numbers, comments); tree-sitter grammars are optional features of gpui-kit and not enabled yet.
 - Tabs in a strip keep their natural width (the card lets `Terminal 1` wrap onto two lines when the strip is short of room); a strip short of room clips at its edge. Shrinking tabs with truncated labels made taffy collapse the labels entirely and is left for a later pass.
 - CSS collapses the vertical margins between siblings; gpui does not. Rows carry a top margin only (`session_row`), which puts the last row 2 px closer to its container's bottom edge than the CSS.
@@ -62,10 +64,10 @@ The design is the contract. Three artefacts define it, in this order of authorit
 | 36 Question, plan, todo | transcript::QuestionCard, PlanCard, TodoList | transcript/question-plan-todo | cc4d03f · 1.0 % |
 | 37 Code and diff blocks | transcript::CodeBlock, DiffBlock, DiffNote | transcript/code-diff | cc4d03f · 2.1 % (diff keeps code indentation the HTML collapsed) |
 | 38 Summary, error, status | transcript::SummaryCard, ErrorCard, StatusRow, NeedsYouBanner, JumpPill | transcript/summary-status | cc4d03f · 0.9 % (design `.sm` collision fixed) |
-| 40 Composer | composer::Composer (docked + floating), PlusMenu, SendStop | composer/composer | |
-| 41 Slash and mentions | composer::CommandMenu, MentionPicker | composer/menus | |
-| 42 Attachments | composer::AttachmentRow, DropOverlay | composer/attachments | |
-| 50 Terminal | workbench::BlockTerminal, TuiPane | workbench/terminal | |
+| 40 Composer | composer::Composer (docked + floating), PlusMenu, queue, suggestions | composer/composer | 337db31 · 2.3 % (kit textarea line box) |
+| 41 Slash and mentions | composer::CommandMenu, MentionPicker | composer/menus | f94bc7c · 0.9 % |
+| 42 Attachments | composer::AttachmentRow, DropOverlay | composer/attachments | f94bc7c · 1.1 % |
+| 50 Terminal | workbench::BlockTerminal, TuiPane | workbench/terminal | 19bcd60 · 1.4 % (tab indicator moved to ink/bottom per the rules) |
 | 51 Browser and annotator | workbench::BrowserPane, Annotator | workbench/browser | |
 | 52 Diff review | workbench::DiffReview | workbench/diff | |
 | 53 Git and PR | workbench::GitPanel, PrForm | workbench/git | |

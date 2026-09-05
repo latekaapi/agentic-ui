@@ -6,6 +6,7 @@ use aui::nav::{role_section, sidebar_footer, Project, Role, RoleSession, Session
 use aui::protocol::{ActivityState, Step, StepState};
 use aui::shell::{app_shell, centre_header, right_header, sidebar_header, tab_strip, TabItem};
 use aui::transcript::{activity_group, prose, user_turn, ProseStyle};
+use aui::workbench::{pdf_pane, sheet_pane, PdfPage, PdfRun, SheetCell};
 use aui_icons::{icon, IconName, Provider, RoleIcon};
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, TextRole};
 use gpui::*;
@@ -33,6 +34,8 @@ pub enum RightTab {
     Doc,
     /// The vendor scoring sheet (xlsx).
     Sheet,
+    /// The cited regulation (pdf).
+    Pdf,
 }
 
 /// The mock's state.
@@ -193,14 +196,51 @@ impl AssistantMock {
             })
     }
 
-    fn render_right(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_right(&self, cx: &mut Context<Self>) -> AnyElement {
         let p = cx.aui().colors;
-        // The document pane arrives with card 54; until then the pane shows its tab's name.
-        let label = match self.right_tab {
-            RightTab::Doc => "RFP-draft-v3.docx",
-            RightTab::Sheet => "vendor-scoring.xlsx",
-        };
-        v_flex().size_full().items_center().justify_center().text_role(TextRole::UiSmall).text_color(p.ink_3).child(label)
+        match self.right_tab {
+            // The document pane arrives with card 54; until then the tab shows its name.
+            RightTab::Doc => v_flex().size_full().items_center().justify_center().text_role(TextRole::UiSmall).text_color(p.ink_3).child("RFP-draft-v3.docx").into_any_element(),
+            RightTab::Sheet => {
+                let rows = vec![
+                    vec![SheetCell::text("Vendor"), SheetCell::text("Experience"), SheetCell::text("Coverage"), SheetCell::text("Price"), SheetCell::text("Weighted")],
+                    vec![SheetCell::text("Northlight Staffing"), SheetCell::num("4.5"), SheetCell::num("4.0"), SheetCell::num("3.5"), SheetCell::num("4.05").bold()],
+                    vec![SheetCell::text("Meridian Educators"), SheetCell::num("3.0"), SheetCell::num("4.5"), SheetCell::num("4.5"), SheetCell::num("3.90").bold()],
+                    vec![SheetCell::text("Bright Path"), SheetCell::num("5.0"), SheetCell::num("3.0"), SheetCell::num("3.0"), SheetCell::num("3.85").bold()],
+                    vec![SheetCell::text("Civic Talent"), SheetCell::num("2.5"), SheetCell::num("3.5"), SheetCell::num("5.0"), SheetCell::num("3.45").bold()],
+                    vec![SheetCell::text("Weight"), SheetCell::num("0.45"), SheetCell::num("0.30"), SheetCell::num("0.25"), SheetCell::text("")],
+                ];
+                sheet_pane("assistant-sheet", ["A", "B", "C", "D", "E"].into_iter().map(Into::into).collect(), rows)
+                    .selected(1, 4)
+                    .formula("E2", "=SUMPRODUCT(B2:D2,B$7:D$7)")
+                    .tabs(vec!["Scores".into(), "Matrix".into(), "Notes".into()], 0)
+                    .tabs_note("weighted by Annex A")
+                    .into_any_element()
+            }
+            RightTab::Pdf => {
+                let page = PdfPage {
+                    heading: "Chapter IV · Eligibility and qualification of bidders".into(),
+                    paragraphs: vec![
+                        vec![
+                            PdfRun::Bold("14. Eligibility of bidders.".into()),
+                            PdfRun::Text(" (1) Every bidder shall be a legal entity registered in the State and shall not be blacklisted by any department of the Government at the time of submission.".into()),
+                        ],
+                        vec![
+                            PdfRun::Text("(2) A bidder for recruitment or staffing services ".into()),
+                            PdfRun::Highlight("shall hold a valid registration with the Directorate and shall have completed not less than three years of comparable placements in the preceding five years".into()),
+                            PdfRun::Text(", evidenced by completion certificates from the engaging authority.".into()),
+                        ],
+                        vec![PdfRun::Text("(3) Joint ventures shall satisfy sub-rule (2) through the lead member, whose share shall not be less than fifty-one percent.".into())],
+                        vec![
+                            PdfRun::Bold("15. Disqualification.".into()),
+                            PdfRun::Text(" A bidder shall be disqualified where the bid contains a material misrepresentation, or where the bidder has been convicted of an offence involving fraud within the preceding five years.".into()),
+                        ],
+                    ],
+                    footer: "Procurement Rules 2019 · 31".into(),
+                };
+                pdf_pane("assistant-pdf", page, 31, 88).cited_as(1).into_any_element()
+            }
+        }
     }
 }
 
@@ -209,13 +249,19 @@ impl Render for AssistantMock {
         let tabs = vec![
             TabItem::new("doc", "RFP-draft-v3.docx", IconName::Doc).closable(false),
             TabItem::new("sheet", "vendor-scoring.xlsx", IconName::Sheet).closable(false),
+            TabItem::new("pdf", "procurement-rules-2019.pdf", IconName::Pdf).closable(false),
         ];
         let active = match self.right_tab {
             RightTab::Doc => 0,
             RightTab::Sheet => 1,
+            RightTab::Pdf => 2,
         };
         let strip = tab_strip("assistant-tabs", tabs, active).on_select(cx.listener(|this, id: &SharedString, _, cx| {
-            this.right_tab = if id.as_ref() == "sheet" { RightTab::Sheet } else { RightTab::Doc };
+            this.right_tab = match id.as_ref() {
+                "sheet" => RightTab::Sheet,
+                "pdf" => RightTab::Pdf,
+                _ => RightTab::Doc,
+            };
             cx.notify();
         }));
         let sidebar = self.render_sidebar(cx);
