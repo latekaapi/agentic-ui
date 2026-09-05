@@ -82,19 +82,33 @@ pub struct TabStrip {
     tabs: Vec<TabItem>,
     active: usize,
     in_shell_header: bool,
+    after_tabs: Vec<gpui::AnyElement>,
+    trailing: Vec<gpui::AnyElement>,
     on_select: Option<TabHandler>,
     on_close: Option<TabHandler>,
 }
 
 /// A strip over `tabs` with `active` selected.
 pub fn tab_strip(id: impl Into<ElementId>, tabs: Vec<TabItem>, active: usize) -> TabStrip {
-    TabStrip { id: id.into(), tabs, active, in_shell_header: false, on_select: None, on_close: None }
+    TabStrip { id: id.into(), tabs, active, in_shell_header: false, after_tabs: Vec::new(), trailing: Vec::new(), on_select: None, on_close: None }
 }
 
 impl TabStrip {
     /// The 44 px shell-header variant: no strip padding, 10 px tab padding.
     pub fn in_shell_header(mut self) -> Self {
         self.in_shell_header = true;
+        self
+    }
+
+    /// A control placed right after the tabs (the `+`).
+    pub fn after_tabs(mut self, el: impl IntoElement) -> Self {
+        self.after_tabs.push(el.into_any_element());
+        self
+    }
+
+    /// A control at the far right of the band (split, overflow).
+    pub fn trailing(mut self, el: impl IntoElement) -> Self {
+        self.trailing.push(el.into_any_element());
         self
     }
 
@@ -124,11 +138,16 @@ impl RenderOnce for TabStrip {
             .clone();
 
         // The indicator is placed from last frame's bounds; the first frame
-        // draws none and asks for another frame.
+        // draws none and asks for another frame. The captured strip bounds are
+        // its border box while an absolute `left` is measured from the content
+        // box, so the strip's own padding is taken back out.
+        let strip_pad = if self.in_shell_header { 0.0 } else { STRIP_PAD };
         let target = {
             let g = geometry.borrow();
             match (g.strip, g.tabs.get(self.active).copied().flatten()) {
-                (Some(strip), Some(tab)) => Some((tab.origin.x - strip.origin.x + px(INDICATOR_INSET), tab.size.width - px(2.0 * INDICATOR_INSET))),
+                (Some(strip), Some(tab)) => {
+                    Some((tab.origin.x - strip.origin.x + px(INDICATOR_INSET - strip_pad), tab.size.width - px(2.0 * INDICATOR_INSET)))
+                }
                 _ => None,
             }
         };
@@ -159,7 +178,9 @@ impl RenderOnce for TabStrip {
             .h(height)
             .flex_none()
             .gap(px(STRIP_GAP))
-            .when(!self.in_shell_header, |d| d.px(px(STRIP_PAD)))
+            .min_w(px(0.0))
+            // `.strip{border-bottom:1px solid var(--line)}`; inside the shell the header cell owns it.
+            .when(!self.in_shell_header, |d| d.px(px(STRIP_PAD)).border_b_1().border_color(p.line))
             .on_prepaint({
                 let geometry = geometry.clone();
                 move |bounds, _, _| geometry.borrow_mut().strip = Some(bounds)
@@ -174,6 +195,8 @@ impl RenderOnce for TabStrip {
             let show_close = tab.closable && (active || flags.hovered);
             let close_opacity = tween((tab_id.clone(), "close"), if show_close { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
 
+            // Tabs keep their natural width; a strip short of room clips at
+            // its edge (the design lets labels wrap; see docs/03 known gaps).
             let mut el = h_flex()
                 .id(tab_id.clone())
                 .relative()
@@ -227,6 +250,10 @@ impl RenderOnce for TabStrip {
                 el = el.on_click(move |_, w, cx| on_select(&tab_key, w, cx));
             }
             strip = strip.child(el);
+        }
+        strip = strip.children(self.after_tabs);
+        if !self.trailing.is_empty() {
+            strip = strip.child(div().flex_1().min_w(px(0.0))).children(self.trailing);
         }
         strip.children(indicator)
     }

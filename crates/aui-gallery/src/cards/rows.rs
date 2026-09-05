@@ -84,7 +84,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         .border_color(p.line)
         .bg(p.surface_1);
     for (i, (session, selected)) in sample_sessions().into_iter().enumerate() {
-        list = list.child(session_row(("card20-row", i), session).selected(selected));
+        list = list.child(session_row(("card20-row", i), session).selected(selected).collapse_margins());
     }
     h_flex()
         .w_full()

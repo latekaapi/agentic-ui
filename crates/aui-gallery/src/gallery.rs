@@ -213,7 +213,14 @@ impl Render for Gallery {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.aui().colors;
         if self.bare {
-            return div().size_full().child(self.render_card(window, cx)).into_any_element();
+            // Parity captures: an occluding overlay keeps the pointer from
+            // hovering anything in the card.
+            return div()
+                .size_full()
+                .relative()
+                .child(self.render_card(window, cx))
+                .child(div().absolute().inset_0().occlude())
+                .into_any_element();
         }
         v_flex()
             .track_focus(&self.focus)

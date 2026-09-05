@@ -3,7 +3,7 @@
 body.ds{padding:12px}
 .app{display:grid;grid-template-columns:252px 1fr 392px;grid-template-rows:44px 1fr;height:796px;background:var(--bg);border:1px solid var(--line-strong);border-radius:12px;overflow:hidden;box-shadow:var(--shadow-3)}
 .hd{display:flex;align-items:center;gap:6px;padding:0 10px;border-bottom:1px solid var(--line);background:var(--surface-1);min-width:0}
-.hd+.hd{border-left:1px solid var(--line)}
+.hd:nth-child(1){border-right:1px solid var(--line)}.hd:nth-child(3){border-left:1px solid var(--line)}
 .hd .ttl{font-weight:600;font-size:13px;display:flex;align-items:center;gap:7px;min-width:0}
 .hd .btn.ghost{color:var(--ink-3)}
 .hd.tabs{padding:0 4px 0 6px;gap:2px}.hd .tab{height:44px;padding:0 10px}.hd .tab.on::after{bottom:-1px}

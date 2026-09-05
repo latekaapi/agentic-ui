@@ -43,12 +43,12 @@ Conventions used below: **anatomy** (parts, left to right / top to bottom), **si
 
 ### 1.1 App shell (card 10; screens harness-*.png)
 - Grid: columns 252 | 1fr | 400 (392 in the card); rows 44 (header) | 1fr. No bottom status bar.
-- Three header cells, each 44 px, surface-1, 1 px bottom border, 1 px left border between cells; dividers run continuously into the panes.
+- Three header cells, each 44 px, surface-1, 1 px bottom border; the sidebar cell owns the first divider (its right border) and the right cell the second (its left border), so each lines up with the pane border beneath it and the dividers run continuously top to bottom (the card originally staggered the first one by 1 px; fixed 2026-09-05).
   - Sidebar cell: traffic lights (11 px, 7 gap), back, forward (disabled at .45), spacer, search, sidebar-toggle. Icon buttons are `btn icon sm ghost`, ink-3.
   - Centre cell: provider mark 16 px + worktree name (600, 13 px) + branch tag; spacer; overflow menu (dots) and right-pane toggle (`panel-right`). Nothing else.
   - Right cell: the right pane's tab strip (tabs 44 px tall, 12 px icon + label, active = ink with 2 px ink underline at the bottom edge, inactive ink-3), a `+` (xs ghost), spacer, close (`x`). Pane-specific controls live inside the pane body, never in the header.
-- Centre pane: transcript scroll area padding 18 32 0, blocks gap 16; then a status row (spinner/glyph + text, 12 px, ink-3, 14 px bottom padding); then the docked composer.
-- Docked composer: full pane width, 1 px top border, surface-1, padding 12 32 12. Text area 13.5/1.5, min 40 px; toolbar row 10 px below: `+` (bordered `btn icon`, 28), model chip, mode chip, effort chip (28 px chips in the composer, 22 elsewhere), context %, spacer, send/stop button 28 × 28 radius 6 accent (IconMorph between arrow-up and stop square).
+- Centre pane: transcript scroll area padding 18 32 0 (28 in the card), blocks gap 16; then a status row (spinner/glyph + text, 12 px, ink-3, 12 px bottom padding); then the docked composer.
+- Docked composer: full pane width, 1 px top border, surface-1, padding 12 32 12 (28 in the card). Text area 13.5/1.5, min 40 px; toolbar row 10 px below: `+` (bordered `btn icon`, 28), model chip, mode chip, effort chip (28 px chips in the composer, 22 elsewhere), context %, spacer, send/stop button 28 × 28 radius 6 accent (IconMorph between arrow-up and stop square).
 - Sidebar footer: 1 px top border, padding 10 12: avatar 22, name (ink-3 12 px, truncates), provider usage meter (mark 11 px + 40 × 3 bar in ink-3 on surface-3 + "78%" mono 11), chevron-down xs ghost.
 - Right pane toggle: closing the pane collapses the third column with the layout spring (slow 280 ms) and the toggle icon in the centre header reopens it; the `x` in the right cell does the same.
 - Data: worktree name, branch, provider, right-pane tabs, active tab.

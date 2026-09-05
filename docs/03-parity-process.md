@@ -29,6 +29,11 @@ The design is the contract. Three artefacts define it, in this order of authorit
 - Caps labels lose their `.08em` letter-spacing: gpui has no letter-spacing text style.
 - SVG `<text>` is not rasterised, so the `ft-ts` / `ft-tsx` glyph labels do not render until the sprite carries them as paths.
 - Animated states (pulse rings, spinners, shimmer) are compared at their resting frame; the motion itself is checked by hand in the gallery.
+- No element rotation: the drag ghost tab (card 11) is drawn straight instead of at −2°.
+- Tabs in a strip keep their natural width (the card lets `Terminal 1` wrap onto two lines when the strip is short of room); a strip short of room clips at its edge. Shrinking tabs with truncated labels made taffy collapse the labels entirely and is left for a later pass.
+- CSS collapses the vertical margins between siblings; gpui does not. Rows carry a top margin only (`session_row`), which puts the last row 2 px closer to its container's bottom edge than the CSS.
+- Parity renders open at the display's top-left corner so the pointer does not hover anything; keep the pointer away from that corner while `scripts/parity.sh` runs.
+- The sprite carries four symbols the HTML cards never use: `spinner-ring` / `spinner-arc` (gpui rotates SVGs, not divs, so the spinner's accent arc is an SVG), `check-bold` / `x-bold` (the stroke-3 glyph marks), and `chev` (the stroke-2 chevron).
 
 ## Checklist (card → component → gallery entry → parity commit)
 | Card | Component(s) | Gallery entry | Parity |

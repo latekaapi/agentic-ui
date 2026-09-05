@@ -12,8 +12,9 @@ use crate::nav::{ActivityKind, MetaItem, SessionSummary};
 use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.wt{grid-template-columns:14px 1fr auto;gap:2px 8px;padding:9px 10px;margin:2px 8px}`.
-/// CSS collapses the vertical margins between rows to 2 px; gpui does not,
-/// so rows carry only a top margin.
+/// Inside a flex column (the sidebar) CSS keeps both margins, 4 px apart;
+/// inside block flow (card 20's list) they collapse to 2 px — see
+/// [`SessionRow::collapse_margins`].
 const DOT_COL: f32 = 14.0;
 const COL_GAP: f32 = 8.0;
 const ROW_GAP: f32 = 2.0;
@@ -114,6 +115,7 @@ pub struct SessionRow {
     branch_max: f32,
     activity_max: Option<f32>,
     show_actions: bool,
+    margin_bottom: f32,
     on_select: Option<SelectHandler>,
     on_action: Option<ActionHandler>,
 }
@@ -132,6 +134,7 @@ pub fn session_row(id: impl Into<ElementId>, session: SessionSummary) -> Session
         branch_max: BRANCH_MAX,
         activity_max: None,
         show_actions: true,
+        margin_bottom: MARGIN_Y,
         on_select: None,
         on_action: None,
     }
@@ -178,6 +181,13 @@ impl SessionRow {
     /// Whether the hover action tray exists.
     pub fn show_actions(mut self, show: bool) -> Self {
         self.show_actions = show;
+        self
+    }
+
+    /// For rows in block flow, where CSS collapses adjacent 2 px margins into
+    /// one: keeps the top margin only.
+    pub fn collapse_margins(mut self) -> Self {
+        self.margin_bottom = 0.0;
         self
     }
 
@@ -295,6 +305,7 @@ impl RenderOnce for SessionRow {
             .pl(px(if self.nested { CHILD_ROW_PAD_LEFT } else { PAD_X }))
             .pr(px(PAD_X))
             .mt(px(MARGIN_Y))
+            .mb(px(self.margin_bottom))
             .mx(px(self.margin_x))
             .rounded(px(scale::R_MD))
             .bg(bg)
@@ -362,6 +373,7 @@ impl RenderOnce for SessionRow {
                 .text_sizes(self.name_size, self.meta_size)
                 .branch_max(self.branch_max)
                 .show_actions(self.show_actions);
+            r.margin_bottom = self.margin_bottom;
             if let Some(h) = self.on_select.clone() {
                 r = r.on_select(move |k, w, cx| h(k, w, cx));
             }

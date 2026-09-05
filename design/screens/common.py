@@ -10,7 +10,7 @@ SHELL_CSS = """
 body{margin:0;background:#121317}
 .aui{width:1440px;height:900px;background:var(--bg);color:var(--ink);font:13px/1.5 var(--font-ui);display:grid;grid-template-columns:252px 1fr 400px;grid-template-rows:44px 1fr;overflow:hidden;position:relative}
 .hd{display:flex;align-items:center;gap:6px;padding:0 10px;border-bottom:1px solid var(--line);background:var(--surface-1);min-width:0}
-.hd+.hd{border-left:1px solid var(--line)}
+.hd:nth-child(1){border-right:1px solid var(--line)}.hd:nth-child(3){border-left:1px solid var(--line)}
 .hd .ttl{font-weight:600;font-size:13px;display:flex;align-items:center;gap:7px;min-width:0;white-space:nowrap}
 .hd .btn.ghost{color:var(--ink-3)}
 .hd.tabs{padding:0 4px 0 6px;gap:2px}
