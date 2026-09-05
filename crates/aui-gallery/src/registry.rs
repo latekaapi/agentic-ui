@@ -271,6 +271,36 @@ pub static ENTRIES: &[Entry] = &[
         theme: CardTheme::Dark,
         build: crate::cards::summary_status::build,
     },
+    Entry {
+        id: "composer/composer",
+        group: "Composer",
+        title: "Composer",
+        subtitle: "Auto-growing input, meta strip, actions menu, model and mode pickers, send/stop morph, queued messages",
+        width: 760.0,
+        height: 620.0,
+        theme: CardTheme::Both,
+        build: crate::cards::composer::build,
+    },
+    Entry {
+        id: "composer/menus",
+        group: "Composer",
+        title: "Slash commands and mentions",
+        subtitle: "Inline / menu with sections and keyboard hints; @ picker for files, symbols, worktrees; $ skills",
+        width: 800.0,
+        height: 520.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::menus::build,
+    },
+    Entry {
+        id: "composer/attachments",
+        group: "Composer",
+        title: "Attachments and drop",
+        subtitle: "Image thumbs, file rows with upload states, drop overlay over the transcript, paste hint",
+        width: 760.0,
+        height: 460.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::attachments::build,
+    },
 ];
 
 /// Looks an entry up by id.

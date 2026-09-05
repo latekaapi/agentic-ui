@@ -10,8 +10,10 @@ use gpui_kit::base::{h_flex, v_flex};
 use crate::data::kbd;
 use crate::util::{interaction_flags, TrackInteraction};
 
-/// `.menu{bottom:38px;left:0;width:200px;padding:6px}`.
-const MENU_BOTTOM: f32 = 38.0;
+/// `.menu{bottom:38px;left:0;width:200px;padding:6px}` — measured from the
+/// bar, which has 10 px of bottom padding; the menu anchors to the `+`
+/// button, so 28 px above it.
+const MENU_BOTTOM: f32 = 28.0;
 const MENU_W: f32 = 200.0;
 const MENU_PAD: f32 = 6.0;
 /// `.menu .it{gap:8px;height:30px;padding:0 8px;font-size:12.5px}`.

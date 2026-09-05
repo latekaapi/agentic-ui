@@ -51,9 +51,17 @@ const METER_H: f32 = 4.0;
 const METER_GAP: f32 = 6.0;
 /// The context percentage in the bar: `.subtle{font-size:11px;margin-left:6px}`.
 const CONTEXT_MARGIN: f32 = 6.0;
-/// Text area rows: grows from 2 to 8.
+/// Text area rows: grows from 2 to 8 (the docked variant starts at 1).
 const MIN_ROWS: usize = 2;
 const MAX_ROWS: usize = 8;
+/// gpui-kit's multi-line input always pads its editor by these amounts
+/// (`Size::Medium`: 8 / 10); the wrapper subtracts them to land on the CSS.
+const KIT_EDITOR_PAD_Y: f32 = 8.0;
+const KIT_EDITOR_PAD_X: f32 = 10.0;
+/// Docked variant: `textarea{min-height:40px;padding-left:32px}`, `.bar{padding-left:28px;padding-right:28px}`.
+const DOCKED_TEXT_MIN_H: f32 = 40.0;
+const DOCKED_TEXT_PAD_L: f32 = 32.0;
+const DOCKED_BAR_PAD_X: f32 = 28.0;
 
 /// What a context chip stands for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,7 +126,12 @@ type IntentHandler = std::rc::Rc<dyn Fn(ComposerIntent, &mut Window, &mut App)>;
 /// Creates the text state a composer renders; keep it in the view (or in
 /// window state) and pass it to [`composer`] every frame.
 pub fn composer_state(placeholder: impl Into<SharedString>, window: &mut Window, cx: &mut gpui::Context<TextareaState>) -> TextareaState {
-    TextareaState::new(window, cx).placeholder(placeholder).auto_grow(MIN_ROWS, MAX_ROWS)
+    composer_state_rows(placeholder, MIN_ROWS, MAX_ROWS, window, cx)
+}
+
+/// Like [`composer_state`] with explicit row bounds (the docked composer starts at one row).
+pub fn composer_state_rows(placeholder: impl Into<SharedString>, min_rows: usize, max_rows: usize, window: &mut Window, cx: &mut gpui::Context<TextareaState>) -> TextareaState {
+    TextareaState::new(window, cx).placeholder(placeholder).auto_grow(min_rows, max_rows)
 }
 
 /// The composer. Build with [`composer`].
@@ -135,6 +148,7 @@ pub struct Composer {
     streaming: bool,
     can_send: bool,
     focused: bool,
+    docked: bool,
     plus_open: bool,
     meta: Option<ComposerMeta>,
     plus_menu: Option<gpui::AnyElement>,
@@ -155,6 +169,7 @@ pub fn composer(id: impl Into<ElementId>, state: &Entity<TextareaState>, provide
         streaming: false,
         can_send: true,
         focused: false,
+        docked: false,
         plus_open: false,
         meta: None,
         plus_menu: None,
@@ -202,6 +217,12 @@ impl Composer {
     /// Draws the focused ring (accent border + 3 px accent-ring).
     pub fn focused(mut self, focused: bool) -> Self {
         self.focused = focused;
+        self
+    }
+
+    /// The docked variant: full width, top hairline only, no radius or shadow.
+    pub fn docked(mut self, docked: bool) -> Self {
+        self.docked = docked;
         self
     }
 
@@ -260,14 +281,17 @@ impl RenderOnce for Composer {
         // Text area.
         let text = div()
             .w_full()
-            .min_h(px(TEXT_MIN_H))
-            .pt(px(TEXT_PAD_TOP))
-            .px(px(TEXT_PAD_X))
-            .pb(px(TEXT_PAD_BOTTOM))
+            .min_h(px(if self.docked { DOCKED_TEXT_MIN_H } else { TEXT_MIN_H }))
+            .pt(px((TEXT_PAD_TOP - KIT_EDITOR_PAD_Y).max(0.0)))
+            .pl(px((if self.docked { DOCKED_TEXT_PAD_L } else { TEXT_PAD_X }) - KIT_EDITOR_PAD_X))
+            .pr(px(TEXT_PAD_X - KIT_EDITOR_PAD_X))
+            .pb(px((TEXT_PAD_BOTTOM - KIT_EDITOR_PAD_Y).max(0.0)))
+            // The kit pads more than the CSS asks for at the bottom; pull the bar up by the difference.
+            .mb(px((TEXT_PAD_BOTTOM - KIT_EDITOR_PAD_Y).min(0.0)))
             .ui(TEXT_SIZE)
             .line_height(relative(TEXT_LH))
             .text_color(p.ink)
-            .child(Textarea::new(&self.state).appearance(false).bordered(false));
+            .child(Textarea::new(&self.state).appearance(false).bordered(false).text_size(aui_tokens::scaled(TEXT_SIZE)).line_height(relative(TEXT_LH)));
 
         // Toolbar.
         let plus_turn = spring_phase((id.clone(), "plus"), self.plus_open, SpringKind::Swap, window, cx);
@@ -322,11 +346,15 @@ impl RenderOnce for Composer {
             .w_full()
             .gap(px(BAR_GAP))
             .pt(px(BAR_PAD_TOP))
-            .px(px(BAR_PAD_X))
+            .px(px(if self.docked { DOCKED_BAR_PAD_X } else { BAR_PAD_X }))
             .pb(px(BAR_PAD_BOTTOM))
             .child(plus_holder)
             .child(chip((id.clone(), "model"), self.model.clone()).composer().leading(provider_mark(self.provider).size(px(CHIP_MARK))).chevron().on_click(emit(ComposerIntent::Model)))
-            .child(chip((id.clone(), "mode"), self.mode.clone()).composer().active(true).chevron().on_click(emit(ComposerIntent::Mode)));
+            .child({
+                // The floating card's mode chip is active with a chevron; the docked one is quiet.
+                let mode = chip((id.clone(), "mode"), self.mode.clone()).composer().active(!self.docked).on_click(emit(ComposerIntent::Mode));
+                if self.docked { mode } else { mode.chevron() }
+            });
         if let Some(effort) = &self.effort {
             bar = bar.child(chip((id.clone(), "effort"), effort.clone()).composer().leading(icon(IconName::Brain).size(px(CHIP_GLYPH))).on_click(emit(ComposerIntent::Effort)));
         }
@@ -335,18 +363,16 @@ impl RenderOnce for Composer {
         }
         bar = bar.child(div().flex_1()).child(send);
 
-        let mut card = v_flex()
-            .id(id.clone())
-            .w_full()
-            .rounded(px(CARD_RADIUS))
-            .border_1()
-            .border_color(if self.focused { p.accent } else { p.line_strong })
-            .bg(p.surface_1)
-            .shadow(if self.focused {
+        let mut card = v_flex().id(id.clone()).w_full().bg(p.surface_1);
+        card = if self.docked {
+            card.border_t_1().border_color(p.line)
+        } else {
+            card.rounded(px(CARD_RADIUS)).border_1().border_color(if self.focused { p.accent } else { p.line_strong }).shadow(if self.focused {
                 vec![gpui::BoxShadow { color: p.accent_ring, offset: gpui::point(px(0.0), px(0.0)), blur_radius: px(0.0), spread_radius: px(FOCUS_RING), inset: false }]
             } else {
                 p.shadow(1)
-            });
+            })
+        };
         if !self.chips.is_empty() {
             card = card.child(chips_row);
         }

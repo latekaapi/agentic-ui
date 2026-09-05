@@ -3,12 +3,15 @@
 pub mod activity;
 pub mod app_shell;
 pub mod approval;
+pub mod attachments;
 pub mod assistant;
 pub mod code_diff;
 pub mod colour;
 pub mod command_palette;
+pub mod composer;
 pub mod icons;
 pub mod markers;
+pub mod menus;
 pub mod motion;
 pub mod panel_chrome;
 pub mod question_plan_todo;

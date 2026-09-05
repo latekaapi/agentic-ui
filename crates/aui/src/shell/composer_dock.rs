@@ -56,6 +56,7 @@ pub struct DockedComposer {
     mode: SharedString,
     context_percent: Option<u8>,
     streaming: bool,
+    can_send: bool,
     pad_x: f32,
     on_intent: Option<IntentHandler>,
 }
@@ -70,6 +71,7 @@ pub fn docked_composer(id: impl Into<ElementId>, provider: Provider, model: impl
         mode: "Plan".into(),
         context_percent: None,
         streaming: false,
+        can_send: true,
         pad_x: PAD_X,
         on_intent: None,
     }
@@ -97,6 +99,12 @@ impl DockedComposer {
     /// A turn is running: the send button morphs to stop.
     pub fn streaming(mut self, streaming: bool) -> Self {
         self.streaming = streaming;
+        self
+    }
+
+    /// Whether the send button is live (surface-3 / ink-4 when the draft is empty).
+    pub fn can_send(mut self, can_send: bool) -> Self {
+        self.can_send = can_send;
         self
     }
 
@@ -128,19 +136,21 @@ impl RenderOnce for DockedComposer {
         };
 
         let sample = icon_morph((id.clone(), "send-stop"), self.streaming, window, cx);
-        let glyph = |name: IconName| icon(name).size(px(SEND_ICON)).color(gpui::white());
+        let enabled = self.streaming || self.can_send;
+        let glyph_ink = if enabled { gpui::white() } else { p.ink_4 };
+        let glyph = move |name: IconName| icon(name).size(px(SEND_ICON)).color(glyph_ink);
         let send_intent = if self.streaming { DockedComposerIntent::Stop } else { DockedComposerIntent::Send };
         let send = div()
             .id((id.clone(), "send"))
             .flex_none()
             .size(control)
             .rounded(px(scale::R_SM))
-            .bg(p.accent)
+            .bg(if enabled { p.accent } else { p.surface_3 })
             .flex()
             .items_center()
             .justify_center()
             .cursor_pointer()
-            .hover(|s| s.bg(p.accent_strong))
+            .hover(move |s| if enabled { s.bg(p.accent_strong) } else { s })
             .on_click(emit(send_intent))
             .child(IconMorph::new(sample, px(SEND_ICON), glyph(IconName::ArrowUp), glyph(IconName::Stop)));
 
