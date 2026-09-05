@@ -33,11 +33,11 @@ The design is the contract. Three artefacts define it, in this order of authorit
 ## Checklist (card → component → gallery entry → parity commit)
 | Card | Component(s) | Gallery entry | Parity |
 |---|---|---|---|
-| 01 Colour | aui-tokens theme | foundations/colour | |
-| 02 Typography | aui-tokens type | foundations/type | |
-| 03 Space/radius/elevation | aui-tokens | foundations/space | |
-| 04 Motion | aui-motion | foundations/motion (playground) | |
-| 05 Icons and marks | aui-icons | foundations/icons | |
+| 01 Colour | aui-tokens theme | foundations/colour | 0b8a535 · 0.7 % |
+| 02 Typography | aui-tokens type | foundations/type | 0b8a535 · 1.8 % (tracking) |
+| 03 Space/radius/elevation | aui-tokens | foundations/space | 0b8a535 · 0.6 % |
+| 04 Motion | aui-motion | foundations/motion (playground) | 0b8a535 · 1.2 % (frames) |
+| 05 Icons and marks | aui-icons | foundations/icons | 0b8a535 · 1.7 % (ts/tsx text) |
 | 10 App shell | shell::AppShell, HeaderCells, DockedComposer | shell/app-shell | |
 | 11 Panel chrome | shell::PanelHeader, TabStrip, DropZones | shell/panel-chrome | |
 | 12 Command palette | overlay::CommandPalette | shell/command-palette | |
