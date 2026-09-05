@@ -43,14 +43,14 @@ The design is the contract. Three artefacts define it, in this order of authorit
 | 03 Space/radius/elevation | aui-tokens | foundations/space | 0b8a535 · 0.6 % |
 | 04 Motion | aui-motion | foundations/motion (playground) | 0b8a535 · 1.2 % (frames) |
 | 05 Icons and marks | aui-icons | foundations/icons | 0b8a535 · 1.7 % (ts/tsx text) |
-| 10 App shell | shell::AppShell, HeaderCells, DockedComposer | shell/app-shell | |
-| 11 Panel chrome | shell::PanelHeader, TabStrip, DropZones | shell/panel-chrome | |
+| 10 App shell | shell::AppShell, HeaderCells, DockedComposer | shell/app-shell | e8ceba3 · 1.0 % |
+| 11 Panel chrome | shell::PanelHeader, TabStrip, DropZones | shell/panel-chrome | e8ceba3 · 0.7 % (ghost rotation) |
 | 12 Command palette | overlay::CommandPalette | shell/command-palette | |
 | 13 Toasts and banners | feedback::ToastStack, Banner | shell/toasts | |
-| 20 Worktree rows | nav::SessionRow | sidebar/rows | |
-| 21 Sidebar | nav::Sidebar, Rail | sidebar/sidebar | |
-| 22 Assistant sidebar | nav::RoleSections | sidebar/assistant | |
-| 23 Sidebar views | nav::SidebarView (status/project/date), ViewMenu | sidebar/views | |
+| 20 Worktree rows | nav::SessionRow | sidebar/rows | e8ceba3 · 1.4 % |
+| 21 Sidebar | nav::Sidebar, Rail | sidebar/sidebar | e8ceba3 · 1.0 % |
+| 22 Assistant sidebar | nav::RoleSections | sidebar/assistant | e8ceba3 · 1.6 % (tracking) |
+| 23 Sidebar views | nav::SidebarView (status/project/date), ViewMenu | sidebar/views | e8ceba3 · 1.0 % |
 | 30 Header identity and markers | shell::HeaderIdentity, transcript::Marker | transcript/markers | |
 | 31 Turns | transcript::UserTurn, AssistantTurn, StreamText | transcript/turns | |
 | 32 Thinking | transcript::ThinkingBlock | transcript/thinking | |
