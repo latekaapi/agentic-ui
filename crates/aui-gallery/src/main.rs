@@ -35,13 +35,14 @@ struct Args {
     window_shot: Option<PathBuf>,
     /// `--screenshot-delay <ms>`: how long to wait before capturing (default 350).
     delay_ms: u64,
-    /// `--text-scale <factor>`: text size multiplier (default 1.0).
-    text_scale: f32,
+    /// `--text-scale <factor>`: text size multiplier. Defaults to the product
+    /// default (1.1) interactively and to 1.0 for parity screenshots.
+    text_scale: Option<f32>,
 }
 
 fn parse_args() -> Args {
     let mut args = std::env::args().skip(1);
-    let mut out = Args { theme: None, entry: None, screenshot: None, window_shot: None, delay_ms: 350, text_scale: 1.0 };
+    let mut out = Args { theme: None, entry: None, screenshot: None, window_shot: None, delay_ms: 350, text_scale: None };
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--theme" => {
@@ -68,7 +69,7 @@ fn parse_args() -> Args {
             }
             "--text-scale" => {
                 let value = args.next().unwrap_or_default();
-                out.text_scale = value.parse().unwrap_or_else(|_| usage("--text-scale needs a factor such as 1.1"));
+                out.text_scale = Some(value.parse().unwrap_or_else(|_| usage("--text-scale needs a factor such as 1.1")));
             }
             "--list" => {
                 for e in ENTRIES {
@@ -98,7 +99,9 @@ fn main() {
     let screenshot = args.screenshot.clone();
     let window_shot = args.window_shot.clone();
     let delay = std::time::Duration::from_millis(args.delay_ms);
-    let text_scale = args.text_scale;
+    let text_scale = args
+        .text_scale
+        .unwrap_or(if args.screenshot.is_some() { 1.0 } else { aui_tokens::scale::TEXT_SCALE });
     let entry = args.entry;
     // Parity screenshots default to the theme the card was designed in;
     // otherwise the harness default (dark) unless overridden.
@@ -109,9 +112,7 @@ fn main() {
 
     gpui_kit::application().with_assets(aui::assets::AuiAssets).run(move |cx| {
         aui::init(theme, cx);
-        if (text_scale - 1.0).abs() > f32::EPSILON {
-            aui_tokens::AuiTheme::set_text_scale(text_scale, None, cx);
-        }
+        aui_tokens::AuiTheme::set_text_scale(text_scale, None, cx);
 
         let window_size = match (&screenshot, entry) {
             (Some(_), Some(e)) => size(px(e.width), px(e.height)),

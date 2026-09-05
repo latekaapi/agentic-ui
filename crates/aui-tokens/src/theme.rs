@@ -128,7 +128,8 @@ pub struct AuiTheme {
     pub colors: Palette,
     /// Row and control heights for the active density.
     pub metrics: Metrics,
-    /// Text size multiplier (1.0 = the design's 13 px base). Applied through
+    /// Text size multiplier (1.0 = the design's 13 px base; the product
+    /// default is `scale::TEXT_SCALE`, 1.1). Applied through
     /// the window rem size, so every [`crate::AuiStyled`] size follows it.
     pub text_scale: f32,
 }
@@ -146,7 +147,7 @@ impl AuiTheme {
                 ThemeKind::Dark => dark(),
             },
             metrics: Metrics::for_density(density),
-            text_scale: 1.0,
+            text_scale: scale::TEXT_SCALE,
         }
     }
 
@@ -175,6 +176,7 @@ impl AuiTheme {
         }
         cx.set_global(AuiTheme::new(kind, Density::Standard));
         Self::apply(cx, None);
+        Self::set_text_scale(scale::TEXT_SCALE, None, cx);
     }
 
     /// Switches the theme (both the token palette and gpui-kit's theme).

@@ -168,6 +168,7 @@ mod tests {
         assert_eq!(scale::FONT_UI, "Geist");
         assert_eq!(scale::FONT_MONO, "Geist Mono");
         assert_eq!(scale::TRACK_CAPS_EM, 0.08);
+        assert_eq!(scale::TEXT_SCALE, 1.1);
     }
 
     #[test]

@@ -18,6 +18,7 @@ Conventions used below: **anatomy** (parts, left to right / top to bottom), **si
 ### 0.2 Typography (card 02)
 - UI face Geist; mono face Geist Mono (bundle the TTFs; SIL OFL). Fallback: system UI / SF Mono.
 - Scale: 11, 12, 13 (default UI), 14 (body in transcript is 13.5), 16, 18, 20, 24. Line heights: ui 1.5, body 1.65, mono 1.6, tight 1.3.
+- Product text scale: the design grid is 13 px, but apps render text at 1.1× by default (`--text-scale` / `AuiTheme::text_scale`; UI 14.3, body 14.85). Spacing, radii and control heights do not scale. Decided 2026-09-05; parity screenshots stay at 1.0.
 - Weights: 400 body, 500 controls and emphasis, 600 headings and labels. Never 700 except display.
 - Eyebrow/caps labels: 11 px, 600, letter-spacing .08em, uppercase, ink-3.
 - Tags (repo, branch, counts): mono 10.5 px, 500, ink-3, no background.
