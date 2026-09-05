@@ -18,4 +18,18 @@ Verified 2026-09-05 while bootstrapping crates/ (registry sources under ~/.cargo
 - `serde_json::json!` with ~40 keys hits the default recursion limit; aui-tokens sets `#![recursion_limit = "256"]`.
 - Fonts: `cx.text_system().add_fonts(Vec<Cow<[u8]>>)`; Geist statics bundled in crates/aui-tokens/fonts (OFL).
 
+Learned 2026-09-05 (phase 3, shell + sidebar):
+- Stateless `RenderOnce` components keep hover/press state with `window.use_keyed_state((id, "…"), cx, init)` → `Entity<S>`; updating it with `cx.notify()` re-renders the owning view. `aui::util::{interaction_flags, TrackInteraction}` wraps this (on_hover / on_mouse_down / on_mouse_up / on_mouse_up_out).
+- CSS collapses vertical margins between siblings; taffy/gpui does not — port `margin:2px 0` as `mt` only or rows drift 2 px per row.
+- Element bounds are only known after layout: `gpui_kit::base::ElementExt::on_prepaint(|bounds, window, cx| …)` (a canvas child) stores them; the tab-strip indicator reads last frame's bounds from an `Rc<RefCell<…>>` held in keyed state and calls `window.request_animation_frame()` on the first frame.
+- An off-screen `--screenshot` window still receives pointer hover; parity renders are placed at the display's top-left (`Bounds::new(point(0,0), size)`) so hover styles do not leak.
+- `Icon::rotate` rotates SVGs only (no div transform); the spinner's accent arc and the stroke-2 chevron are sprite symbols (`spinner-ring`, `spinner-arc`, `chev`, `check-bold`, `x-bold`) with per-path `stroke-width` overriding the generated root attribute.
+- `StyledText::new(text).with_highlights([(range, HighlightStyle{..})])` gives mixed-weight inline text; `gpui-base` `Lerp` covers f32 / Pixels / Hsla so `tween` can animate colours.
+- CSS margin collapsing only happens in block flow: rows inside a flex column keep both margins (4 px apart), rows in a plain block list collapse to 2 px. `session_row` keeps both margins and offers `collapse_margins()` for block lists; the same trap shows up wherever a CSS `margin` ports to `mt`/`mb`.
+- CSS grid rows stretch their cells; port two-column card grids as `h_flex().items_stretch()` rows, not two independent columns.
+- gpui-kit's multi-line `Textarea` (component) always sets `editor_paddings` 8/10 on its state in render and a 1.25 rem line box; wrap it, subtract the padding, and set `text_size`/`line_height` on the element (`Textarea` is `Styled`).
+- `StyledText::with_runs(Vec<TextRun>)` is the way to mix fonts inline (mono inline code, bold leads, ANSI colours); `HighlightStyle` cannot change the font family, and a run's background hugs the glyphs.
+- gpui-kit markdown (`TextView::markdown`) renders inline code without the mono face — `aui::transcript::prose` is the run-based replacement for the transcript.
+- Concurrent subagents in one working tree break the shared `cargo build`; give yourself a `git worktree` with its own `CARGO_TARGET_DIR` for parity runs while they work.
+
 **How to apply:** reuse these before re-reading the registry sources. See [[gpui-ecosystem-versions]] and [[project-decisions-2026-09-05]].

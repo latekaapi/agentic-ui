@@ -28,7 +28,7 @@ reference screenshots, and then matched pixel for pixel in Rust.
 ## Build and run
 
 ```sh
-# the storybook — every component, every state
+# the storybook — every component, every state; `screens/assistant` is the live assistant mock
 cargo run -p aui-gallery
 
 # render one gallery entry at its card size, for the parity loop

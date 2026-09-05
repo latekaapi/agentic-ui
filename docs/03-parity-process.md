@@ -33,6 +33,10 @@ The design is the contract. Three artefacts define it, in this order of authorit
 - Inline code inside prose runs at the body size (13.5 px) rather than 12 px, and without the 1 × 5 px padding: a `TextRun` cannot change size, and a run background hugs the glyphs. Bullet lists use an 18 px indent as designed. The streaming caret is not drawn inline yet (gpui text hosts no inline element); the composer phase will measure the last line.
 - The composer embeds gpui-kit's multi-line input, which always pads its editor by 8 / 10 px and sets its own line box; the composer subtracts the padding and pushes the design's 14 px / 1.55 text onto it, landing within ~3 px of the CSS.
 - In the slash menu the fixed 100 px command column breaks `/release-notes` mid-word where Chrome breaks at the hyphen.
+- gpui rasterises Geist visibly heavier than headless Chrome; prose-heavy cards (31, 55) carry ~1 % of residue from that alone, with geometry within a pixel.
+- Card 54's in-pane document tabs keep the design's accent bar on top (`DocTabs`); in the shell the pane tabs live in the header cell and use the ink indicator.
+- The segmented control (card 52) fades its surface-1 thumb per segment instead of sliding one thumb: segments have text-measured widths gpui cannot read at build time.
+- `aui_motion::presence` was seen frozen mid-enter in a static capture (card 51's popover); it does request frames while running, so the cause is unconfirmed — static compositions use the components' `.at_rest()`.
 - Syntax colours in code blocks come from a small lexer (keywords, calls, strings, numbers, comments); tree-sitter grammars are optional features of gpui-kit and not enabled yet.
 - Tabs in a strip keep their natural width (the card lets `Terminal 1` wrap onto two lines when the strip is short of room); a strip short of room clips at its edge. Shrinking tabs with truncated labels made taffy collapse the labels entirely and is left for a later pass.
 - CSS collapses the vertical margins between siblings; gpui does not. Rows carry a top margin only (`session_row`), which puts the last row 2 px closer to its container's bottom edge than the CSS.
@@ -68,9 +72,9 @@ The design is the contract. Three artefacts define it, in this order of authorit
 | 41 Slash and mentions | composer::CommandMenu, MentionPicker | composer/menus | f94bc7c · 0.9 % |
 | 42 Attachments | composer::AttachmentRow, DropOverlay | composer/attachments | f94bc7c · 1.1 % |
 | 50 Terminal | workbench::BlockTerminal, TuiPane | workbench/terminal | 19bcd60 · 1.4 % (tab indicator moved to ink/bottom per the rules) |
-| 51 Browser and annotator | workbench::BrowserPane, Annotator | workbench/browser | |
-| 52 Diff review | workbench::DiffReview | workbench/diff | |
-| 53 Git and PR | workbench::GitPanel, PrForm | workbench/git | |
-| 54 Files and documents | workbench::FileTree, DocPane, PdfPane, SheetPane | workbench/files-docs | |
-| 55 Sources and citations | transcript::Citation, SourcesCard, SourceHover | transcript/citations | |
-| Screens (7) | assembled in the assistant mock and gallery "screens" page | screens/* | |
+| 51 Browser and annotator | workbench::BrowserNav, AnnotationsPanel, pins, NotePopover | workbench/browser | a447df3 · 1.0 % |
+| 52 Diff review | workbench::DiffReview, Segmented | workbench/diff | a447df3 · 1.7 % (code indentation) |
+| 53 Git and PR | workbench::GitChanges, PrForm | workbench/git | 6157e0f · 1.0 % (description flows as prose; design fixed) |
+| 54 Files and documents | workbench::FileTree, DocPane, ArtifactStrip (+ PdfPane, SheetPane used by the screens) | workbench/files-docs | 6157e0f · 1.3 % dark / 1.3 % light |
+| 55 Sources and citations | workbench::Citation, CitedAnswer, SourcesCard, SourceHoverCard | transcript/citations | 542b86e · 2.9 % (glyph weight; geometry within 1 px) |
+| Screens (7) | assistant-Main assembled live in `screens/assistant` (sheet and PDF tabs cover Sheet / Sources panes); harness screens not assembled | screens/assistant | 542b86e · 3.8 % vs assistant-Main (composer chip order, marker weight) |
