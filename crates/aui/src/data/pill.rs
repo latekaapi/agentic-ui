@@ -50,11 +50,13 @@ pub struct Pill {
     variant: PillVariant,
     leading: Option<AnyElement>,
     height: Option<f32>,
+    font_size: Option<f32>,
+    padding_x: Option<f32>,
 }
 
 /// A quiet pill.
 pub fn pill(label: impl Into<SharedString>) -> Pill {
-    Pill { label: label.into(), variant: PillVariant::Quiet, leading: None, height: None }
+    Pill { label: label.into(), variant: PillVariant::Quiet, leading: None, height: None, font_size: None, padding_x: None }
 }
 
 impl Pill {
@@ -75,6 +77,18 @@ impl Pill {
         self.height = Some(height);
         self
     }
+
+    /// Overrides the 11 px text (tab badges use 9).
+    pub fn font_size(mut self, size: f32) -> Self {
+        self.font_size = Some(size);
+        self
+    }
+
+    /// Overrides the 7 px horizontal padding.
+    pub fn padding_x(mut self, pad: f32) -> Self {
+        self.padding_x = Some(pad);
+        self
+    }
 }
 
 impl RenderOnce for Pill {
@@ -86,13 +100,13 @@ impl RenderOnce for Pill {
             .flex()
             .items_center()
             .h(px(self.height.unwrap_or(HEIGHT)))
-            .px(px(PAD))
+            .px(px(self.padding_x.unwrap_or(PAD)))
             .gap(px(GAP))
             .rounded_full()
             .bg(bg)
             .text_color(text)
             .font_family(scale::FONT_UI)
-            .text_px(scale::FS_11)
+            .text_px(self.font_size.unwrap_or(scale::FS_11))
             .line_height(gpui::relative(1.0))
             .medium()
             .whitespace_nowrap();

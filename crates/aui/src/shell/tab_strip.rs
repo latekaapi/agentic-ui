@@ -31,6 +31,10 @@ const CLOSE_RADIUS: f32 = 3.0;
 const CLOSE_ICON: f32 = 10.0;
 /// `.dirty{width:6px;height:6px}`.
 const DIRTY_SIZE: f32 = 6.0;
+/// The badge pill inside a tab: `height:14px;padding:0 5px;font-size:9px`.
+const BADGE_H: f32 = 14.0;
+const BADGE_PAD: f32 = 5.0;
+const BADGE_TEXT: f32 = 9.0;
 
 /// One tab.
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +45,10 @@ pub struct TabItem {
     pub label: SharedString,
     /// Leading 12 px glyph.
     pub icon: Option<IconName>,
+    /// A 12 px provider mark instead of the glyph (agent tabs).
+    pub mark: Option<aui_icons::Provider>,
+    /// A tiny pill after the label (`2 splits`).
+    pub badge: Option<SharedString>,
     /// Unsaved changes: shows the dirty dot.
     pub dirty: bool,
     /// Shows the close affordance.
@@ -50,7 +58,18 @@ pub struct TabItem {
 impl TabItem {
     /// A closable tab with a glyph.
     pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>, icon: IconName) -> Self {
-        Self { id: id.into(), label: label.into(), icon: Some(icon), dirty: false, closable: true }
+        Self { id: id.into(), label: label.into(), icon: Some(icon), mark: None, badge: None, dirty: false, closable: true }
+    }
+
+    /// A tab led by a provider mark (an agent's TUI).
+    pub fn with_mark(id: impl Into<SharedString>, label: impl Into<SharedString>, provider: aui_icons::Provider) -> Self {
+        Self { id: id.into(), label: label.into(), icon: None, mark: Some(provider), badge: None, dirty: false, closable: true }
+    }
+
+    /// A tiny pill after the label.
+    pub fn badge(mut self, badge: impl Into<SharedString>) -> Self {
+        self.badge = Some(badge.into());
+        self
     }
 
     /// Marks the tab dirty.
@@ -222,7 +241,13 @@ impl RenderOnce for TabStrip {
             if let Some(glyph) = tab.icon {
                 el = el.child(icon(glyph).size(px(TAB_ICON)).color(color));
             }
+            if let Some(provider) = tab.mark {
+                el = el.child(aui_icons::provider_mark(provider).size(px(TAB_ICON)));
+            }
             el = el.child(tab.label.clone());
+            if let Some(badge) = &tab.badge {
+                el = el.child(crate::data::pill(badge.clone()).height(BADGE_H).font_size(BADGE_TEXT).padding_x(BADGE_PAD));
+            }
             if tab.dirty {
                 el = el.child(div().flex_none().size(px(DIRTY_SIZE)).rounded_full().bg(p.ink_3));
             }

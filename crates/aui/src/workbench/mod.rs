@@ -11,7 +11,8 @@ mod git;
 mod terminal;
 mod tui;
 
-// card 50 exports
+pub use terminal::{block_terminal, BlockState, BlockTerminal, TermBlock, TermPrompt, TerminalAction};
+pub use tui::{tui_pane, TuiPane};
 // card 51 exports
 // card 52 exports
 // card 53 exports
