@@ -1,0 +1,46 @@
+<!-- ds: group="Composer" name="Slash commands and mentions" subtitle="Inline / menu with sections and keyboard hints; @ picker for files, symbols, worktrees; $ skills" width=800 height=520 theme=dark -->
+<style>
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:780px}
+.cp{border:1px solid var(--accent);border-radius:14px;background:var(--surface-1);box-shadow:0 0 0 3px var(--accent-ring);padding:10px 14px;font-size:14px;position:relative;min-height:60px}
+.cp .ph{color:var(--ink-3)}
+.pop{position:relative;margin-bottom:8px;width:100%;background:var(--overlay);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-3);padding:6px;transform-origin:bottom left;animation:in var(--d-enter) var(--e-out)}
+@keyframes in{from{opacity:0;transform:translateY(6px) scale(.98)}}
+.pop .caps{padding:6px 8px 4px}
+.it{display:flex;align-items:center;gap:10px;height:32px;padding:0 8px;border-radius:var(--r-sm);font-size:12.5px;color:var(--ink-2)}
+.it.on{background:var(--accent-soft);color:var(--ink)}
+.it .c{font:500 12px var(--font-mono);color:var(--ink);width:100px}.it.on .c{color:var(--accent-ink)}
+.it .d{color:var(--ink-3);font-size:12px;flex:1;min-width:0}
+.it .k{display:flex;gap:4px}
+.it mark{background:none;color:var(--accent-ink);font-weight:600}
+.it .ic{color:var(--ink-3)}
+.ft{display:flex;gap:12px;padding:6px 8px 2px;border-top:1px solid var(--line);margin-top:4px;font-size:11px;color:var(--ink-3)}
+</style>
+<div class="grid">
+  <div>
+    <div class="pop"><div class="caps">Built-in</div>
+      <div class="it on"><span class="c">/<mark>re</mark>view</span><span class="d">Review the current diff for bugs</span><span class="k"><span class="kbd">↩</span></span></div>
+      <div class="it"><span class="c">/<mark>re</mark>sume</span><span class="d">Resume a paused session</span></div>
+      <div class="it"><span class="c">/<mark>re</mark>wind</span><span class="d">Restore files to an earlier checkpoint</span></div>
+      <div class="caps">Skills</div>
+      <div class="it"><span class="c">/<mark>re</mark>port</span><span class="d">Draft a report from this session</span><span class="tag">skill</span></div>
+      <div class="caps">Custom</div>
+      <div class="it"><span class="c">/<mark>re</mark>lease-notes</span><span class="d">.claude/commands/release-notes.md</span><span class="tag">project</span></div>
+      <div class="ft"><span><span class="kbd">↑↓</span> move</span><span><span class="kbd">⇥</span> complete</span><span><span class="kbd">esc</span> dismiss</span></div>
+    </div>
+    <div class="cp"><span class="mono" style="color:var(--accent-ink)">/re</span><span class="ph">view</span></div>
+  </div>
+  <div>
+    <div class="pop"><div class="caps">Files in acme-web</div>
+      <div class="it on"><svg class="i ic"><use href="#file"/></svg><span class="c" style="width:auto">valid<mark>ators</mark>.ts</span><span class="d mono" style="font-size:11px">src/checkout</span><span class="k"><span class="kbd">↩</span></span></div>
+      <div class="it"><svg class="i ic"><use href="#file"/></svg><span class="c" style="width:auto">valid<mark>ators</mark>.test.ts</span><span class="d mono" style="font-size:11px">src/checkout</span></div>
+      <div class="it"><svg class="i ic"><use href="#folder"/></svg><span class="c" style="width:auto">src/checkout</span><span class="d">folder · 9 files</span></div>
+      <div class="caps">Symbols</div>
+      <div class="it"><span class="ic mono" style="font-size:11px">ƒ</span><span class="c" style="width:auto">validateAddress</span><span class="d mono" style="font-size:11px">validators.ts:12</span></div>
+      <div class="caps">Worktrees and more</div>
+      <div class="it"><i class="dot running"></i><span class="c" style="width:auto">checkout-flow-v2</span><span class="d">transcript of another worktree</span></div>
+      <div class="it"><svg class="i ic"><use href="#globe"/></svg><span class="c" style="width:auto">localhost:3000/checkout</span><span class="d">open browser tab</span></div>
+    </div>
+    <div class="cp">Tighten validation in <span class="mono" style="color:var(--accent-ink)">@validators</span></div>
+  </div>
+</div>
+<p class="ds-note">Both menus anchor to the caret, open upward from the composer and are fully keyboard-driven. Typed characters highlight in accent inside matches. Selecting a mention inserts a chip; selecting a command either runs it or expands into its arguments inline.</p>

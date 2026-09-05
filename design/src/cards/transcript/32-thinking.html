@@ -1,0 +1,22 @@
+<!-- ds: group="Transcript" name="Thinking block" subtitle="Shimmer label with elapsed time, capped streaming viewport, collapses to a summary when done" width=760 height=520 theme=dark -->
+<style>
+.th{border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-1);margin-bottom:16px;overflow:hidden}
+.th .hd{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;cursor:pointer;font-size:12.5px}
+.th .hd .i{color:var(--accent-ink)}
+.th .vp{position:relative;max-height:96px;overflow:hidden;padding:0 12px 10px 30px;font-size:12.5px;line-height:1.55;color:var(--ink-2)}
+.th .vp::before{content:"";position:absolute;left:0;right:0;top:0;height:34px;background:linear-gradient(var(--surface-1),transparent);pointer-events:none}
+.th .vp .inner{display:flex;flex-direction:column;justify-content:flex-end;min-height:96px}
+.th .vp p{margin:0 0 6px}
+.th.done .vp{max-height:0;padding:0 12px 0 30px;transition:max-height var(--d-slow) var(--e-inout)}
+.th .sum{color:var(--ink-2);font-weight:400}
+.th .t{margin-left:auto;font:500 11px/1 var(--font-mono);color:var(--ink-3)}
+.th.open .vp{max-height:none}.th.open .vp::before{display:none}.th.open .vp .inner{min-height:0}
+</style>
+<div class="th"><div class="hd"><svg class="i"><use href="#brain"/></svg><span class="shimmer" style="font-weight:500">Thinking</span><span class="t">14 s</span><svg class="chev"><use href="#chevron"/></svg></div>
+  <div class="vp"><div class="inner"><p>The validator returns early when country is empty, so the form can submit a blank address. That's probably the bug behind the flaky checkout test.</p><p>Canadian postal codes are A1A 1A1; the current regex is ZIP-only. Safer to branch per country and keep the regexes small.</p><p>I should not touch the copy in AddressForm, the user asked to keep it. Tests: validators.test.ts covers the US path, I'll add CA and GB cases and an empty-country case…</p></div></div>
+</div>
+<div class="th done"><div class="hd"><svg class="i" style="color:var(--ink-3)"><use href="#brain"/></svg><span>Thought for 14 s</span><span class="sum">· branch per country, keep copy, add CA/GB/empty cases</span><span class="t"></span><svg class="chev"><use href="#chevron"/></svg></div><div class="vp"></div></div>
+<div class="th open"><div class="hd"><svg class="i" style="color:var(--ink-3)"><use href="#brain"/></svg><span>Thought for 14 s</span><span class="t">expanded</span><svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"/></svg></div>
+  <div class="vp"><div class="inner"><p>The validator returns early when country is empty, so the form can submit a blank address. That's probably the bug behind the flaky checkout test.</p><p>Canadian postal codes are A1A 1A1; the current regex is ZIP-only. Safer to branch per country and keep the regexes small.</p><p>I should not touch the copy in AddressForm, the user asked to keep it.</p></div></div>
+</div>
+<p class="ds-note">While thinking, the label shimmers and the viewport is capped at four lines with a top fade; new text pushes up from the bottom. On completion the block collapses to one line with a model-written summary. Click re-expands the full trace.</p>

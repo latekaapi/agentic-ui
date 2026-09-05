@@ -1,0 +1,32 @@
+<!-- ds: group="Foundations" name="Colour" subtitle="Semantic tokens, agent states, diff and terminal palettes in both themes" width=960 height=720 theme=dark -->
+<style>
+.themes{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.theme{border:1px solid var(--line);border-radius:var(--r-lg);padding:16px;background:var(--bg)}
+.theme h3{margin:0 0 12px;font-size:var(--fs-12);color:var(--ink-3);text-transform:uppercase;letter-spacing:var(--track-caps)}
+.sw{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.sw div{height:44px;border-radius:var(--r-sm);border:1px solid var(--line);display:flex;align-items:flex-end;padding:5px 6px;font:500 10px/1 var(--font-mono);color:var(--ink-2)}
+.sw .on{color:#fff}
+.states{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.states span{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-12);color:var(--ink-2)}
+.ansi{display:grid;grid-template-columns:repeat(8,1fr);gap:4px}
+.ansi div{height:18px;border-radius:3px}
+</style>
+<div class="themes">
+  <section class="theme" data-theme="dark"><h3>Dark · harness default</h3>
+    <div class="sw"><div style="background:var(--bg)">bg</div><div style="background:var(--surface-1)">surface-1</div><div style="background:var(--surface-2)">surface-2</div><div style="background:var(--surface-3)">surface-3</div>
+    <div style="background:var(--ink)" class="on" ><span style="color:var(--bg)">ink</span></div><div style="background:var(--ink-2)" class="on">ink-2</div><div style="background:var(--ink-3)" class="on">ink-3</div><div style="background:var(--line-strong)">line-strong</div>
+    <div style="background:var(--accent)" class="on">accent</div><div style="background:var(--success)" class="on">success</div><div style="background:var(--warning)" class="on">warning</div><div style="background:var(--danger)" class="on">danger</div></div>
+    <div class="states"><span><i class="dot running pulse"></i>running</span><span><i class="dot waiting pulse"></i>needs you</span><span><i class="dot done"></i>done</span><span><i class="dot failed"></i>failed</span><span><i class="dot"></i>idle</span></div>
+    <div class="code" style="border-radius:var(--r-sm);overflow:hidden;margin-bottom:12px"><div class="ln add"><span class="gutter">45</span>+ if (!values.country) return { ok: false }</div><div class="ln del"><span class="gutter">45</span>- if (!values.country) return true;</div></div>
+    <div class="ansi"><div style="background:var(--ansi-black)"></div><div style="background:var(--ansi-red)"></div><div style="background:var(--ansi-green)"></div><div style="background:var(--ansi-yellow)"></div><div style="background:var(--ansi-blue)"></div><div style="background:var(--ansi-magenta)"></div><div style="background:var(--ansi-cyan)"></div><div style="background:var(--ansi-white)"></div><div style="background:var(--ansi-bblack)"></div><div style="background:var(--ansi-bred)"></div><div style="background:var(--ansi-bgreen)"></div><div style="background:var(--ansi-byellow)"></div><div style="background:var(--ansi-bblue)"></div><div style="background:var(--ansi-bmagenta)"></div><div style="background:var(--ansi-bcyan)"></div><div style="background:var(--ansi-bwhite)"></div></div>
+  </section>
+  <section class="theme" data-theme="light" style="color:var(--ink)"><h3>Light · assistant default</h3>
+    <div class="sw"><div style="background:var(--bg)">bg</div><div style="background:var(--surface-1)">surface-1</div><div style="background:var(--surface-2)">surface-2</div><div style="background:var(--surface-3)">surface-3</div>
+    <div style="background:var(--ink)" class="on"><span style="color:var(--bg)">ink</span></div><div style="background:var(--ink-2)" class="on">ink-2</div><div style="background:var(--ink-3)" class="on">ink-3</div><div style="background:var(--line-strong)">line-strong</div>
+    <div style="background:var(--accent)" class="on">accent</div><div style="background:var(--success)" class="on">success</div><div style="background:var(--warning)" class="on">warning</div><div style="background:var(--danger)" class="on">danger</div></div>
+    <div class="states"><span><i class="dot running pulse"></i>running</span><span><i class="dot waiting pulse"></i>needs you</span><span><i class="dot done"></i>done</span><span><i class="dot failed"></i>failed</span><span><i class="dot"></i>idle</span></div>
+    <div class="code" style="border-radius:var(--r-sm);overflow:hidden;margin-bottom:12px"><div class="ln add"><span class="gutter">45</span>+ if (!values.country) return { ok: false }</div><div class="ln del"><span class="gutter">45</span>- if (!values.country) return true;</div></div>
+    <div class="ansi"><div style="background:var(--ansi-black)"></div><div style="background:var(--ansi-red)"></div><div style="background:var(--ansi-green)"></div><div style="background:var(--ansi-yellow)"></div><div style="background:var(--ansi-blue)"></div><div style="background:var(--ansi-magenta)"></div><div style="background:var(--ansi-cyan)"></div><div style="background:var(--ansi-white)"></div><div style="background:var(--ansi-bblack)"></div><div style="background:var(--ansi-bred)"></div><div style="background:var(--ansi-bgreen)"></div><div style="background:var(--ansi-byellow)"></div><div style="background:var(--ansi-bblue)"></div><div style="background:var(--ansi-bmagenta)"></div><div style="background:var(--ansi-bcyan)"></div><div style="background:var(--ansi-bwhite)"></div></div>
+  </section>
+</div>
+<p class="ds-note">Accent is iris (blue-violet) and is the only decorative hue. Status colours carry meaning only: success, warning, danger, info. Agent states map onto them: running = accent, needs-you = warning, done = success, failed = danger. Neutrals are tinted toward the accent so greys read as chosen.</p>

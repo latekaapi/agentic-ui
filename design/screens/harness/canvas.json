@@ -1,0 +1,48 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "title": "Active worktree",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "file": "DiffReview.dc.html",
+      "title": "Diff review with notes",
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "file": "TerminalMode.dc.html",
+      "title": "Terminal-only mode",
+      "x": 0,
+      "y": 1040,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "file": "NewTask.dc.html",
+      "title": "New task",
+      "x": 1520,
+      "y": 1040,
+      "w": 1440,
+      "h": 900
+    }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -160,
+      "w": 520,
+      "text": "Harness v1 screens on the Agentic UI design system. Dark is the default; every artboard has a theme tweak. Static mockups; copy is illustrative sample data."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

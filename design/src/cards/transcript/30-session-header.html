@@ -1,0 +1,19 @@
+<!-- ds: group="Transcript" name="Header identity and markers" subtitle="The agent mark and worktree live in the centre header cell; model and mode in the composer; marker rows inside the transcript" width=760 height=380 theme=dark -->
+<style>
+.hd{display:flex;align-items:center;gap:6px;height:44px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-1);margin-bottom:18px}
+.hd .ttl{font-weight:600;font-size:13px;display:flex;align-items:center;gap:7px;min-width:0;white-space:nowrap}
+.hd .btn.ghost{color:var(--ink-3)}
+.mk{display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--ink-3);margin:10px 0}
+.mk::before,.mk::after{content:"";flex:1;height:1px;background:var(--line)}
+.mk .i{width:12px;height:12px}
+.hand{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:var(--r-full);background:var(--surface-2);border:1px solid var(--line)}
+</style>
+<div class="caps" style="margin-bottom:8px">Centre header cell</div>
+<div class="hd"><span class="ttl"><i class="mark claude">C</i><span class="trunc">checkout-flow-v2</span><span class="tag">feature/checkout-flow-v2</span></span><span class="grow"></span><button class="btn icon sm ghost"><svg class="i"><use href="#dots"/></svg></button><button class="btn icon sm ghost"><svg class="i"><use href="#panel-right"/></svg></button></div>
+<div class="hd"><span class="ttl"><i class="mark codex">O</i><span class="trunc">infra/notifier</span><span class="tag">main</span><span class="pill warning" style="height:18px">waiting</span></span><span class="grow"></span><button class="btn icon sm ghost"><svg class="i"><use href="#dots"/></svg></button><button class="btn icon sm ghost"><svg class="i"><use href="#panel-right"/></svg></button></div>
+<div class="caps" style="margin:6px 0 4px">Marker rows</div>
+<div class="mk"><svg class="i"><use href="#clock"/></svg>Today · 09:14 · session started · Claude Code v2.1.174</div>
+<div class="mk"><span class="hand"><i class="mark claude" style="width:11px;height:11px;font-size:7px">C</i>Claude Code<svg class="i" style="width:11px;height:11px"><use href="#arrow-right"/></svg><i class="mark codex" style="width:11px;height:11px;font-size:7px">O</i>Codex</span>handed off with full context</div>
+<div class="mk"><svg class="i"><use href="#refresh"/></svg>Context compacted · 41k → 12k tokens · <a href="#" style="color:var(--accent-ink);text-decoration:none">view summary</a></div>
+<div class="mk"><svg class="i" style="color:var(--warning)"><use href="#shield"/></svg>Permission mode changed to <b style="color:var(--ink);font-weight:500">Bypass</b> for this session</div>
+<p class="ds-note">There is no session header inside the transcript. The provider mark sits beside the worktree name in the centre header, the model and mode chips live in the composer, and facts like the CLI version or a hand-off appear once as marker rows when they change.</p>

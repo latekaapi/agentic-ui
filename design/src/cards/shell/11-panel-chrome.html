@@ -1,0 +1,42 @@
+<!-- ds: group="Shell" name="Panel chrome and tabs" subtitle="Tab strip with sliding indicator, panel header, drag-to-dock drop zones" width=860 height=460 theme=dark -->
+<style>
+.demo{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.pan{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface-1);overflow:hidden}
+.strip{position:relative;display:flex;align-items:center;height:34px;border-bottom:1px solid var(--line);padding:0 6px;gap:2px}
+.strip .t{display:flex;align-items:center;gap:7px;height:34px;padding:0 12px;font-size:12px;color:var(--ink-3);cursor:pointer;position:relative;z-index:1;transition:color var(--d-fast)}
+.strip .t.on{color:var(--ink)}
+.strip .ind{position:absolute;bottom:-1px;height:2px;background:var(--ink);border-radius:2px 2px 0 0;transition:left var(--d-base) var(--spring-swap),width var(--d-base) var(--spring-swap)}
+.strip .t .cl{width:14px;height:14px;border-radius:3px;display:grid;place-items:center;opacity:0;transition:opacity var(--d-fast)}
+.strip .t:hover .cl,.strip .t.on .cl{opacity:1}.strip .t .cl:hover{background:var(--surface-3)}
+.strip .t .dirty{width:6px;height:6px;border-radius:50%;background:var(--ink-3)}
+.hd{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px 0 12px;border-bottom:1px solid var(--line)}
+.hd .grip{width:8px;height:14px;background:radial-gradient(var(--ink-4) 1px,transparent 1.2px) 0 0/4px 4px;cursor:grab}
+.hd b{font-weight:600}
+.body{padding:12px;height:150px;position:relative;font-size:12px;color:var(--ink-3)}
+.zones{position:absolute;inset:8px;display:grid;grid-template-columns:1fr 2fr 1fr;grid-template-rows:1fr 2fr 1fr;gap:4px;pointer-events:none}
+.zones i{border:1.5px dashed var(--accent-ring);border-radius:var(--r-sm);background:var(--accent-soft);opacity:.55}
+.zones i.c{grid-column:2;grid-row:2;opacity:.9;border-style:solid}
+.ghost{position:absolute;left:150px;top:60px;width:150px;height:34px;border-radius:var(--r-sm);background:var(--surface-3);border:1px solid var(--line-strong);box-shadow:var(--shadow-2);display:flex;align-items:center;gap:7px;padding:0 10px;font-size:12px;color:var(--ink);transform:rotate(-2deg)}
+</style>
+<div class="demo">
+  <div class="pan">
+    <div class="strip" id="strip"><div class="ind" id="ind"></div>
+      <div class="t on"><svg class="i" style="width:12px;height:12px"><use href="#terminal"/></svg>Terminal 1<span class="cl"><svg class="i" style="width:10px;height:10px"><use href="#x"/></svg></span></div>
+      <div class="t"><svg class="i" style="width:12px;height:12px"><use href="#globe"/></svg>localhost:3000<span class="cl"><svg class="i" style="width:10px;height:10px"><use href="#x"/></svg></span></div>
+      <div class="t"><svg class="i" style="width:12px;height:12px"><use href="#file"/></svg>PLAN.md<span class="dirty"></span><span class="cl"><svg class="i" style="width:10px;height:10px"><use href="#x"/></svg></span></div>
+      <button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#plus"/></svg></button><span class="grow"></span><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#split"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#dots"/></svg></button>
+    </div>
+    <div class="body">Click the tabs. The indicator glides on the swap spring; the close affordance only appears on hover or on the active tab, so the strip stays quiet.</div>
+  </div>
+  <div class="pan">
+    <div class="hd"><span class="grip"></span><svg class="i"><use href="#git"/></svg><b>Diff</b><span class="subtle">3 files · +21 −7</span><span class="grow"></span><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#search"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#layout"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#x"/></svg></button></div>
+    <div class="body">Dragging a tab over another panel shows five drop zones: centre to tab-merge, edges to split.<div class="zones"><i></i><i></i><i></i><i></i><i class="c"></i><i></i><i></i><i></i><i></i></div><div class="ghost"><svg class="i" style="width:12px;height:12px"><use href="#globe"/></svg>localhost:3000</div></div>
+  </div>
+</div>
+<p class="ds-note">In the app shell the right pane's tab strip sits in its 44 px header cell with a single close control; pane-specific actions (scope chips, split, search) live inside the pane body. The 36 px panel header with grip and actions is for floating and docked panels outside the shell.</p>
+<script>
+const strip=document.getElementById('strip'),ind=document.getElementById('ind');
+function place(t){const r=t.getBoundingClientRect(),p=strip.getBoundingClientRect();ind.style.left=(r.left-p.left+8)+'px';ind.style.width=(r.width-16)+'px'}
+strip.querySelectorAll('.t').forEach(t=>t.addEventListener('click',()=>{strip.querySelectorAll('.t').forEach(x=>x.classList.remove('on'));t.classList.add('on');place(t)}));
+document.fonts.ready.then(()=>place(strip.querySelector('.t.on')));setTimeout(()=>place(strip.querySelector('.t.on')),50);
+</script>

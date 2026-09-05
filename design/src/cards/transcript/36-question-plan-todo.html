@@ -1,0 +1,61 @@
+<!-- ds: group="Transcript" name="Question, plan and todo cards" subtitle="Single and multi-select questions with Other; plan proposal with accept/edit; todo list with morphing marks" width=800 height=760 theme=dark -->
+<style>
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+.q{border:1px solid color-mix(in srgb, var(--accent) 70%, transparent);border-radius:var(--r-lg);background:var(--surface-1);overflow:hidden}
+.q .hd{display:flex;align-items:center;gap:10px;padding:10px 12px}
+.q .ic{width:26px;height:26px;border-radius:7px;background:var(--accent-soft);color:var(--accent-ink);display:grid;place-items:center}
+.q .ttl{font-weight:600;font-size:13px}.q .sub{font-size:12px;color:var(--ink-2)}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;margin:0 8px 6px;border:1px solid var(--line);border-radius:var(--r-md);cursor:pointer;transition:border-color var(--d-fast),background var(--d-fast)}
+.opt:hover{background:var(--surface-2)}.opt.on{border-color:var(--accent);background:var(--surface-2)}
+.opt .rb{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--line-strong);margin-top:1px;flex:none;display:grid;place-items:center}
+.opt.on .rb{border-color:var(--accent)}.opt.on .rb::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pop var(--d-base) var(--spring-swap)}
+.opt .cb{border-radius:4px}.opt.on .cb::after{border-radius:1px;width:8px;height:8px}
+@keyframes pop{from{transform:scale(.4)}}
+.opt b{display:block;font-weight:500;font-size:12.5px}.opt span{font-size:12px;color:var(--ink-2)}
+.opt .kbd{margin-left:auto}
+.other{margin:0 8px 8px;display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px dashed var(--line-strong);border-radius:var(--r-md);font-size:12px;color:var(--ink-3)}
+.q .ft{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--line);background:var(--surface-2)}.q .ft .hint{font-size:11px;color:var(--ink-3)}
+.answered{border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-1);display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:12.5px}
+.plan{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface-1);overflow:hidden}
+.plan .hd{display:flex;align-items:center;gap:8px;padding:10px 12px;font-weight:600}.plan .hd .pill{margin-left:auto}
+.plan ol{margin:0;padding:0 12px 10px 30px;font-size:12.5px;line-height:1.6;color:var(--ink-2)}
+.plan ol li::marker{color:var(--ink-3);font-family:var(--font-mono);font-size:11px}
+.todo{border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-1);overflow:hidden}
+.todo .hd{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;font-size:12.5px}
+.todo .bar{height:3px;background:var(--surface-3)}.todo .bar b{display:block;height:100%;width:43%;background:var(--ink-3);transition:width var(--d-slow) var(--spring-layout)}
+.ti{display:flex;align-items:center;gap:10px;height:30px;padding:0 12px;font-size:12.5px;border-top:1px solid var(--line)}
+.ti .m{width:15px;height:15px;border-radius:50%;border:1.5px solid var(--line-strong);display:grid;place-items:center;flex:none;transition:all var(--d-base) var(--spring-swap)}
+.ti.done .m{background:var(--success);border-color:var(--success)}.ti.done .m svg{width:9px;height:9px;stroke:#fff;stroke-width:3}
+.ti.done span{color:var(--ink-3);text-decoration:line-through;text-decoration-color:var(--ink-4)}
+.ti.run .m{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}.ti.run .m::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse2 1.2s ease infinite}
+@keyframes pulse2{50%{transform:scale(.6)}}
+.ti.run span{color:var(--ink);font-weight:500}
+.ti .t{margin-left:auto;font:500 11px/1 var(--font-mono);color:var(--ink-3)}
+</style>
+<div class="grid">
+  <div class="col">
+    <div class="q"><div class="hd"><span class="ic"><svg class="i"><use href="#question"/></svg></span><div><div class="ttl">Which postcode formats should validate?</div><div class="sub">Claude needs this before editing the validator · pick all that apply</div></div></div>
+      <div class="opt on"><span class="rb cb"></span><div><b>US ZIP and ZIP+4</b><span>12345 or 12345-6789</span></div><span class="kbd">1</span></div>
+      <div class="opt on"><span class="rb cb"></span><div><b>Canadian postal</b><span>A1A 1A1, space optional</span></div><span class="kbd">2</span></div>
+      <div class="opt"><span class="rb cb"></span><div><b>UK postcode</b><span>Outward + inward, e.g. SW1A 1AA</span></div><span class="kbd">3</span></div>
+      <div class="other"><svg class="i" style="width:12px;height:12px"><use href="#edit"/></svg>Other, type your own…</div>
+      <div class="ft"><span class="hint">2 selected</span><span class="grow"></span><button class="btn sm ghost">Skip</button><button class="btn sm primary">Continue</button></div>
+    </div>
+    <div class="answered"><span class="glyph ok"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#check"/></svg></span><span class="subtle">Answered:</span><span class="chip">US ZIP</span><span class="chip">Canadian</span><span class="grow"></span><button class="btn xs ghost">Change</button></div>
+  </div>
+  <div class="col">
+    <div class="plan"><div class="hd"><svg class="i" style="color:var(--accent-ink)"><use href="#list"/></svg>Proposed plan<span class="pill line">Plan mode</span></div>
+      <ol><li>Branch <code>validateAddress</code> per country; keep regexes small.</li><li>Return a structured <code>{ ok, field }</code> instead of boolean.</li><li>Add CA / GB / empty-country cases to the test file.</li><li>Run focused tests, then lint touched files.</li></ol>
+      <div class="actions tint"><span class="hint"><span class="kbd">⇧⇥</span>mode</span><span class="spacer"></span><button class="btn sm ghost">Reject</button><button class="btn sm">Edit</button><button class="btn sm primary">Accept and run</button></div>
+    </div>
+    <div class="todo"><div class="hd"><svg class="i" style="color:var(--ink-3)"><use href="#list"/></svg><span style="font-weight:500">Tasks</span><span class="subtle mono" style="font-size:11px">3 / 7</span><span class="grow"></span><svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"/></svg></div><div class="bar"><b></b></div>
+      <div class="ti done"><span class="m"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L20 7"/></svg></span><span>Read validators and the form</span><span class="t">0:12</span></div>
+      <div class="ti done"><span class="m"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L20 7"/></svg></span><span>Branch validation per country</span><span class="t">0:48</span></div>
+      <div class="ti done"><span class="m"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L20 7"/></svg></span><span>Return structured result</span><span class="t">0:20</span></div>
+      <div class="ti run"><span class="m"></span><span>Add CA, GB and empty-country tests</span><span class="t">1:04</span></div>
+      <div class="ti"><span class="m"></span><span>Run focused tests</span></div>
+      <div class="ti"><span class="m"></span><span>Lint touched files</span></div>
+      <div class="ti"><span class="m"></span><span>Summarise the change</span></div>
+    </div>
+  </div>
+</div>

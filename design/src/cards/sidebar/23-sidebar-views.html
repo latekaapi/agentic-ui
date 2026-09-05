@@ -1,0 +1,82 @@
+<!-- ds: group="Sidebar" name="Sidebar views" subtitle="Three groupings of the same sessions: by status, by project with nested sessions, by date; plus the view-options menu" width=1180 height=680 theme=dark -->
+<style>
+.wrap{display:grid;grid-template-columns:262px 262px 262px 1fr;gap:18px;align-items:start}
+.side{height:600px;background:var(--surface-1);border:1px solid var(--line);border-radius:var(--r-lg);display:flex;flex-direction:column;overflow:hidden}
+.nav{padding:10px 8px 6px}.nav .it{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:var(--r-sm);color:var(--ink-2);font-weight:500;font-size:13px}
+.nav .it .i{color:var(--ink-3)}.nav .it .n{margin-left:auto;font:500 11px/1 var(--font-mono);color:var(--ink-3)}
+.grp{display:flex;align-items:center;gap:6px;height:28px;padding:0 12px;margin-top:8px}
+.grp .count{font:500 10.5px/1 var(--font-mono);color:var(--ink-3)}.grp .chev{transform:rotate(90deg)}
+.pj{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;margin:4px 8px 0;font-weight:600;font-size:12.5px;color:var(--ink)}
+.pj .chev{width:11px;height:11px}.pj .n{margin-left:auto;font:500 10.5px/1 var(--font-mono);color:var(--ink-3)}
+.sr{display:grid;grid-template-columns:14px 1fr auto;gap:2px 8px;align-items:center;min-height:30px;padding:4px 10px 4px 12px;margin:0 8px;border-radius:var(--r-md);font-size:12.5px;color:var(--ink-2);position:relative}
+.sr.sel{background:var(--surface-3);color:var(--ink)}.sr .nm{font-weight:500}.sr .t{font:500 11px/1 var(--font-mono);color:var(--ink-3)}
+.sr .meta{grid-column:2/4;display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden}
+.sr.child{margin-left:30px;padding-left:10px}.sr.child::before{content:"";position:absolute;left:-1px;top:2px;bottom:2px;width:1px;background:var(--line)}
+.dg{display:flex;align-items:center;gap:8px;height:26px;padding:0 12px;margin-top:8px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}.dg .rule{flex:1;height:1px;background:var(--line)}
+.ttl{font-size:12px;color:var(--ink-3);margin:0 0 8px}
+.menu{width:250px;background:var(--overlay);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-3);padding:6px;font-size:12.5px}
+.menu .it{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:var(--r-sm);color:var(--ink)}
+.menu .it .v{margin-left:auto;color:var(--ink-3);display:inline-flex;align-items:center;gap:4px}
+.menu .sep{height:1px;background:var(--line);margin:6px 4px}
+.menu .it .chk{width:14px;height:14px;color:var(--accent-ink)}
+.sub{width:170px;background:var(--overlay);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-3);padding:6px;font-size:12.5px;margin-top:-4px;margin-left:40px}
+.sub .it{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px;border-radius:var(--r-sm)}
+.sub .it.on{background:var(--surface-3)}
+</style>
+<div class="wrap">
+  <div><p class="ttl">Group by status</p><div class="side">
+    <div class="nav"><div class="it"><svg class="i"><use href="#list"/></svg>Tasks<span class="n">7</span></div><div class="it"><svg class="i"><use href="#inbox"/></svg>Inbox<span class="n" style="color:var(--warning)">2</span></div></div>
+    <div class="grp"><span class="caps">Workspaces</span><span class="grow"></span><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#sliders"/></svg></button></div>
+    <div class="grp"><svg class="chev"><use href="#chevron"/></svg><span style="font-weight:600;font-size:12px">Needs you</span><span class="count">1</span></div>
+    <div class="sr"><i class="dot waiting pulse"></i><span class="nm trunc">infra/notifier</span><span class="t">3h</span><div class="meta"><span style="color:var(--warning)">awaiting permission</span></div></div>
+    <div class="grp"><svg class="chev"><use href="#chevron"/></svg><span style="font-weight:600;font-size:12px">Running</span><span class="count">3</span></div>
+    <div class="sr sel"><i class="dot running pulse"></i><span class="nm trunc">checkout-flow-v2</span><span class="t">49m</span><div class="meta"><span class="tag">acme-web</span><span class="trunc">running regression tests</span></div></div>
+    <div class="sr"><i class="dot running"></i><span class="nm trunc">redesign auth flow</span><span class="t">8m</span><div class="meta"><span class="tag">acme-web</span><span>2 children</span></div></div>
+    <div class="sr"><i class="dot running"></i><span class="nm trunc">cart-recovery-email</span><span class="t">12m</span><div class="meta"><span class="tag">acme-web</span></div></div>
+    <div class="grp"><svg class="chev"><use href="#chevron"/></svg><span style="font-weight:600;font-size:12px">Done</span><span class="count">2</span></div>
+    <div class="sr"><i class="dot done"></i><span class="nm trunc">auth-session-refresh</span><span class="t">4h</span><div class="meta"><span>PR #2491 open</span></div></div>
+    <div class="sr"><i class="dot failed"></i><span class="nm trunc">Observability tiles</span><span class="t">1d</span><div class="meta"><span style="color:var(--danger)">2 tests failed</span></div></div>
+  </div></div>
+  <div><p class="ttl">Group by project · sessions and children</p><div class="side">
+    <div class="nav"><div class="it"><svg class="i"><use href="#list"/></svg>Tasks<span class="n">7</span></div><div class="it"><svg class="i"><use href="#inbox"/></svg>Inbox<span class="n" style="color:var(--warning)">2</span></div></div>
+    <div class="grp"><span class="caps">Projects</span><span class="grow"></span><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#sliders"/></svg></button></div>
+    <div class="pj"><svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"/></svg><svg class="fic folder"><use href="#ft-folder-open"/></svg>acme-web<span class="n">5</span></div>
+    <div class="sr sel"><i class="dot running pulse"></i><span class="nm trunc">checkout-flow-v2</span><span class="t">49m</span><div class="meta"><i class="spinner" style="width:10px;height:10px"></i><span class="trunc">running regression tests</span></div></div>
+    <div class="sr"><i class="dot running"></i><span class="nm trunc">redesign auth flow</span><span class="t">8m</span><div class="meta"><span>2 children · PR 1/2 ready</span></div></div>
+    <div class="sr child"><i class="dot done"></i><span class="nm trunc">PR 1/2 · migrate users.sql</span><span class="t">6m</span></div>
+    <div class="sr child"><i class="dot running"></i><span class="nm trunc">PR 2/2 · withSession</span><span class="t">now</span></div>
+    <div class="sr"><i class="dot done"></i><span class="nm trunc">auth-session-refresh</span><span class="t">4h</span><div class="meta"><span>PR #2491 open</span></div></div>
+    <div class="pj"><svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"/></svg><svg class="fic folder"><use href="#ft-folder-open"/></svg>orca<span class="n">2</span></div>
+    <div class="sr"><i class="dot waiting pulse"></i><span class="nm trunc">infra/notifier</span><span class="t">3h</span><div class="meta"><span style="color:var(--warning)">awaiting permission</span></div></div>
+    <div class="pj"><svg class="chev"><use href="#chevron"/></svg><svg class="fic folder"><use href="#ft-folder"/></svg>acme-internal<span class="n">4</span></div>
+    <div class="pj" style="color:var(--ink-3);font-weight:500"><svg class="chev"><use href="#chevron"/></svg><svg class="fic folder"><use href="#ft-folder"/></svg>Archived<span class="n">37</span></div>
+  </div></div>
+  <div><p class="ttl">By date · flat</p><div class="side">
+    <div class="nav"><div class="it"><svg class="i"><use href="#list"/></svg>Tasks<span class="n">7</span></div><div class="it"><svg class="i"><use href="#inbox"/></svg>Inbox<span class="n" style="color:var(--warning)">2</span></div></div>
+    <div class="grp"><span class="caps">Recent</span><span class="grow"></span><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#sliders"/></svg></button></div>
+    <div class="dg">Today<span class="rule"></span></div>
+    <div class="sr sel"><i class="dot running pulse"></i><span class="nm trunc">checkout-flow-v2</span><span class="t">49m</span><div class="meta"><span class="tag">acme-web</span></div></div>
+    <div class="sr"><i class="dot running"></i><span class="nm trunc">redesign auth flow</span><span class="t">8m</span><div class="meta"><span class="tag">acme-web</span></div></div>
+    <div class="sr"><i class="dot waiting pulse"></i><span class="nm trunc">infra/notifier</span><span class="t">3h</span><div class="meta"><span class="tag">orca</span></div></div>
+    <div class="sr"><i class="dot done"></i><span class="nm trunc">auth-session-refresh</span><span class="t">4h</span><div class="meta"><span class="tag">acme-web</span></div></div>
+    <div class="dg">Yesterday<span class="rule"></span></div>
+    <div class="sr"><i class="dot failed"></i><span class="nm trunc">Observability tiles</span><span class="t">1d</span><div class="meta"><span class="tag">acme-internal</span></div></div>
+    <div class="dg">This week<span class="rule"></span></div>
+    <div class="sr"><i class="dot"></i><span class="nm trunc">Webhook retry backoff</span><span class="t">2d</span><div class="meta"><span class="tag">acme-internal</span></div></div>
+  </div></div>
+  <div><p class="ttl">View options · from the sliders icon</p>
+    <div class="menu">
+      <div class="it">Status<span class="v">Active <svg class="chev" style="width:10px;height:10px"><use href="#chevron"/></svg></span></div>
+      <div class="it">Environment<span class="v">All <svg class="chev" style="width:10px;height:10px"><use href="#chevron"/></svg></span></div>
+      <div class="sep"></div>
+      <div class="it" style="background:var(--surface-2)">Group by<span class="v">Project <svg class="chev" style="width:10px;height:10px"><use href="#chevron"/></svg></span></div>
+      <div class="it">Sort by<span class="v">Last activity <svg class="chev" style="width:10px;height:10px"><use href="#chevron"/></svg></span></div>
+      <div class="sep"></div>
+      <div class="it">Show empty groups<span class="v"></span></div>
+      <div class="it">Show PR status<span class="v"><svg class="i chk"><use href="#check"/></svg></span></div>
+      <div class="it">Show archived<span class="v"></span></div>
+    </div>
+    <div class="sub"><div class="it">Status</div><div class="it on">Project<span class="grow"></span><svg class="i" style="width:12px;height:12px;color:var(--accent-ink)"><use href="#check"/></svg></div><div class="it">Date</div><div class="it">Custom groups</div><div class="sep" style="height:1px;background:var(--line);margin:6px 4px"></div><div class="it">None</div></div>
+    <p class="ds-note" style="margin-top:14px">One row anatomy serves every view: status dot, name, elapsed time, and an optional meta line. Grouping changes the headers, not the rows. Children nest under a hairline rail. The menu is reached from the sliders icon on the group header and remembers its choice per workspace.</p>
+  </div>
+</div>

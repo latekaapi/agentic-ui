@@ -1,0 +1,40 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "title": "Project session with document",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "file": "Sources.dc.html",
+      "title": "Answer with citations",
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "file": "Sheet.dc.html",
+      "title": "Spreadsheet created in chat",
+      "x": 0,
+      "y": 1040,
+      "w": 1440,
+      "h": 900
+    }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -160,
+      "w": 560,
+      "text": "Assistant v1 screens. Light is the default here; each artboard has a theme tweak. Roles \u2192 projects \u2192 sessions in the sidebar; the right pane holds documents the chat created. Static mockups with sample content."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

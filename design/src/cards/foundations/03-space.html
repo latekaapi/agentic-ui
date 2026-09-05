@@ -1,0 +1,17 @@
+<!-- ds: group="Foundations" name="Spacing, radius, elevation" subtitle="2/4/8/12/16/24/32 · radii 4–16 · three shadow levels" width=760 height=420 theme=dark -->
+<style>
+.sp{display:flex;align-items:flex-end;gap:14px;margin-bottom:22px}
+.sp div{background:var(--accent-soft);border:1px solid var(--accent);border-radius:2px;position:relative}
+.sp div::after{content:attr(data-v);position:absolute;top:100%;left:0;margin-top:4px;font:500 10px/1 var(--font-mono);color:var(--ink-3)}
+.rad{display:flex;gap:14px;margin-bottom:22px}
+.rad div{width:56px;height:40px;background:var(--surface-3);border:1px solid var(--line-strong);display:grid;place-items:center;font:500 10px/1 var(--font-mono);color:var(--ink-3)}
+.el{display:flex;gap:18px}
+.el div{width:120px;height:64px;background:var(--surface-1);border:1px solid var(--line);border-radius:var(--r-md);display:grid;place-items:center;font:500 11px/1 var(--font-mono);color:var(--ink-3)}
+</style>
+<div class="caps" style="margin-bottom:10px">Spacing</div>
+<div class="sp"><div data-v="2" style="width:2px;height:24px"></div><div data-v="4" style="width:4px;height:24px"></div><div data-v="8" style="width:8px;height:24px"></div><div data-v="12" style="width:12px;height:24px"></div><div data-v="16" style="width:16px;height:24px"></div><div data-v="24" style="width:24px;height:24px"></div><div data-v="32" style="width:32px;height:24px"></div><span class="subtle" style="margin-left:12px;font-size:12px">Padding belongs to the component; gaps to the parent. Never double up between nested containers.</span></div>
+<div class="caps" style="margin-bottom:10px">Radius</div>
+<div class="rad"><div style="border-radius:var(--r-xs)">4 chips</div><div style="border-radius:var(--r-sm)">6 controls</div><div style="border-radius:var(--r-md)">8 cards</div><div style="border-radius:var(--r-lg)">12 panels</div><div style="border-radius:var(--r-xl)">16 dialogs</div><div style="border-radius:var(--r-full)">pill</div></div>
+<div class="caps" style="margin-bottom:10px">Elevation</div>
+<div class="el"><div style="box-shadow:var(--shadow-1)">1 · rows, chips</div><div style="box-shadow:var(--shadow-2)">2 · popovers, toasts</div><div style="box-shadow:var(--shadow-3)">3 · palette, dialogs</div><div style="background:var(--surface-2)">flat · docked panels</div></div>
+<p class="ds-note">Control heights: 20 / 24 / 28 / 32 / 40. Sidebar rows 56 (two lines), transcript card headers 32, status bar 24, panel tab strip 32.</p>

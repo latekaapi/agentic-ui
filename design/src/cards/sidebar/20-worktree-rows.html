@@ -1,0 +1,37 @@
+<!-- ds: group="Sidebar" name="Worktree rows" subtitle="Every state: running, needs you, done with PR, failed, idle, selected, hover actions, child tasks" width=720 height=560 theme=dark -->
+<style>
+.list{width:300px;background:var(--surface-1);border:1px solid var(--line);border-radius:var(--r-lg);padding:8px}
+.wt{display:grid;grid-template-columns:14px 1fr auto;gap:2px 8px;padding:9px 10px;margin:2px 0;border-radius:var(--r-md);cursor:pointer;position:relative;transition:background var(--d-fast)}
+.wt:hover{background:var(--surface-2)}.wt.sel{background:var(--surface-3)}
+.wt .dot{margin-top:5px}.wt .nm{font-weight:500;color:var(--ink)}.wt .t{font:500 11px/1 var(--font-mono);color:var(--ink-3);margin-top:3px}
+.wt .meta{grid-column:2/4;display:flex;white-space:nowrap;overflow:hidden;align-items:center;gap:6px;font-size:12px;color:var(--ink-3);min-width:0}
+.wt .meta .trunc{max-width:170px}
+.wt .acts{position:absolute;right:8px;top:6px;display:flex;gap:2px;opacity:0;transform:translateX(4px);transition:opacity var(--d-fast),transform var(--d-base) var(--e-out);background:var(--surface-2);border-radius:var(--r-sm);padding:1px}
+.wt:hover .acts{opacity:1;transform:none}.wt:hover .t{opacity:0}
+.wt .unread{position:absolute;left:2px;top:50%;width:3px;height:16px;border-radius:2px;background:var(--accent);transform:translateY(-50%)}
+.child{margin-left:22px;border-left:1px solid var(--line);padding-left:6px}
+.child .wt{padding-left:8px}
+.two{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:start}
+.legend{font-size:12px;color:var(--ink-2);display:flex;flex-direction:column;gap:10px;padding-top:6px;max-width:34ch}
+.legend b{color:var(--ink);font-weight:600}
+</style>
+<div class="two">
+<div class="list">
+  <div class="wt sel"><i class="dot running pulse"></i><div class="nm">checkout-flow-v2</div><span class="t">49m</span><div class="meta"><span class="tag">acme-web</span><span class="tag trunc">feature/checkout-flow-v2</span><i class="mark claude" style="width:13px;height:13px;font-size:8px">C</i><i class="mark codex" style="width:13px;height:13px;font-size:8px;margin-left:-4px">O</i></div><div class="meta" style="color:var(--ink-2)"><i class="spinner" style="width:10px;height:10px"></i><span class="trunc">running checkout regression tests</span></div><div class="acts"><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#terminal"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#globe"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#pin"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#dots"/></svg></button></div></div>
+  <div class="wt"><span class="unread"></span><i class="dot waiting pulse"></i><div class="nm">infra/notifier</div><span class="t">3h</span><div class="meta"><span class="tag">orca</span><span class="tag">main</span><i class="mark codex" style="width:13px;height:13px;font-size:8px">O</i></div><div class="meta" style="color:var(--warning)"><svg class="i" style="width:11px;height:11px"><use href="#shield"/></svg><span class="trunc">awaiting permission · sudo apt install</span></div></div>
+  <div class="wt"><i class="dot done"></i><div class="nm">auth-session-refresh</div><span class="t">4h</span><div class="meta"><span class="tag">acme-web</span><span>PR #2491 open</span><span class="subtle">3 ahead</span></div></div>
+  <div class="wt"><i class="dot failed"></i><div class="nm">Observability dashboard tiles</div><span class="t">1d</span><div class="meta"><span class="tag">acme-internal</span><span style="color:var(--danger)">2 tests failed</span></div></div>
+  <div class="wt"><i class="dot"></i><div class="nm">Webhook retry backoff</div><span class="t">2d</span><div class="meta"><span class="tag">acme-internal</span><span class="tag trunc">fix/webhook-retry-backoff</span></div></div>
+  <div class="wt"><i class="dot running"></i><div class="nm">redesign auth flow</div><span class="t">8m</span><div class="meta"><span class="tag">acme-web</span><span class="subtle">2 children · PR 1/2 ready</span></div></div>
+  <div class="child">
+    <div class="wt"><i class="dot done"></i><div class="nm" style="font-size:12px">PR 1/2 · migrate users.sql</div><span class="t">6m</span></div>
+    <div class="wt"><i class="dot running"></i><div class="nm" style="font-size:12px">PR 2/2 · withSession middleware</div><span class="t">now</span><div class="meta" style="color:var(--ink-2)"><i class="spinner" style="width:10px;height:10px"></i><span class="trunc">wiring withSession middleware…</span></div></div>
+  </div>
+</div>
+<div class="legend">
+  <div><b>Anatomy.</b> Status dot, name, elapsed time; second line repo tag, branch, provider marks; optional third line is the live activity sentence, truncated, updated as the agent streams.</div>
+  <div><b>States.</b> Running pulses in accent. Needs-you pulses in warning and shows what it is waiting for. Done shows the PR pill. Failed shows the failing count. Idle is grey and silent.</div>
+  <div><b>Hover.</b> The time slot yields to four quiet actions: terminal, browser, pin, more. Unread turns get a 3 px accent bar on the left edge.</div>
+  <div><b>Children.</b> Fan-out tasks nest under the parent with a hairline rail and a smaller name.</div>
+</div>
+</div>

@@ -1,0 +1,39 @@
+<!-- ds: group="Transcript" name="Code and diff blocks" subtitle="Inline code block with header actions and copy morph; unified diff block with per-line note affordance" width=760 height=560 theme=dark -->
+<style>
+.cb{border:1px solid var(--line);border-radius:var(--r-md);background:var(--term-bg);overflow:hidden;margin-bottom:14px}
+.cb .hd{display:flex;align-items:center;gap:8px;height:30px;padding:0 6px 0 12px;background:var(--surface-2);border-bottom:1px solid var(--line);font:500 11.5px var(--font-mono);color:var(--ink-2)}
+.cb .hd .lang{color:var(--ink-3)}
+.cb .hd .acts{margin-left:auto;display:flex;gap:2px;opacity:.6;transition:opacity var(--d-fast)}.cb:hover .hd .acts{opacity:1}
+.cb pre{margin:0;padding:10px 12px;font:12px/1.6 var(--font-mono);color:var(--term-fg);overflow-x:auto}
+.cb .g{color:var(--term-dim);display:inline-block;width:22px;user-select:none}
+.k{color:var(--ansi-magenta)}.f{color:var(--ansi-blue)}.s{color:var(--ansi-green)}.c{color:var(--term-dim);font-style:italic}.n{color:var(--ansi-yellow)}
+.copy{position:relative;width:24px;height:24px}
+.copy svg{position:absolute;inset:5px;width:14px;height:14px;transition:opacity var(--d-base) var(--spring-swap),transform var(--d-base) var(--spring-swap)}
+.copy .ok{opacity:0;transform:translateY(3px) scale(.8);color:var(--success)}
+.copy.did .ok{opacity:1;transform:none}.copy.did .cp{opacity:0;transform:translateY(-3px) scale(.8)}
+.fold{display:flex;align-items:center;justify-content:center;gap:6px;height:24px;font-size:11px;color:var(--ink-3);background:var(--surface-2);border-top:1px solid var(--line);cursor:pointer}
+.df{font:11.5px/1.65 var(--font-mono)}
+.df .hunk{padding:2px 12px;background:var(--surface-2);color:var(--ink-3);font-size:11px}
+.df .ln{padding:0 8px 0 0;position:relative}.df .ln:hover .add-note{opacity:1}
+.df .gutter{width:36px;padding-right:8px}.df .g2{width:20px;padding-right:8px;color:var(--ink-4);text-align:right;display:inline-block;user-select:none}
+.add-note{position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:4px;background:var(--accent);color:#fff;display:grid;place-items:center;opacity:0;transition:opacity var(--d-fast);cursor:pointer}
+.add-note svg{width:10px;height:10px;stroke:#fff;stroke-width:3}
+.note{margin:4px 12px 6px 64px;border:1px solid var(--line-strong);border-left:2px solid var(--accent);background:var(--surface-2);border-radius:var(--r-sm);padding:6px 8px;font:12px/1.4 var(--font-ui)}
+.note .caps{color:var(--accent-ink);margin-bottom:2px}
+</style>
+<div class="cb"><div class="hd"><svg class="i" style="width:12px;height:12px"><use href="#file"/></svg>src/checkout/validators.ts<span class="lang">typescript</span><div class="acts"><button class="btn icon xs ghost" title="wrap"><svg class="i" style="width:12px;height:12px"><use href="#list"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#edit"/></svg></button><button class="btn icon xs ghost copy" id="cp" onclick="this.classList.toggle('did')"><svg class="cp i" style="width:12px;height:12px"><use href="#copy"/></svg><svg class="ok i" style="width:12px;height:12px;stroke-width:2.5"><use href="#check"/></svg></button></div></div>
+<pre><span class="g">44</span><span class="k">export function</span> <span class="f">validateAddress</span>(values: AddressValues) {
+<span class="g">45</span>  <span class="k">if</span> (!values.country) <span class="k">return</span> { ok: <span class="n">false</span>, field: <span class="s">'country'</span> };
+<span class="g">46</span>  <span class="k">if</span> (values.country === <span class="s">'CA'</span>) <span class="k">return</span> <span class="f">validateCanadianPostal</span>(values);
+<span class="g">47</span>  <span class="c">// US ZIP or ZIP+4</span>
+<span class="g">48</span>  <span class="k">return</span> { ok: ZIP.test(values.postal), field: <span class="s">'postal'</span> };</pre>
+<div class="fold"><svg class="i" style="width:11px;height:11px"><use href="#chevron-down"/></svg>Show 22 more lines</div></div>
+<div class="cb" style="background:var(--surface-1)"><div class="hd"><svg class="i" style="width:12px;height:12px"><use href="#git"/></svg>src/server/migrate.ts<span class="pill success" style="height:16px;padding:0 6px">+2 −1</span><div class="acts"><button class="btn xs ghost">Unified</button><button class="btn xs ghost" style="color:var(--ink-4)">Split</button><button class="btn xs ghost">Open in Diff</button></div></div>
+<div class="df"><div class="hunk">@@ -42,5 +42,7 @@ export function applyMigration(db, version)</div>
+<div class="ln"><span class="add-note"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14"/></svg></span><span class="gutter">42</span><span class="g2">42</span>  const ctx = beginTx(db)</div>
+<div class="ln del"><span class="add-note"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14"/></svg></span><span class="gutter">43</span><span class="g2"></span>-   runStep(ctx, "schema", version)</div>
+<div class="ln add"><span class="add-note"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14"/></svg></span><span class="gutter"></span><span class="g2">43</span>+   await runStep(ctx, "schema", version)</div>
+<div class="ln add"><span class="add-note"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14"/></svg></span><span class="gutter"></span><span class="g2">44</span>+   await runStep(ctx, "backfill", version)</div>
+<div class="note"><div class="caps">Note · line 44</div>Backfill must run before commit if schema assumes new columns.<div class="row" style="margin-top:6px;gap:6px;justify-content:flex-end"><button class="btn xs ghost">Cancel</button><button class="btn xs primary">Add note</button></div></div>
+<div class="ln"><span class="add-note"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14"/></svg></span><span class="gutter">44</span><span class="g2">45</span>  commit(ctx)</div></div></div>
+<p class="ds-note">Code blocks sit on the terminal ground with a 30 px header: filename, language, then quiet actions that brighten on hover. Copy morphs to a check on the swap spring (click it). Long blocks fold after 12 lines. Diff blocks reveal a plus on line hover to add a note.</p>

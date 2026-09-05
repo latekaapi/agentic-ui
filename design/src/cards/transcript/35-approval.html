@@ -1,0 +1,34 @@
+<!-- ds: group="Transcript" name="Approval card" subtitle="Permission request: pending, approving, approved, denied, remembered; keyboard Y / A / N" width=760 height=640 theme=dark -->
+<style>
+.ap{border:1px solid color-mix(in srgb, var(--warning) 70%, transparent);border-radius:var(--r-lg);background:var(--surface-1);margin-bottom:14px;overflow:hidden;animation:in var(--d-enter) var(--e-out)}
+@keyframes in{from{opacity:0;transform:translateY(6px)}}
+.ap.quiet{border-color:var(--line)}
+.ap .hd{display:flex;align-items:center;gap:10px;padding:10px 12px}
+.ap .ic{width:26px;height:26px;border-radius:7px;background:var(--warning-soft);color:var(--warning);display:grid;place-items:center}
+.ap.quiet .ic{background:var(--surface-3);color:var(--ink-3)}
+.ap .ttl{font-weight:600;font-size:13px}.ap .sub{font-size:12px;color:var(--ink-2)}
+.ap .st{margin-left:auto}
+.ap .cmd{margin:0 12px 10px;padding:8px 10px;border-radius:var(--r-sm);background:var(--term-bg);font:12px/1.5 var(--font-mono);color:var(--term-fg);display:flex;gap:8px}
+.ap .cmd .p{color:var(--term-dim)}
+.ap .det{margin:0 12px 10px;font-size:12px;color:var(--ink-2)}
+.ap .det dl{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:6px 0 0}.ap .det dt{color:var(--ink-3)}.ap .det dd{margin:0;font-family:var(--font-mono)}
+.ap .ft{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--line);background:var(--surface-2)}
+.ap .ft .btn{animation:bin var(--d-enter) var(--e-out) both}.ap .ft .btn:nth-child(2){animation-delay:40ms}.ap .ft .btn:nth-child(3){animation-delay:80ms}
+@keyframes bin{from{opacity:0;transform:translateY(4px)}}
+.ap .ft .k{margin-right:auto;display:flex;gap:8px;font-size:11px;color:var(--ink-3)}
+.ap .ft .k span{display:inline-flex;gap:4px;align-items:center}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.two .ap{margin:0}
+</style>
+<div class="ap"><div class="hd"><span class="ic"><svg class="i"><use href="#shield"/></svg></span><div><div class="ttl">Allow Claude Code to run this command?</div><div class="sub">Runs in <span class="mono">~/work/acme/checkout-flow-v2</span> · can modify files and network</div></div><span class="st pill warning">Waiting</span></div>
+  <div class="cmd"><span class="p">$</span><span>sudo apt install -y libpq-dev</span></div>
+  <div class="det">Claude says: needed to compile the pg native module before the test run.<dl><dt>Tool</dt><dd>Bash</dd><dt>Scope</dt><dd>this worktree</dd></dl></div>
+  <div class="ft"><div class="k"><span><span class="kbd">Y</span>allow</span><span><span class="kbd">A</span>always</span><span><span class="kbd">N</span>deny</span></div><button class="btn sm danger">Deny</button><button class="btn sm">Always allow <span class="mono" style="opacity:.7">apt install</span></button><button class="btn primary sm">Allow once</button></div>
+</div>
+<div class="two">
+  <div class="ap quiet"><div class="hd"><span class="ic"><i class="spinner"></i></span><div><div class="ttl">Approving…</div><div class="sub mono">sudo apt install -y libpq-dev</div></div><span class="st pill accent">Running</span></div></div>
+  <div class="ap quiet"><div class="hd"><span class="ic" style="color:var(--success);background:var(--success-soft)"><svg class="i"><use href="#check"/></svg></span><div><div class="ttl">Allowed once</div><div class="sub mono">sudo apt install -y libpq-dev · exit 0 · 8.2 s</div></div><span class="st pill success">Complete</span></div></div>
+  <div class="ap quiet"><div class="hd"><span class="ic" style="color:var(--danger);background:var(--danger-soft)"><svg class="i"><use href="#x"/></svg></span><div><div class="ttl">Denied</div><div class="sub">You denied <span class="mono">rm -rf node_modules</span>. Claude will try another approach.</div></div><span class="st pill danger">Denied</span></div></div>
+  <div class="ap quiet"><div class="hd"><span class="ic" style="color:var(--accent-ink);background:var(--accent-soft)"><svg class="i"><use href="#shield"/></svg></span><div><div class="ttl">Auto-allowed</div><div class="sub">Remembered rule <span class="mono">pnpm test *</span> · <a href="#" style="color:var(--accent-ink);text-decoration:none">manage rules</a></div></div><span class="st pill">Rule</span></div></div>
+</div>
+<p class="ds-note">Pending is the only marked state: a plain 1 px border in the warning colour, nothing else. Buttons enter staggered by 40 ms on ease-out, primary on the right, keys on the left. The remembered rule is spelled out on the Always button so the person knows exactly what they are granting. Once resolved the card goes quiet and single-line.</p>

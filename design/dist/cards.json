@@ -1,0 +1,266 @@
+[
+  {
+    "path": "components/composer/40-composer-dark.html",
+    "group": "Composer",
+    "name": "Composer (dark)",
+    "subtitle": "Auto-growing input, meta strip, actions menu, model and mode pickers, send/stop morph, queued messages",
+    "width": 760,
+    "height": 620
+  },
+  {
+    "path": "components/composer/40-composer-light.html",
+    "group": "Composer",
+    "name": "Composer (light)",
+    "subtitle": "Auto-growing input, meta strip, actions menu, model and mode pickers, send/stop morph, queued messages",
+    "width": 760,
+    "height": 620
+  },
+  {
+    "path": "components/composer/41-slash-mentions.html",
+    "group": "Composer",
+    "name": "Slash commands and mentions",
+    "subtitle": "Inline / menu with sections and keyboard hints; @ picker for files, symbols, worktrees; $ skills",
+    "width": 800,
+    "height": 520
+  },
+  {
+    "path": "components/composer/42-attachments.html",
+    "group": "Composer",
+    "name": "Attachments and drop",
+    "subtitle": "Image thumbs, file rows with upload states, drop overlay over the transcript, paste hint",
+    "width": 760,
+    "height": 460
+  },
+  {
+    "path": "components/foundations/01-color.html",
+    "group": "Foundations",
+    "name": "Colour",
+    "subtitle": "Semantic tokens, agent states, diff and terminal palettes in both themes",
+    "width": 960,
+    "height": 720
+  },
+  {
+    "path": "components/foundations/02-type.html",
+    "group": "Foundations",
+    "name": "Typography",
+    "subtitle": "Geist for UI, Geist Mono for code and terminals; scale 11\u201324",
+    "width": 760,
+    "height": 560
+  },
+  {
+    "path": "components/foundations/03-space.html",
+    "group": "Foundations",
+    "name": "Spacing, radius, elevation",
+    "subtitle": "2/4/8/12/16/24/32 \u00b7 radii 4\u201316 \u00b7 three shadow levels",
+    "width": 760,
+    "height": 420
+  },
+  {
+    "path": "components/foundations/04-motion.html",
+    "group": "Foundations",
+    "name": "Motion",
+    "subtitle": "Durations, easings and the four springs; live samples",
+    "width": 900,
+    "height": 520
+  },
+  {
+    "path": "components/foundations/05-icons.html",
+    "group": "Foundations",
+    "name": "Icons and marks",
+    "subtitle": "Lucide-style 14/16 px glyphs, provider marks, status glyphs, file types",
+    "width": 760,
+    "height": 380
+  },
+  {
+    "path": "components/shell/10-app-shell.html",
+    "group": "Shell",
+    "name": "App shell",
+    "subtitle": "Three columns, each with its own header row; sidebar, transcript, workbench; status bar",
+    "width": 1280,
+    "height": 820
+  },
+  {
+    "path": "components/shell/11-panel-chrome.html",
+    "group": "Shell",
+    "name": "Panel chrome and tabs",
+    "subtitle": "Tab strip with sliding indicator, panel header, drag-to-dock drop zones",
+    "width": 860,
+    "height": 460
+  },
+  {
+    "path": "components/shell/12-command-palette.html",
+    "group": "Shell",
+    "name": "Command palette",
+    "subtitle": "\u2318K with sections, fuzzy matches, shortcut hints; quick open \u2318P",
+    "width": 760,
+    "height": 520
+  },
+  {
+    "path": "components/shell/13-toasts.html",
+    "group": "Shell",
+    "name": "Toasts and banners",
+    "subtitle": "Stacked toasts, newest in front; inline banners for waiting, context, provider and connection states",
+    "width": 820,
+    "height": 440
+  },
+  {
+    "path": "components/sidebar/20-worktree-rows.html",
+    "group": "Sidebar",
+    "name": "Worktree rows",
+    "subtitle": "Every state: running, needs you, done with PR, failed, idle, selected, hover actions, child tasks",
+    "width": 720,
+    "height": 560
+  },
+  {
+    "path": "components/sidebar/21-sidebar.html",
+    "group": "Sidebar",
+    "name": "Sidebar",
+    "subtitle": "Header, primary nav, collapsible groups with counts, filters, account footer, and the collapsed rail",
+    "width": 760,
+    "height": 640
+  },
+  {
+    "path": "components/sidebar/22-assistant-sidebar.html",
+    "group": "Sidebar",
+    "name": "Assistant sidebar",
+    "subtitle": "Roles \u2192 projects \u2192 sessions, with knowledge sources per role and recent documents",
+    "width": 760,
+    "height": 640
+  },
+  {
+    "path": "components/sidebar/23-sidebar-views.html",
+    "group": "Sidebar",
+    "name": "Sidebar views",
+    "subtitle": "Three groupings of the same sessions: by status, by project with nested sessions, by date; plus the view-options menu",
+    "width": 1180,
+    "height": 680
+  },
+  {
+    "path": "components/transcript/30-session-header.html",
+    "group": "Transcript",
+    "name": "Header identity and markers",
+    "subtitle": "The agent mark and worktree live in the centre header cell; model and mode in the composer; marker rows inside the transcript",
+    "width": 760,
+    "height": 380
+  },
+  {
+    "path": "components/transcript/31-turns.html",
+    "group": "Transcript",
+    "name": "User and assistant turns",
+    "subtitle": "User bubble with attachments and mentions; assistant turn streaming with reveal, hover toolbar and footer meta",
+    "width": 760,
+    "height": 560
+  },
+  {
+    "path": "components/transcript/32-thinking.html",
+    "group": "Transcript",
+    "name": "Thinking block",
+    "subtitle": "Shimmer label with elapsed time, capped streaming viewport, collapses to a summary when done",
+    "width": 760,
+    "height": 520
+  },
+  {
+    "path": "components/transcript/33-activity-group.html",
+    "group": "Transcript",
+    "name": "Agent activity group",
+    "subtitle": "Consecutive tool calls fold into one summary row with a step timeline; live state while working",
+    "width": 760,
+    "height": 560
+  },
+  {
+    "path": "components/transcript/34-tool-cards.html",
+    "group": "Transcript",
+    "name": "Tool call cards",
+    "subtitle": "Shell, read, edit, search, web and browser variants with the shared header: status, verb, target, duration",
+    "width": 800,
+    "height": 760
+  },
+  {
+    "path": "components/transcript/35-approval.html",
+    "group": "Transcript",
+    "name": "Approval card",
+    "subtitle": "Permission request: pending, approving, approved, denied, remembered; keyboard Y / A / N",
+    "width": 760,
+    "height": 640
+  },
+  {
+    "path": "components/transcript/36-question-plan-todo.html",
+    "group": "Transcript",
+    "name": "Question, plan and todo cards",
+    "subtitle": "Single and multi-select questions with Other; plan proposal with accept/edit; todo list with morphing marks",
+    "width": 800,
+    "height": 760
+  },
+  {
+    "path": "components/transcript/37-code-diff-blocks.html",
+    "group": "Transcript",
+    "name": "Code and diff blocks",
+    "subtitle": "Inline code block with header actions and copy morph; unified diff block with per-line note affordance",
+    "width": 760,
+    "height": 560
+  },
+  {
+    "path": "components/transcript/38-summary-error-status.html",
+    "group": "Transcript",
+    "name": "Summary, error and status rows",
+    "subtitle": "Turn summary with changed files and PR CTA; error card with retry; working line, needs-you banner, jump-to-latest",
+    "width": 760,
+    "height": 600
+  },
+  {
+    "path": "components/workbench/50-terminal.html",
+    "group": "Workbench",
+    "name": "Terminal",
+    "subtitle": "Block terminal: each command is a card with status, duration and foldable output; agent commands are tagged; splits and tabs",
+    "width": 980,
+    "height": 720
+  },
+  {
+    "path": "components/workbench/51-browser.html",
+    "group": "Workbench",
+    "name": "Browser and annotator",
+    "subtitle": "Tabs and nav; annotate mode pins numbered comments on elements, lists them beside the page, and sends the batch with metadata and a screenshot to the agent",
+    "width": 980,
+    "height": 640
+  },
+  {
+    "path": "components/workbench/52-diff-review.html",
+    "group": "Workbench",
+    "name": "Diff review",
+    "subtitle": "Scope switch, file list with change counts, unified diff with hunks, batched line notes sent back to an agent",
+    "width": 900,
+    "height": 640
+  },
+  {
+    "path": "components/workbench/53-git-pr.html",
+    "group": "Workbench",
+    "name": "Git and pull request",
+    "subtitle": "Changes list, AI-drafted commit, ahead/behind, Create PR form with base branch and checks",
+    "width": 900,
+    "height": 520
+  },
+  {
+    "path": "components/workbench/54-files-docs-dark.html",
+    "group": "Workbench",
+    "name": "File tree and document panes (dark)",
+    "subtitle": "Worktree-aware file explorer with git badges; assistant document pane chrome for docx, xlsx, pdf and markdown with chat-created artifacts",
+    "width": 980,
+    "height": 600
+  },
+  {
+    "path": "components/workbench/54-files-docs-light.html",
+    "group": "Workbench",
+    "name": "File tree and document panes (light)",
+    "subtitle": "Worktree-aware file explorer with git badges; assistant document pane chrome for docx, xlsx, pdf and markdown with chat-created artifacts",
+    "width": 980,
+    "height": 600
+  },
+  {
+    "path": "components/workbench/55-citations.html",
+    "group": "Workbench",
+    "name": "Sources and citations",
+    "subtitle": "Assistant answer with inline citation markers, sources list grouped by tier (role, project, session), and a source hover card",
+    "width": 760,
+    "height": 520
+  }
+]

@@ -1,0 +1,38 @@
+<!-- ds: group="Transcript" name="User and assistant turns" subtitle="User bubble with attachments and mentions; assistant turn streaming with reveal, hover toolbar and footer meta" width=760 height=560 theme=dark -->
+<style>
+.tr{display:flex;flex-direction:column;gap:18px}
+.u{align-self:flex-end;max-width:78%;display:flex;flex-direction:column;align-items:flex-end;gap:6px;position:relative}
+.u .bub{background:var(--surface-3);border-radius:14px 14px 4px 14px;padding:9px 13px;font-size:13.5px;line-height:1.5}
+.u .att{display:flex;gap:6px}
+.u .acts{position:absolute;left:-70px;top:4px;display:flex;gap:2px;opacity:0;transition:opacity var(--d-fast)}
+.u:hover .acts{opacity:1}
+.a{position:relative;font-size:13.5px;line-height:1.65;color:var(--ink)}
+.a p{margin:0 0 10px}.a p:last-child{margin:0}
+.a .tb{position:absolute;right:0;top:-30px;display:flex;gap:2px;background:var(--surface-1);border:1px solid var(--line);border-radius:var(--r-sm);padding:2px;opacity:0;transform:translateY(4px);transition:opacity var(--d-fast),transform var(--d-base) var(--e-out)}
+.a:hover .tb{opacity:1;transform:none}
+.a .ft{display:flex;gap:10px;font:500 11px/1 var(--font-mono);color:var(--ink-4);margin-top:10px}
+.chunk{display:inline;animation:rise var(--d-base) var(--e-out) both}
+@keyframes rise{from{opacity:0;transform:translateY(3px)}}
+.caret{display:inline-block;width:2px;height:15px;background:var(--accent);vertical-align:-3px;margin-left:1px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+.mention{display:inline-flex;align-items:center;gap:3px;padding:0 5px;border-radius:4px;background:var(--surface-3);color:var(--accent-ink);font:500 12px/18px var(--font-mono)}
+.fchip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px 0 6px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--surface-1);font-size:12px}
+.fchip .ic{width:18px;height:18px;border-radius:4px;display:grid;place-items:center}
+.fchip img{width:30px;height:30px;border-radius:4px;object-fit:cover}
+.a ul{padding-left:18px;margin:6px 0}
+.a code{font:12px var(--font-mono);background:var(--surface-2);padding:1px 5px;border-radius:4px}
+</style>
+<div class="tr">
+  <div class="u"><div class="acts"><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#edit"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#copy"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#refresh"/></svg></button></div>
+    <div class="att"><span class="fchip"><span class="ic" style="background:var(--info-soft);color:var(--info)"><svg class="i" style="width:11px;height:11px"><use href="#file"/></svg></span>validators.ts<span class="subtle">180 lines</span></span><span class="fchip"><span class="ic" style="background:var(--surface-3)"><svg class="i" style="width:11px;height:11px"><use href="#image"/></svg></span>checkout-form.png</span></div>
+    <div class="bub">Tighten address validation in <span class="mention">@src/checkout</span> and add coverage for CA and GB postcodes. Keep the existing copy.</div>
+  </div>
+  <div class="a"><div class="tb"><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#copy"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#refresh"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#git"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#pin"/></svg></button></div>
+    <p>I'm checking the existing form flow, then I'll patch the validator and run the focused tests.</p>
+    <p>Found the country-specific branch in <code>validateAddress</code>. Two things stand out:</p>
+    <ul><li>An empty country currently returns <code>true</code>, which lets a blank address through.</li><li>Canadian postal codes fall into the US ZIP branch.</li></ul>
+    <p><span class="chunk">I'll make the ZIP/postal path explicit</span> <span class="chunk" style="animation-delay:.2s">and keep the checkout copy unchanged</span><span class="chunk" style="animation-delay:.4s">, then run the two focused test files</span><span class="caret"></span></p>
+    <div class="ft"><span>opus 4.6</span><span>·</span><span>3.1 s</span><span>·</span><span>2.4k tokens</span><span>·</span><span>$0.04</span></div>
+  </div>
+</div>
+<p class="ds-note">User turns sit right in a soft bubble; assistant turns are full-width text with no bubble, so the transcript reads like a document. Streamed chunks fade and rise 3 px; the caret blinks on the accent. The toolbar appears on hover above the turn and never shifts layout.</p>

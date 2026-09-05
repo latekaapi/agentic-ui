@@ -1,0 +1,48 @@
+<!-- ds: group="Sidebar" name="Assistant sidebar" subtitle="Roles → projects → sessions, with knowledge sources per role and recent documents" width=760 height=640 theme=light -->
+<style>
+.wrap{display:flex;gap:20px;align-items:flex-start}
+.side{width:268px;height:600px;background:var(--surface-1);border:1px solid var(--line);border-radius:var(--r-lg);display:flex;flex-direction:column;overflow:hidden}
+.hd{display:flex;align-items:center;gap:8px;height:44px;padding:0 10px 0 12px;border-bottom:1px solid var(--line)}
+.sec{border-bottom:1px solid var(--line)}
+.role{display:flex;align-items:center;gap:8px;height:44px;padding:0 12px 0 10px;font-weight:600;color:var(--ink)}
+.role .chev{width:12px;height:12px}.role.closed{color:var(--ink-2)}
+.gh{display:flex;align-items:center;gap:8px;height:24px;padding:0 4px 0 12px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.gh .rule{flex:1;height:1px;background:var(--line)}.gh .cnt{font:500 10.5px var(--font-mono);color:var(--ink-3)}
+.role .i{color:var(--ink-3)}
+
+.sub{padding:2px 8px 6px 8px}
+.proj{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px 0 22px;border-radius:var(--r-sm);font-size:12.5px;font-weight:500;color:var(--ink-2)}
+.proj .n{margin-left:auto;font:500 11px/1 var(--font-mono);color:var(--ink-3)}
+.sess{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px 0 40px;border-radius:var(--r-sm);font-size:12.5px;color:var(--ink-3);position:relative}
+.sess::before{content:"";position:absolute;left:29px;top:0;bottom:0;width:1px;background:var(--line)}
+.sess:hover{background:var(--surface-2);color:var(--ink)}.sess.on{background:var(--surface-3);color:var(--ink)}
+.sess .t{margin-left:auto;font:500 11px/1 var(--font-mono);color:var(--ink-3)}
+.sess .i{color:var(--ink-3)}
+.kb{margin:4px 8px 0;padding:10px 10px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2);font-size:12px}
+.kb .caps{margin-bottom:6px}.kb .row{gap:6px;flex-wrap:wrap}
+.ft{margin-top:auto;border-top:1px solid var(--line);padding:8px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3)}
+</style>
+<div class="wrap">
+<div class="side">
+  <div class="hd"><span style="font-weight:600">Desk</span><span class="grow"></span><button class="btn icon sm ghost"><svg class="i"><use href="#search"/></svg></button><button class="btn icon sm ghost"><svg class="i"><use href="#plus"/></svg></button></div>
+  <div class="sec">
+    <div class="role"><svg class="chev"><use href="#chevron-down"/></svg><svg class="i"><use href="#grad-cap"/></svg>Director, Education</div>
+    <div class="gh">Projects<span class="rule"></span><span class="cnt">3</span></div>
+    <div class="sub">
+      <div class="proj"><svg class="i"><use href="#folder"/></svg>Teacher recruitment RFP<span class="n">6</span></div>
+      <div class="sess on"><svg class="i"><use href="#doc"/></svg>RFP draft v3<span class="t">now</span></div>
+      <div class="sess"><svg class="i"><use href="#sparkle"/></svg>Eligibility criteria review<span class="t">2h</span></div>
+      <div class="sess"><svg class="i"><use href="#sheet"/></svg>Vendor scoring sheet<span class="t">1d</span></div>
+      <div class="proj"><svg class="i"><use href="#folder"/></svg>Annual report 2026<span class="n">3</span></div>
+      <div class="proj"><svg class="i"><use href="#folder"/></svg>Letters &amp; notes<span class="n">12</span></div>
+    </div>
+    <div class="gh">Knowledge<span class="rule"></span><span class="cnt">3</span></div>
+    <div class="kb"><div class="row"><span class="chip"><svg class="i" style="width:11px;height:11px"><use href="#book"/></svg>Education Code</span><span class="chip"><svg class="i" style="width:11px;height:11px"><use href="#book"/></svg>Procurement rules</span><span class="chip"><svg class="i" style="width:11px;height:11px"><use href="#book"/></svg>GO 2024-18</span><span class="chip" style="color:var(--accent-ink)">+ add</span></div></div>
+    <div style="height:10px"></div>
+  </div>
+  <div class="sec"><div class="role closed"><svg class="chev"><use href="#chevron"/></svg><svg class="i"><use href="#scale"/></svg>Director, Law<span class="grow"></span><span class="tag">2</span></div></div>
+  <div class="sec"><div class="role closed"><svg class="chev"><use href="#chevron"/></svg><svg class="i"><use href="#gear"/></svg>Operations<span class="grow"></span><span class="tag">4</span></div></div>
+  <div class="ft"><i class="avatar">B</i><span class="grow">Bharani</span><span class="pill" style="height:16px">local-first</span></div>
+</div>
+<div style="max-width:32ch;font-size:12.5px;color:var(--ink-2);display:flex;flex-direction:column;gap:10px;padding-top:4px"><div><b style="color:var(--ink)">Sections.</b> Each role is a bordered section: a 44 px header with chevron, muted icon and name, no background. The open role shows Projects and Knowledge groups with a hairline and a count; closed roles are one row. Hierarchy by weight and ink: roles 600, projects 500 in ink-2, sessions 400 in ink-3. A role has its own knowledge sources; projects count their sessions; sessions show the kind of work by icon: chat, document, sheet.</div><div><b style="color:var(--ink)">Knowledge card.</b> The orders, rules and regulations attached to the active role, so it is always visible what the assistant is grounded in. Projects and sessions can add more below it.</div><div><b style="color:var(--ink)">Light theme</b> is the default here: the assistant is a writing tool and documents read best on paper-white.</div></div>
+</div>

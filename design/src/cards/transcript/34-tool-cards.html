@@ -1,0 +1,50 @@
+<!-- ds: group="Transcript" name="Tool call cards" subtitle="Shell, read, edit, search, web and browser variants with the shared header: status, verb, target, duration" width=800 height=760 theme=dark -->
+<style>
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tc{border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-1);overflow:hidden;font-size:12.5px}
+.tc .hd{display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;cursor:pointer}
+.tc .hd:hover{background:var(--surface-2)}
+.tc .v{font-weight:500;white-space:nowrap}.tc .tg{font:12px var(--font-mono);color:var(--ink-2)}
+.tc .r{margin-left:auto;display:flex;align-items:center;white-space:nowrap;flex:none;gap:8px;font:500 11px/1 var(--font-mono);color:var(--ink-3)}
+.tc .bd{border-top:1px solid var(--line);background:var(--term-bg)}
+.out{padding:10px 12px;font:11.5px/1.65 var(--font-mono);color:var(--term-fg);white-space:pre;overflow:hidden}
+.out .p{color:var(--term-dim)}.out .g{color:var(--ansi-green)}.out .y{color:var(--ansi-yellow)}.out .cr{color:var(--ansi-red)}
+.more{display:flex;align-items:center;gap:6px;padding:4px 10px 6px;font-size:11px;color:var(--ink-3);background:linear-gradient(transparent,var(--term-bg) 40%);margin-top:-14px;position:relative}
+.diff{font:11.5px/1.6 var(--font-mono)}.diff .ln{padding:0 8px}.diff .gutter{width:26px;padding-right:8px}
+.hits{padding:6px 10px;font:11.5px/1.7 var(--font-mono)}
+.hits span{color:var(--ink-3)}.hits b{font-weight:500;color:var(--accent-ink)}
+.web{padding:6px 10px;display:flex;flex-direction:column;gap:6px}
+.web .row{font-size:12px}.web .fav{width:14px;height:14px;border-radius:3px;background:var(--surface-3)}
+.web .dom{color:var(--ink-3);font-size:11px}
+.shot{margin:8px 10px;border-radius:var(--r-sm);border:1px solid var(--line);height:70px;background:linear-gradient(135deg,var(--surface-2),var(--surface-3));position:relative}
+.shot::after{content:"click “Try free”";position:absolute;left:10px;bottom:8px;font:11px var(--font-mono);color:var(--ink-2);background:var(--surface-1);padding:2px 6px;border-radius:4px;border:1px solid var(--line)}
+.shot i{position:absolute;left:60%;top:40%;width:18px;height:18px;border-radius:50%;border:2px solid var(--accent);animation:pulse 1.6s var(--e-out) infinite}
+</style>
+<div class="grid">
+  <div class="tc"><div class="hd"><span class="glyph ok"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#check"/></svg></span><span class="v">Ran</span><span class="tg trunc">pnpm vitest run src/checkout</span><span class="r"><span class="pill success" style="height:16px;padding:0 6px">exit 0</span>12.4 s<svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"/></svg></span></div>
+    <div class="bd"><div class="out"><span class="p">$</span> pnpm vitest run src/checkout
+<span class="g">✓</span> validators.test.ts <span class="p">(18)</span>
+<span class="g">✓</span> AddressForm.test.tsx <span class="p">(9)</span>
+
+Test Files  <span class="g">2 passed</span> (2)
+     Tests  <span class="g">27 passed</span> (27)</div><div class="more"><svg class="i" style="width:11px;height:11px"><use href="#chevron-down"/></svg>14 more lines<span class="grow"></span><span>open in terminal</span></div></div></div>
+  <div class="tc"><div class="hd"><i class="spinner"></i><span class="v">Running</span><span class="tg trunc">pnpm dev</span><span class="r"><span class="pill line" style="height:16px;padding:0 6px">live</span>1 m 12 s<svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"/></svg></span></div>
+    <div class="bd"><div class="out"><span class="p">▲</span> Next.js 16.2.1 (Turbopack)
+- Local: http://localhost:3000
+<span class="g">✓</span> Ready in 731ms
+○ Compiling /checkout ...
+<span class="g">✓</span> Compiled /checkout in 812ms
+<span class="y">⚠</span> Unsupported engine: wanted node 24</div></div></div>
+  <div class="tc"><div class="hd"><span class="glyph ok"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#check"/></svg></span><span class="v">Read</span><span class="tg trunc">src/checkout/validators.ts</span><span class="r">180 lines<svg class="chev"><use href="#chevron"/></svg></span></div></div>
+  <div class="tc"><div class="hd"><span class="glyph ok"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#check"/></svg></span><span class="v">Edited</span><span class="tg trunc">src/checkout/validators.ts</span><span class="r"><span style="color:var(--success)">+8</span><span style="color:var(--danger)">−3</span><svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"/></svg></span></div>
+    <div class="bd diff" style="background:var(--surface-1)"><div class="ln"><span class="gutter">44</span>export function validateAddress(values) {</div><div class="ln del"><span class="gutter">45</span>  if (!values.country) return true;</div><div class="ln add"><span class="gutter">45</span>  if (!values.country) return { ok: false, field: 'country' };</div><div class="ln add"><span class="gutter">46</span>  if (values.country === 'CA') return validateCanadianPostal(values);</div><div class="more" style="background:var(--surface-1);margin-top:0"><svg class="i" style="width:11px;height:11px"><use href="#chevron-down"/></svg>2 more hunks<span class="grow"></span><span>open in Diff</span></div></div></div>
+  <div class="tc"><div class="hd"><span class="glyph ok"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#check"/></svg></span><span class="v">Searched</span><span class="tg trunc">validateAddress</span><span class="r">2 hits<svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"/></svg></span></div>
+    <div class="bd hits" style="background:var(--surface-1)"><div><span>src/checkout/AddressForm.tsx:38</span>  <b>validateAddress</b>(values)</div><div><span>src/checkout/validators.ts:12</span>  export function <b>validateAddress</b></div></div></div>
+  <div class="tc"><div class="hd"><span class="glyph ok"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#check"/></svg></span><span class="v">Searched web</span><span class="tg trunc">canadian postal code regex</span><span class="r">5 results<svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"/></svg></span></div>
+    <div class="bd web" style="background:var(--surface-1)"><div class="row"><span class="fav"></span><span class="trunc">Postal codes in Canada</span><span class="dom">wikipedia.org</span></div><div class="row"><span class="fav"></span><span class="trunc">Validating Canadian postal codes</span><span class="dom">canada.ca</span></div><div class="row subtle" style="font-size:11px">+3 more</div></div></div>
+  <div class="tc"><div class="hd"><span class="glyph err"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#x"/></svg></span><span class="v">Ran</span><span class="tg trunc">pnpm lint</span><span class="r"><span class="pill danger" style="height:16px;padding:0 6px">exit 1</span>3.2 s<svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"/></svg></span></div>
+    <div class="bd"><div class="out"><span class="cr">✖</span> src/checkout/validators.ts
+  46:5  <span class="cr">error</span>  'validateCanadianPostal' is not defined  no-undef</div></div></div>
+  <div class="tc"><div class="hd"><span class="glyph ok"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#check"/></svg></span><span class="v">Browser</span><span class="tg trunc">localhost:3000/signup</span><span class="r">3 actions<svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"/></svg></span></div><div class="bd" style="background:var(--surface-1)"><div class="shot"><i></i></div></div></div>
+</div>
+<p class="ds-note">One header for every tool: status glyph, verb, mono target, right-aligned result and duration, chevron. Bodies differ: terminal output on the terminal ground with ANSI colours and a fold after eight lines, diffs with gutters, search hits, web results with favicons, browser actions with a screenshot and the click ring.</p>

@@ -1,0 +1,57 @@
+<!-- ds: group="Workbench" name="File tree and document panes" subtitle="Worktree-aware file explorer with git badges; assistant document pane chrome for docx, xlsx, pdf and markdown with chat-created artifacts" width=980 height=600 theme=both -->
+<style>
+body.ds{padding:12px}
+.grid{display:grid;grid-template-columns:240px 1fr;gap:14px;height:570px}
+.pan{border:1px solid var(--line-strong);border-radius:12px;background:var(--surface-1);overflow:hidden;display:flex;flex-direction:column}
+.hd{display:flex;align-items:center;gap:6px;height:34px;padding:0 8px 0 12px;border-bottom:1px solid var(--line);font-weight:600;font-size:12.5px}
+.tree{padding:6px;font-size:12px;overflow:hidden}
+.n{display:flex;align-items:center;gap:6px;height:24px;padding:0 6px;border-radius:var(--r-sm);color:var(--ink-2);cursor:pointer}
+.n:hover{background:var(--surface-2)}.n.on{background:var(--accent-soft);color:var(--ink)}
+.n .i{width:13px;height:13px;color:var(--ink-3)}.n .fic{width:14px;height:14px}.n .chev{width:10px;height:10px}
+.n .b{margin-left:auto;font:600 10px var(--font-mono)}.n .b.m{color:var(--warning)}.n .b.a{color:var(--success)}.n .b.u{color:var(--ink-4)}
+.n.dir{color:var(--ink)}
+.d1{padding-left:18px}.d2{padding-left:32px}.d3{padding-left:46px}
+.drag{position:absolute;left:150px;top:220px;display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;background:var(--overlay);border:1px solid var(--line-strong);box-shadow:var(--shadow-2);font-size:12px;transform:rotate(-2deg)}
+.dtabs{display:flex;align-items:center;gap:2px;height:34px;padding:0 6px;border-bottom:1px solid var(--line)}
+.dt{display:flex;align-items:center;gap:7px;height:34px;padding:0 12px;font-size:12px;color:var(--ink-3);position:relative}
+.dt.on{color:var(--ink)}.dt.on::after{content:"";position:absolute;left:8px;right:8px;top:0;height:2px;background:var(--accent);border-radius:0 0 2px 2px}
+.tool{display:flex;align-items:center;gap:4px;height:34px;padding:0 10px;border-bottom:1px solid var(--line);font-size:12px}
+.tool .sep{width:1px;height:16px;background:var(--line);margin:0 4px}
+.tool select,.tool .sel{height:24px;padding:0 8px;border-radius:5px;border:1px solid var(--line);background:var(--surface-2);font-size:12px;color:var(--ink);display:inline-flex;align-items:center;gap:6px}
+.doc{flex:1;background:var(--surface-2);display:flex;justify-content:center;padding:18px;overflow:hidden}
+.paper{width:520px;background:#fff;color:#1a1c22;box-shadow:var(--shadow-2);padding:38px 46px;font-family:Georgia,"Times New Roman",serif;font-size:12.5px;line-height:1.6}
+.paper h1{font-size:18px;margin:0 0 4px;font-family:var(--font-ui)}.paper .k{font:11px var(--font-ui);color:#7b818f;margin-bottom:18px}
+.paper p{margin:0 0 10px}.paper .ai{background:rgba(80,87,214,.12);border-bottom:2px solid #5057D6}
+.paper ol{padding-left:18px}
+.stat{display:flex;align-items:center;gap:10px;height:28px;padding:0 12px;border-top:1px solid var(--line);font:11px var(--font-ui);color:var(--ink-3)}
+.arts{display:flex;gap:6px;padding:6px 10px;border-top:1px solid var(--line);overflow:hidden}
+.art{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 8px 0 6px;border:1px solid var(--line);border-radius:6px;font-size:11.5px;color:var(--ink-2);white-space:nowrap}
+.art.on{border-color:var(--accent-ring);background:var(--accent-soft);color:var(--ink)}
+.art .v{font:500 10px var(--font-mono);color:var(--ink-3)}
+</style>
+<div class="grid">
+  <div class="pan" style="position:relative"><div class="hd"><svg class="i"><use href="#folder"/></svg>acme-web<span class="grow"></span><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#search"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#refresh"/></svg></button></div>
+    <div class="tree">
+      <div class="n dir"><svg class="chev i" style="transform:rotate(90deg)"><use href="#chevron"/></svg><svg class="fic folder"><use href="#ft-folder-open"/></svg>src<span class="b m">M</span></div>
+      <div class="n dir d1"><svg class="chev i" style="transform:rotate(90deg)"><use href="#chevron"/></svg><svg class="fic folder"><use href="#ft-folder-open"/></svg>checkout<span class="b m">M</span></div>
+      <div class="n d2"><svg class="fic tsx"><use href="#ft-tsx"/></svg>AddressForm.tsx<span class="b m">M</span></div>
+      <div class="n d2 on"><svg class="fic ts"><use href="#ft-ts"/></svg>validators.ts<span class="b m">M</span></div>
+      <div class="n d2"><svg class="fic test"><use href="#ft-test"/></svg>validators.test.ts<span class="b a">A</span></div>
+      <div class="n d2"><svg class="fic ts"><use href="#ft-ts"/></svg>index.ts</div>
+      <div class="n dir d1"><svg class="chev i"><use href="#chevron"/></svg><svg class="fic folder"><use href="#ft-folder"/></svg>components</div>
+      <div class="n dir d1"><svg class="chev i"><use href="#chevron"/></svg><svg class="fic folder"><use href="#ft-folder"/></svg>lib</div>
+      <div class="n dir"><svg class="chev i"><use href="#chevron"/></svg><svg class="fic folder"><use href="#ft-folder"/></svg>tests</div>
+      <div class="n"><svg class="fic json"><use href="#ft-json"/></svg>package.json</div><div class="n"><svg class="fic lock"><use href="#ft-lock"/></svg>pnpm-lock.yaml</div>
+      <div class="n"><svg class="fic md"><use href="#ft-md"/></svg>PLAN.md<span class="b u">U</span></div>
+      <div class="n"><svg class="fic md"><use href="#ft-md"/></svg>README.md</div>
+    </div>
+        <div class="stat">worktree checkout-flow-v2 · 2 modified · 1 added</div>
+  </div>
+  <div class="pan">
+    <div class="dtabs"><div class="dt on"><svg class="i" style="width:12px;height:12px"><use href="#doc"/></svg>RFP-draft-v3.docx</div><div class="dt"><svg class="i" style="width:12px;height:12px"><use href="#sheet"/></svg>vendor-scoring.xlsx</div><div class="dt"><svg class="i" style="width:12px;height:12px"><use href="#pdf"/></svg>GO-2024-18.pdf</div><span class="grow"></span><span class="subtle" style="font-size:11px">Saved</span><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#dots"/></svg></button></div>
+    <div class="tool"><span class="sel">Body text<svg class="i" style="width:10px;height:10px"><use href="#chevron-down"/></svg></span><span class="sel">Georgia · 11</span><span class="sep"></span><button class="btn icon xs ghost"><b>B</b></button><button class="btn icon xs ghost"><i>I</i></button><button class="btn icon xs ghost"><u>U</u></button><span class="sep"></span><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#list"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#link"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#image"/></svg></button><span class="grow"></span><span class="chip" style="color:var(--accent-ink)"><svg class="i" style="width:11px;height:11px"><use href="#sparkle"/></svg>Ask about selection</span><button class="btn xs">Export</button></div>
+    <div class="doc"><div class="paper"><h1>Request for Proposal: Teacher Recruitment Services</h1><div class="k">Directorate of Education · Draft v3 · 5 September 2026</div><p><b>1. Purpose.</b> The Directorate invites proposals from qualified agencies for the recruitment of 240 secondary-school teachers across 38 institutions for the 2027 academic year.</p><p><b>2. Eligibility.</b> Bidders must hold a valid registration under the <span class="ai">Procurement Rules 2019, Rule 14(2)</span> and demonstrate three years of comparable placements.</p><p><b>3. Scope of services.</b></p><ol><li>Sourcing and screening against the qualification matrix in Annex A.</li><li>Document verification in line with GO 2024-18.</li><li>Onboarding support through the first term.</li></ol></div></div>
+    <div class="arts"><span class="caps" style="align-self:center;margin-right:4px">Created in chat</span><span class="art on"><svg class="i" style="width:11px;height:11px;color:var(--info)"><use href="#doc"/></svg>RFP-draft-v3.docx<span class="v">v3</span></span><span class="art"><svg class="i" style="width:11px;height:11px;color:var(--success)"><use href="#sheet"/></svg>vendor-scoring.xlsx<span class="v">v1</span></span><span class="art"><svg class="i" style="width:11px;height:11px"><use href="#file"/></svg>eligibility-notes.md</span><span class="art"><svg class="i" style="width:11px;height:11px"><use href="#image"/></svg>org-chart.png</span></div>
+    <div class="stat"><span>Page 1 of 4</span><span>·</span><span>1,214 words</span><span class="grow"></span><span style="color:var(--accent-ink)">1 change from chat highlighted</span></div>
+  </div>
+</div>

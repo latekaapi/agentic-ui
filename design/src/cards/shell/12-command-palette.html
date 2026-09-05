@@ -1,0 +1,29 @@
+<!-- ds: group="Shell" name="Command palette" subtitle="⌘K with sections, fuzzy matches, shortcut hints; quick open ⌘P" width=760 height=520 theme=dark -->
+<style>
+.scrim{position:relative;height:470px;border-radius:var(--r-lg);background:linear-gradient(180deg,rgba(0,0,0,.25),rgba(0,0,0,.45)),var(--bg);border:1px solid var(--line);display:flex;justify-content:center;padding-top:56px}
+.pal{width:560px;background:var(--overlay);border:1px solid var(--line-strong);border-radius:var(--r-xl);box-shadow:var(--shadow-3);overflow:hidden;animation:in var(--d-enter) var(--e-out)}
+@keyframes in{from{opacity:0;transform:translateY(-6px) scale(.985)}}
+.q{display:flex;align-items:center;gap:10px;padding:0 14px;height:46px;border-bottom:1px solid var(--line);font-size:14px}
+.q input{flex:1;background:none;border:0;outline:0;color:var(--ink);font:400 14px var(--font-ui)}
+.q .kbd{margin-left:auto}
+.sec{padding:8px 6px 4px}.sec .caps{padding:0 10px 6px}
+.it{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:var(--r-sm);font-size:13px;color:var(--ink-2)}
+.it .i{color:var(--ink-3)}.it.on{background:var(--surface-3);color:var(--ink)}.it.on .i{color:var(--ink)}
+.it .hint{margin-left:auto;display:flex;gap:4px}
+.it mark{background:none;color:var(--accent-ink);font-weight:600}
+.ft{display:flex;align-items:center;gap:14px;height:32px;padding:0 14px;border-top:1px solid var(--line);font-size:11px;color:var(--ink-3)}
+</style>
+<div class="scrim"><div class="pal">
+  <div class="q"><svg class="i lg" style="color:var(--ink-3)"><use href="#search"/></svg><input value="wor" placeholder="Search actions, worktrees, files…"><span class="kbd">esc</span></div>
+  <div class="sec"><div class="caps">Worktrees</div>
+    <div class="it on"><i class="dot running" style="width:7px;height:7px"></i>checkout-flow-v2 <span class="subtle mono" style="font-size:11px">acme-web</span><span class="hint"><span class="kbd">↩</span></span></div>
+    <div class="it"><i class="dot waiting"></i>infra/notifier <span class="pill warning" style="height:16px">needs you</span></div>
+  </div>
+  <div class="sec"><div class="caps">Actions</div>
+    <div class="it"><svg class="i"><use href="#plus"/></svg>New <mark>wor</mark>ktree from prompt<span class="hint"><span class="kbd">⌘</span><span class="kbd">N</span></span></div>
+    <div class="it"><svg class="i"><use href="#split"/></svg>Split terminal right<span class="hint"><span class="kbd">⌘</span><span class="kbd">D</span></span></div>
+    <div class="it"><svg class="i"><use href="#globe"/></svg>Open browser tab<span class="hint"><span class="kbd">⌘</span><span class="kbd">⇧</span><span class="kbd">B</span></span></div>
+  </div>
+  <div class="sec"><div class="caps">Files</div><div class="it"><svg class="i"><use href="#file"/></svg>src/<mark>wor</mark>ker/queue.ts</div></div>
+  <div class="ft"><span><span class="kbd">↑↓</span> navigate</span><span><span class="kbd">↩</span> open</span><span><span class="kbd">⌘↩</span> open to the side</span><span class="grow"></span><span>⌘P files only</span></div>
+</div></div>

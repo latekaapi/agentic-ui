@@ -1,0 +1,60 @@
+<!-- ds: group="Workbench" name="Diff review" subtitle="Scope switch, file list with change counts, unified diff with hunks, batched line notes sent back to an agent" width=900 height=640 theme=dark -->
+<style>
+body.ds{padding:12px}
+.dv{height:610px;border:1px solid var(--line-strong);border-radius:12px;overflow:hidden;display:grid;grid-template-columns:230px 1fr;grid-template-rows:38px 1fr 44px;background:var(--surface-1)}
+.top{grid-column:1/3;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--line)}
+.seg{display:inline-flex;background:var(--surface-2);border-radius:var(--r-sm);padding:2px;gap:2px}
+.seg span{height:24px;padding:0 10px;border-radius:5px;font-size:12px;display:inline-flex;align-items:center;color:var(--ink-3);cursor:pointer}
+.seg span.on{background:var(--surface-1);color:var(--ink);box-shadow:var(--shadow-1)}
+.files{border-right:1px solid var(--line);padding:8px;overflow:hidden;font-size:12px}
+.files .caps{padding:4px 6px 6px}
+.f{display:flex;align-items:center;gap:7px;height:26px;padding:0 6px;border-radius:var(--r-sm);color:var(--ink-2);cursor:pointer}
+.f:hover{background:var(--surface-2)}.f.on{background:var(--surface-3);color:var(--ink)}
+.f .st{width:12px;text-align:center;font:600 10px var(--font-mono)}.f .st.m{color:var(--warning)}.f .st.a{color:var(--success)}.f .st.d{color:var(--danger)}
+.f .c{margin-left:auto;font:500 10.5px var(--font-mono);color:var(--ink-3)}
+.f .n{width:14px;height:14px;border-radius:4px;background:var(--accent);color:#fff;font:600 9px/14px var(--font-mono);text-align:center}
+.body{overflow:hidden;font:11.5px/1.65 var(--font-mono)}
+.fh{display:flex;align-items:center;gap:8px;height:30px;padding:0 12px;background:var(--surface-2);border-bottom:1px solid var(--line);font:12px var(--font-ui);position:sticky;top:0}
+.hunk{padding:2px 12px;background:var(--surface-2);color:var(--ink-3);font-size:11px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+.ln{display:flex;position:relative;padding-right:8px}.ln .gutter{width:36px;padding-right:8px}.ln .g2{width:26px;padding-right:8px;color:var(--ink-4);text-align:right;user-select:none}
+.ln:hover{background:var(--surface-2)}.ln.add:hover{background:var(--diff-add-strong)}.ln.del:hover{background:var(--diff-del-strong)}
+.ln:hover .plus{opacity:1}
+.plus{position:absolute;left:4px;top:2px;width:16px;height:16px;border-radius:4px;background:var(--accent);opacity:0;display:grid;place-items:center;transition:opacity var(--d-fast)}
+.plus svg{width:10px;height:10px;stroke:#fff;stroke-width:3}
+.note{margin:4px 12px 6px 70px;border:1px solid var(--line-strong);border-left:2px solid var(--accent);background:var(--surface-2);border-radius:var(--r-sm);padding:6px 8px;font:12px/1.4 var(--font-ui)}
+.note .caps{color:var(--accent-ink);margin-bottom:2px}
+.note.pend{border-style:dashed;background:var(--surface-2)}
+.note textarea{width:100%;border:0;background:none;outline:0;resize:none;font:12px/1.4 var(--font-ui);color:var(--ink)}
+.bot{grid-column:1/3;display:flex;align-items:center;gap:8px;padding:0 12px;border-top:1px solid var(--line);background:var(--surface-2)}
+.bot .cnt{font-size:12px;color:var(--ink-2)}
+.hl{background:var(--diff-add-strong);border-radius:2px}.hd2{background:var(--diff-del-strong);border-radius:2px}
+</style>
+<div class="dv">
+  <div class="top"><span class="seg"><span class="on">This turn</span><span>Branch</span><span>Unstaged</span></span><span class="subtle" style="font-size:12px">vs main · 3 files · <span style="color:var(--success)">+51</span> <span style="color:var(--danger)">−7</span></span><span class="grow"></span><span class="seg"><span class="on">Unified</span><span>Split</span></span><button class="btn icon sm ghost"><svg class="i"><use href="#search"/></svg></button><button class="btn sm ghost">Collapse all</button></div>
+  <div class="files"><div class="caps">Changed files</div>
+    <div class="f on"><span class="st m">M</span><span class="trunc">validators.ts</span><span class="n">2</span><span class="c">+8 −3</span></div>
+    <div class="f"><span class="st a">A</span><span class="trunc">validators.test.ts</span><span class="c">+41</span></div>
+    <div class="f"><span class="st m">M</span><span class="trunc">AddressForm.tsx</span><span class="c">+2 −1</span></div>
+    <div class="f"><span class="st d">D</span><span class="trunc">legacy-zip.ts</span><span class="c">−3</span></div>
+    <div class="caps" style="margin-top:10px">Notes</div>
+    <div class="f" style="height:auto;padding:4px 6px;font-size:11.5px;color:var(--ink-2)"><span class="n" style="align-self:flex-start;margin-top:2px">1</span><span>line 46 · also handle GB</span></div>
+    <div class="f" style="height:auto;padding:4px 6px;font-size:11.5px;color:var(--ink-2)"><span class="n" style="align-self:flex-start;margin-top:2px">2</span><span>line 52 · log skipped rows</span></div>
+  </div>
+  <div class="body">
+    <div class="fh"><svg class="i" style="width:12px;height:12px"><use href="#file"/></svg><span class="mono">src/checkout/validators.ts</span><span class="pill success" style="height:16px;padding:0 6px">+8 −3</span><span class="grow"></span><button class="btn xs ghost">Open in editor</button><button class="btn xs ghost">Stage</button></div>
+    <div class="hunk"><svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"/></svg>@@ -42,7 +42,9 @@ export function validateAddress</div>
+    <div class="ln"><span class="plus"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14"/></svg></span><span class="gutter">44</span><span class="g2">44</span>export function validateAddress(values: AddressValues) {</div>
+    <div class="ln del"><span class="plus"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14"/></svg></span><span class="gutter">45</span><span class="g2"></span>  if (!values.country) <span class="hd2">return true;</span></div>
+    <div class="ln add"><span class="plus"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14"/></svg></span><span class="gutter"></span><span class="g2">45</span>  if (!values.country) <span class="hl">return { ok: false, field: 'country' };</span></div>
+    <div class="ln add"><span class="plus"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14"/></svg></span><span class="gutter"></span><span class="g2">46</span>  if (values.country === 'CA') return validateCanadianPostal(values);</div>
+    <div class="note"><div class="caps">Note 1 · line 46</div>Also handle 'GB' here, postcode format differs.<div class="row" style="margin-top:4px;gap:4px;font-size:11px;color:var(--ink-3)"><button class="btn xs ghost">Edit</button><button class="btn xs ghost">Delete</button></div></div>
+    <div class="ln"><span class="plus"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14"/></svg></span><span class="gutter">46</span><span class="g2">47</span>  // US ZIP or ZIP+4</div>
+    <div class="ln add"><span class="plus"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14"/></svg></span><span class="gutter"></span><span class="g2">48</span>  return { ok: ZIP.test(values.postal), field: 'postal' };</div>
+    <div class="hunk"><svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"/></svg>@@ -88,3 +90,4 @@ function backfillUsers(rows)</div>
+    <div class="ln"><span class="gutter">88</span><span class="g2">90</span>  for (const row of rows) {</div>
+    <div class="ln del"><span class="gutter">89</span><span class="g2"></span>    db.exec(sql, row)</div>
+    <div class="ln add"><span class="gutter"></span><span class="g2">91</span>    if (!row.tier) continue</div>
+    <div class="note pend"><div class="caps">Note 2 · line 91</div><textarea rows="1">Silently skipping rows — log the count or surface it.</textarea><div class="row" style="margin-top:6px;gap:6px;justify-content:flex-end"><button class="btn xs ghost">Cancel</button><button class="btn xs primary">Add note</button></div></div>
+  </div>
+  <div class="bot actions tint" style="grid-column:1/3"><span class="hint">2 notes on 1 file</span><span class="spacer"></span><button class="btn sm ghost">Clear</button><button class="btn sm primary">Send to <i class="mark claude" style="width:12px;height:12px;font-size:7px;margin:0 2px">C</i>Claude Code</button></div>
+</div>

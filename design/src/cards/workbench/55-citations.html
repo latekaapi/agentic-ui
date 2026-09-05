@@ -1,0 +1,33 @@
+<!-- ds: group="Workbench" name="Sources and citations" subtitle="Assistant answer with inline citation markers, sources list grouped by tier (role, project, session), and a source hover card" width=760 height=520 theme=light -->
+<style>
+.a{font-size:13.5px;line-height:1.65;color:var(--ink);margin-bottom:14px}
+.a p{margin:0 0 10px}
+.cite{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:4px;background:var(--accent-soft);color:var(--accent-ink);font:600 10px/1 var(--font-mono);vertical-align:2px;margin:0 1px;cursor:pointer;transition:background var(--d-fast),transform var(--d-base) var(--spring-press)}
+.cite:hover{background:var(--accent);color:#fff;transform:translateY(-1px)}
+.src{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface-1);overflow:hidden}
+.src .hd{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;font-weight:600;font-size:12.5px}
+.tier{display:flex;align-items:center;gap:8px;padding:6px 12px 4px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.tier .sw{width:8px;height:8px;border-radius:2px}
+.s{display:flex;align-items:flex-start;gap:10px;padding:6px 12px;font-size:12.5px;position:relative}
+.s:hover{background:var(--surface-2)}
+.s .n{width:18px;height:18px;border-radius:4px;background:var(--accent-soft);color:var(--accent-ink);font:600 10px/18px var(--font-mono);text-align:center;flex:none}
+.s b{font-weight:500;display:block}.s span{font-size:11.5px;color:var(--ink-3)}
+.s .conf{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font:500 10.5px var(--font-mono);color:var(--ink-3);white-space:nowrap}
+.s .conf i{width:36px;height:4px;border-radius:2px;background:var(--surface-3);overflow:hidden;display:block}.s .conf i b{display:block;height:100%;background:var(--success)}
+.hover{position:absolute;right:24px;top:-8px;width:280px;background:var(--overlay);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-3);padding:10px 12px;font-size:12px;z-index:2;animation:in var(--d-enter) var(--e-out)}
+@keyframes in{from{opacity:0;transform:translateY(4px)}}
+.hover .q{border-left:2px solid var(--accent);padding-left:8px;color:var(--ink-2);margin:6px 0 8px;font-size:12px;line-height:1.5}
+.hover .q mark{background:var(--accent-soft);color:var(--ink)}
+</style>
+<div class="a"><p>Under the current rules a bidder needs a valid registration and three years of comparable placements<span class="cite">1</span>. The 2024 government order tightened document verification to require original certificates at onboarding<span class="cite">2</span>, and the project brief sets the cohort at 240 teachers across 38 institutions<span class="cite">3</span>. I have folded all three into section 2 of the draft.</p></div>
+<div class="src"><div class="hd"><svg class="i"><use href="#book"/></svg>Sources<span class="subtle" style="font-weight:400">· 3 cited · 11 retrieved</span><span class="grow"></span><button class="btn xs ghost">Show all</button></div>
+  <div class="tier">Role · Director, Education</div>
+  <div class="s"><span class="n">1</span><div><b>Procurement Rules 2019, Rule 14(2)</b><span>procurement-rules-2019.pdf · p. 31 · registration and experience threshold</span></div><span class="conf"><i><b style="width:92%"></b></i>.92</span>
+    <div class="hover"><b style="font-weight:600">Rule 14(2) · Eligibility of bidders</b><div class="q">“…shall hold a valid registration with the Directorate and shall have completed <mark>not less than three years of comparable placements</mark> in the preceding five years.”</div><div class="row" style="gap:6px"><button class="btn xs">Open page 31</button><button class="btn xs ghost">Insert quote</button></div></div></div>
+  <div class="s"><span class="n">2</span><div><b>GO 2024-18 · Verification of credentials</b><span>go-2024-18.pdf · §4 · original certificates at onboarding</span></div><span class="conf"><i><b style="width:88%"></b></i>.88</span></div>
+  <div class="tier">Project · Teacher recruitment RFP</div>
+  <div class="s"><span class="n">3</span><div><b>Project brief</b><span>brief.docx · cohort size and institution count</span></div><span class="conf"><i><b style="width:97%"></b></i>.97</span></div>
+  <div class="tier">Session</div>
+  <div class="s" style="color:var(--ink-3)"><span class="n" style="background:var(--surface-3);color:var(--ink-3)">–</span><div><b style="color:var(--ink-2)">Eligibility criteria review</b><span>earlier in this session · not cited</span></div></div>
+</div>
+<p class="ds-note">Citation markers are small accent squares that lift on hover and open a source card with the exact passage highlighted. The sources list is grouped by retrieval tier so it is obvious whether a claim rests on a regulation, a project file or session chat; the bar is retrieval confidence.</p>

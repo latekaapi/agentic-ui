@@ -1,0 +1,44 @@
+<!-- ds: group="Foundations" name="Motion" subtitle="Durations, easings and the four springs; live samples" width=900 height=520 theme=dark -->
+<style>
+.mgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.m{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--r-md);padding:12px;min-height:120px}
+.m h4{margin:0 0 2px;font:600 var(--fs-12)/1.2 var(--font-ui)}
+.m p{margin:0 0 10px;font:var(--fs-11)/1.3 var(--font-mono);color:var(--ink-3)}
+.stage{height:56px;display:flex;align-items:center;gap:10px}
+.ball{width:18px;height:18px;border-radius:50%;background:var(--accent)}
+.press .ball{animation:press 1.6s var(--spring-press) infinite alternate}
+@keyframes press{from{transform:scale(1)}to{transform:scale(.8)}}
+.swap .ball{animation:swap 1.4s var(--spring-swap) infinite alternate}
+@keyframes swap{from{transform:translateY(6px);opacity:.2}to{transform:translateY(-6px);opacity:1}}
+.layout .bar{height:18px;border-radius:var(--r-sm);background:var(--accent-soft);border:1px solid var(--accent);animation:grow 1.8s var(--spring-layout) infinite alternate}
+@keyframes grow{from{width:40px}to{width:160px}}
+.gentle .ball{animation:slide 2s var(--spring-gentle) infinite alternate}
+@keyframes slide{from{transform:translateX(0)}to{transform:translateX(120px)}}
+.eo .ball{animation:slide var(--d-enter) var(--e-out) infinite alternate;animation-duration:900ms}
+.fade .ball{animation:fade 1.2s var(--e-std) infinite alternate}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.morph{position:relative;width:28px;height:28px;border-radius:var(--r-sm);background:var(--accent);display:grid;place-items:center;color:#fff}
+.morph svg{position:absolute;width:14px;height:14px;stroke:#fff;fill:none;stroke-width:2.2;stroke-linecap:round}
+.morph .a{animation:ia 2.4s var(--spring-swap) infinite}.morph .b{animation:ib 2.4s var(--spring-swap) infinite}
+@keyframes ia{0%,40%{opacity:1;transform:none}50%,90%{opacity:0;transform:translateY(-3px) scale(.8)}100%{opacity:1;transform:none}}
+@keyframes ib{0%,40%{opacity:0;transform:translateY(3px) scale(.8)}50%,90%{opacity:1;transform:none}100%{opacity:0;transform:translateY(3px) scale(.8)}}
+.chk{width:22px;height:22px;border-radius:50%;background:var(--success-soft);display:grid;place-items:center}
+.chk svg{width:12px;height:12px;stroke:var(--success);fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:24;stroke-dashoffset:24;animation:draw 2s var(--e-out) infinite}
+@keyframes draw{0%{stroke-dashoffset:24}30%,80%{stroke-dashoffset:0}100%{stroke-dashoffset:24}}
+.shake{animation:shake .5s var(--e-std) infinite;animation-delay:.6s;animation-iteration-count:infinite}
+@keyframes shake{0%,100%{transform:none}20%{transform:translateX(-4px)}40%{transform:translateX(4px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
+.durs{display:flex;gap:18px;margin-top:14px;font:var(--fs-11)/1.4 var(--font-mono);color:var(--ink-3)}
+.durs b{color:var(--ink);font-weight:500}
+</style>
+<div class="mgrid">
+  <div class="m press"><h4>spring · press</h4><p>500 / 30 / 0.6</p><div class="stage"><div class="ball"></div><span class="subtle" style="font-size:11px">buttons, chips, rows</span></div></div>
+  <div class="m swap"><h4>spring · swap</h4><p>460 / 30 / 0.55</p><div class="stage"><div class="ball"></div><span class="subtle" style="font-size:11px">icon morph, chevrons, tab indicator</span></div></div>
+  <div class="m layout"><h4>spring · layout</h4><p>360 / 32 / 1</p><div class="stage"><div class="bar"></div></div></div>
+  <div class="m gentle"><h4>spring · gentle</h4><p>200 / 26 / 1</p><div class="stage"><div class="ball"></div></div></div>
+  <div class="m eo"><h4>ease-out</h4><p>enter 220 ms · cubic(.16,1,.3,1)</p><div class="stage"><div class="ball"></div></div></div>
+  <div class="m fade"><h4>fade-rise</h4><p>base 180 ms · +4 px</p><div class="stage"><div class="ball"></div><span class="subtle" style="font-size:11px">streamed chunks, list rows</span></div></div>
+  <div class="m"><h4>icon morph</h4><p>send ↔ stop</p><div class="stage"><div class="morph"><svg class="a" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg><svg class="b" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="#fff" stroke="none"/></svg></div><span class="subtle" style="font-size:11px">opacity + 3 px + scale .8</span></div></div>
+  <div class="m"><h4>check draw · shake</h4><p>success 320 ms · error 500 ms</p><div class="stage"><div class="chk"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></div><div class="shake btn danger sm">Deny</div></div></div>
+</div>
+<div class="durs"><span><b>fast 120</b> hover tints</span><span><b>base 180</b> toggles, tabs</span><span><b>enter 220</b> cards, menus</span><span><b>exit 160</b> dismiss</span><span><b>slow 280</b> panel width</span><span><b>reduced motion</b> all 0</span></div>
+<p class="ds-note">Rules: animate transform and opacity, never layout when a fade will do; every animation has a readable resting state; motion explains change and is never ambient.</p>

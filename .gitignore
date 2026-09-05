@@ -1,0 +1,6 @@
+# Rust
+/target
+**/target
+# design canvas seeds are regenerated from working files
+design/screens/*/*-screens.html
+.DS_Store

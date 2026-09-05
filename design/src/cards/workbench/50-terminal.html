@@ -1,0 +1,75 @@
+<!-- ds: group="Workbench" name="Terminal" subtitle="Block terminal: each command is a card with status, duration and foldable output; agent commands are tagged; splits and tabs" width=980 height=720 theme=dark -->
+<style>
+body.ds{padding:12px}
+.term{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:34px 1fr;height:690px;background:var(--term-bg);border:1px solid var(--line-strong);border-radius:12px;overflow:hidden}
+.tabs{grid-column:1/3;display:flex;align-items:center;gap:2px;padding:0 6px;border-bottom:1px solid var(--line);background:var(--surface-1)}
+.tab{display:flex;align-items:center;gap:7px;height:34px;padding:0 12px;font-size:12px;color:var(--ink-3);position:relative}
+.tab.on{color:var(--ink)}.tab.on::after{content:"";position:absolute;left:8px;right:8px;top:0;height:2px;background:var(--accent);border-radius:0 0 2px 2px}
+.pane{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
+.pane+.pane{border-left:1px solid var(--line)}
+.pane .scroll{flex:1;overflow:hidden;padding:10px 12px;display:flex;flex-direction:column;gap:8px;font:12px/1.55 var(--font-mono);color:var(--term-fg)}
+.blk{border-radius:8px;border:1px solid transparent;position:relative}
+.blk .cmd{display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:8px;color:var(--term-fg)}
+.blk .cmd .p{color:var(--accent);font-weight:600}
+.blk .cmd .who{display:inline-flex;align-items:center;gap:4px;font:500 10px/1 var(--font-ui);color:var(--ink-3);margin-left:auto;padding-left:8px}
+.blk .cmd .dur{font-size:11px;color:var(--term-dim)}
+.blk .cmd .ex{width:6px;height:6px;border-radius:50%;background:var(--success)}
+.blk .cmd .ex.bad{background:var(--danger)}.blk .cmd .ex.run{background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.blk .out{padding:2px 10px 8px 26px;white-space:pre;color:var(--ink-2);overflow:hidden}
+.blk.old{opacity:.72}
+.blk:hover{background:var(--surface-1);border-color:var(--line)}
+.blk.err .cmd{background:var(--danger-soft)}.blk.err .out{color:var(--ink)}
+.blk.live{background:var(--surface-1);border-color:var(--line)}
+.blk .fold{display:flex;align-items:center;gap:6px;padding:0 10px 6px 26px;font:11px var(--font-ui);color:var(--ink-3)}
+.blk .acts{position:absolute;right:8px;top:6px;display:flex;gap:2px;opacity:0;transition:opacity var(--d-fast)}
+.blk:hover .acts{opacity:1}
+.g{color:var(--ansi-green)}.y{color:var(--ansi-yellow)}.r{color:var(--ansi-red)}.b{color:var(--ansi-blue)}.m{color:var(--ansi-magenta)}.d{color:var(--term-dim)}
+.prompt{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--line);background:var(--surface-1);font:12px var(--font-mono)}
+.prompt .cur{width:7px;height:14px;background:var(--term-cursor);animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+.prompt .ctx{margin-left:auto;font:500 10.5px var(--font-ui);color:var(--ink-3);display:flex;gap:8px}
+.tui{padding:10px 12px;font:12px/1.5 var(--font-mono);color:var(--term-fg);white-space:pre}
+.tui .box{border:1px solid var(--line-strong);border-radius:6px;padding:6px 10px;margin:6px 0;display:inline-block}
+.hint{position:absolute;right:10px;top:8px;display:flex;gap:4px}
+.marker{display:flex;align-items:center;gap:8px;font:10.5px var(--font-ui);color:var(--ink-3);padding:0 2px}
+.marker::before,.marker::after{content:"";flex:1;height:1px;background:var(--line)}
+</style>
+<div class="term">
+  <div class="tabs"><div class="tab on"><svg class="i" style="width:12px;height:12px"><use href="#terminal"/></svg>shell<span class="pill" style="height:14px;padding:0 5px;font-size:9px">2 splits</span></div><div class="tab"><i class="mark pi" style="width:12px;height:12px;font-size:7px">π</i>pi</div><div class="tab"><i class="mark claude" style="width:12px;height:12px;font-size:7px">C</i>claude</div><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#plus"/></svg></button><span class="grow"></span><span class="subtle" style="font-size:11px;margin-right:8px">⌘D split right · ⌘⇧D split down</span><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#search"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#split"/></svg></button></div>
+  <div class="pane">
+    <div class="scroll">
+      <div class="marker">restored scrollback · 09:02</div>
+      <div class="blk old"><div class="cmd"><span class="ex"></span><span class="p">$</span>git status -sb<span class="dur">0.1 s</span></div><div class="out"><span class="b">## feature/checkout-flow-v2...origin/feature/checkout-flow-v2</span>
+<span class="y"> M</span> src/checkout/validators.ts
+<span class="g">A </span> src/checkout/validators.test.ts</div></div>
+      <div class="blk old"><div class="cmd"><span class="ex"></span><span class="p">$</span>pnpm i<span class="who"><i class="mark claude" style="width:11px;height:11px;font-size:6px">C</i>claude</span><span class="dur">6.2 s</span></div><div class="out"><span class="d">Lockfile is up to date, resolution step is skipped</span>
+<span class="d">Already up to date</span></div><div class="fold"><svg class="i" style="width:11px;height:11px"><use href="#chevron"/></svg>38 lines folded</div></div>
+      <div class="blk err"><div class="cmd"><span class="ex bad"></span><span class="p">$</span>pnpm lint<span class="who"><i class="mark claude" style="width:11px;height:11px;font-size:6px">C</i>claude</span><span class="dur">3.2 s · exit 1</span></div><div class="out"><span class="r">✖</span> src/checkout/validators.ts
+  46:5  <span class="r">error</span>  'validateCanadianPostal' is not defined  <span class="d">no-undef</span>
+
+<span class="r">✖ 1 problem</span> (1 error, 0 warnings)</div><div class="acts"><button class="btn icon xs ghost"><svg class="i" style="width:11px;height:11px"><use href="#copy"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:11px;height:11px"><use href="#sparkle"/></svg></button></div></div>
+      <div class="blk live"><div class="cmd"><span class="ex run"></span><span class="p">$</span>pnpm vitest run src/checkout<span class="dur"><i class="spinner" style="width:10px;height:10px;display:inline-block;vertical-align:-1px;margin-right:4px"></i>12 s</span></div><div class="out"><span class="g">✓</span> validators.test.ts <span class="d">(18)</span> <span class="d">412ms</span>
+<span class="g">✓</span> AddressForm.test.tsx <span class="d">(9)</span> <span class="d">1.1s</span>
+<span class="d">⠼</span> checkout.e2e.ts <span class="d">running…</span></div></div>
+    </div>
+    <div class="prompt"><span style="color:var(--accent);font-weight:600">$</span><span>pnpm test --filter web-</span><span class="cur"></span><span class="ctx"><span>⎇ feature/checkout-flow-v2</span><span>~/work/acme</span></span></div>
+  </div>
+  <div class="pane">
+    <div class="hint"><span class="kbd">⌘⇧D</span></div>
+    <div class="tui"><span class="m">✱</span> <b>Claude Code</b> <span class="d">v2.1.174</span>
+<span class="d">Opus 4.6 · ~/work/acme/checkout-flow-v2</span>
+
+<span class="d">›</span> tighten address validation and add coverage
+
+<span class="m">●</span> Read <span class="b">src/checkout/validators.ts</span>
+  <span class="d">⎿  Read 180 lines</span>
+<span class="m">●</span> Update <span class="b">src/checkout/validators.ts</span>
+  <span class="d">⎿  Added 8 lines, removed 3 lines</span>
+<span class="m">●</span> Bash <span class="b">pnpm vitest run src/checkout</span>
+  <span class="d">⎿  Running…</span>
+
+<span class="y">⠼ Thinking…</span> <span class="d">(12s · esc to interrupt)</span>
+<div class="box"><span class="d">›</span> <span class="cur" style="display:inline-block;vertical-align:-2px"></span></div>
+<span class="d">⇧⇥ plan mode · ⌘D split · agent runs in a PTY with your login</span></div>
+  </div>
+</div>

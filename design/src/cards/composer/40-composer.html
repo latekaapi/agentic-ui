@@ -1,0 +1,47 @@
+<!-- ds: group="Composer" name="Composer" subtitle="Auto-growing input, meta strip, actions menu, model and mode pickers, send/stop morph, queued messages" width=760 height=620 theme=both -->
+<style>
+.wrap{max-width:640px;display:flex;flex-direction:column;gap:18px}
+.meta{display:flex;align-items:center;gap:10px;font:500 11px/1 var(--font-mono);color:var(--ink-3);padding:0 4px}
+.meta .ctx{display:inline-flex;align-items:center;gap:6px}.meta .ctx i{width:48px;height:4px;border-radius:2px;background:var(--surface-3);overflow:hidden;display:block}.meta .ctx i b{display:block;height:100%;width:34%;background:var(--accent)}
+.cp{border:1px solid var(--line-strong);background:var(--surface-1);border-radius:14px;box-shadow:var(--shadow-1);transition:border-color var(--d-fast),box-shadow var(--d-fast)}
+.cp.focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)}
+.cp .chips{display:flex;gap:6px;padding:10px 12px 0}
+.cp textarea{display:block;width:100%;border:0;outline:0;background:none;resize:none;padding:12px 14px 6px;font:14px/1.55 var(--font-ui);color:var(--ink);min-height:44px}
+.cp textarea::placeholder{color:var(--ink-3)}
+.cp .bar{display:flex;align-items:center;gap:6px;padding:6px 10px 10px}.cp .bar .chip{height:28px;padding:0 10px 0 8px}
+.cp .send{margin-left:auto;width:28px;height:28px;border-radius:var(--r-sm);background:var(--accent);display:grid;place-items:center;color:#fff;position:relative;cursor:pointer;transition:transform var(--d-base) var(--spring-press),background var(--d-fast)}
+.cp .send:active{transform:scale(.92)}.cp .send.off{background:var(--surface-3);color:var(--ink-4)}
+.cp .send svg{position:absolute;width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;transition:opacity var(--d-base) var(--spring-swap),transform var(--d-base) var(--spring-swap)}
+.cp .send .st{opacity:0;transform:translateY(3px) scale(.8)}
+.cp .send.stop .st{opacity:1;transform:none}.cp .send.stop .up{opacity:0;transform:translateY(-3px) scale(.8)}
+.plus{transition:transform var(--d-base) var(--spring-swap)}.plus.open{transform:rotate(45deg)}
+.menu{position:absolute;bottom:38px;left:0;width:200px;background:var(--overlay);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-3);padding:6px;transform-origin:bottom left;animation:morph var(--d-enter) var(--spring-gentle)}
+@keyframes morph{from{opacity:0;transform:scale(.85);clip-path:inset(60% 60% 0 0 round 12px)}}
+.menu .it{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:var(--r-sm);font-size:12.5px;color:var(--ink-2)}
+.menu .it:hover{background:var(--surface-2);color:var(--ink)}.menu .it .kbd{margin-left:auto}
+.queue{display:flex;flex-direction:column;gap:4px}
+.qi{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;border:1px dashed var(--line-strong);border-radius:var(--r-md);font-size:12.5px;color:var(--ink-2)}
+.qi .n{font:600 10px/1 var(--font-mono);background:var(--surface-3);border-radius:999px;padding:3px 6px;color:var(--ink-3)}
+.qi .acts{margin-left:auto;display:flex;gap:2px}
+.sugg{display:flex;gap:6px;flex-wrap:wrap}
+.sugg span{height:26px;padding:0 10px;border-radius:var(--r-full);border:1px solid var(--line);background:var(--surface-1);font-size:12px;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px;animation:rise var(--d-base) var(--e-out) both;cursor:pointer}
+.sugg span:nth-child(2){animation-delay:60ms}.sugg span:nth-child(3){animation-delay:120ms}
+.sugg span:hover{border-color:var(--line-strong);color:var(--ink)}
+@keyframes rise{from{opacity:0;transform:translateY(4px)}}
+</style>
+<div class="wrap">
+  <div class="queue"><div class="qi"><span class="n">queued</span><span class="trunc">Also run the e2e suite for checkout after unit tests pass</span><span class="acts"><button class="btn icon xs ghost"><svg class="i" style="width:11px;height:11px"><use href="#edit"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:11px;height:11px"><use href="#x"/></svg></button></span></div></div>
+  <div>
+    <div class="meta"><span>⎇ feature/checkout-flow-v2</span><span class="ctx">context<i><b></b></i>34%</span><span>$0.31 this session</span><span class="grow"></span><span>⌘↩ to queue</span></div>
+    <div class="cp focus"><div class="chips"><span class="chip"><span class="mono" style="color:var(--accent-ink)">@</span>src/checkout<svg class="i" style="width:10px;height:10px;color:var(--ink-4)"><use href="#x"/></svg></span><span class="chip"><svg class="i" style="width:11px;height:11px"><use href="#image"/></svg>form.png<svg class="i" style="width:10px;height:10px;color:var(--ink-4)"><use href="#x"/></svg></span><span class="chip"><span class="mono" style="color:var(--accent-ink)">$</span>test-writer</span></div>
+      <textarea rows="2">Add GB postcode validation too, then run the focused tests and lint.</textarea>
+      <div class="bar" style="position:relative"><button class="btn icon plus open" id="plus"><svg class="i"><use href="#plus"/></svg></button>
+        <div class="menu"><div class="it"><svg class="i"><use href="#paperclip"/></svg>Attach file<span class="kbd">⌘U</span></div><div class="it"><svg class="i"><use href="#camera"/></svg>Screenshot browser</div><div class="it"><svg class="i"><use href="#at"/></svg>Mention file or symbol</div><div class="it"><svg class="i"><use href="#zap"/></svg>Use a skill<span class="kbd">$</span></div><div class="it"><svg class="i"><use href="#slash"/></svg>Commands<span class="kbd">/</span></div></div>
+        <span class="chip"><i class="mark claude" style="width:12px;height:12px;font-size:7px">C</i>Opus 4.6<svg class="i" style="width:10px;height:10px"><use href="#chevron-down"/></svg></span><span class="chip" style="color:var(--ink);border-color:var(--line-strong)">Plan<svg class="i" style="width:10px;height:10px"><use href="#chevron-down"/></svg></span><span class="chip"><svg class="i" style="width:11px;height:11px"><use href="#brain"/></svg>High</span>
+        <div class="send stop" id="send" onclick="this.classList.toggle('stop')"><svg class="up" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg><svg class="st" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg></div></div>
+    </div>
+  </div>
+  <div class="sugg"><span><svg class="i" style="width:11px;height:11px"><use href="#sparkle"/></svg>Run the e2e suite</span><span>Open the diff for review</span><span>Draft a commit message</span></div>
+  <div class="caps" style="margin-top:6px">Docked · spans the pane at the bottom</div><div class="cp" style="border-radius:0;border-left:0;border-right:0;border-bottom:0;border-top:1px solid var(--line);box-shadow:none;margin:0 -20px"><textarea rows="1" placeholder="Reply, or type / for commands and @ to mention files" style="min-height:40px;padding-left:32px"></textarea><div class="bar" style="padding-left:28px;padding-right:28px"><button class="btn icon plus"><svg class="i"><use href="#plus"/></svg></button><span class="chip"><i class="mark codex" style="width:12px;height:12px;font-size:7px">O</i>gpt-5.5 medium<svg class="i" style="width:10px;height:10px"><use href="#chevron-down"/></svg></span><span class="chip">Auto</span><div class="send off"><svg class="up" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></div></div></div>
+</div>
+<p class="ds-note">In the shell the composer is docked: full pane width, a top hairline, no card. The floating card above is the focused state with the accent ring. Context chips sit above the text; the toolbar holds the plus menu (rotates 45° and morphs the popover from its corner), model, mode and effort chips, then the send button which morphs to stop while a turn runs (click it). Queued messages stack above with a dashed border. Suggestions rise in with a 60 ms stagger.</p>

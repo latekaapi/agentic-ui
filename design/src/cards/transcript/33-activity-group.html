@@ -1,0 +1,35 @@
+<!-- ds: group="Transcript" name="Agent activity group" subtitle="Consecutive tool calls fold into one summary row with a step timeline; live state while working" width=760 height=560 theme=dark -->
+<style>
+.ag{border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-1);margin-bottom:16px;overflow:hidden}
+.ag .hd{display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;cursor:pointer;font-size:12.5px}
+.ag .hd .steps{display:flex;gap:3px;margin-left:2px}
+.ag .hd .steps i{width:14px;height:14px;border-radius:4px;background:var(--surface-3);display:grid;place-items:center;color:var(--ink-3)}
+.ag .hd .steps i svg{width:9px;height:9px}
+.ag .hd .steps i.ok{background:var(--success-soft);color:var(--success)}.ag .hd .steps i.run{background:var(--accent-soft);color:var(--accent-ink)}.ag .hd .steps i.err{background:var(--danger-soft);color:var(--danger)}
+.ag .hd .t{margin-left:auto;font:500 11px/1 var(--font-mono);color:var(--ink-3)}
+.ag .tl{border-top:1px solid var(--line);padding:6px 10px 8px 10px;display:flex;flex-direction:column}
+.st{display:grid;grid-template-columns:18px 1fr auto;gap:0 8px;align-items:center;min-height:30px;font-size:12.5px;position:relative}
+.st::before{content:"";position:absolute;left:8.5px;top:0;bottom:0;width:1px;background:var(--line)}
+.st:first-child::before{top:50%}.st:last-child::before{bottom:50%}
+.st .g{width:18px;height:18px;border-radius:50%;background:var(--surface-1);display:grid;place-items:center;position:relative;z-index:1}
+.st .g i{width:8px;height:8px;border-radius:50%;background:var(--success)}
+.st .g i.run{background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.st .g i.err{background:var(--danger)}
+.st .g i.pend{background:var(--surface-3);border:1px solid var(--line-strong)}
+.st .v{font-weight:500;margin-right:6px}.st .mono{color:var(--ink-2);font-size:12px}
+.st .r{font:500 11px/1 var(--font-mono);color:var(--ink-3)}
+.st .r.add{color:var(--success)}
+.st.pend{color:var(--ink-3)}
+</style>
+<div class="ag"><div class="hd"><i class="spinner"></i><span class="shimmer" style="font-weight:500">Running tests</span><span class="steps"><i class="ok"><svg class="i" style="stroke-width:3"><use href="#check"/></svg></i><i class="ok"><svg class="i" style="stroke-width:3"><use href="#check"/></svg></i><i class="ok"><svg class="i" style="stroke-width:3"><use href="#check"/></svg></i><i class="run"><svg class="i" style="stroke-width:3"><use href="#terminal"/></svg></i><i></i></span><span class="t">38 s</span><svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"/></svg></div>
+  <div class="tl">
+    <div class="st"><span class="g"><i></i></span><span><span class="v">Searched</span><span class="mono">validateAddress in src/checkout</span></span><span class="r">2 hits</span></div>
+    <div class="st"><span class="g"><i></i></span><span><span class="v">Read</span><span class="mono">src/checkout/validators.ts</span></span><span class="r">180 lines</span></div>
+    <div class="st"><span class="g"><i></i></span><span><span class="v">Edited</span><span class="mono">src/checkout/validators.ts</span></span><span class="r add">+8 −3</span></div>
+    <div class="st"><span class="g"><i class="run"></i></span><span><span class="v">Running</span><span class="mono">pnpm vitest run src/checkout</span></span><span class="r">12 s</span></div>
+    <div class="st pend"><span class="g"><i class="pend"></i></span><span><span class="v">Lint</span><span class="mono">eslint on touched files</span></span><span class="r">queued</span></div>
+  </div>
+</div>
+<div class="ag"><div class="hd"><span class="glyph ok"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#check"/></svg></span><span style="font-weight:500">Ran 3 commands</span><span class="subtle">· read 2 files · edited 1 file</span><span class="steps"><i class="ok"><svg class="i" style="stroke-width:3"><use href="#check"/></svg></i><i class="ok"><svg class="i" style="stroke-width:3"><use href="#check"/></svg></i><i class="ok"><svg class="i" style="stroke-width:3"><use href="#check"/></svg></i><i class="ok"><svg class="i" style="stroke-width:3"><use href="#check"/></svg></i><i class="ok"><svg class="i" style="stroke-width:3"><use href="#check"/></svg></i><i class="ok"><svg class="i" style="stroke-width:3"><use href="#check"/></svg></i></span><span class="t">1 m 04 s</span><svg class="chev"><use href="#chevron"/></svg></div></div>
+<div class="ag"><div class="hd"><span class="glyph err"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#x"/></svg></span><span style="font-weight:500">Tests failed</span><span class="subtle">· 2 of 27 · ran 4 commands</span><span class="steps"><i class="ok"><svg class="i" style="stroke-width:3"><use href="#check"/></svg></i><i class="ok"><svg class="i" style="stroke-width:3"><use href="#check"/></svg></i><i class="err"><svg class="i" style="stroke-width:3"><use href="#x"/></svg></i><i class="ok"><svg class="i" style="stroke-width:3"><use href="#check"/></svg></i></span><span class="t">52 s</span><svg class="chev"><use href="#chevron"/></svg></div></div>
+<p class="ds-note">The header shows a shimmering status while working and a plain count when done; the row of step glyphs is the whole run at a glance. Expanded, each step is one line with verb, mono target and a right-aligned result. Steps pulse in accent while running and never show raw output here, that lives in the tool card.</p>

@@ -1,0 +1,62 @@
+<!-- ds: group="Workbench" name="Browser and annotator" subtitle="Tabs and nav; annotate mode pins numbered comments on elements, lists them beside the page, and sends the batch with metadata and a screenshot to the agent" width=980 height=640 theme=dark -->
+<style>
+body.ds{padding:12px}
+.br{height:610px;border:1px solid var(--line-strong);border-radius:12px;overflow:hidden;display:grid;grid-template-columns:1fr 272px;grid-template-rows:34px 38px 1fr;background:var(--surface-1)}
+.tabs{grid-column:1/3;display:flex;align-items:center;gap:2px;padding:0 6px;border-bottom:1px solid var(--line)}
+.tab{display:flex;align-items:center;gap:7px;height:34px;padding:0 12px;font-size:12px;color:var(--ink-3);position:relative}
+.tab.on{color:var(--ink)}.tab.on::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;background:var(--ink);border-radius:2px 2px 0 0}
+.nav{grid-column:1/3;display:flex;align-items:center;gap:4px;padding:0 8px;border-bottom:1px solid var(--line);position:relative}
+.url{flex:1;display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;border-radius:var(--r-sm);background:var(--surface-2);font:12px var(--font-mono);color:var(--ink-2)}
+.mode{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:var(--r-sm);border:1px solid var(--ink);background:var(--ink);color:var(--bg);font-size:12px;font-weight:500}
+.page{position:relative;background:#fff;color:#1a1c22;padding:30px 36px;font-family:var(--font-ui);overflow:hidden;cursor:crosshair}
+.page h1{font-size:24px;margin:0 0 6px;letter-spacing:-.01em}.page p{color:#4d5262;margin:0 0 18px;max-width:50ch;font-size:13px}
+.cards{display:flex;gap:14px}
+.pc{width:150px;border:1px solid #e2e5eb;border-radius:10px;padding:14px;font-size:12px}
+.pc b{display:block;font-size:14px;margin-bottom:6px}.pc .cta{margin-top:10px;display:inline-block;padding:6px 10px;border-radius:6px;background:#565CC4;color:#fff;font-weight:500}
+.hover{position:absolute;left:36px;top:56px;width:150px;height:32px;border:1px solid rgba(86,92,196,.6);border-radius:4px;background:rgba(86,92,196,.06);pointer-events:none}
+.hover .lbl{position:absolute;left:-1px;top:-20px;background:#565CC4;color:#fff;font:500 10px var(--font-mono);padding:2px 6px;border-radius:4px 4px 0 0;white-space:nowrap}
+.pin{position:absolute;width:20px;height:20px;border-radius:50% 50% 50% 4px;background:var(--accent);color:#fff;font:600 11px/20px var(--font-ui);text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.25);transform:translate(-4px,-22px)}
+.pin.on{outline:2px solid #fff;outline-offset:1px}
+.sel{position:absolute;border:1.5px solid var(--accent);border-radius:6px;pointer-events:none}
+.pop{position:absolute;left:250px;top:140px;width:236px;background:var(--overlay);color:var(--ink);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-3);padding:10px;font-size:12px;animation:in var(--d-enter) var(--e-out)}
+@keyframes in{from{opacity:0;transform:translateY(4px)}}
+.pop .el{font:11px var(--font-mono);color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px}
+.pop textarea{width:100%;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);padding:6px 8px;font:12px/1.4 var(--font-ui);color:var(--ink);resize:none;outline:0}
+.pop .acts{display:flex;gap:6px;margin-top:8px}.pop .acts .btn:last-child{margin-left:auto}
+.agent{position:absolute;left:36px;bottom:16px;display:flex;align-items:center;gap:8px;background:var(--overlay);color:var(--ink);border:1px solid var(--line-strong);border-radius:999px;padding:5px 12px 5px 6px;font-size:12px;box-shadow:var(--shadow-2)}
+.side{border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:var(--surface-1)}
+.side .hd{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-bottom:1px solid var(--line);font-weight:600;font-size:12.5px}
+.an{display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px;cursor:pointer}
+.an:hover{background:var(--surface-2)}.an.on{background:var(--surface-2)}
+.an .n{width:18px;height:18px;border-radius:50%;background:var(--accent);color:#fff;font:600 10px/18px var(--font-ui);text-align:center;flex:none}
+.an .n.pend{background:var(--surface-3);color:var(--ink-3);border:1px dashed var(--ink-4)}
+.an .el{font:10.5px var(--font-mono);color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.an p{margin:2px 0 0;color:var(--ink);line-height:1.4}
+.side .meta{padding:10px 12px;font-size:11px;color:var(--ink-3);line-height:1.6;border-bottom:1px solid var(--line)}
+.side .shot{margin:10px 12px 0;height:64px;border-radius:6px;border:1px solid var(--line);background:linear-gradient(135deg,#fff,#eef1f5);position:relative;overflow:hidden}
+.side .shot i{position:absolute;width:12px;height:12px;border-radius:50% 50% 50% 2px;background:var(--accent)}
+.side .actions{margin-top:auto}
+</style>
+<div class="br">
+  <div class="tabs"><div class="tab"><svg class="i" style="width:12px;height:12px"><use href="#globe"/></svg>localhost:3000/checkout</div><div class="tab on"><svg class="i" style="width:12px;height:12px"><use href="#globe"/></svg>localhost:3000/pricing<svg class="i" style="width:11px;height:11px;color:var(--ink-4)"><use href="#x"/></svg></div><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#plus"/></svg></button><span class="grow"></span><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#layout"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#link"/></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#x"/></svg></button></div>
+  <div class="nav"><button class="btn icon sm ghost"><svg class="i"><use href="#arrow-left"/></svg></button><button class="btn icon sm ghost" style="opacity:.4"><svg class="i"><use href="#arrow-right"/></svg></button><button class="btn icon sm ghost"><svg class="i"><use href="#refresh"/></svg></button><div class="url"><svg class="i" style="width:11px;height:11px;color:var(--success)"><use href="#shield"/></svg>localhost:3000/pricing<span class="grow"></span><span class="kbd">⌘L</span></div><span class="mode"><svg class="i" style="width:12px;height:12px"><use href="#edit"/></svg>Annotate<span class="kbd" style="background:transparent;border-color:rgba(255,255,255,.3);color:inherit">esc</span></span><button class="btn icon sm ghost"><svg class="i"><use href="#camera"/></svg></button><button class="btn icon sm ghost"><svg class="i"><use href="#terminal"/></svg></button></div>
+  <div class="page">
+    <h1>Simple pricing</h1><p>Start free, upgrade when your team needs it. All plans include unlimited worktrees.</p>
+    <div class="cards"><div class="pc"><b>Starter</b>$0 / month<br>3 agents, local only<span class="cta">Try free</span></div><div class="pc"><b>Team</b>$24 / seat<br>SSH + cloud VMs<span class="cta" style="background:#eef1f5;color:#1a1c22">Choose</span></div><div class="pc"><b>Enterprise</b>Custom<br>SSO, audit, support<span class="cta" style="background:#eef1f5;color:#1a1c22">Contact</span></div></div>
+    <div class="hover" style="left:36px;top:70px;width:392px;height:34px"><span class="lbl">p · 392 × 34</span></div>
+    <span class="pin" style="left:222px;top:30px">1</span>
+    <div class="sel" style="left:36px;top:126px;width:150px;height:118px"></div><span class="pin on" style="left:186px;top:126px">2</span>
+    <span class="pin" style="left:456px;top:126px">3</span>
+    <div class="pop"><div class="el">div.card.starter · 150 × 118 · pricing.tsx:42</div><textarea rows="2">Make the Starter card stand out; it is the plan most people pick.</textarea><div class="acts"><button class="btn xs ghost">Cancel</button><button class="btn xs primary">Save note</button></div></div>
+    <div class="agent"><i class="mark claude" style="width:14px;height:14px;font-size:8px">C</i><span class="shimmer" style="font-weight:500">Clicking “Try free”</span><span class="subtle">· verifying signup flow</span></div>
+  </div>
+  <aside class="side">
+    <div class="hd"><svg class="i"><use href="#edit"/></svg>Annotations<span class="subtle" style="font-weight:400">· 3</span><span class="grow"></span><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#x"/></svg></button></div>
+    <div class="an"><span class="n">1</span><div><div class="el">h1 · “Simple pricing”</div><p>Headline is fine; subtitle needs the free-trial length.</p></div></div>
+    <div class="an on"><span class="n">2</span><div><div class="el">div.card.starter</div><p>Make the Starter card stand out; it is the plan most people pick.</p></div></div>
+    <div class="an"><span class="n pend">3</span><div><div class="el">div.card.enterprise</div><p style="color:var(--ink-3)">Typing…</p></div></div>
+    <div class="shot"><i style="left:20%;top:30%"></i><i style="left:38%;top:55%"></i><i style="left:74%;top:55%"></i></div>
+    <div class="meta">Sent with each note: selector, bounding box, outer HTML, computed styles, source file when a dev server is mapped, page URL, and a screenshot with the pins.</div>
+    <div class="actions tint"><span class="spacer"></span><button class="btn sm ghost">Clear</button><button class="btn sm primary">Send to <i class="mark claude" style="width:12px;height:12px;font-size:7px;margin:0 2px">C</i>Claude Code</button></div>
+  </aside>
+</div>
