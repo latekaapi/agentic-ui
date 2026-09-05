@@ -31,6 +31,7 @@ The design is the contract. Three artefacts define it, in this order of authorit
 - Animated states (pulse rings, spinners, shimmer) are compared at their resting frame; the motion itself is checked by hand in the gallery.
 - No element rotation: the drag ghost tab (card 11) is drawn straight instead of at −2°.
 - Inline code inside prose runs at the body size (13.5 px) rather than 12 px, and without the 1 × 5 px padding: a `TextRun` cannot change size, and a run background hugs the glyphs. Bullet lists use an 18 px indent as designed. The streaming caret is not drawn inline yet (gpui text hosts no inline element); the composer phase will measure the last line.
+- Syntax colours in code blocks come from a small lexer (keywords, calls, strings, numbers, comments); tree-sitter grammars are optional features of gpui-kit and not enabled yet.
 - Tabs in a strip keep their natural width (the card lets `Terminal 1` wrap onto two lines when the strip is short of room); a strip short of room clips at its edge. Shrinking tabs with truncated labels made taffy collapse the labels entirely and is left for a later pass.
 - CSS collapses the vertical margins between siblings; gpui does not. Rows carry a top margin only (`session_row`), which puts the last row 2 px closer to its container's bottom edge than the CSS.
 - Parity renders open at the display's top-left corner so the pointer does not hover anything; keep the pointer away from that corner while `scripts/parity.sh` runs.
@@ -56,11 +57,11 @@ The design is the contract. Three artefacts define it, in this order of authorit
 | 31 Turns | transcript::UserTurn, AssistantTurn, prose | transcript/turns | a70ab8a · 1.7 % (inline code size, caret) |
 | 32 Thinking | transcript::ThinkingBlock | transcript/thinking | a70ab8a · 1.1 % |
 | 33 Activity group | transcript::ActivityGroup | transcript/activity | a70ab8a · 1.0 % |
-| 34 Tool cards | transcript::ToolCard (+ bodies) | transcript/tool-cards | |
-| 35 Approval | transcript::ApprovalCard | transcript/approval | |
-| 36 Question, plan, todo | transcript::QuestionCard, PlanCard, TodoList | transcript/question-plan-todo | |
-| 37 Code and diff blocks | transcript::CodeBlock, DiffBlock, Note | transcript/code-diff | |
-| 38 Summary, error, status | transcript::SummaryCard, ErrorCard, StatusRow, NeedsYouBanner, JumpPill | transcript/summary-status | |
+| 34 Tool cards | transcript::ToolCard (+ bodies) | transcript/tool-cards | cc4d03f · 1.6 % (code indentation) |
+| 35 Approval | transcript::ApprovalCard | transcript/approval | cc4d03f · 1.1 % (26 px tile kept) |
+| 36 Question, plan, todo | transcript::QuestionCard, PlanCard, TodoList | transcript/question-plan-todo | cc4d03f · 1.0 % |
+| 37 Code and diff blocks | transcript::CodeBlock, DiffBlock, DiffNote | transcript/code-diff | cc4d03f · 2.1 % (diff keeps code indentation the HTML collapsed) |
+| 38 Summary, error, status | transcript::SummaryCard, ErrorCard, StatusRow, NeedsYouBanner, JumpPill | transcript/summary-status | cc4d03f · 0.9 % (design `.sm` collision fixed) |
 | 40 Composer | composer::Composer (docked + floating), PlusMenu, SendStop | composer/composer | |
 | 41 Slash and mentions | composer::CommandMenu, MentionPicker | composer/menus | |
 | 42 Attachments | composer::AttachmentRow, DropOverlay | composer/attachments | |
