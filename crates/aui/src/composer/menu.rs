@@ -14,6 +14,8 @@ use crate::util::{interaction_flags, TrackInteraction};
 /// bar, which has 10 px of bottom padding; the menu anchors to the `+`
 /// button, so 28 px above it.
 const MENU_BOTTOM: f32 = 28.0;
+/// … and `left:0` from the bar, whose left padding is 10 px.
+const MENU_LEFT: f32 = -10.0;
 const MENU_W: f32 = 200.0;
 const MENU_PAD: f32 = 6.0;
 /// `.menu .it{gap:8px;height:30px;padding:0 8px;font-size:12.5px}`.
@@ -93,7 +95,7 @@ impl RenderOnce for PlusMenu {
             .id(id.clone())
             .absolute()
             .bottom(px(MENU_BOTTOM))
-            .left(px(0.0))
+            .left(px(MENU_LEFT))
             .w(px(MENU_W * scale_now))
             .p(px(MENU_PAD))
             .rounded(px(scale::R_LG))
