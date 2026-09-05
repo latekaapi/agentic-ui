@@ -191,6 +191,16 @@ pub static ENTRIES: &[Entry] = &[
         theme: CardTheme::Dark,
         build: crate::cards::markers::build,
     },
+    Entry {
+        id: "transcript/turns",
+        group: "Transcript",
+        title: "User and assistant turns",
+        subtitle: "User bubble with attachments and mentions; assistant turn streaming with reveal, hover toolbar and footer meta",
+        width: 760.0,
+        height: 560.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::turns::build,
+    },
 ];
 
 /// Looks an entry up by id.

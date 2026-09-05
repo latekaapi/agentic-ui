@@ -82,6 +82,9 @@ pub struct Attachment {
     pub kind: AttachmentKind,
     /// Size on disk in bytes; `None` while it is still unknown.
     pub size_bytes: Option<u64>,
+    /// One-line detail shown beside the name on the chip, e.g. `"180 lines"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<String>,
     /// Upload progress for the chip's overlay.
     pub state: UploadState,
 }
