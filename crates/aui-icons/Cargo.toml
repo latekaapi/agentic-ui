@@ -1,0 +1,13 @@
+[package]
+name = "aui-icons"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Icon glyphs, provider marks and file-type icon mapping for the Agentic UI library"
+
+[dependencies]
+gpui.workspace = true
+anyhow.workspace = true
+
+[build-dependencies]
+regex = "1"

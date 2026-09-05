@@ -20,6 +20,16 @@ The design is the contract. Three artefacts define it, in this order of authorit
 - Class-name-style collisions do not exist in Rust, but the equivalent does: shared style helpers must be named for their purpose (a file-type icon helper must not be reused for a footer).
 - Every component takes data in and emits intents out; no I/O inside `aui`.
 
+## Tooling
+- `scripts/parity.sh <entry-id> <reference-stem>` builds the gallery, renders the entry, writes `target/parity/<stem>.png` and `<stem>-diff.png`, and prints the ImageMagick RMSE and the count of pixels that differ at 6 % fuzz. Card 01 sits at 0.7 % differing pixels; anything above ~2 % on a static card needs a look.
+- `aui-gallery --screenshot-window <out.png>` captures the whole gallery window (chrome included) for shell reviews.
+- References are re-rendered with headless Chrome when a design file changes: `python3 design/build.py`, then `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu --hide-scrollbars --window-size=<w>,<h> --virtual-time-budget=5000 --screenshot=design/reference/cards/<stem>.png "file://$PWD/design/dist/components/<group>/<stem>.html"`.
+
+## Known, accepted gaps (gpui cannot express these today)
+- Caps labels lose their `.08em` letter-spacing: gpui has no letter-spacing text style.
+- SVG `<text>` is not rasterised, so the `ft-ts` / `ft-tsx` glyph labels do not render until the sprite carries them as paths.
+- Animated states (pulse rings, spinners, shimmer) are compared at their resting frame; the motion itself is checked by hand in the gallery.
+
 ## Checklist (card → component → gallery entry → parity commit)
 | Card | Component(s) | Gallery entry | Parity |
 |---|---|---|---|

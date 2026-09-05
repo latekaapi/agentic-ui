@@ -1,0 +1,11 @@
+[package]
+name = "aui-motion"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Motion engine for the Agentic UI library: the four design springs, tweens, presence, collapse, stagger, shimmer, icon morph, number ticker, stream reveal, pulse, shake and check-draw, all reduced-motion aware."
+
+[dependencies]
+gpui.workspace = true
+gpui-kit.workspace = true
+aui-tokens.workspace = true

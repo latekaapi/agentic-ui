@@ -1,0 +1,10 @@
+[package]
+name = "aui-terminal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PTY-backed block terminal and TUI mode rendered as a gpui element."
+
+[dependencies]
+gpui.workspace = true

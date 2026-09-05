@@ -1,0 +1,14 @@
+[package]
+name = "aui-webview"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Embedded browser pane (wry/WKWebView) with tabs, a JS bridge and the annotator."
+
+[dependencies]
+gpui.workspace = true
+# The wry integration is switched on when the pane is actually built (phase 3).
+# It pulls in a native WKWebView, so it stays out of the dependency graph until
+# then to keep `cargo check` on the rest of the workspace fast and portable.
+# gpui-wry = "0.6.0"

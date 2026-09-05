@@ -47,7 +47,7 @@
   --ansi-black:#1C1E26;--ansi-red:#C93B34;--ansi-green:#1E9C5D;--ansi-yellow:#B8770E;--ansi-blue:#2C6FD1;--ansi-magenta:#9A4BC5;--ansi-cyan:#1A8E9E;--ansi-white:#C9CED8;
   --ansi-bblack:#7B818F;--ansi-bred:#E05248;--ansi-bgreen:#27B26E;--ansi-byellow:#D28E1C;--ansi-bblue:#4C86E6;--ansi-bmagenta:#B166DB;--ansi-bcyan:#22A6B8;--ansi-bwhite:#F5F6F9;
 }
-:root[data-theme="dark"]{
+:root[data-theme="dark"],[data-theme="dark"]{
   --bg:#121317;
   --surface-1:#17181D;--surface-2:#1C1E24;--surface-3:#23262D;--overlay:#262931;
   --line:#262930;--line-strong:#353945;
@@ -66,6 +66,31 @@
   --term-bg:#0F1014;--term-fg:#DDE0E6;--term-dim:#6E7481;--term-cursor:#8489E0;
   --ansi-black:#23262D;--ansi-red:#F16A62;--ansi-green:#4CC38A;--ansi-yellow:#F0B44C;--ansi-blue:#6EA6F5;--ansi-magenta:#C08BF0;--ansi-cyan:#5FCAD6;--ansi-white:#C9CED8;
   --ansi-bblack:#4E535E;--ansi-bred:#FF8B84;--ansi-bgreen:#6FDCA6;--ansi-byellow:#F7C86F;--ansi-bblue:#8FBCFF;--ansi-bmagenta:#D6A9FF;--ansi-bcyan:#83E3EE;--ansi-bwhite:#F3F4F8;
+}
+/* element-level overrides so a card can show both palettes side by side */
+[data-theme="light"]{
+  /* ---- light palette (assistant default) ---- */
+  --bg:#F5F6F9;
+  --surface-1:#FFFFFF;--surface-2:#EFF1F5;--surface-3:#E6E9EF;--overlay:#FFFFFF;
+  --line:#E2E5EB;--line-strong:#C9CED8;
+  --ink:#191B21;--ink-2:#4D5262;--ink-3:#7B818F;--ink-4:#A4A9B5;
+  --accent:#565CC4;--accent-strong:#474DB3;--accent-ink:#414799;--accent-soft:rgba(86,92,196,.09);--accent-ring:rgba(86,92,196,.30);
+  --success:#2E9463;--success-soft:rgba(46,148,99,.10);
+  --warning:#B57A22;--warning-soft:rgba(181,122,34,.10);
+  --danger:#C8483F;--danger-soft:rgba(200,72,63,.09);
+  --info:#3479B8;--info-soft:rgba(52,121,184,.09);
+  --diff-add:rgba(30,156,93,.14);--diff-add-strong:rgba(30,156,93,.32);
+  --diff-del:rgba(212,63,56,.12);--diff-del-strong:rgba(212,63,56,.30);
+  --selection:rgba(80,87,214,.22);
+  --shadow-1:0 1px 2px rgba(20,22,30,.06);
+  --shadow-2:0 4px 14px rgba(20,22,30,.10),0 1px 2px rgba(20,22,30,.06);
+  --shadow-3:0 16px 40px rgba(20,22,30,.16),0 2px 6px rgba(20,22,30,.08);
+  /* agent states */
+  --st-running:var(--accent);--st-waiting:var(--warning);--st-done:var(--success);--st-failed:var(--danger);--st-idle:var(--ink-4);
+  /* terminal */
+  --term-bg:#FBFBFD;--term-fg:#1C1E26;--term-dim:#7B818F;--term-cursor:#5057D6;
+  --ansi-black:#1C1E26;--ansi-red:#C93B34;--ansi-green:#1E9C5D;--ansi-yellow:#B8770E;--ansi-blue:#2C6FD1;--ansi-magenta:#9A4BC5;--ansi-cyan:#1A8E9E;--ansi-white:#C9CED8;
+  --ansi-bblack:#7B818F;--ansi-bred:#E05248;--ansi-bgreen:#27B26E;--ansi-byellow:#D28E1C;--ansi-bblue:#4C86E6;--ansi-bmagenta:#B166DB;--ansi-bcyan:#22A6B8;--ansi-bwhite:#F5F6F9;
 }
 @media (prefers-reduced-motion: reduce){:root{--d-fast:0ms;--d-base:0ms;--d-enter:0ms;--d-exit:0ms;--d-slow:0ms}}
 *,*::before,*::after{box-sizing:border-box}

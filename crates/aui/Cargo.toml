@@ -1,0 +1,15 @@
+[package]
+name = "aui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Agentic UI component library: shell, sidebar, transcript, composer, workbench, feedback and overlay components on gpui + gpui-kit, styled by aui-tokens and animated by aui-motion."
+
+[dependencies]
+gpui.workspace = true
+gpui-kit.workspace = true
+aui-tokens.workspace = true
+aui-icons.workspace = true
+aui-motion.workspace = true
+aui-protocol.workspace = true
+anyhow.workspace = true

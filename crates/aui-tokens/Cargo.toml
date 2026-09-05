@@ -1,0 +1,17 @@
+[package]
+name = "aui-tokens"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Design tokens for the Agentic UI library: colour palettes, type scale, spacing, radii, elevation, motion constants, bundled Geist fonts and the generated gpui-kit theme."
+
+[dependencies]
+gpui.workspace = true
+gpui-kit.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+rust-embed.workspace = true
+
+[build-dependencies]
+serde_json.workspace = true
