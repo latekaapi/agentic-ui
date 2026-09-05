@@ -118,7 +118,13 @@ fn main() {
             (Some(_), Some(e)) => size(px(e.width), px(e.height)),
             _ => size(px(1280.0), px(820.0)),
         };
-        let bounds = Bounds::centered(None, window_size, cx);
+        // Parity renders sit at the display's top-left corner, away from the
+        // pointer, so no hover state leaks into the capture.
+        let bounds = if screenshot.is_some() {
+            Bounds::new(point(px(0.0), px(0.0)), window_size)
+        } else {
+            Bounds::centered(None, window_size, cx)
+        };
         let options = if screenshot.is_some() {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),

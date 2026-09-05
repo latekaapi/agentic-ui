@@ -42,6 +42,12 @@ impl Tween {
         self
     }
 
+    /// Swaps the easing (a base-length slide that eases out).
+    pub const fn with_easing(mut self, easing: Easing) -> Self {
+        self.easing = easing;
+        self
+    }
+
     /// The equivalent gpui-base policy.
     pub fn policy(self) -> Transition {
         let easing = self.easing;

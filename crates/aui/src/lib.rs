@@ -38,6 +38,7 @@ pub mod nav;
 pub mod overlay;
 pub mod shell;
 pub mod transcript;
+pub mod util;
 pub mod workbench;
 
 pub use aui_icons as icons;
