@@ -389,9 +389,9 @@ impl RenderOnce for GitChanges {
     }
 }
 
-/// One run of the PR description. The card's description field is a flex row,
-/// so each run of the markup lays out as its own column — plain runs in ink-2,
-/// inline code in mono ink.
+/// One run of the PR description: prose in ink-2 or an identifier in the mono
+/// face at the field's ink. Runs flow together and wrap; `\n\n` inside a
+/// text run starts a new paragraph.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PrDescription {
     /// Prose. A `\n` starts a new line, an empty line stays blank.
@@ -495,31 +495,6 @@ impl PrForm {
     }
 }
 
-/// Geist Mono is fixed-pitch at 0.6 em, so a mono run can state the minimum
-/// width CSS would give it: the longest stretch with no break opportunity
-/// (both wrappers may break before any non-alphanumeric character). gpui
-/// measures a text element's min-content as its max-content, so without this
-/// floor a mono run in the description row would either refuse to shrink or
-/// shrink through the middle of a word.
-const MONO_ADVANCE: f32 = 0.6;
-/// The floor carries a 2 px guard: the run is wrapped against the width taffy
-/// measured it at, which lands a hair under the resolved column.
-const MONO_MIN_SLACK: f32 = 2.0;
-
-/// The width of the longest unbreakable stretch of `text` in the mono face.
-fn mono_min_width(text: &str, size: f32) -> f32 {
-    let mut longest = 0usize;
-    let mut current = 0usize;
-    for c in text.chars() {
-        if c.is_ascii_alphanumeric() {
-            current += 1;
-        } else {
-            longest = longest.max(current);
-            current = 1;
-        }
-    }
-    longest.max(current) as f32 * size * MONO_ADVANCE + MONO_MIN_SLACK
-}
 
 /// `.lbl`: a caps label over a field.
 fn field_label(label: &'static str, p: &Palette) -> impl IntoElement {
@@ -584,32 +559,45 @@ impl RenderOnce for PrForm {
             .ui(FIELD_TEXT)
             .child(div().min_w(px(0.0)).truncate().child(self.title.clone()));
 
-        let mut description = field(h_flex().items_start().py(px(AREA_PAD_Y)).px(px(FIELD_PAD_X)).gap(px(FIELD_GAP)))
+        // Paragraphs of mixed runs: split text runs on blank lines, keep mono
+        // runs inline in the mono face at the field's ink.
+        let mono_font = gpui::font(scale::FONT_MONO);
+        let ui_font = gpui::font(scale::FONT_UI);
+        let mut paragraphs: Vec<(String, Vec<gpui::TextRun>)> = vec![(String::new(), Vec::new())];
+        for run in &self.description {
+            match run {
+                PrDescription::Mono(text) => {
+                    let (t, runs) = paragraphs.last_mut().expect("one paragraph");
+                    t.push_str(text);
+                    runs.push(gpui::TextRun { len: text.len(), font: mono_font.clone(), color: p.ink, background_color: None, underline: None, strikethrough: None });
+                }
+                PrDescription::Text(text) => {
+                    for (n, part) in text.split("\n\n").enumerate() {
+                        if n > 0 {
+                            paragraphs.push((String::new(), Vec::new()));
+                        }
+                        if part.is_empty() {
+                            continue;
+                        }
+                        let (t, runs) = paragraphs.last_mut().expect("one paragraph");
+                        t.push_str(part);
+                        runs.push(gpui::TextRun { len: part.len(), font: ui_font.clone(), color: p.ink_2, background_color: None, underline: None, strikethrough: None });
+                    }
+                }
+            }
+        }
+        let mut description = field(v_flex().py(px(AREA_PAD_Y)).px(px(FIELD_PAD_X)))
             .text_color(p.ink_2)
             .font_family(scale::FONT_UI)
             .text_px(AREA_TEXT)
             .line_height(gpui::relative(AREA_LINE));
-        for run in &self.description {
-            description = description.child(match run {
-                PrDescription::Mono(text) => div()
-                    .min_w(px(mono_min_width(text, FIELD_MONO_TEXT)))
-                    .font_family(scale::FONT_MONO)
-                    .text_px(FIELD_MONO_TEXT)
-                    .text_color(p.ink)
-                    .child(text.clone())
-                    .into_any_element(),
-                PrDescription::Text(text) => {
-                    let mut column = v_flex().min_w(px(0.0));
-                    for line in text.split('\n') {
-                        column = column.child(if line.is_empty() {
-                            div().flex_none().h(px(AREA_TEXT * AREA_LINE))
-                        } else {
-                            div().w_full().child(SharedString::from(line.to_string()))
-                        });
-                    }
-                    column.into_any_element()
-                }
-            });
+        let count = paragraphs.len();
+        for (n, (text, runs)) in paragraphs.into_iter().enumerate() {
+            if text.is_empty() {
+                continue;
+            }
+            // A blank line between paragraphs, as the `<br><br>` in the card.
+            description = description.child(div().w_full().when(n + 1 < count, |d| d.mb(px(AREA_TEXT * AREA_LINE))).child(gpui::StyledText::new(text).with_runs(runs)));
         }
 
         let mut checks = v_flex()
