@@ -1,0 +1,56 @@
+{
+  "durations_ms": {
+    "fast": 120,
+    "base": 180,
+    "enter": 220,
+    "exit": 160,
+    "slow": 280
+  },
+  "easings": {
+    "out": [
+      0.16,
+      1,
+      0.3,
+      1
+    ],
+    "inout": [
+      0.65,
+      0,
+      0.35,
+      1
+    ],
+    "std": [
+      0.2,
+      0,
+      0,
+      1
+    ]
+  },
+  "springs": {
+    "press": {
+      "stiffness": 500,
+      "damping": 30,
+      "mass": 0.6,
+      "use": "buttons, chips, rows on press"
+    },
+    "swap": {
+      "stiffness": 460,
+      "damping": 30,
+      "mass": 0.55,
+      "use": "icon morph, chevrons, tab indicator, checkbox"
+    },
+    "layout": {
+      "stiffness": 360,
+      "damping": 32,
+      "mass": 1,
+      "use": "collapse/expand, panel width, card resize"
+    },
+    "gentle": {
+      "stiffness": 200,
+      "damping": 26,
+      "mass": 1,
+      "use": "popover morph, drop-zone overlay"
+    }
+  },
+  "reduced_motion": "all durations 0, springs resolve instantly"
+}
