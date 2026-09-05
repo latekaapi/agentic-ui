@@ -30,6 +30,7 @@ The design is the contract. Three artefacts define it, in this order of authorit
 - SVG `<text>` is not rasterised, so the `ft-ts` / `ft-tsx` glyph labels do not render until the sprite carries them as paths.
 - Animated states (pulse rings, spinners, shimmer) are compared at their resting frame; the motion itself is checked by hand in the gallery.
 - No element rotation: the drag ghost tab (card 11) is drawn straight instead of at −2°.
+- Inline code inside prose runs at the body size (13.5 px) rather than 12 px, and without the 1 × 5 px padding: a `TextRun` cannot change size, and a run background hugs the glyphs. Bullet lists use an 18 px indent as designed. The streaming caret is not drawn inline yet (gpui text hosts no inline element); the composer phase will measure the last line.
 - Tabs in a strip keep their natural width (the card lets `Terminal 1` wrap onto two lines when the strip is short of room); a strip short of room clips at its edge. Shrinking tabs with truncated labels made taffy collapse the labels entirely and is left for a later pass.
 - CSS collapses the vertical margins between siblings; gpui does not. Rows carry a top margin only (`session_row`), which puts the last row 2 px closer to its container's bottom edge than the CSS.
 - Parity renders open at the display's top-left corner so the pointer does not hover anything; keep the pointer away from that corner while `scripts/parity.sh` runs.
@@ -45,16 +46,16 @@ The design is the contract. Three artefacts define it, in this order of authorit
 | 05 Icons and marks | aui-icons | foundations/icons | 0b8a535 · 1.7 % (ts/tsx text) |
 | 10 App shell | shell::AppShell, HeaderCells, DockedComposer | shell/app-shell | e8ceba3 · 1.0 % |
 | 11 Panel chrome | shell::PanelHeader, TabStrip, DropZones | shell/panel-chrome | e8ceba3 · 0.7 % (ghost rotation) |
-| 12 Command palette | overlay::CommandPalette | shell/command-palette | |
-| 13 Toasts and banners | feedback::ToastStack, Banner | shell/toasts | |
+| 12 Command palette | overlay::CommandPalette | shell/command-palette | a70ab8a · 0.4 % |
+| 13 Toasts and banners | feedback::ToastStack, Banner | shell/toasts | a70ab8a · 1.1 % |
 | 20 Worktree rows | nav::SessionRow | sidebar/rows | e8ceba3 · 1.4 % |
 | 21 Sidebar | nav::Sidebar, Rail | sidebar/sidebar | e8ceba3 · 1.0 % |
 | 22 Assistant sidebar | nav::RoleSections | sidebar/assistant | e8ceba3 · 1.6 % (tracking) |
 | 23 Sidebar views | nav::SidebarView (status/project/date), ViewMenu | sidebar/views | e8ceba3 · 1.0 % |
-| 30 Header identity and markers | shell::HeaderIdentity, transcript::Marker | transcript/markers | |
-| 31 Turns | transcript::UserTurn, AssistantTurn, StreamText | transcript/turns | |
-| 32 Thinking | transcript::ThinkingBlock | transcript/thinking | |
-| 33 Activity group | transcript::ActivityGroup | transcript/activity | |
+| 30 Header identity and markers | shell::CentreHeader, transcript::MarkerRow | transcript/markers | a70ab8a · 1.0 % |
+| 31 Turns | transcript::UserTurn, AssistantTurn, prose | transcript/turns | a70ab8a · 1.7 % (inline code size, caret) |
+| 32 Thinking | transcript::ThinkingBlock | transcript/thinking | a70ab8a · 1.1 % |
+| 33 Activity group | transcript::ActivityGroup | transcript/activity | a70ab8a · 1.0 % |
 | 34 Tool cards | transcript::ToolCard (+ bodies) | transcript/tool-cards | |
 | 35 Approval | transcript::ApprovalCard | transcript/approval | |
 | 36 Question, plan, todo | transcript::QuestionCard, PlanCard, TodoList | transcript/question-plan-todo | |
