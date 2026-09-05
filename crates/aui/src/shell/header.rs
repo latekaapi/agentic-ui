@@ -174,6 +174,7 @@ pub struct CentreHeader {
     provider: Option<Provider>,
     title: SharedString,
     branch: Option<SharedString>,
+    trailing: Option<AnyElement>,
     on_overflow: Option<ClickHandler>,
     on_toggle_right: Option<ClickHandler>,
 }
@@ -181,7 +182,7 @@ pub struct CentreHeader {
 /// The centre header: provider mark + worktree name + branch tag, spacer,
 /// overflow menu, right-pane toggle. Nothing else lives here.
 pub fn centre_header(id: impl Into<ElementId>, title: impl Into<SharedString>) -> CentreHeader {
-    CentreHeader { id: id.into(), provider: None, title: title.into(), branch: None, on_overflow: None, on_toggle_right: None }
+    CentreHeader { id: id.into(), provider: None, title: title.into(), branch: None, trailing: None, on_overflow: None, on_toggle_right: None }
 }
 
 impl CentreHeader {
@@ -194,6 +195,12 @@ impl CentreHeader {
     /// The branch tag after the title.
     pub fn branch(mut self, branch: impl Into<SharedString>) -> Self {
         self.branch = Some(branch.into());
+        self
+    }
+
+    /// A status pill after the branch (`waiting`).
+    pub fn trailing(mut self, el: impl IntoElement) -> Self {
+        self.trailing = Some(el.into_any_element());
         self
     }
 
@@ -221,6 +228,9 @@ impl RenderOnce for CentreHeader {
         title = title.child(div().min_w(px(0.0)).truncate().child(self.title));
         if let Some(branch) = self.branch {
             title = title.child(tag(branch));
+        }
+        if let Some(trailing) = self.trailing {
+            title = title.child(trailing);
         }
         header_row(cx)
             .id(id.clone())

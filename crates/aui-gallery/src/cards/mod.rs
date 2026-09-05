@@ -5,6 +5,7 @@ pub mod assistant;
 pub mod colour;
 pub mod command_palette;
 pub mod icons;
+pub mod markers;
 pub mod motion;
 pub mod panel_chrome;
 pub mod rows;

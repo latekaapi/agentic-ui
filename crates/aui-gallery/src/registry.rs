@@ -181,6 +181,16 @@ pub static ENTRIES: &[Entry] = &[
         theme: CardTheme::Dark,
         build: crate::cards::views::build,
     },
+    Entry {
+        id: "transcript/markers",
+        group: "Transcript",
+        title: "Header identity and markers",
+        subtitle: "The agent mark and worktree live in the centre header cell; model and mode in the composer; marker rows inside the transcript",
+        width: 760.0,
+        height: 380.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::markers::build,
+    },
 ];
 
 /// Looks an entry up by id.
