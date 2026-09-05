@@ -113,7 +113,9 @@ impl Palette {
             .map(|l| gpui::BoxShadow {
                 color: l.color.into(),
                 offset: gpui::point(gpui::px(l.x), gpui::px(l.y)),
-                blur_radius: gpui::px(l.blur),
+                // gpui's shader treats `blur_radius` as the Gaussian sigma; CSS's
+                // blur radius is twice the sigma, so halve it to match the design.
+                blur_radius: gpui::px(l.blur / 2.0),
                 spread_radius: gpui::px(l.spread),
                 inset: false,
             })

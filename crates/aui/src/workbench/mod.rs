@@ -8,13 +8,24 @@ mod diff_review;
 mod docs;
 mod files;
 mod git;
+mod pdf;
+mod sheet;
 mod terminal;
 mod tui;
 
 pub use terminal::{block_terminal, BlockState, BlockTerminal, TermBlock, TermPrompt, TerminalAction};
 pub use tui::{tui_pane, TuiPane};
-// card 51 exports
-// card 52 exports
-// card 53 exports
-// card 54 exports
-// card 55 exports
+pub use browser::{
+    agent_action_pill, annotation_pin, annotations_panel, browser_nav, element_outline, note_popover, AgentActionPill, Annotation, AnnotationPin,
+    AnnotationsPanel, AnnotatorAction, BrowserAction, BrowserNav, ElementOutline, NoteAction, NotePopover,
+};
+pub use diff_review::{diff_review, segmented, DiffHighlight, DiffReview, DiffReviewAction, DiffScope, DiffView, ReviewFile, ReviewNote, Segmented};
+pub use git::{git_changes, pr_check, pr_form, GitAction, GitChanges, PrAction, PrCheck, PrDescription, PrForm};
+pub use files::{file_tree, FileNode, FileTree, FileTreeAction, GitBadge};
+pub use docs::{
+    artifact_strip, doc_pane, doc_saved_hint, doc_tabs, doc_toolbar, pane_status, pane_status_row, Artifact, ArtifactKind, ArtifactStrip,
+    DocBlock, DocPage, DocPane, DocRun, DocTabs, DocToolbar, DocToolbarAction, FormatMark, PaneStatusItem, PaneStatusRow,
+};
+pub use citations::{cited_answer, citation, source_hover_card, sources_card, Citation, CitedAnswer, Source, SourceHoverCard, SourceTier, SourcesCard, ANSWER_MARGIN};
+pub use pdf::{pdf_pane, PdfPage, PdfPane, PdfRun};
+pub use sheet::{sheet_pane, SheetCell, SheetPane};
