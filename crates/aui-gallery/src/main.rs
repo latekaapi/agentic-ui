@@ -35,11 +35,13 @@ struct Args {
     window_shot: Option<PathBuf>,
     /// `--screenshot-delay <ms>`: how long to wait before capturing (default 350).
     delay_ms: u64,
+    /// `--text-scale <factor>`: text size multiplier (default 1.0).
+    text_scale: f32,
 }
 
 fn parse_args() -> Args {
     let mut args = std::env::args().skip(1);
-    let mut out = Args { theme: None, entry: None, screenshot: None, window_shot: None, delay_ms: 350 };
+    let mut out = Args { theme: None, entry: None, screenshot: None, window_shot: None, delay_ms: 350, text_scale: 1.0 };
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--theme" => {
@@ -64,6 +66,10 @@ fn parse_args() -> Args {
                 let value = args.next().unwrap_or_default();
                 out.delay_ms = value.parse().unwrap_or_else(|_| usage("--screenshot-delay needs milliseconds"));
             }
+            "--text-scale" => {
+                let value = args.next().unwrap_or_default();
+                out.text_scale = value.parse().unwrap_or_else(|_| usage("--text-scale needs a factor such as 1.1"));
+            }
             "--list" => {
                 for e in ENTRIES {
                     println!("{:<32} {:>4}×{:<4} {:?}  {}", e.id, e.width, e.height, e.theme, e.title);
@@ -82,7 +88,7 @@ fn usage(err: &str) -> ! {
         eprintln!("error: {err}\n");
     }
     eprintln!(
-        "usage: aui-gallery [--theme light|dark] [--entry <id>] [--screenshot <id> <out.png>] [--screenshot-window <out.png>] [--screenshot-delay <ms>] [--list]"
+        "usage: aui-gallery [--theme light|dark] [--entry <id>] [--screenshot <id> <out.png>] [--screenshot-window <out.png>] [--screenshot-delay <ms>] [--text-scale <factor>] [--list]"
     );
     std::process::exit(if err.is_empty() { 0 } else { 2 });
 }
@@ -92,16 +98,20 @@ fn main() {
     let screenshot = args.screenshot.clone();
     let window_shot = args.window_shot.clone();
     let delay = std::time::Duration::from_millis(args.delay_ms);
+    let text_scale = args.text_scale;
     let entry = args.entry;
-    // A fixed-theme card decides the theme when opened directly; otherwise the
-    // harness default (dark) unless overridden.
+    // Parity screenshots default to the theme the card was designed in;
+    // otherwise the harness default (dark) unless overridden.
     let theme = args
         .theme
-        .or_else(|| entry.and_then(|e| e.theme.fixed_kind()))
+        .or_else(|| screenshot.as_ref().and(entry).and_then(|e| e.theme.fixed_kind()))
         .unwrap_or(ThemeKind::Dark);
 
     gpui_kit::application().with_assets(aui::assets::AuiAssets).run(move |cx| {
         aui::init(theme, cx);
+        if (text_scale - 1.0).abs() > f32::EPSILON {
+            aui_tokens::AuiTheme::set_text_scale(text_scale, None, cx);
+        }
 
         let window_size = match (&screenshot, entry) {
             (Some(_), Some(e)) => size(px(e.width), px(e.height)),

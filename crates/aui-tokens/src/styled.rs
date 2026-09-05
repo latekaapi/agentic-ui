@@ -1,6 +1,6 @@
 //! Style helpers that apply the type scale to gpui elements.
 
-use gpui::{px, relative, FontWeight, Styled};
+use gpui::{relative, rems, FontWeight, Styled};
 
 use crate::generated::scale;
 
@@ -49,13 +49,25 @@ impl TextRole {
     }
 }
 
-/// Fluent helpers for applying the type scale.
+/// Converts a design pixel size into rems against the 13 px base, so the
+/// window's rem size (base × [`crate::AuiTheme::text_scale`]) scales it.
+pub fn scaled(size_px: f32) -> gpui::Rems {
+    rems(size_px / scale::FS_13)
+}
+
+/// Fluent helpers for applying the type scale. Sizes are expressed in rems
+/// against the 13 px base so the text-scale preference applies to all of them.
 pub trait AuiStyled: Styled + Sized {
+    /// A design pixel text size that follows the text-scale preference.
+    fn text_px(self, size: f32) -> Self {
+        self.text_size(scaled(size))
+    }
+
     /// Applies a [`TextRole`] (family, size, line height, weight).
     fn text_role(self, role: TextRole) -> Self {
         let (family, size, lh, weight) = role.spec();
         self.font_family(family)
-            .text_size(px(size))
+            .text_size(scaled(size))
             .line_height(relative(lh))
             .font_weight(weight)
     }
@@ -63,14 +75,14 @@ pub trait AuiStyled: Styled + Sized {
     /// UI face at a size from the scale with the UI line height (1.5).
     fn ui(self, size: f32) -> Self {
         self.font_family(scale::FONT_UI)
-            .text_size(px(size))
+            .text_size(scaled(size))
             .line_height(relative(scale::LH_UI))
     }
 
     /// Mono face at a size from the scale with the mono line height (1.6).
     fn mono(self, size: f32) -> Self {
         self.font_family(scale::FONT_MONO)
-            .text_size(px(size))
+            .text_size(scaled(size))
             .line_height(relative(scale::LH_MONO))
     }
 

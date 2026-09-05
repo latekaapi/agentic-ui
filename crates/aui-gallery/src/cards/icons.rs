@@ -3,7 +3,7 @@
 //! `design/src/cards/foundations/05-icons.html` at 760×380.
 
 use aui_icons::{icon, provider_mark, FileType, IconName, Provider, RoleIcon};
-use aui_tokens::{dark, scale, AuiStyled, Palette, TextRole};
+use aui_tokens::{ActiveAui, scale, AuiStyled, Palette, TextRole};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -48,8 +48,8 @@ const DOT_SIZE: f32 = 7.0;
 const CAPS_LH: f32 = scale::LH_UI;
 
 /// Builds the card content.
-pub fn build(_window: &mut Window, _cx: &mut App) -> AnyElement {
-    let p = dark();
+pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
+    let p = cx.aui().colors;
     v_flex()
         .w_full()
         .child(section_label(p, "Glyphs"))
@@ -119,7 +119,7 @@ fn glyph_grid(p: Palette) -> impl IntoElement {
                     .child(
                         div()
                             .font_family(scale::FONT_MONO)
-                            .text_size(px(GLYPH_LABEL_SIZE))
+                            .text_px(GLYPH_LABEL_SIZE)
                             .line_height(relative(LH_FLAT))
                             // The caption is a flex item in the CSS, so a long
                             // word overflows its cell instead of wrapping.

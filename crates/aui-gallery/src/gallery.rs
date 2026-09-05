@@ -1,7 +1,7 @@
 //! The gallery window: title bar with theme/density switches, an entry
 //! sidebar, and a stage that shows the selected card at its declared size.
 
-use aui_tokens::{scale, ActiveAui, AuiStyled, AuiTheme, Palette, TextRole};
+use aui_tokens::{scale, ActiveAui, AuiStyled, AuiTheme, TextRole};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
@@ -27,13 +27,8 @@ impl Gallery {
         }
     }
 
-    fn select(&mut self, entry: &'static Entry, window: &mut Window, cx: &mut Context<Self>) {
+    fn select(&mut self, entry: &'static Entry, _window: &mut Window, cx: &mut Context<Self>) {
         self.selected = entry;
-        if let Some(kind) = entry.theme.fixed_kind() {
-            if cx.aui().kind != kind {
-                AuiTheme::set_kind(kind, Some(window), cx);
-            }
-        }
         cx.notify();
     }
 
@@ -42,6 +37,7 @@ impl Gallery {
         let colors = t.colors;
         let kind = t.kind;
         let density = t.density;
+        let text_scale = t.text_scale;
         TitleBar::new().child(
             h_flex()
                 .w_full()
@@ -62,6 +58,16 @@ impl Gallery {
                     format!("Theme: {}", kind.label()),
                     &colors,
                     cx.listener(|_, _, window, cx| AuiTheme::toggle_kind(Some(window), cx)),
+                ))
+                .child(chrome_button(
+                    "text-scale",
+                    format!("Text: {}%", (text_scale * 100.0).round()),
+                    &colors,
+                    cx.listener(move |_, _, window, cx| {
+                        // 100 → 110 → 120 → 130 → 100
+                        let next = if text_scale >= 1.29 { 1.0 } else { text_scale + 0.1 };
+                        AuiTheme::set_text_scale(next, Some(window), cx)
+                    }),
                 ))
                 .child(chrome_button(
                     "density",
@@ -124,8 +130,9 @@ impl Gallery {
 
     fn render_card(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entry = self.selected;
-        // A fixed-theme card keeps its own ground even when the gallery is in the other theme.
-        let colors = Palette::for_kind(entry.theme.fixed_kind().unwrap_or(cx.aui().kind));
+        // Cards follow the active theme; the design's theme only picks the
+        // default for a parity screenshot.
+        let colors = cx.aui().colors;
         div()
             .w(px(entry.width))
             .h(px(entry.height))
@@ -163,11 +170,13 @@ impl Gallery {
                     ),
             )
             .child(
+                // A hairline around the card only; the card is the same ground as the stage.
                 div()
                     .flex_none()
+                    .w(px(entry.width + 2.0))
                     .rounded(px(scale::R_LG))
                     .border_1()
-                    .border_color(colors.line_strong)
+                    .border_color(colors.line)
                     .overflow_hidden()
                     .child(self.render_card(window, cx)),
             )
@@ -193,7 +202,7 @@ fn chrome_button(
         .items_center()
         .cursor_pointer()
         .text_role(TextRole::UiMedium)
-        .text_size(px(scale::FS_12))
+        .text_px(scale::FS_12)
         .text_color(ink)
         .hover(move |d| d.bg(surface_3))
         .on_click(on_click)

@@ -2,7 +2,7 @@
 //! scale, the six radii and the three shadow levels beside a flat panel.
 //! Reproduces `design/src/cards/foundations/03-space.html` at 760×420.
 
-use aui_tokens::{dark, scale, AuiStyled, Palette, TextRole};
+use aui_tokens::{ActiveAui, scale, AuiStyled, Palette, TextRole};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -39,8 +39,8 @@ const NOTE_MEASURE: f32 = 650.0;
 const CAPS_LH: f32 = scale::LH_UI;
 
 /// Builds the card content.
-pub fn build(_window: &mut Window, _cx: &mut App) -> AnyElement {
-    let p = dark();
+pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
+    let p = cx.aui().colors;
     v_flex()
         .w_full()
         .child(section_label(p, "Spacing"))
@@ -107,7 +107,7 @@ fn spacing_row(p: Palette) -> impl IntoElement {
                         .top(px(BAR_HEIGHT + BAR_LABEL_GAP))
                         .left_0()
                         .font_family(scale::FONT_MONO)
-                        .text_size(px(CAPTION_SIZE))
+                        .text_px(CAPTION_SIZE)
                         .line_height(relative(LH_FLAT))
                         .medium()
                         .whitespace_nowrap()
@@ -155,7 +155,7 @@ fn radius_row(p: Palette) -> impl IntoElement {
                 .items_center()
                 .justify_center()
                 .font_family(scale::FONT_MONO)
-                .text_size(px(CAPTION_SIZE))
+                .text_px(CAPTION_SIZE)
                 .line_height(relative(LH_FLAT))
                 .medium()
                 .text_color(p.ink_3)
@@ -194,7 +194,7 @@ fn elevation_tile(p: Palette, label: &'static str) -> Div {
         .items_center()
         .justify_center()
         .font_family(scale::FONT_MONO)
-        .text_size(px(ELEVATION_LABEL_SIZE))
+        .text_px(ELEVATION_LABEL_SIZE)
         .line_height(relative(LH_FLAT))
         .medium()
         .text_color(p.ink_3)

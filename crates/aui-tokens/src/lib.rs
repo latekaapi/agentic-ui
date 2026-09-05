@@ -47,7 +47,7 @@ pub use density::{Density, Metrics};
 pub use fonts::{load_fonts, FONT_FILES};
 pub use generated::{dark, durations, light, scale, springs, Palette, ShadowLayer};
 pub use kit_theme::{theme_set_json, theme_set_value, KIT_THEME_DARK, KIT_THEME_LIGHT};
-pub use styled::{AuiStyled, TextRole};
+pub use styled::{scaled, AuiStyled, TextRole};
 pub use theme::{ActiveAui, AgentState, AuiTheme, Easing, ThemeKind};
 
 /// Raw JSON of `design/tokens/tokens.json`, embedded for tooling that wants the

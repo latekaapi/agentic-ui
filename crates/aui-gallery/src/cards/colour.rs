@@ -3,12 +3,12 @@
 //! `design/src/cards/foundations/01-color.html` at 960×720.
 
 use aui_motion::pulse_ring;
-use aui_tokens::{dark, light, scale, AuiStyled, Palette, TextRole};
+use aui_tokens::{dark, light, scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 
 /// Builds the card content.
-pub fn build(_window: &mut Window, _cx: &mut App) -> AnyElement {
+pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
     v_flex()
         .w_full()
         .child(
@@ -24,7 +24,7 @@ pub fn build(_window: &mut Window, _cx: &mut App) -> AnyElement {
                 .mt(px(12.0))
                 .max_w(px(632.0)) // 80ch at 12 px Geist
                 .text_role(TextRole::UiSmall)
-                .text_color(dark().ink_3)
+                .text_color(cx.aui().colors.ink_3)
                 .child(
                     "Accent is iris (blue-violet) and is the only decorative hue. Status colours carry meaning only: \
                      success, warning, danger, info. Agent states map onto them: running = accent, needs-you = warning, \
@@ -48,7 +48,7 @@ fn theme_section(title: &'static str, p: Palette) -> impl IntoElement {
             div()
                 .mb(px(12.0))
                 .text_role(TextRole::Caps)
-                .text_size(px(scale::FS_12))
+                .text_px(scale::FS_12)
                 .line_height(relative(scale::LH_UI)) // h3 inherits the body line height
                 .text_color(p.ink_3)
                 .child(title.to_uppercase()),
@@ -97,7 +97,7 @@ fn swatches(p: Palette) -> impl IntoElement {
                     .px(px(6.0))
                     .py(px(5.0))
                     .font_family(scale::FONT_MONO)
-                    .text_size(px(10.0))
+                    .text_px(10.0)
                     .line_height(relative(1.0))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(label)

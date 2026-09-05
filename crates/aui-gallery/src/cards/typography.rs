@@ -2,7 +2,7 @@
 //! a body paragraph and a tabular-numbers block. Reproduces
 //! `design/src/cards/foundations/02-type.html` at 760×560.
 
-use aui_tokens::{dark, scale, AuiStyled, Palette, TextRole};
+use aui_tokens::{ActiveAui, scale, AuiStyled, Palette, TextRole};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -38,8 +38,8 @@ const KEY_BASELINE_OFFSETS: [f32; 9] = [11.8, 12.0, 7.0, 5.0, 4.0, 2.5, 1.5, 4.0
 const CAPS_LH: f32 = scale::LH_UI;
 
 /// Builds the card content.
-pub fn build(_window: &mut Window, _cx: &mut App) -> AnyElement {
-    let p = dark();
+pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
+    let p = cx.aui().colors;
     v_flex()
         .w_full()
         .child(scale_grid(p))
@@ -138,7 +138,7 @@ fn scale_grid(p: Palette) -> impl IntoElement {
             "mono 12",
             div()
                 .font_family(scale::FONT_MONO)
-                .text_size(px(scale::FS_12))
+                .text_px(scale::FS_12)
                 .line_height(relative(scale::LH_UI)) // `.scale` rows inherit the body line height
                 .text_color(p.ink)
                 .child("src/checkout/validators.ts:12 · export function validateAddress"),
@@ -149,7 +149,7 @@ fn scale_grid(p: Palette) -> impl IntoElement {
             "mono 13",
             h_flex()
                 .font_family(scale::FONT_MONO)
-                .text_size(px(scale::FS_13))
+                .text_px(scale::FS_13)
                 .line_height(relative(scale::LH_UI))
                 .text_color(p.term_fg)
                 .child(div().child("$ pnpm test --filter web-runtime"))
@@ -169,7 +169,7 @@ fn scale_row(p: Palette, key_top: f32, key: &'static str, sample: impl IntoEleme
                 .flex_none()
                 .pt(px(key_top))
                 .font_family(scale::FONT_MONO)
-                .text_size(px(scale::FS_11))
+                .text_px(scale::FS_11)
                 .line_height(relative(LH_FLAT))
                 .medium()
                 .text_color(p.ink_3)
@@ -189,7 +189,7 @@ fn samples(p: Palette) -> impl IntoElement {
             v_flex()
                 .flex_1()
                 .min_w(px(0.0))
-                .child(sample_caps(p, "Body, 14 / 1.55"))
+                .child(sample_caps(p, "Body, 14 / 1.65"))
                 .child(
                     div()
                         .mb(px(SAMPLE_PARA_BOTTOM))
@@ -213,7 +213,7 @@ fn samples(p: Palette) -> impl IntoElement {
                     v_flex()
                         .mb(px(SAMPLE_PARA_BOTTOM))
                         .font_family(scale::FONT_MONO)
-                        .text_size(px(scale::FS_13))
+                        .text_px(scale::FS_13)
                         .line_height(relative(scale::LH_UI))
                         .text_color(p.ink_2)
                         .child("1,284 agents spawned")

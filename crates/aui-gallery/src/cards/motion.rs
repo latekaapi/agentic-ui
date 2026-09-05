@@ -72,7 +72,7 @@ fn tile(p: &Palette, title: &'static str, meta: String, stage: AnyElement) -> im
             div()
                 .mb(px(2.0))
                 .text_role(TextRole::Title)
-                .text_size(px(scale::FS_12))
+                .text_px(scale::FS_12)
                 .line_height(relative(1.2))
                 .text_color(p.ink)
                 .child(title),
@@ -81,7 +81,7 @@ fn tile(p: &Palette, title: &'static str, meta: String, stage: AnyElement) -> im
             div()
                 .mb(px(10.0))
                 .font_family(scale::FONT_MONO)
-                .text_size(px(scale::FS_11))
+                .text_px(scale::FS_11)
                 .line_height(relative(1.3))
                 .text_color(p.ink_3)
                 .child(meta),
@@ -238,7 +238,7 @@ fn check_shake_stage(p: &Palette, window: &mut Window, cx: &mut App) -> AnyEleme
                 .flex()
                 .items_center()
                 .text_role(TextRole::UiMedium)
-                .text_size(px(scale::FS_12))
+                .text_px(scale::FS_12)
                 .line_height(relative(1.0))
                 .text_color(p.danger)
                 .child("Deny"),
@@ -260,7 +260,7 @@ fn durations_row(p: &Palette) -> impl IntoElement {
         .mt(px(14.0))
         .gap(px(18.0))
         .font_family(scale::FONT_MONO)
-        .text_size(px(scale::FS_11))
+        .text_px(scale::FS_11)
         .line_height(relative(1.4))
         .text_color(p.ink_3);
     for (bold, rest) in items {

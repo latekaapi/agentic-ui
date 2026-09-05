@@ -128,6 +128,9 @@ pub struct AuiTheme {
     pub colors: Palette,
     /// Row and control heights for the active density.
     pub metrics: Metrics,
+    /// Text size multiplier (1.0 = the design's 13 px base). Applied through
+    /// the window rem size, so every [`crate::AuiStyled`] size follows it.
+    pub text_scale: f32,
 }
 
 impl Global for AuiTheme {}
@@ -143,6 +146,7 @@ impl AuiTheme {
                 ThemeKind::Dark => dark(),
             },
             metrics: Metrics::for_density(density),
+            text_scale: 1.0,
         }
     }
 
@@ -203,9 +207,31 @@ impl AuiTheme {
         }
     }
 
+    /// Sets the text scale (0.9 … 1.3) and pushes the resulting base size to
+    /// gpui-kit, whose `Root` sets the window rem size from it every frame.
+    pub fn set_text_scale(text_scale: f32, window: Option<&mut Window>, cx: &mut App) {
+        let text_scale = text_scale.clamp(0.8, 1.5);
+        cx.global_mut::<AuiTheme>().text_scale = text_scale;
+        {
+            let theme = Theme::global_mut(cx);
+            theme.font_size = gpui::px(scale::FS_13 * text_scale);
+            theme.mono_font_size = gpui::px(scale::FS_12 * text_scale);
+        }
+        Theme::sync_base(cx);
+        if let Some(window) = window {
+            window.refresh();
+        } else {
+            cx.refresh_windows();
+        }
+    }
+
     fn apply(cx: &mut App, window: Option<&mut Window>) {
         let kind = cx.global::<AuiTheme>().kind;
+        let text_scale = cx.global::<AuiTheme>().text_scale;
         Theme::change(kind.kit_mode(), window, cx);
+        if (text_scale - 1.0).abs() > f32::EPSILON {
+            Self::set_text_scale(text_scale, None, cx);
+        }
         cx.refresh_windows();
     }
 
