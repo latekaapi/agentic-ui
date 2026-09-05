@@ -543,11 +543,22 @@ impl DocPage {
 pub struct DocPane {
     id: ElementId,
     page: DocPage,
+    paper_width: f32,
+    paper_pad: Option<(f32, f32)>,
 }
 
 /// The pane's page on its surface-2 ground.
 pub fn doc_pane(id: impl Into<ElementId>, page: DocPage) -> DocPane {
-    DocPane { id: id.into(), page }
+    DocPane { id: id.into(), page, paper_width: PAPER_W, paper_pad: None }
+}
+
+impl DocPane {
+    /// Overrides the 520 px page (the assistant screens use 340 with 34 / 36 padding).
+    pub fn paper(mut self, width: f32, pad_y: f32, pad_x: f32) -> Self {
+        self.paper_width = width;
+        self.paper_pad = Some((pad_y, pad_x));
+        self
+    }
 }
 
 impl RenderOnce for DocPane {
@@ -556,9 +567,9 @@ impl RenderOnce for DocPane {
         let ink: Hsla = rgb(PAPER_INK).into();
         let mut paper = v_flex()
             .flex_none()
-            .w(px(PAPER_W))
-            .px(px(PAPER_PAD_X))
-            .py(px(PAPER_PAD_Y))
+            .w(px(self.paper_width))
+            .px(px(self.paper_pad.map(|(_, x)| x).unwrap_or(PAPER_PAD_X)))
+            .py(px(self.paper_pad.map(|(y, _)| y).unwrap_or(PAPER_PAD_Y)))
             .bg(rgb(PAPER_BG))
             .text_color(ink)
             .shadow(p.shadow(2))

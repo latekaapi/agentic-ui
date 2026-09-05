@@ -5,10 +5,10 @@ use aui::data::{button, status_dot};
 use aui::nav::{role_section, sidebar_footer, Project, Role, RoleSession, SessionKind};
 use aui::protocol::{ActivityState, Step, StepState};
 use aui::shell::{app_shell, centre_header, right_header, sidebar_header, tab_strip, TabItem};
-use aui::transcript::{activity_group, prose, user_turn, ProseStyle};
-use aui::workbench::{pdf_pane, sheet_pane, PdfPage, PdfRun, SheetCell};
+use aui::transcript::{activity_group, user_turn, ProseStyle};
+use aui::workbench::{artifact_strip, cited_answer, doc_pane, doc_toolbar, pane_status, pane_status_row, pdf_pane, sheet_pane, Artifact, ArtifactKind, DocBlock, DocPage, DocRun, PdfPage, PdfRun, SheetCell};
 use aui_icons::{icon, IconName, Provider, RoleIcon};
-use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, TextRole};
+use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled};
 use gpui::*;
 use gpui_kit::base::input::TextareaState;
 use gpui_kit::base::{h_flex, v_flex};
@@ -115,7 +115,7 @@ impl AssistantMock {
             Step { verb: "Searched".into(), target: "Procurement Rules 2019".into(), state: StepState::Done, result: Some("5 passages".into()) },
             Step { verb: "Searched".into(), target: "GO 2024-18".into(), state: StepState::Done, result: Some("2 passages".into()) },
         ];
-        let answer = "Under the current rules a bidder needs a valid registration and three years of comparable placements [1]. The 2024 order moved certificate verification to onboarding and requires originals [2]. The brief sets the cohort at 240 teachers across 38 institutions [3]. I folded all three into section 2 and left the rest of the draft untouched.";
+        let answer = "Under the current rules a bidder needs a valid registration and three years of comparable placements[[1]]. The 2024 order moved certificate verification to onboarding and requires originals[[2]]. The brief sets the cohort at 240 teachers across 38 institutions[[3]]. I folded all three into section 2 and left the rest of the draft untouched.";
         v_flex()
             .flex_1()
             .min_h(px(0.0))
@@ -132,7 +132,7 @@ impl AssistantMock {
                     .detail("· read 2 regulations · 11 passages")
                     .open(false),
             )
-            .child(prose("assistant-answer", answer, ProseStyle { ink: p.ink, code_ink: p.accent_ink, code_bg: p.accent_soft, size: BODY_TEXT, line_height: scale::LH_BODY, paragraph_gap: 10.0 }))
+            .child(cited_answer("assistant-answer", answer, ProseStyle { ink: p.ink, code_ink: p.accent_ink, code_bg: p.accent_soft, size: BODY_TEXT, line_height: scale::LH_BODY, paragraph_gap: 10.0 }))
             .child(self.file_card(cx))
             .child(div().flex_1())
             .child(
@@ -196,11 +196,57 @@ impl AssistantMock {
             })
     }
 
+    fn artifacts(&self) -> Vec<Artifact> {
+        vec![
+            Artifact::new("RFP-draft-v3.docx", ArtifactKind::Doc).version("v3").active(self.right_tab == RightTab::Doc),
+            Artifact::new("vendor-scoring.xlsx", ArtifactKind::Sheet).version("v1").active(self.right_tab == RightTab::Sheet),
+        ]
+    }
+
     fn render_right(&self, cx: &mut Context<Self>) -> AnyElement {
-        let p = cx.aui().colors;
+        let strip = artifact_strip("assistant-artifacts", self.artifacts()).on_select(cx.listener(|this, id: &SharedString, _, cx| {
+            this.right_tab = if id.as_ref().ends_with(".xlsx") { RightTab::Sheet } else { RightTab::Doc };
+            cx.notify();
+        }));
         match self.right_tab {
-            // The document pane arrives with card 54; until then the tab shows its name.
-            RightTab::Doc => v_flex().size_full().items_center().justify_center().text_role(TextRole::UiSmall).text_color(p.ink_3).child("RFP-draft-v3.docx").into_any_element(),
+            RightTab::Doc => {
+                let page = DocPage::new(
+                    "Request for Proposal: Teacher Recruitment Services",
+                    "Directorate of Education · Draft v3 · 5 September 2026",
+                    vec![
+                        DocBlock::Paragraph(vec![
+                            DocRun::bold("1. Purpose."),
+                            DocRun::text(" The Directorate invites proposals from qualified agencies for the recruitment of 240 secondary-school teachers across 38 institutions for the 2027 academic year."),
+                        ]),
+                        DocBlock::Paragraph(vec![
+                            DocRun::bold("2. Eligibility."),
+                            DocRun::text(" Bidders must hold a valid registration under the "),
+                            DocRun::changed("Procurement Rules 2019, Rule 14(2)"),
+                            DocRun::text(" and demonstrate "),
+                            DocRun::changed("three years of comparable placements"),
+                            DocRun::text(". "),
+                            DocRun::changed("Original certificates are verified at onboarding in line with GO 2024-18."),
+                        ]),
+                        DocBlock::Paragraph(vec![DocRun::bold("3. Scope of services.")]),
+                        DocBlock::list([
+                            "Sourcing and screening against the qualification matrix in Annex A.",
+                            "Document verification in line with GO 2024-18.",
+                            "Onboarding support through the first term.",
+                        ]),
+                    ],
+                );
+                v_flex()
+                    .size_full()
+                    .child(doc_toolbar("assistant-doc-toolbar", "Body text", "Georgia · 11").ask_label("Ask"))
+                    .child(doc_pane("assistant-doc", page).paper(340.0, 34.0, 36.0))
+                    .child(strip)
+                    .child(pane_status_row(
+                        "assistant-doc-status",
+                        vec![pane_status("Page 1 of 4"), pane_status("·"), pane_status("1,214 words")],
+                        vec![pane_status("3 changes from chat highlighted").accent(), pane_status("·"), pane_status("Saved")],
+                    ))
+                    .into_any_element()
+            }
             RightTab::Sheet => {
                 let rows = vec![
                     vec![SheetCell::text("Vendor"), SheetCell::text("Experience"), SheetCell::text("Coverage"), SheetCell::text("Price"), SheetCell::text("Weighted")],
@@ -210,11 +256,19 @@ impl AssistantMock {
                     vec![SheetCell::text("Civic Talent"), SheetCell::num("2.5"), SheetCell::num("3.5"), SheetCell::num("5.0"), SheetCell::num("3.45").bold()],
                     vec![SheetCell::text("Weight"), SheetCell::num("0.45"), SheetCell::num("0.30"), SheetCell::num("0.25"), SheetCell::text("")],
                 ];
-                sheet_pane("assistant-sheet", ["A", "B", "C", "D", "E"].into_iter().map(Into::into).collect(), rows)
-                    .selected(1, 4)
-                    .formula("E2", "=SUMPRODUCT(B2:D2,B$7:D$7)")
-                    .tabs(vec!["Scores".into(), "Matrix".into(), "Notes".into()], 0)
-                    .tabs_note("weighted by Annex A")
+                v_flex()
+                    .size_full()
+                    .child(
+                        div().flex_1().min_h(px(0.0)).w_full().child(
+                            sheet_pane("assistant-sheet", ["A", "B", "C", "D", "E"].into_iter().map(Into::into).collect(), rows)
+                                .selected(1, 4)
+                                .formula("E2", "=SUMPRODUCT(B2:D2,B$7:D$7)")
+                                .tabs(vec!["Scores".into(), "Matrix".into(), "Notes".into()], 0)
+                                .tabs_note("weighted by Annex A"),
+                        ),
+                    )
+                    .child(strip)
+                    .child(pane_status_row("assistant-sheet-status", vec![pane_status("E2 selected")], vec![pane_status("Saved")]))
                     .into_any_element()
             }
             RightTab::Pdf => {
@@ -238,7 +292,11 @@ impl AssistantMock {
                     ],
                     footer: "Procurement Rules 2019 · 31".into(),
                 };
-                pdf_pane("assistant-pdf", page, 31, 88).cited_as(1).into_any_element()
+                v_flex()
+                    .size_full()
+                    .child(div().flex_1().min_h(px(0.0)).w_full().child(pdf_pane("assistant-pdf", page, 31, 88).cited_as(1)))
+                    .child(pane_status_row("assistant-pdf-status", vec![pane_status("Highlight from citation 1")], vec![pane_status("Opened from chat")]))
+                    .into_any_element()
             }
         }
     }
