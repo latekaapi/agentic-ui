@@ -114,6 +114,12 @@ const ART_GAP: f32 = 6.0;
 const ART_TEXT: f32 = 11.5;
 /// `.art .v{font:500 10px var(--font-mono)}`.
 const ART_VERSION_TEXT: f32 = 10.0;
+/// `.art.more{padding:0 8px}` — the overflow chip has no glyph, so it carries
+/// the same padding on both sides.
+const ART_MORE_PAD: f32 = 8.0;
+/// `.art{flex:0 1 auto}`: every chip gives way at the same rate, so a strip
+/// short of room shortens the long names first.
+const ART_SHRINK: f32 = 1.0;
 /// `.stat{height:28px;gap:10px;padding:0 12px;font:11px var(--font-ui)}`.
 const STATUS_H: f32 = 28.0;
 const STATUS_GAP: f32 = 10.0;
@@ -275,9 +281,9 @@ type ToolbarHandler = Rc<dyn Fn(&DocToolbarAction, &mut Window, &mut App)>;
 pub struct DocToolbar {
     id: ElementId,
     style_label: SharedString,
-    font_label: SharedString,
+    font_label: Option<SharedString>,
     ask_label: SharedString,
-    export_label: SharedString,
+    export_label: Option<SharedString>,
     on_action: Option<ToolbarHandler>,
 }
 
@@ -288,14 +294,24 @@ pub fn doc_toolbar(id: impl Into<ElementId>, style_label: impl Into<SharedString
     DocToolbar {
         id: id.into(),
         style_label: style_label.into(),
-        font_label: font_label.into(),
+        font_label: Some(font_label.into()),
         ask_label: "Ask about selection".into(),
-        export_label: "Export".into(),
+        export_label: Some("Export".into()),
         on_action: None,
     }
 }
 
 impl DocToolbar {
+    /// Drops the font select. The toolbar's controls keep their width rather
+    /// than shrinking, so in a pane as narrow as the shell's right pane
+    /// (`shell::RIGHT_WIDTH`) the row cannot hold both selects and the ask
+    /// chip; the screens drop the font, which the page's own face already
+    /// states, and keep every control at its full size.
+    pub fn without_font_select(mut self) -> Self {
+        self.font_label = None;
+        self
+    }
+
     /// Overrides the sparkle chip's label.
     pub fn ask_label(mut self, label: impl Into<SharedString>) -> Self {
         self.ask_label = label.into();
@@ -304,7 +320,15 @@ impl DocToolbar {
 
     /// Overrides the export button's label.
     pub fn export_label(mut self, label: impl Into<SharedString>) -> Self {
-        self.export_label = label.into();
+        self.export_label = Some(label.into());
+        self
+    }
+
+    /// Drops the export button, the way the assistant screens' narrow pane
+    /// does: export lives in the tab band's overflow menu there, and the row
+    /// keeps every remaining control at its designed width.
+    pub fn without_export(mut self) -> Self {
+        self.export_label = None;
         self
     }
 
@@ -340,10 +364,9 @@ impl RenderOnce for DocToolbar {
                 toolbar_select((id.clone(), "style"), self.style_label.clone(), true, cx)
                     .on_click(emit(&self.on_action, DocToolbarAction::Style)),
             )
-            .child(
-                toolbar_select((id.clone(), "font"), self.font_label.clone(), false, cx)
-                    .on_click(emit(&self.on_action, DocToolbarAction::Font)),
-            )
+            .children(self.font_label.clone().map(|label| {
+                toolbar_select((id.clone(), "font"), label, false, cx).on_click(emit(&self.on_action, DocToolbarAction::Font))
+            }))
             .child(toolbar_separator(cx));
         for mark in [FormatMark::Bold, FormatMark::Italic, FormatMark::Underline] {
             bar = bar.child(mark_button((id.clone(), mark.letter()), mark, self.on_action.clone(), window, cx));
@@ -369,11 +392,9 @@ impl RenderOnce for DocToolbar {
                     .accent()
                     .on_click(emit(&self.on_action, DocToolbarAction::AskAboutSelection)),
             )
-            .child(
-                button((id, "export"), self.export_label.clone())
-                    .size(ButtonSize::Xs)
-                    .on_click(emit(&self.on_action, DocToolbarAction::Export)),
-            )
+            .children(self.export_label.clone().map(|label| {
+                button((id, "export"), label).size(ButtonSize::Xs).on_click(emit(&self.on_action, DocToolbarAction::Export))
+            }))
     }
 }
 
@@ -754,18 +775,28 @@ pub struct ArtifactStrip {
     id: ElementId,
     label: SharedString,
     artifacts: Vec<Artifact>,
+    max_visible: Option<usize>,
     on_select: Option<SelectHandler>,
 }
 
 /// The strip of artifacts the chat produced, under the page.
 pub fn artifact_strip(id: impl Into<ElementId>, artifacts: Vec<Artifact>) -> ArtifactStrip {
-    ArtifactStrip { id: id.into(), label: "Created in chat".into(), artifacts, on_select: None }
+    ArtifactStrip { id: id.into(), label: "Created in chat".into(), artifacts, max_visible: None, on_select: None }
 }
 
 impl ArtifactStrip {
     /// Overrides the caps label.
     pub fn label(mut self, label: impl Into<SharedString>) -> Self {
         self.label = label.into();
+        self
+    }
+
+    /// Shows at most `n` chips and gathers the rest behind a `+N` chip
+    /// (`.art.more`). Chip names always truncate, so nothing is ever sliced at
+    /// the strip's edge; the cap is what keeps a narrow pane's names readable
+    /// instead of shrinking every chip to two letters.
+    pub fn max_visible(mut self, n: usize) -> Self {
+        self.max_visible = Some(n);
         self
     }
 
@@ -798,7 +829,9 @@ impl RenderOnce for ArtifactStrip {
                     .text_color(p.ink_3)
                     .child(self.label.to_uppercase()),
             );
-        for artifact in self.artifacts {
+        let visible = self.max_visible.unwrap_or(self.artifacts.len()).min(self.artifacts.len());
+        let hidden = self.artifacts.len() - visible;
+        for artifact in self.artifacts.into_iter().take(visible) {
             let chip_id: ElementId = (id.clone(), artifact.name.clone()).into();
             let (border, bg, text) = if artifact.active {
                 (p.accent_ring, p.accent_soft, p.ink)
@@ -807,7 +840,9 @@ impl RenderOnce for ArtifactStrip {
             };
             let mut el = h_flex()
                 .id(chip_id)
-                .flex_none()
+                .flex_shrink(ART_SHRINK)
+                .min_w(px(0.0))
+                .overflow_hidden()
                 .h(px(ART_H))
                 .pl(px(ART_PAD_LEFT))
                 .pr(px(ART_PAD_RIGHT))
@@ -821,7 +856,10 @@ impl RenderOnce for ArtifactStrip {
                 .whitespace_nowrap()
                 .cursor_pointer()
                 .child(icon(artifact.kind.icon()).size(px(CHIP_GLYPH)).color(artifact.kind.tint(&p).unwrap_or(text)))
-                .child(artifact.name.clone());
+                // `.art .nm{overflow:hidden;text-overflow:ellipsis}`: the name is
+                // the only part of a chip that gives way, so a strip short of
+                // room truncates names instead of slicing the last chip.
+                .child(div().min_w(px(0.0)).truncate().child(artifact.name.clone()));
             if let Some(version) = artifact.version.clone() {
                 el = el.child(
                     div()
@@ -838,6 +876,23 @@ impl RenderOnce for ArtifactStrip {
                 el = el.on_click(move |_, w, cx| f(&name, w, cx));
             }
             strip = strip.child(el);
+        }
+        if hidden > 0 {
+            strip = strip.child(
+                h_flex()
+                    .id((id, "more"))
+                    .flex_none()
+                    .h(px(ART_H))
+                    .px(px(ART_MORE_PAD))
+                    .rounded(px(scale::R_SM))
+                    .border_1()
+                    .border_color(p.line)
+                    .text_color(p.ink_3)
+                    .ui(ART_TEXT)
+                    .whitespace_nowrap()
+                    .cursor_pointer()
+                    .child(format!("+{hidden}")),
+            );
         }
         strip
     }

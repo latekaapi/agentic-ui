@@ -99,7 +99,14 @@ fn real_px(size: f32, window: &Window) -> gpui::Pixels {
 // Citation marker
 // ---------------------------------------------------------------------------
 
+/// Open the source carrying this 1-based citation number.
 type OpenHandler = Rc<dyn Fn(u8, &mut Window, &mut App)>;
+
+/// A plain "the button was pressed" handler (`Show all`, `Insert`).
+type ActionHandler = Rc<dyn Fn(&mut Window, &mut App)>;
+
+/// Open a source at the given page number.
+type PageHandler = Rc<dyn Fn(u32, &mut Window, &mut App)>;
 
 /// An inline citation marker (`.cite`): the small accent square carrying a
 /// source number. Build with [`citation`].
@@ -405,7 +412,7 @@ pub struct SourcesCard {
     cited: Option<usize>,
     retrieved: Option<usize>,
     hover: Option<(usize, AnyElement)>,
-    on_show_all: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
+    on_show_all: Option<ActionHandler>,
     on_open: Option<OpenHandler>,
 }
 
@@ -624,7 +631,7 @@ fn header(
     id: ElementId,
     cited: Option<usize>,
     retrieved: Option<usize>,
-    on_show_all: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
+    on_show_all: Option<ActionHandler>,
 ) -> impl IntoElement {
     let mut show_all = button((id.clone(), "show-all"), "Show all").ghost().size(ButtonSize::Xs);
     if let Some(h) = on_show_all {
@@ -663,8 +670,8 @@ pub struct SourceHoverCard {
     page: u32,
     present: bool,
     timing: EnterExit,
-    on_open: Option<Rc<dyn Fn(u32, &mut Window, &mut App)>>,
-    on_insert: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
+    on_open: Option<PageHandler>,
+    on_insert: Option<ActionHandler>,
 }
 
 /// A hover card for one source: its title, the quoted passage with the matched

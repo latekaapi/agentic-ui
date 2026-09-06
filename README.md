@@ -1,5 +1,9 @@
 # agentic-ui
 
+<!-- Replace `latekaapi/agentic-ui` once the repository is pushed. -->
+[![CI](https://github.com/latekaapi/agentic-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/latekaapi/agentic-ui/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A Rust component library for agent tooling, built on [gpui](https://www.gpui.rs)
 (`gpui-pre`) and `gpui-kit`. It provides the shell, transcript, composer and
 workbench that an Orca-like agent harness needs, plus the day-job assistant app
@@ -18,6 +22,25 @@ reference screenshots, and then matched pixel for pixel in Rust.
 | `aui-webview` | The embedded browser pane: wry/WKWebView, tabs, nav, JS bridge, element annotator and screenshot-to-chat. |
 | `aui-terminal` | PTY-backed block terminal and the agent's TUI mode, rendered as a gpui element. |
 | `aui-gallery` | Storybook app: every component in every state, a motion playground and a theme switcher; also the source of the design-system previews. |
+
+One standalone consumer lives in the library itself:
+[`crates/aui/examples/minimal.rs`](crates/aui/examples/minimal.rs) — a single
+window on the three-pane shell with a live transcript, a docked composer, an
+approval card and a streamed reply, under 400 commented lines.
+
+## Getting started
+
+[`docs/08-getting-started.md`](docs/08-getting-started.md) walks through adding
+the crates to a project, the init sequence, the data-in / intents-out pattern,
+theming, text scale, motion and the keyboard, with that example as the running
+thread:
+
+```sh
+cargo run -p aui --example minimal
+```
+
+[`docs/06-api.md`](docs/06-api.md) is the generated public-API overview and
+[`CHANGELOG.md`](CHANGELOG.md) records what shipped in each release.
 
 ## Prerequisites
 
@@ -52,6 +75,33 @@ cargo test --workspace
 # API docs for every crate
 cargo doc --workspace --no-deps --open
 ```
+
+## Features
+
+Everything is off by default; each one pulls real dependencies.
+
+| Crate | Feature | What it turns on |
+| --- | --- | --- |
+| `aui` | `tree-sitter` | `transcript::syntax_runs` routes through gpui-kit's tree-sitter highlighter instead of the small built-in lexer (five grammar crates and their C sources). |
+| `aui-webview` | `wry` | The real browser pane: a `wry` WKWebView child view parented to the gpui window, instead of the scripted `FakeWebBackend`. |
+| `aui-terminal` | `pty` | A real pseudo-terminal running the login shell, instead of the scripted `FakePty`. |
+| `aui-terminal` | `tui` | The alacritty grid model behind the agent's TUI pane. |
+
+```sh
+# everything the CI all-features job builds
+cargo build --workspace --features aui-webview/wry,aui-terminal/pty,aui-terminal/tui
+```
+
+The traits, the zsh shell-integration snippet and the known limitations of the
+two backend crates are in [`docs/07-backends.md`](docs/07-backends.md).
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on `macos-latest`:
+the default build, the all-features build above, `cargo test --workspace`,
+`cargo clippy --workspace -- -D warnings` and `cargo doc --workspace --no-deps`
+with `RUSTDOCFLAGS=-D warnings`. The workspace's minimum supported Rust version
+is 1.85 (async closures).
 
 ## Design is the source of truth
 

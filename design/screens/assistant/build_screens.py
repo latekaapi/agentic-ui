@@ -48,7 +48,10 @@ ASSIST_CSS = """
 .paper p{margin:0 0 10px}.paper .ai{background:rgba(86,92,196,.12);border-bottom:2px solid #565CC4}
 .paper ol{padding-left:18px;margin:0 0 10px}
 .arts{display:flex;gap:6px;padding:6px 10px;border-top:1px solid var(--line);overflow:hidden;align-items:center;white-space:nowrap}.arts .caps{flex:none}
-.art{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 8px 0 6px;border:1px solid var(--line);border-radius:6px;font-size:11.5px;color:var(--ink-2);white-space:nowrap}
+.art{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 8px 0 6px;border:1px solid var(--line);border-radius:6px;font-size:11.5px;color:var(--ink-2);white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden}
+.art .i,.art .v{flex:none}
+.art .nm{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.art.more{padding:0 8px;color:var(--ink-3);flex:none}
 .art.on{border-color:var(--accent-ring);background:var(--accent-soft);color:var(--ink)}
 .art .v{font:500 10px var(--font-mono);color:var(--ink-3)}
 .dstat{display:flex;align-items:center;gap:10px;height:28px;padding:0 12px;border-top:1px solid var(--line);font:11px var(--font-ui);color:var(--ink-3)}
@@ -149,9 +152,9 @@ PAPER = """<div class="paper"><h1>Request for Proposal: Teacher Recruitment Serv
 def doc_pane():
     return f"""
 <aside class="right">
-  <div class="tool"><span class="sel">Body text{icon('chevron-down','style="width:10px;height:10px"')}</span><span class="sel">Georgia · 11</span><span class="sepv"></span><button class="btn icon xs ghost"><b>B</b></button><button class="btn icon xs ghost"><i>I</i></button><button class="btn icon xs ghost"><u>U</u></button><span class="sepv"></span><button class="btn icon xs ghost">{icon('list','style="width:12px;height:12px"')}</button><button class="btn icon xs ghost">{icon('link','style="width:12px;height:12px"')}</button><button class="btn icon xs ghost">{icon('image','style="width:12px;height:12px"')}</button><span class="grow"></span><span class="chip" style="color:var(--accent-ink)">{icon('sparkle','style="width:11px;height:11px"')}Ask</span></div>
+  <div class="tool"><span class="sel">Body text{icon('chevron-down','style="width:10px;height:10px"')}</span><span class="sepv"></span><button class="btn icon xs ghost"><b>B</b></button><button class="btn icon xs ghost"><i>I</i></button><button class="btn icon xs ghost"><u>U</u></button><span class="sepv"></span><button class="btn icon xs ghost">{icon('list','style="width:12px;height:12px"')}</button><button class="btn icon xs ghost">{icon('link','style="width:12px;height:12px"')}</button><button class="btn icon xs ghost">{icon('image','style="width:12px;height:12px"')}</button><span class="grow"></span><span class="chip" style="color:var(--accent-ink)">{icon('sparkle','style="width:11px;height:11px"')}Ask</span></div>
   <div class="doc">{PAPER}</div>
-  <div class="arts"><span class="caps" style="margin-right:4px">Created in chat</span><span class="art on">{icon('doc','style="width:11px;height:11px;color:var(--info)"')}RFP-draft-v3.docx<span class="v">v3</span></span><span class="art">{icon('sheet','style="width:11px;height:11px;color:var(--success)"')}vendor-scoring.xlsx<span class="v">v1</span></span><span class="art">{icon('file','style="width:11px;height:11px"')}notes.md</span></div>
+  <div class="arts"><span class="caps" style="margin-right:4px">Created in chat</span><span class="art on">{icon('doc','style="width:11px;height:11px;color:var(--info)"')}<span class="nm">RFP-draft-v3.docx</span><span class="v">v3</span></span><span class="art">{icon('sheet','style="width:11px;height:11px;color:var(--success)"')}<span class="nm">vendor-scoring.xlsx</span><span class="v">v1</span></span><span class="art more">+1</span></div>
   <div class="dstat"><span>Page 1 of 4</span><span>·</span><span>1,214 words</span><span class="grow"></span><span style="color:var(--accent-ink)">3 changes from chat highlighted</span><span>·</span><span>Saved</span></div>
 </aside>"""
 
@@ -185,7 +188,7 @@ def sheet_pane():
   <div class="fx"><span class="cell">E2</span><span class="f">=SUMPRODUCT(B2:D2,B$7:D$7)</span><span class="chip" style="color:var(--accent-ink)">{icon('sparkle','style="width:11px;height:11px"')}Ask about selection</span></div>
   <div class="sheet"><div class="grid">{body}</div></div>
   <div class="stabs"><span class="on">Scores</span><span>Matrix</span><span>Notes</span><span class="grow"></span><span class="tag">weighted by Annex A</span></div>
-  <div class="arts"><span class="caps" style="margin-right:4px">Created in chat</span><span class="art">{icon('doc','style="width:11px;height:11px;color:var(--info)"')}RFP-draft-v3.docx<span class="v">v3</span></span><span class="art on">{icon('sheet','style="width:11px;height:11px;color:var(--success)"')}vendor-scoring.xlsx<span class="v">v1</span></span></div>
+  <div class="arts"><span class="caps" style="margin-right:4px">Created in chat</span><span class="art">{icon('doc','style="width:11px;height:11px;color:var(--info)"')}<span class="nm">RFP-draft-v3.docx</span><span class="v">v3</span></span><span class="art on">{icon('sheet','style="width:11px;height:11px;color:var(--success)"')}<span class="nm">vendor-scoring.xlsx</span><span class="v">v1</span></span></div>
   <div class="dstat"><span>E2 selected</span><span class="grow"></span><span>Saved</span></div>
 </aside>"""
 

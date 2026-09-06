@@ -9,7 +9,7 @@ mod header;
 mod panel_header;
 mod tab_strip;
 
-pub use app_shell::{app_shell, AppShell, RAIL_WIDTH, RIGHT_WIDTH, SIDEBAR_WIDTH};
+pub use app_shell::{app_shell, AppShell, RAIL_WIDTH, RAIL_WIDTH_WITH_LIGHTS, RIGHT_WIDTH, SIDEBAR_WIDTH};
 pub use composer_dock::{docked_composer, DockedComposer, DockedComposerIntent};
 pub use drop_zones::{drop_zones, tab_ghost, DropZone, DropZones, TabGhost};
 pub use header::{centre_header, header_cell, right_header, sidebar_header, CentreHeader, HeaderCell, RightHeader, SidebarHeader};

@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test-lint:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build workspace (default features)
+        run: cargo build --workspace
+
+      # aui-webview's real WKWebView backend (`wry`) and aui-terminal's real
+      # pty/tui backends (`pty`, `tui`) are optional features; build them too
+      # so they don't silently bit-rot.
+      - name: Build workspace (backend features)
+        run: cargo build --workspace --features aui-webview/wry,aui-terminal/pty,aui-terminal/tui
+
+      - name: Test workspace
+        run: cargo test --workspace
+
+      # NOTE: clippy for aui-webview and aui-terminal is owned by another
+      # workstream (the wry/pty/tui backends) and may not be clean yet. Not
+      # excluding it here on purpose — this is left as the workspace-wide
+      # command as specified.
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Doc
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings

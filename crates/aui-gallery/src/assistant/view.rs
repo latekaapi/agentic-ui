@@ -1,6 +1,6 @@
 //! The stateful mock view.
 //!
-//! The mock renders a [`Transcript`](super::model::Transcript) and nothing
+//! The mock renders a [`Transcript`] and nothing
 //! else, so the sample state that stands in for the three design references and
 //! the state [`super::script`] builds while a turn runs go through the same
 //! code. On top of that it owns the shell's overlays — the ⌘K palette, the
@@ -533,7 +533,11 @@ impl AssistantMock {
     }
 
     fn render_right(&self, cx: &mut Context<Self>) -> AnyElement {
-        let strip = artifact_strip("assistant-artifacts", self.artifacts(self.right_tab == RightTab::Doc)).on_select(cx.listener(|this, id: &SharedString, _, cx| {
+        let strip = artifact_strip("assistant-artifacts", self.artifacts(self.right_tab == RightTab::Doc))
+            // The right pane is `shell::RIGHT_WIDTH` wide: two chips plus the
+            // `+N` chip is what stays readable there.
+            .max_visible(2)
+            .on_select(cx.listener(|this, id: &SharedString, _, cx| {
             this.right_tab = if id.as_ref().ends_with(".xlsx") { RightTab::Sheet } else { RightTab::Doc };
             cx.notify();
         }));
@@ -566,7 +570,7 @@ impl AssistantMock {
                 );
                 v_flex()
                     .size_full()
-                    .child(doc_toolbar("assistant-doc-toolbar", "Body text", "Georgia · 11").ask_label("Ask"))
+                    .child(doc_toolbar("assistant-doc-toolbar", "Body text", "Georgia · 11").without_font_select().without_export().ask_label("Ask"))
                     .child(doc_pane("assistant-doc", page).paper(340.0, 34.0, 36.0))
                     .child(strip)
                     .child(pane_status_row(

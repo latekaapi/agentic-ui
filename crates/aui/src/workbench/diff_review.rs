@@ -519,7 +519,7 @@ fn review_note(p: &Palette, id: ElementId, index: usize, note: &ReviewNote, on_a
                 .child(format!("NOTE {} · LINE {}", index + 1, note.line)),
         )
         .child(div().w_full().when(note.pending, |d| d.py(px(NOTE_TEXTAREA_PAD))).child(note.text.clone()));
-    let el = if note.pending {
+    if note.pending {
         el.child(
             h_flex()
                 .w_full()
@@ -537,8 +537,7 @@ fn review_note(p: &Palette, id: ElementId, index: usize, note: &ReviewNote, on_a
                 .child(button((id.clone(), "edit"), "Edit").xs().ghost().on_click(emit(DiffReviewAction::EditNote(index))))
                 .child(button((id, "delete"), "Delete").xs().ghost().on_click(emit(DiffReviewAction::DeleteNote(index)))),
         )
-    };
-    el
+    }
 }
 
 impl RenderOnce for DiffReview {

@@ -275,6 +275,8 @@ The library’s keyboard actions and their default bindings.
   - `pub fn keyboard_nav(cx: &mut App) -> bool`
 - **fn** `set_keyboard_nav` — Arms or disarms the keyboard-focus flag. Call it with `true` from anything that moves focus with the keyboard; the focus ring follows.
   - `pub fn set_keyboard_nav(on: bool, cx: &mut App)`
+- **fn** `track_pointer` — Keeps the `keyboard_nav` flag honest for a whole window: any mouse press anywhere under `el` disarms it, and any key press re-arms it. [...]
+  - `pub fn track_pointer<E: InteractiveElement>(el: E) -> E`
 
 - **struct** `ApproveAlways` — Allow it and remember the rule.
 - **struct** `ApproveOnce` — Allow the pending request once.
@@ -449,7 +451,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn groups_label(self, label: impl Into<SharedString>) -> Self` — Overrides the caps label of the group row.
   - `pub fn item(self, item: SidebarNavItem) -> Self` — Adds a primary nav row.
   - `pub fn new(workspace: impl Into<SharedString>, footer: SidebarAccount) -> Self` — A sidebar for `workspace` with the given footer; add items and groups with the builder methods.
-  - `pub fn rail_items(&self) -> Vec<RailItem>` — The collapsed form of this data: the nav glyphs (the warning count becomes the badge), the separator, then one cell per active session — every session that is not `AgentState::Idle`, in group order.
+  - `pub fn rail_items(&self) -> Vec<RailItem>` — The collapsed form of this data: the nav glyphs (the warning count becomes the badge), the separator, then one cell per active session — every session that is not [`AgentState::Idle`], in group order.
   - `pub fn selected(self, id: impl Into<SharedString>) -> Self` — Selects a session.
 - **struct** `SidebarNavItem` — One primary nav row (`Tasks`, `Automations`, `Inbox`).
   - fields: `name`, `label`, `icon`, `count`, `warning`
@@ -643,6 +645,8 @@ App shell: the three-column layout with one 44 px header cell per column, contin
 
 - **const** `RAIL_WIDTH` — The collapsed sidebar rail (⌘B).
   - `pub const RAIL_WIDTH: f32 = 48.0;`
+- **const** `RAIL_WIDTH_WITH_LIGHTS` — The collapsed sidebar column when the window’s controls sit above it: the macOS traffic lights own the top-left of the window whether the shell paints them or the system does, so the rail column widen [...]
+  - `pub const RAIL_WIDTH_WITH_LIGHTS: f32 = 72.0;`
 - **const** `RIGHT_WIDTH` — Right column width in the app (400; card 10 uses 392).
   - `pub const RIGHT_WIDTH: f32 = 400.0;`
 - **const** `SIDEBAR_WIDTH` — Sidebar column width (`grid-template-columns: 252px …`).
@@ -951,6 +955,7 @@ Workbench: the block terminal and TUI pane, browser with annotator, diff review,
   - `pub fn version(self, version: impl Into<SharedString>) -> Self` — Sets the version tag.
 - **struct** `ArtifactStrip` — The “Created in chat” strip (`.arts`). Build with `artifact_strip`.
   - `pub fn label(self, label: impl Into<SharedString>) -> Self` — Overrides the caps label.
+  - `pub fn max_visible(self, n: usize) -> Self` — Shows at most `n` chips and gathers the rest behind a `+N` chip (`.art.more`). [...]
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — Called with the artifact’s name when a chip is clicked.
 - **struct** `BlockTerminal` — The block terminal. Build with `block_terminal`.
   - `pub fn marker(self, text: impl Into<SharedString>) -> Self` — The restored-scrollback marker at the top.
@@ -986,6 +991,8 @@ Workbench: the block terminal and TUI pane, browser with annotator, diff review,
   - `pub fn ask_label(self, label: impl Into<SharedString>) -> Self` — Overrides the sparkle chip’s label.
   - `pub fn export_label(self, label: impl Into<SharedString>) -> Self` — Overrides the export button’s label.
   - `pub fn on_action(self, f: impl Fn(&DocToolbarAction, &mut Window, &mut App) + 'static) -> Self` — Called with every intent the toolbar emits.
+  - `pub fn without_export(self) -> Self` — Drops the export button, the way the assistant screens’ narrow pane does: export lives in the tab band’s overflow menu there, and the row keeps every remaining control at its designed width.
+  - `pub fn without_font_select(self) -> Self` — Drops the font select. The toolbar’s controls keep their width rather than shrinking, so in a pane as narrow as the shell’s right pane (`shell::RIGHT_WIDTH`) the row cannot hold both selects and the a [...]
 - **struct** `ElementOutline` — The hovered / selected element overlay. Build with `element_outline`.
   - `pub fn selected(self, selected: bool) -> Self` — The clicked element: a 1.5 px outline, no fill and no label.
   - `pub fn size(self, width: impl Into<Pixels>, height: impl Into<Pixels>) -> Self` — The element’s box.

@@ -27,3 +27,14 @@ tree-sitter = [
     "gpui-kit/tree-sitter-python",
     "gpui-kit/tree-sitter-bash",
 ]
+
+[dev-dependencies]
+# `test-support` gives the example `Window::render_to_image` parity with the
+# gallery's screenshot path and lets `#[gpui::test]` build a real window.
+gpui = { workspace = true, features = ["test-support"] }
+gpui_platform = { workspace = true, features = ["test-support"] }
+aui-protocol.workspace = true
+
+[[example]]
+name = "minimal"
+path = "examples/minimal.rs"

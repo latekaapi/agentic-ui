@@ -547,6 +547,7 @@ dependencies = [
  "aui-tokens",
  "gpui-kit",
  "gpui-pre",
+ "gpui-pre-platform",
 ]
 
 [[package]]
