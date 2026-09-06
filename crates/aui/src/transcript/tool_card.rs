@@ -76,6 +76,9 @@ pub enum ToolCardIntent {
 
 type IntentHandler = std::rc::Rc<dyn Fn(ToolCardIntent, &mut Window, &mut App)>;
 
+/// A click handler bound to one [`ToolCardIntent`], ready for `on_click`.
+type IntentClick = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
+
 /// A tool call card. Build with [`tool_card`].
 #[derive(IntoElement)]
 pub struct ToolCard {
@@ -133,7 +136,7 @@ impl RenderOnce for ToolCard {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let handler = self.on_intent.clone();
-        let emit = move |intent: ToolCardIntent| -> Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)> {
+        let emit = move |intent: ToolCardIntent| -> IntentClick {
             let handler = handler.clone();
             Box::new(move |_: &gpui::ClickEvent, w: &mut Window, cx: &mut App| {
                 if let Some(h) = &handler {

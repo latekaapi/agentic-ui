@@ -98,6 +98,9 @@ pub enum BannerActionStyle {
     Ghost,
 }
 
+/// The banner's single action button was pressed.
+type ActionHandler = Rc<dyn Fn(&mut Window, &mut App)>;
+
 /// An inline banner. Build with [`banner`].
 #[derive(IntoElement)]
 pub struct Banner {
@@ -105,7 +108,7 @@ pub struct Banner {
     kind: BannerKind,
     runs: Vec<BannerRun>,
     action: Option<(SharedString, BannerActionStyle)>,
-    on_action: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
+    on_action: Option<ActionHandler>,
 }
 
 /// A one-line banner in `kind`'s colours, carrying `runs` as its message.

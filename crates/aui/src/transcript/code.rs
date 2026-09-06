@@ -153,7 +153,7 @@ fn copy_button(id: &ElementId, p: &Palette, on_copy: Option<CodeHandler>, window
             let state = state.clone();
             cx.spawn(async move |cx| {
                 cx.background_executor().timer(COPIED_HOLD).await;
-                let _ = state.update(cx, |c, cx| {
+                state.update(cx, |c, cx| {
                     *c = false;
                     cx.notify();
                 });
@@ -163,8 +163,26 @@ fn copy_button(id: &ElementId, p: &Palette, on_copy: Option<CodeHandler>, window
         .child(morph)
 }
 
+/// Everything that differs between the code block's header and the diff
+/// block's, kept in one struct so [`block_header`] stays a short signature
+/// alongside gpui's `window` / `cx`.
+struct BlockHeaderArgs {
+    /// The leading glyph: a file icon for code, the git icon for a diff.
+    glyph: IconName,
+    /// The path shown next to the glyph; truncates when the row is narrow.
+    name: SharedString,
+    /// Elements between the name and the flexible gap — the language tag on a
+    /// code block, the +/- counts on a diff.
+    after: Vec<gpui::AnyElement>,
+    /// The right-aligned action buttons, faded until the block is hovered.
+    actions: Vec<gpui::AnyElement>,
+    /// Whether the enclosing block is hovered; drives the action-row fade.
+    hovered: bool,
+}
+
 /// The shared 30 px header of code and diff blocks.
-fn block_header(p: &Palette, glyph: IconName, name: SharedString, after: Vec<gpui::AnyElement>, actions: Vec<gpui::AnyElement>, hovered: bool, window: &mut Window, cx: &mut App, id: &ElementId) -> impl IntoElement {
+fn block_header(p: &Palette, id: &ElementId, args: BlockHeaderArgs, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    let BlockHeaderArgs { glyph, name, after, actions, hovered } = args;
     let opacity = tween((id.clone(), "actions"), if hovered { 1.0f32 } else { ACTIONS_REST }, Tween::FAST, window, cx);
     h_flex()
         .w_full()
@@ -207,7 +225,7 @@ impl RenderOnce for CodeBlock {
             copy_button(&id, &p, self.on_action.clone(), window, cx).into_any_element(),
         ];
         let after: Vec<gpui::AnyElement> = self.language.iter().map(|l| div().text_color(p.ink_3).child(l.clone()).into_any_element()).collect();
-        let header = block_header(&p, IconName::File, self.path.clone(), after, actions, flags.hovered, window, cx, &id);
+        let header = block_header(&p, &id, BlockHeaderArgs { glyph: IconName::File, name: self.path.clone(), after, actions, hovered: flags.hovered }, window, cx);
 
         let language = self.language.clone();
         let mut body = v_flex().w_full().py(px(CODE_PAD_Y)).px(px(CODE_PAD_X)).mono(scale::FS_12).line_height(relative(CODE_LH)).text_color(p.term_fg).whitespace_nowrap();
@@ -415,7 +433,7 @@ impl RenderOnce for DiffBlock {
             text_button("open", "Open in Diff", false).on_click(emit(DiffBlockAction::OpenInDiff)).into_any_element(),
         ];
         let after: Vec<gpui::AnyElement> = vec![pill(format!("+{} −{}", self.diff.added, self.diff.removed)).variant(PillVariant::Success).height(COUNT_PILL_H).into_any_element()];
-        let header = block_header(&p, IconName::Git, self.diff.path.clone().into(), after, actions, flags.hovered, window, cx, &id);
+        let header = block_header(&p, &id, BlockHeaderArgs { glyph: IconName::Git, name: self.diff.path.clone().into(), after, actions, hovered: flags.hovered }, window, cx);
 
         let mut body = v_flex().w_full().mono(DIFF_TEXT).line_height(relative(DIFF_LH)).text_color(p.ink);
         for (h, hunk) in self.diff.hunks.iter().enumerate() {

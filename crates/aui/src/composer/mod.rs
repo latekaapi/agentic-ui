@@ -3,6 +3,8 @@
 //! chips (cards 40–42, spec §4). The docked variant used by the shell lives in
 //! [`crate::shell::DockedComposer`] until the two are merged.
 
+// The module is named after the card it implements; the re-export below flattens it away.
+#[allow(clippy::module_inception)]
 mod composer;
 mod attachments;
 mod menu;

@@ -1,6 +1,6 @@
 //! The stateful mock view.
 //!
-//! The mock renders a [`Transcript`](super::model::Transcript) and nothing
+//! The mock renders a [`Transcript`] and nothing
 //! else, so the sample state that stands in for the three design references and
 //! the state [`super::script`] builds while a turn runs go through the same
 //! code. On top of that it owns the shell's overlays — the ⌘K palette, the

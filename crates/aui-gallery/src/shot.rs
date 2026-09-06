@@ -35,7 +35,7 @@ pub fn capture_and_quit(handle: WindowHandle<Root>, path: PathBuf, delay: Durati
             Ok(Err(err)) => eprintln!("screenshot failed: {err:#}"),
             Err(err) => eprintln!("screenshot failed: {err:#}"),
         }
-        let _ = cx.update(|cx| cx.quit());
+        cx.update(|cx| cx.quit());
     })
     .detach();
 }
