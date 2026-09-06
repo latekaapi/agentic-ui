@@ -18,7 +18,7 @@
 //!
 //! [`key_context`]: gpui::InteractiveElement::key_context
 
-use gpui::{actions, App, Global, KeyBinding};
+use gpui::{actions, App, Global, InteractiveElement, KeyBinding};
 
 actions!(
     aui,
@@ -83,9 +83,11 @@ pub fn bind(cx: &mut App) {
 /// The `:focus-visible` approximation. gpui has no notion of it, so the library
 /// keeps one window-wide flag: the keyboard arms it (a key on a focusable
 /// control, or a [`FocusNext`] / [`FocusPrev`] the application handles), a
-/// mouse press on a control disarms it, and [`crate::data::Button`] draws its
-/// accent ring only while it is armed. A mouse press on something that is not a
-/// control does not disarm it, which is the one place the approximation shows.
+/// mouse press disarms it, and [`crate::data::Button`] draws its accent ring
+/// only while it is armed. [`track_pointer`] — which [`crate::shell::AppShell`]
+/// already puts on its own root — watches the window root in the capture phase,
+/// so *any* mouse press disarms the flag, control or not, and the next key
+/// press re-arms it.
 #[derive(Default)]
 struct KeyboardNav(bool);
 
@@ -102,4 +104,21 @@ pub fn set_keyboard_nav(on: bool, cx: &mut App) {
     if cx.default_global::<KeyboardNav>().0 != on {
         cx.set_global(KeyboardNav(on));
     }
+}
+
+/// Keeps the [`keyboard_nav`] flag honest for a whole window: any mouse press
+/// anywhere under `el` disarms it, and any key press re-arms it. Both listeners
+/// run in the *capture* phase, so they see the event before the control under
+/// the pointer does and never depend on it bubbling back out.
+///
+/// Put it on the outermost element of a window, next to
+/// `key_context(`[`ROOT_CONTEXT`]`)`. [`crate::shell::AppShell`] does this for
+/// its own root, so an application built on the shell gets it for free; an
+/// application that lays out its own root calls this itself:
+///
+/// ```ignore
+/// aui::keys::track_pointer(div().key_context(aui::keys::ROOT_CONTEXT).size_full())
+/// ```
+pub fn track_pointer<E: InteractiveElement>(el: E) -> E {
+    el.capture_any_mouse_down(|_, _, cx| set_keyboard_nav(false, cx)).capture_key_down(|_, _, cx| set_keyboard_nav(true, cx))
 }

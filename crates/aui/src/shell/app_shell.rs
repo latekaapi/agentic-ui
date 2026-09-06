@@ -223,7 +223,9 @@ impl RenderOnce for AppShell {
                     .child(div().w(right_inner).h_full().flex_none().border_l_1().border_color(p.line).bg(p.surface_1).children(self.right)),
             );
 
-        let mut root = v_flex().id(id).size_full().overflow_hidden().bg(p.bg).text_color(p.ink).child(header).child(panes);
+        // The window-wide `:focus-visible` approximation: a mouse press anywhere
+        // in the shell disarms the focus ring, the next key press re-arms it.
+        let mut root = crate::keys::track_pointer(v_flex().id(id).size_full().overflow_hidden().bg(p.bg).text_color(p.ink).child(header).child(panes));
         if self.framed {
             root = root.rounded(px(scale::R_LG)).border_1().border_color(p.line_strong).shadow(p.shadow(3));
         }
