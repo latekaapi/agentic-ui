@@ -56,8 +56,8 @@ The design is the contract. Three artefacts define it, in this order of authorit
 | 03 Space/radius/elevation | aui-tokens | foundations/space | 0b8a535 · 0.6 % |
 | 04 Motion | aui-motion | foundations/motion (playground) | 0b8a535 · 1.2 % (frames) |
 | 05 Icons and marks | aui-icons | foundations/icons | 0b8a535 · 1.7 % (ts/tsx text) |
-| 10 App shell | shell::AppShell, HeaderCells, DockedComposer (note via transcript::diff_note_inset) | shell/app-shell | 8254ef0 · 1.0 % |
-| 11 Panel chrome | shell::PanelHeader, TabStrip, DropZones | shell/panel-chrome | 8254ef0 · 0.7 % (ghost rotation) |
+| 10 App shell | shell::AppShell, HeaderCells, DockedComposer (note via transcript::diff_note_inset) | shell/app-shell | dc89a4a · 1.0 % |
+| 11 Panel chrome | shell::PanelHeader, TabStrip, DropZones | shell/panel-chrome | dc89a4a · 0.7 % (ghost rotation) |
 | 12 Command palette | overlay::CommandPalette | shell/command-palette | a70ab8a · 0.4 % |
 | 13 Toasts and banners | feedback::ToastStack, Banner | shell/toasts | a70ab8a · 1.1 % |
 | 20 Worktree rows | nav::SessionRow | sidebar/rows | e8ceba3 · 1.4 % |
@@ -65,23 +65,23 @@ The design is the contract. Three artefacts define it, in this order of authorit
 | 22 Assistant sidebar | nav::RoleSections | sidebar/assistant | e8ceba3 · 1.6 % (tracking) |
 | 23 Sidebar views | nav::SidebarView (status/project/date), ViewMenu | sidebar/views | e8ceba3 · 1.0 % |
 | 30 Header identity and markers | shell::CentreHeader, transcript::MarkerRow | transcript/markers | a70ab8a · 1.0 % |
-| 31 Turns | transcript::UserTurn, AssistantTurn, prose | transcript/turns | 8254ef0 · 1.7 % (inline code size) |
+| 31 Turns | transcript::UserTurn, AssistantTurn, prose | transcript/turns | dc89a4a · 1.7 % (inline code size) |
 | 32 Thinking | transcript::ThinkingBlock | transcript/thinking | a70ab8a · 1.1 % |
 | 33 Activity group | transcript::ActivityGroup | transcript/activity | a70ab8a · 1.0 % |
 | 34 Tool cards | transcript::ToolCard (+ bodies) | transcript/tool-cards | cc4d03f · 1.6 % (code indentation) |
 | 35 Approval | transcript::ApprovalCard | transcript/approval | cc4d03f · 1.1 % (26 px tile kept) |
 | 36 Question, plan, todo | transcript::QuestionCard, PlanCard, TodoList | transcript/question-plan-todo | cc4d03f · 1.0 % |
-| 37 Code and diff blocks | transcript::CodeBlock, DiffBlock, DiffNote | transcript/code-diff | 8254ef0 · 2.0 % (diff keeps code indentation the HTML collapsed) |
+| 37 Code and diff blocks | transcript::CodeBlock, DiffBlock, DiffNote | transcript/code-diff | dc89a4a · 2.0 % (diff keeps code indentation the HTML collapsed) |
 | 38 Summary, error, status | transcript::SummaryCard, ErrorCard, StatusRow, NeedsYouBanner, JumpPill | transcript/summary-status | cc4d03f · 0.9 % (design `.sm` collision fixed) |
-| 40 Composer | composer::Composer (docked + floating), PlusMenu, queue, suggestions | composer/composer | 8254ef0 · 2.3 % (kit textarea line box) |
+| 40 Composer | composer::Composer (docked + floating), PlusMenu, queue, suggestions | composer/composer | dc89a4a · 2.3 % (kit textarea line box) |
 | 41 Slash and mentions | composer::CommandMenu, MentionPicker | composer/menus | f94bc7c · 0.9 % |
 | 42 Attachments | composer::AttachmentRow, DropOverlay | composer/attachments | f94bc7c · 1.1 % |
 | 50 Terminal | workbench::BlockTerminal, TuiPane | workbench/terminal | 19bcd60 · 1.4 % (tab indicator moved to ink/bottom per the rules) |
 | 51 Browser and annotator | workbench::BrowserNav, AnnotationsPanel, pins, NotePopover | workbench/browser | a447df3 · 1.0 % |
-| 52 Diff review | workbench::DiffReview, Segmented | workbench/diff | 8254ef0 · 1.6 % (code indentation) |
+| 52 Diff review | workbench::DiffReview, Segmented | workbench/diff | dc89a4a · 1.6 % (code indentation) |
 | 53 Git and PR | workbench::GitChanges, PrForm | workbench/git | 6157e0f · 1.0 % (description flows as prose; design fixed) |
-| 54 Files and documents | workbench::FileTree, DocPane, ArtifactStrip (+ PdfPane, SheetPane used by the screens) | workbench/files-docs | 8254ef0 · 1.2 % dark / 1.2 % light |
-| 55 Sources and citations | workbench::Citation, CitedAnswer, SourcesCard, SourceHoverCard | transcript/citations | 8254ef0 · 2.9 % (glyph weight; geometry within 1 px) |
-| Screens (3 assistant) | the three assistant screens assembled live; `AUI_GALLERY_SCREEN=<Main\|Sources\|Sheet>` picks one | screens/assistant | 8254ef0 · 2.5 % Main / 2.4 % Sources / 1.1 % Sheet (Geist and Georgia rasterise wider than Chrome, so the doc paper wraps one word early) |
-| Screens page | the three assistant screens side by side at 1440×900, horizontally scrolling | screens/all | 8254ef0 · no reference (a gallery page, not a design card) |
+| 54 Files and documents | workbench::FileTree, DocPane, ArtifactStrip (+ PdfPane, SheetPane used by the screens) | workbench/files-docs | dc89a4a · 1.2 % dark / 1.2 % light |
+| 55 Sources and citations | workbench::Citation, CitedAnswer, SourcesCard, SourceHoverCard | transcript/citations | dc89a4a · 2.9 % (glyph weight; geometry within 1 px) |
+| Screens (3 assistant) | the three assistant screens assembled live; `AUI_GALLERY_SCREEN=<Main\|Sources\|Sheet>` picks one | screens/assistant | dc89a4a · 2.5 % Main / 2.4 % Sources / 1.1 % Sheet (Geist and Georgia rasterise wider than Chrome, so the doc paper wraps one word early) |
+| Screens page | the three assistant screens side by side at 1440×900, horizontally scrolling | screens/all | dc89a4a · no reference (a gallery page, not a design card) |
 | Screens (4 harness) | harness screens not assembled | — | — |
