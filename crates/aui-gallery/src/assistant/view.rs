@@ -6,7 +6,10 @@ use aui::nav::{rail, role_section, sidebar_footer, Project, RailItem, Role, Role
 use aui::protocol::{ActivityState, Step, StepState};
 use aui::shell::{app_shell, centre_header, right_header, sidebar_header, tab_strip, TabItem};
 use aui::transcript::{activity_group, user_turn, ProseStyle};
-use aui::workbench::{artifact_strip, cited_answer, doc_pane, doc_toolbar, pane_status, pane_status_row, pdf_pane, sheet_pane, Artifact, ArtifactKind, DocBlock, DocPage, DocRun, PdfPage, PdfRun, SheetCell};
+use aui::workbench::{
+    artifact_strip, cited_answer, doc_pane, doc_toolbar, pane_status, pane_status_row, pdf_pane, sheet_pane, source_hover_card, sources_card, Artifact, ArtifactKind, DocBlock, DocPage,
+    DocRun, PdfPage, PdfRun, SheetCell, Source, SourceTier,
+};
 use aui_icons::{icon, IconName, Provider, RoleIcon};
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled};
 use gpui::*;
@@ -24,8 +27,93 @@ const FILE_CARD_PAD_Y: f32 = 10.0;
 const FILE_CARD_PAD_X: f32 = 12.0;
 const FILE_CARD_TILE: f32 = 36.0;
 const FILE_CARD_TILE_RADIUS: f32 = 8.0;
+/// `.fc .ic svg{width:18px;height:18px}`.
+const FILE_CARD_GLYPH: f32 = 18.0;
+/// The passage the `assistant-Sources` hover card quotes, and the span the
+/// retrieval matched (`<mark>` in the screen source).
+const SOURCE_QUOTE: &str =
+    "\u{201c}\u{2026}shall hold a valid registration with the Directorate and shall have completed not less than three years of comparable placements in the preceding five years.\u{201d}";
+const SOURCE_HIGHLIGHT: &str = "not less than three years of comparable placements";
+/// `screens/all`: three 1440 x 900 screens, 24 px apart, on a 20 px ground,
+/// each under a caption.
+const SCREEN_W: f32 = 1440.0;
+const SCREEN_H: f32 = 900.0;
+const SCREENS_GAP: f32 = 24.0;
+const SCREENS_PAD_X: f32 = 20.0;
+const SCREENS_PAD_Y: f32 = 12.0;
+const SCREENS_CAPTION: f32 = 28.0;
 /// The assistant body text: 13.5 / 1.65.
 const BODY_TEXT: f32 = 13.5;
+
+/// Which of the three assistant screen references the mock stands in for.
+/// `AUI_GALLERY_SCREEN=<Main|Sources|Sheet>` picks one for a parity render;
+/// the `screens/all` entry passes each of them explicitly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssistantScreen {
+    /// `assistant-Main`: the RFP session with the document pane.
+    Main,
+    /// `assistant-Sources`: the cited answer, the sources card and the open
+    /// hover card over citation 1, with the regulation in the PDF pane.
+    Sources,
+    /// `assistant-Sheet`: the scoring sheet the session created.
+    Sheet,
+}
+
+impl AssistantScreen {
+    /// Reads `AUI_GALLERY_SCREEN`; anything unrecognised is `Main`.
+    pub fn from_env() -> Self {
+        match std::env::var("AUI_GALLERY_SCREEN").unwrap_or_default().as_str() {
+            "Sources" | "sources" => AssistantScreen::Sources,
+            "Sheet" | "sheet" => AssistantScreen::Sheet,
+            _ => AssistantScreen::Main,
+        }
+    }
+
+    /// The session the sidebar marks current.
+    fn session(self) -> &'static str {
+        match self {
+            AssistantScreen::Main => "rfp-v3",
+            AssistantScreen::Sources => "eligibility",
+            AssistantScreen::Sheet => "scoring",
+        }
+    }
+
+    /// The centre header's branch tag.
+    fn branch(self) -> &'static str {
+        match self {
+            AssistantScreen::Main => "RFP draft v3",
+            AssistantScreen::Sources => "Eligibility criteria review",
+            AssistantScreen::Sheet => "Vendor scoring sheet",
+        }
+    }
+
+    /// The composer placeholder.
+    fn placeholder(self) -> &'static str {
+        match self {
+            AssistantScreen::Main => "Ask, draft, or type / for commands",
+            AssistantScreen::Sources => "Ask a follow-up, or drag a passage here to quote it",
+            AssistantScreen::Sheet => "Ask about the selection, or change the weights",
+        }
+    }
+
+    /// The pane the right column opens on.
+    fn right_tab(self) -> RightTab {
+        match self {
+            AssistantScreen::Main => RightTab::Doc,
+            AssistantScreen::Sources => RightTab::Pdf,
+            AssistantScreen::Sheet => RightTab::Sheet,
+        }
+    }
+
+    /// The caption used by the `screens/all` page.
+    pub fn caption(self) -> &'static str {
+        match self {
+            AssistantScreen::Main => "assistant-Main \u{b7} project session with document",
+            AssistantScreen::Sources => "assistant-Sources \u{b7} answer with citations",
+            AssistantScreen::Sheet => "assistant-Sheet \u{b7} spreadsheet created in chat",
+        }
+    }
+}
 
 /// Which pane the right column shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +128,7 @@ pub enum RightTab {
 
 /// The mock's state.
 pub struct AssistantMock {
+    screen: AssistantScreen,
     right_open: bool,
     sidebar_open: bool,
     right_tab: RightTab,
@@ -51,15 +140,16 @@ pub struct AssistantMock {
 }
 
 impl AssistantMock {
-    /// Creates the mock with the sample state of the `assistant-Main` screen.
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let composer = cx.new(|cx| composer_state_rows("Ask, draft, or type / for commands", 1, 8, window, cx));
+    /// Creates the mock in the sample state of one assistant screen.
+    pub fn new(screen: AssistantScreen, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let composer = cx.new(|cx| composer_state_rows(screen.placeholder(), 1, 8, window, cx));
         Self {
+            screen,
             right_open: true,
             sidebar_open: !crate::cards::app_shell::collapsed_by_default(),
-            right_tab: RightTab::Doc,
+            right_tab: screen.right_tab(),
             open_roles: [true, false, false],
-            active_session: "rfp-v3".into(),
+            active_session: screen.session().into(),
             composer,
             plus_open: false,
             streaming: false,
@@ -130,14 +220,77 @@ impl AssistantMock {
         rail("assistant-rail", items).flat(true).avatar("B").on_action(move |id, w, cx| select(id, w, cx))
     }
 
+    /// The sources card's two tiers, as the `assistant-Sources` screen groups them.
+    fn source_tiers() -> Vec<SourceTier> {
+        vec![
+            SourceTier::new("Role")
+                .name("Director, Education")
+                .source(Source::cited(1, "Procurement Rules 2019, Rule 14(2)", "procurement-rules-2019.pdf \u{b7} p. 31 \u{b7} registration and experience threshold", 0.92))
+                .source(Source::cited(2, "GO 2024-18 \u{b7} Verification of credentials", "go-2024-18.pdf \u{b7} \u{a7}4 \u{b7} original certificates at onboarding", 0.88)),
+            SourceTier::new("Project").name("Teacher recruitment RFP").source(Source::cited(3, "Project brief", "brief.docx \u{b7} cohort size and institution count", 0.97)),
+        ]
+    }
+
     fn render_transcript(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = cx.aui().colors;
-        let steps = vec![
-            Step { verb: "Searched".into(), target: "Education Code".into(), state: StepState::Done, result: Some("4 passages".into()) },
-            Step { verb: "Searched".into(), target: "Procurement Rules 2019".into(), state: StepState::Done, result: Some("5 passages".into()) },
-            Step { verb: "Searched".into(), target: "GO 2024-18".into(), state: StepState::Done, result: Some("2 passages".into()) },
-        ];
-        let answer = "Under the current rules a bidder needs a valid registration and three years of comparable placements[[1]]. The 2024 order moved certificate verification to onboarding and requires originals[[2]]. The brief sets the cohort at 240 teachers across 38 institutions[[3]]. I folded all three into section 2 and left the rest of the draft untouched.";
+        let style = ProseStyle { ink: p.ink, code_ink: p.accent_ink, code_bg: p.accent_soft, size: BODY_TEXT, line_height: scale::LH_BODY, paragraph_gap: 10.0 };
+        let (prompt, answer, status) = match self.screen {
+            AssistantScreen::Main => (
+                "Tighten section 2. Eligibility must reflect the current procurement rules and the 2024 verification order.",
+                "Under the current rules a bidder needs a valid registration and three years of comparable placements[[1]]. The 2024 order moved certificate verification to onboarding and requires originals[[2]]. The brief sets the cohort at 240 teachers across 38 institutions[[3]]. I folded all three into section 2 and left the rest of the draft untouched.",
+                "3 sources cited",
+            ),
+            AssistantScreen::Sources => (
+                "What does a bidder need to qualify, and where does that come from?",
+                "Three requirements, each from a different source. A valid registration with the Directorate and at least three years of comparable placements in the preceding five[[1]]. Original certificates verified at onboarding rather than at bid time[[2]]. And for this RFP specifically, capacity for 240 teachers across 38 institutions[[3]]. Nothing in the Education Code adds to this; it defers to the procurement rules.",
+                "hovering citation 1 \u{b7} source open on the right",
+            ),
+            AssistantScreen::Sheet => (
+                "Score the four vendors against the Annex A matrix. Weight experience 45, coverage 30, price 25.",
+                "Northlight leads on the weighted score, mostly on experience. Civic Talent is cheapest but thin on experience, which the matrix penalises hardest. The weights sit in row 7 so you can change them and the totals follow.",
+                "E2 selected in the sheet",
+            ),
+        };
+        let done = |verb: &str, target: &str, result: Option<&str>| Step {
+            verb: verb.to_string(),
+            target: target.to_string(),
+            state: StepState::Done,
+            result: result.map(|r| r.to_string()),
+        };
+        let activity = match self.screen {
+            AssistantScreen::Sheet => activity_group(
+                "assistant-activity",
+                vec![done("Read", "Annex A", None), done("Built", "the scoring matrix", None), done("Wrote", "vendor-scoring.xlsx", None)],
+                "Read Annex A",
+                "14 s",
+                ActivityState::Done,
+            )
+            .detail("\u{b7} built the matrix \u{b7} wrote vendor-scoring.xlsx")
+            .open(false),
+            _ => activity_group(
+                "assistant-activity",
+                vec![
+                    done("Searched", "Education Code", Some("4 passages")),
+                    done("Searched", "Procurement Rules 2019", Some("5 passages")),
+                    done("Searched", "GO 2024-18", Some("2 passages")),
+                ],
+                "Searched 3 knowledge sets",
+                "6 s",
+                ActivityState::Done,
+            )
+            .detail("\u{b7} read 2 regulations \u{b7} 11 passages")
+            .open(false),
+        };
+        // `assistant-Sources` closes with the sources card and the hover card
+        // held open over citation 1; the other two close with the artifact card.
+        let body: AnyElement = match self.screen {
+            AssistantScreen::Sources => {
+                let start = SOURCE_QUOTE.find(SOURCE_HIGHLIGHT).unwrap_or(0);
+                let hover = source_hover_card("assistant-hover", "Rule 14(2) \u{b7} Eligibility of bidders", SOURCE_QUOTE, start..start + SOURCE_HIGHLIGHT.len(), 31).at_rest();
+                sources_card("assistant-sources", Self::source_tiers()).cited(3).retrieved(11).hover_card(0, hover).into_any_element()
+            }
+            _ => self.file_card(cx).into_any_element(),
+        };
         v_flex()
             .flex_1()
             .min_h(px(0.0))
@@ -145,17 +298,10 @@ impl AssistantMock {
             .pt(px(TRANSCRIPT_PAD_TOP))
             .px(px(TRANSCRIPT_PAD_X))
             .gap(px(BLOCK_GAP))
-            .child(div().w_full().flex().justify_end().child(user_turn(
-                "assistant-user-1",
-                "Tighten section 2. Eligibility must reflect the current procurement rules and the 2024 verification order.",
-            )))
-            .child(
-                activity_group("assistant-activity", steps, "Searched 3 knowledge sets", "6 s", ActivityState::Done)
-                    .detail("· read 2 regulations · 11 passages")
-                    .open(false),
-            )
-            .child(cited_answer("assistant-answer", answer, ProseStyle { ink: p.ink, code_ink: p.accent_ink, code_bg: p.accent_soft, size: BODY_TEXT, line_height: scale::LH_BODY, paragraph_gap: 10.0 }))
-            .child(self.file_card(cx))
+            .child(div().w_full().flex().justify_end().child(user_turn("assistant-user-1", prompt)))
+            .child(activity)
+            .child(cited_answer("assistant-answer", answer, style).streaming(self.streaming))
+            .child(body)
             .child(div().flex_1())
             .child(
                 h_flex()
@@ -166,14 +312,22 @@ impl AssistantMock {
                     .text_color(p.ink_3)
                     .child(status_dot("assistant-status-dot", AgentState::Done))
                     .child("Done")
-                    .child("·")
-                    .child("3 sources cited"),
+                    .child("\u{b7}")
+                    .child(status),
             )
     }
 
-    /// `.fc`: the artifact card under the answer.
+    /// `.fc`: the artifact card under the answer. The tile is surface-2 with
+    /// the file type's tint, as `file_card()` builds it in the screen source.
     fn file_card(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = cx.aui().colors;
+        let sheet = self.screen == AssistantScreen::Sheet;
+        let (glyph, tint, name, desc) = if sheet {
+            (IconName::Sheet, p.success, "vendor-scoring.xlsx", "Scores, Matrix and Notes sheets \u{b7} formulas live \u{b7} v1")
+        } else {
+            (IconName::Doc, p.info, "RFP-draft-v3.docx", "Section 2 rewritten \u{b7} 3 changes highlighted \u{b7} v3")
+        };
+        let tab = if sheet { RightTab::Sheet } else { RightTab::Doc };
         h_flex()
             .w_full()
             .gap(px(FILE_CARD_GAP))
@@ -183,18 +337,28 @@ impl AssistantMock {
             .border_1()
             .border_color(p.line)
             .bg(p.surface_1)
-            .child(div().flex_none().size(px(FILE_CARD_TILE)).rounded(px(FILE_CARD_TILE_RADIUS)).bg(p.accent_soft).flex().items_center().justify_center().child(icon(IconName::Doc).color(p.accent_ink)))
+            .child(
+                div()
+                    .flex_none()
+                    .size(px(FILE_CARD_TILE))
+                    .rounded(px(FILE_CARD_TILE_RADIUS))
+                    .bg(p.surface_2)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(icon(glyph).size(px(FILE_CARD_GLYPH)).color(tint)),
+            )
             .child(
                 v_flex()
                     .flex_1()
                     .min_w(px(0.0))
-                    .child(div().ui(scale::FS_13).semibold().text_color(p.ink).child("RFP-draft-v3.docx"))
-                    .child(div().ui(scale::FS_12).text_color(p.ink_3).child("Section 2 rewritten · 3 changes highlighted · v3")),
+                    .child(div().ui(scale::FS_13).semibold().text_color(p.ink).child(name))
+                    .child(div().ui(scale::FS_12).text_color(p.ink_3).child(desc)),
             )
             .child(button("assistant-download", "Download").ghost().sm())
-            .child(button("assistant-open-pane", "Open in pane").sm().on_click(cx.listener(|this, _, _, cx| {
+            .child(button("assistant-open-pane", "Open in pane").sm().on_click(cx.listener(move |this, _, _, cx| {
                 this.right_open = true;
-                this.right_tab = RightTab::Doc;
+                this.right_tab = tab;
                 cx.notify();
             })))
     }
@@ -203,6 +367,7 @@ impl AssistantMock {
         composer("assistant-composer", &self.composer, Provider::Claude, "Opus 4.6")
             .docked(true)
             .mode("Education + project")
+            .knowledge_first(true)
             .streaming(self.streaming)
             .plus_menu(self.plus_open, None::<Div>)
             .on_intent({
@@ -218,15 +383,21 @@ impl AssistantMock {
             })
     }
 
-    fn artifacts(&self) -> Vec<Artifact> {
-        vec![
+    /// The "created in chat" strip. The document pane also lists the notes
+    /// file; the sheet pane shows only the two versioned artifacts.
+    fn artifacts(&self, with_notes: bool) -> Vec<Artifact> {
+        let mut out = vec![
             Artifact::new("RFP-draft-v3.docx", ArtifactKind::Doc).version("v3").active(self.right_tab == RightTab::Doc),
             Artifact::new("vendor-scoring.xlsx", ArtifactKind::Sheet).version("v1").active(self.right_tab == RightTab::Sheet),
-        ]
+        ];
+        if with_notes {
+            out.push(Artifact::new("notes.md", ArtifactKind::Note));
+        }
+        out
     }
 
     fn render_right(&self, cx: &mut Context<Self>) -> AnyElement {
-        let strip = artifact_strip("assistant-artifacts", self.artifacts()).on_select(cx.listener(|this, id: &SharedString, _, cx| {
+        let strip = artifact_strip("assistant-artifacts", self.artifacts(self.right_tab == RightTab::Doc)).on_select(cx.listener(|this, id: &SharedString, _, cx| {
             this.right_tab = if id.as_ref().ends_with(".xlsx") { RightTab::Sheet } else { RightTab::Doc };
             cx.notify();
         }));
@@ -326,11 +497,15 @@ impl AssistantMock {
 
 impl Render for AssistantMock {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let tabs = vec![
+        // `dtabs()` keeps the two chat-created files and adds the open PDF
+        // only when it is the one being read.
+        let mut tabs = vec![
             TabItem::new("doc", "RFP-draft-v3.docx", IconName::Doc).closable(false),
             TabItem::new("sheet", "vendor-scoring.xlsx", IconName::Sheet).closable(false),
-            TabItem::new("pdf", "procurement-rules-2019.pdf", IconName::Pdf).closable(false),
         ];
+        if self.right_tab == RightTab::Pdf {
+            tabs.push(TabItem::new("pdf", "procurement-rules-2019.pdf", IconName::Pdf).closable(false));
+        }
         let active = match self.right_tab {
             RightTab::Doc => 0,
             RightTab::Sheet => 1,
@@ -365,7 +540,7 @@ impl Render for AssistantMock {
                 .header_centre({
                     let mut centre = centre_header("assistant-hd-centre", "Teacher recruitment RFP")
                         .glyph(IconName::GradCap)
-                        .branch("RFP draft v3")
+                        .branch(self.screen.branch())
                         .on_toggle_right(cx.listener(|this, _, _, cx| {
                             this.right_open = !this.right_open;
                             cx.notify();
@@ -378,10 +553,15 @@ impl Render for AssistantMock {
                     }
                     centre
                 })
-                .header_right(right_header("assistant-hd-right").tabs(strip).on_close(cx.listener(|this, _, _, cx| {
-                    this.right_open = false;
-                    cx.notify();
-                })))
+                .header_right(
+                    right_header("assistant-hd-right")
+                        .tabs(strip)
+                        .on_add(|_, _, _| {})
+                        .on_close(cx.listener(|this, _, _, cx| {
+                            this.right_open = false;
+                            cx.notify();
+                        })),
+                )
                 .sidebar(sidebar)
                 .rail(rail)
                 .centre(v_flex().size_full().child(transcript).child(composer))
@@ -390,8 +570,43 @@ impl Render for AssistantMock {
     }
 }
 
-/// The gallery entry: holds the mock view in window state.
-pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
-    let view = window.use_keyed_state("assistant-mock", cx, |window, cx| AssistantMock::new(window, cx));
+/// One mock in window state, keyed so the `screens/all` page can hold three.
+pub fn mock(key: &'static str, screen: AssistantScreen, window: &mut Window, cx: &mut App) -> AnyElement {
+    let view = window.use_keyed_state(SharedString::from(key), cx, move |window, cx| AssistantMock::new(screen, window, cx));
     div().size_full().child(view).into_any_element()
+}
+
+/// The `screens/assistant` entry: the screen named by `AUI_GALLERY_SCREEN`.
+pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
+    mock("assistant-mock", AssistantScreen::from_env(), window, cx)
+}
+
+/// `screens/all`: the three assistant screens side by side at their reference
+/// size. gpui cannot scale an element, so the row scrolls horizontally rather
+/// than shrinking the screens.
+pub fn build_all(window: &mut Window, cx: &mut App) -> AnyElement {
+    let p = cx.aui().colors;
+    let mut row = h_flex().h_full().items_start().gap(px(SCREENS_GAP)).px(px(SCREENS_PAD_X)).py(px(SCREENS_PAD_Y));
+    for (key, screen) in [
+        ("assistant-mock-main", AssistantScreen::Main),
+        ("assistant-mock-sources", AssistantScreen::Sources),
+        ("assistant-mock-sheet", AssistantScreen::Sheet),
+    ] {
+        row = row.child(
+            v_flex()
+                .flex_none()
+                .w(px(SCREEN_W))
+                .gap(px(scale::SP_3))
+                .child(
+                    h_flex()
+                        .h(px(SCREENS_CAPTION))
+                        .items_center()
+                        .gap(px(scale::SP_3))
+                        .child(div().ui(scale::FS_13).semibold().text_color(p.ink).child(screen.caption()))
+                        .child(div().mono(scale::FS_11).text_color(p.ink_3).child("1440\u{d7}900")),
+                )
+                .child(div().w(px(SCREEN_W)).h(px(SCREEN_H)).flex_none().overflow_hidden().child(mock(key, screen, window, cx))),
+        );
+    }
+    div().id("screens-all").size_full().overflow_x_scroll().child(row).into_any_element()
 }

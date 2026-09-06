@@ -2,11 +2,10 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <script src="./support.js"></script>
-</head>
+  </head>
 <body>
-<x-dc>
-<helmet>
+
+
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
   <style>
 /* aui design tokens — single source of truth for HTML previews and the gpui theme JSON.
@@ -350,8 +349,8 @@ body{margin:0;background:#121317}
 
   a { color: var(--accent-ink); } a:hover { color: var(--accent); }
   </style>
-</helmet>
-<div class="aui" data-theme="{{theme}}">
+
+<div class="aui" data-theme="dark">
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
 <symbol id="chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
 <symbol id="chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
@@ -470,13 +469,6 @@ body{margin:0;background:#121317}
   <div class="actions tint" style="margin-top:auto"><span class="hint">2 notes on 1 file</span><span class="spacer"></span><button class="btn sm ghost">Clear</button><button class="btn sm primary">Send to Claude Code</button></div>
 </aside>
 </div>
-</x-dc>
-<script data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark","section":"Theme"}}'>
-class Component extends DCLogic {
-  renderVals() {
-    return { theme: this.props.theme ?? 'dark' };
-  }
-}
-</script>
+
 </body>
 </html>

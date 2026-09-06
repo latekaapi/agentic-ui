@@ -49,6 +49,15 @@ pub struct Entry {
     pub build: fn(&mut Window, &mut App) -> AnyElement,
 }
 
+impl Entry {
+    /// Screens are full-bleed: their reference PNG is a 1440×900 app window,
+    /// not a card sitting on the design's 20 px card ground, so the stage
+    /// must render them edge to edge.
+    pub fn full_bleed(&self) -> bool {
+        self.group == "Screens"
+    }
+}
+
 /// All entries, in card order.
 pub static ENTRIES: &[Entry] = &[
     Entry {
@@ -370,6 +379,18 @@ pub static ENTRIES: &[Entry] = &[
         height: 900.0,
         theme: CardTheme::Light,
         build: crate::assistant::build,
+    },
+    Entry {
+        id: "screens/all",
+        group: "Screens",
+        title: "Screens",
+        subtitle: "The three assistant screens side by side at their reference size, in a row that scrolls horizontally",
+        // 3 x 1440 + 2 x 24 gap + 2 x 20 ground; 900 plus a 28 px caption,
+        // an 8 px gap and 12 px of ground above and below.
+        width: 4408.0,
+        height: 960.0,
+        theme: CardTheme::Light,
+        build: crate::assistant::build_all,
     },
 ];
 

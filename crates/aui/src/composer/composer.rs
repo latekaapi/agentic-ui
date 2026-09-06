@@ -149,6 +149,7 @@ pub struct Composer {
     can_send: bool,
     focused: bool,
     docked: bool,
+    knowledge_first: bool,
     plus_open: bool,
     meta: Option<ComposerMeta>,
     plus_menu: Option<gpui::AnyElement>,
@@ -170,6 +171,7 @@ pub fn composer(id: impl Into<ElementId>, state: &Entity<TextareaState>, provide
         can_send: true,
         focused: false,
         docked: false,
+        knowledge_first: false,
         plus_open: false,
         meta: None,
         plus_menu: None,
@@ -223,6 +225,15 @@ impl Composer {
     /// The docked variant: full width, top hairline only, no radius or shadow.
     pub fn docked(mut self, docked: bool) -> Self {
         self.docked = docked;
+        self
+    }
+
+    /// Leads the toolbar with what the answer is grounded in instead of the
+    /// model: the mode chip moves before the model chip and reads as a
+    /// knowledge chip — book glyph, chevron, never the quiet docked style.
+    /// The assistant screens use it; the harness leads with the model.
+    pub fn knowledge_first(mut self, knowledge_first: bool) -> Self {
+        self.knowledge_first = knowledge_first;
         self
     }
 
@@ -348,13 +359,21 @@ impl RenderOnce for Composer {
             .pt(px(BAR_PAD_TOP))
             .px(px(if self.docked { DOCKED_BAR_PAD_X } else { BAR_PAD_X }))
             .pb(px(BAR_PAD_BOTTOM))
-            .child(plus_holder)
-            .child(chip((id.clone(), "model"), self.model.clone()).composer().leading(provider_mark(self.provider).size(px(CHIP_MARK))).chevron().on_click(emit(ComposerIntent::Model)))
-            .child({
+            .child(plus_holder);
+        let model_chip =
+            chip((id.clone(), "model"), self.model.clone()).composer().leading(provider_mark(self.provider).size(px(CHIP_MARK))).chevron().on_click(emit(ComposerIntent::Model));
+        let mode_chip = {
+            let mode = chip((id.clone(), "mode"), self.mode.clone()).composer().on_click(emit(ComposerIntent::Mode));
+            if self.knowledge_first {
+                // The grounding chip: what the answer is grounded in, read left to right.
+                mode.leading(icon(IconName::Book).size(px(CHIP_GLYPH))).chevron()
+            } else {
                 // The floating card's mode chip is active with a chevron; the docked one is quiet.
-                let mode = chip((id.clone(), "mode"), self.mode.clone()).composer().active(!self.docked).on_click(emit(ComposerIntent::Mode));
+                let mode = mode.active(!self.docked);
                 if self.docked { mode } else { mode.chevron() }
-            });
+            }
+        };
+        bar = if self.knowledge_first { bar.child(mode_chip).child(model_chip) } else { bar.child(model_chip).child(mode_chip) };
         if let Some(effort) = &self.effort {
             bar = bar.child(chip((id.clone(), "effort"), effort.clone()).composer().leading(icon(IconName::Brain).size(px(CHIP_GLYPH))).on_click(emit(ComposerIntent::Effort)));
         }

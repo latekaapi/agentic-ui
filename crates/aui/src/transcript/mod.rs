@@ -23,7 +23,7 @@ mod turns;
 pub use activity::{activity_group, ActivityGroup};
 pub use card::{transcript_card, TranscriptCard};
 pub use thinking::{thinking_block, ThinkingBlock};
-pub use prose::{prose, ProseStyle};
+pub use prose::{caret_top_in_line, caret_visible, last_paragraph_runs, prose, ProseStyle, CARET_BASELINE_DROP, CARET_H, CARET_MARGIN_LEFT, CARET_W};
 pub use marker::{marker_row, HandOff, MarkerRow};
 pub use turns::{assistant_turn, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction};
 pub use ansi::{ansi_runs, parse_ansi, AnsiSpan};

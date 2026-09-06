@@ -161,12 +161,21 @@ impl RenderOnce for AppShell {
         let right_inner = self.right_width;
         // The pane keeps its resting width while the column springs, so the
         // content slides under the divider instead of reflowing every frame.
-        let (pane, pane_width) = if self.sidebar_open { (self.sidebar, self.sidebar_width) } else { (self.rail, rail_width) };
+        // While collapsing, the expanded sidebar stays in the column and is
+        // clipped by the shrinking width (the way a macOS sidebar closes); the
+        // rail replaces it only once the spring has settled, so the column is
+        // never an empty surface mid-motion. Expanding shows the sidebar at its
+        // resting width from the first frame.
+        let collapsing = !self.sidebar_open && sidebar_w > rail_width + px(1.0);
+        let (pane, pane_width) = if self.sidebar_open || collapsing { (self.sidebar, self.sidebar_width) } else { (self.rail, rail_width) };
 
         // Header cells: surface-1, bottom hairline. The sidebar cell owns the
         // first divider (its right border) and the right cell the second (its
         // left border), so each lines up with the pane border beneath it.
-        let cell = |d: Div| d.h_full().flex_none().flex().items_center().min_w(px(0.0)).overflow_hidden().bg(p.surface_1);
+        // Cells clip horizontally only: the right cell's tab strip draws its ink
+        // indicator over the header's bottom hairline, the way `.tab.on::after`
+        // does in the design, and a vertical clip would cut it in half.
+        let cell = |d: Div| d.h_full().flex_none().flex().items_center().min_w(px(0.0)).overflow_x_hidden().bg(p.surface_1);
         let header = h_flex()
             .w_full()
             .h(header_h)

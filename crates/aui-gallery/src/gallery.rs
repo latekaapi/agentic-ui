@@ -141,7 +141,7 @@ impl Gallery {
             .bg(colors.bg)
             .text_color(colors.ink)
             .text_role(TextRole::Ui)
-            .p(px(20.0))
+            .when(!entry.full_bleed(), |d| d.p(px(20.0)))
             .child((entry.build)(window, cx))
     }
 

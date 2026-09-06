@@ -48,9 +48,9 @@ body{margin:0;background:#121317}
 .tc .mono{color:var(--ink-2);font-size:12px}.tc .r{margin-left:auto;font:500 11px/1 var(--font-mono);color:var(--ink-3)}
 .grp2{display:flex;flex-direction:column;gap:8px}
 .status{margin-top:auto;padding:0 0 14px;font-size:12px;color:var(--ink-3)}
-.comp{margin:0;border-top:1px solid var(--line);background:var(--surface-1);padding:12px 32px 12px}
-.comp .txt{font-size:13.5px;line-height:1.5;color:var(--ink-3);min-height:40px;padding:0 2px}
-.comp .bar{display:flex;align-items:center;gap:6px;margin-top:10px}.comp .bar .chip{height:28px;padding:0 10px 0 8px}
+.comp{margin:0;border-top:1px solid var(--line);background:var(--surface-1);padding:0}
+.comp .txt{font:14px/1.55 var(--font-ui);color:var(--ink-3);min-height:40px;padding:12px 32px 6px}
+.comp .bar{display:flex;align-items:center;gap:6px;padding:6px 28px 10px}.comp .bar .chip{height:28px;padding:0 10px 0 8px}
 .comp .send{margin-left:auto;width:28px;height:28px;border-radius:var(--r-sm);background:var(--accent);display:grid;place-items:center;color:#fff}
 .right{border-left:1px solid var(--line);background:var(--surface-1);display:flex;flex-direction:column;min-height:0}
 .rtabs{display:flex;align-items:center;gap:2px;height:34px;padding:0 6px;border-bottom:1px solid var(--line)}

@@ -5,4 +5,4 @@
 
 mod view;
 
-pub use view::build;
+pub use view::{build, build_all};

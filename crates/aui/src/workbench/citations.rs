@@ -260,16 +260,25 @@ pub struct CitedAnswer {
     id: ElementId,
     text: SharedString,
     style: ProseStyle,
+    streaming: bool,
     on_open: Option<OpenHandler>,
 }
 
 /// An answer paragraph; write markers as `[[1]]` where the HTML has a
 /// `<span class="cite">`.
 pub fn cited_answer(id: impl Into<ElementId>, text: impl Into<SharedString>, style: ProseStyle) -> CitedAnswer {
-    CitedAnswer { id: id.into(), text: text.into(), style, on_open: None }
+    CitedAnswer { id: id.into(), text: text.into(), style, streaming: false, on_open: None }
 }
 
 impl CitedAnswer {
+    /// Shows the blinking caret after the last word while chunks arrive. The
+    /// answer is a wrapping row of word groups, so the caret is simply the
+    /// last group and needs no measuring.
+    pub fn streaming(mut self, streaming: bool) -> Self {
+        self.streaming = streaming;
+        self
+    }
+
     /// A marker was clicked; the argument is the source number.
     pub fn on_open(mut self, f: impl Fn(u8, &mut Window, &mut App) + 'static) -> Self {
         self.on_open = Some(Rc::new(f));
@@ -278,8 +287,23 @@ impl CitedAnswer {
 }
 
 impl RenderOnce for CitedAnswer {
-    fn render(self, window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let style = self.style;
+        let p = cx.aui().colors;
+        let text_scale = cx.aui().text_scale;
+        let caret = self.streaming.then(|| {
+            let visible = crate::transcript::caret_visible((self.id.clone(), "caret"), window, cx);
+            let line_height = px(style.size * style.line_height * text_scale);
+            let height = px(crate::transcript::CARET_H * text_scale);
+            h_flex().flex_none().h(line_height).ml(px(crate::transcript::CARET_MARGIN_LEFT * text_scale)).child(
+                div()
+                    .mt(crate::transcript::caret_top_in_line(line_height, height, text_scale))
+                    .w(px(crate::transcript::CARET_W * text_scale))
+                    .h(height)
+                    .bg(p.accent)
+                    .opacity(if visible { 1.0 } else { 0.0 }),
+            )
+        });
         // The gap between units is the font's own space advance, so the flex
         // row wraps where the browser's line breaker does.
         let space = space_advance(style, window) - px(SPACE_TIGHTEN);
@@ -308,7 +332,7 @@ impl RenderOnce for CitedAnswer {
             }
             row = row.child(group);
         }
-        row
+        row.children(caret)
     }
 }
 

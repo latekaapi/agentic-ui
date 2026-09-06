@@ -67,6 +67,9 @@ const PAPER_TEXT: f32 = 12.5;
 const PAPER_LH: f32 = 1.6;
 /// `.paper h1{font-size:18px;margin:0 0 4px;font-family:var(--font-ui)}`.
 const PAPER_TITLE: f32 = scale::FS_18;
+/// `.paper h1{line-height:1.3}` — the title sets its own leading rather than
+/// inheriting the body's 1.6, so a two-line title on a narrow page stays tight.
+const PAPER_TITLE_LH: f32 = 1.3;
 const PAPER_TITLE_GAP: f32 = 4.0;
 /// `.paper .k{font:11px var(--font-ui);margin-bottom:18px}` — the `font`
 /// shorthand drops the paper's line height back to the normal one.
@@ -577,7 +580,7 @@ impl RenderOnce for DocPane {
                 div()
                     .mb(px(PAPER_TITLE_GAP))
                     .ui(PAPER_TITLE)
-                    .line_height(relative(PAPER_LH))
+                    .line_height(relative(PAPER_TITLE_LH))
                     .font_weight(FontWeight::BOLD)
                     .child(self.page.title.clone()),
             )

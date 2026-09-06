@@ -3,12 +3,15 @@
 //! streaming caret).
 
 use aui_icons::{icon, IconName};
-use aui_motion::{looping, tween, Loop, Tween};
+use aui_motion::{tween, Tween};
 use aui_protocol::{Attachment, AttachmentKind, TurnMeta};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
-use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, relative, App, Bounds, ElementId, IntoElement, Pixels, SharedString, TextRun, Window};
+use gpui_kit::base::ElementExt;
+use std::cell::RefCell;
+use std::rc::Rc;
 
-use crate::transcript::{prose, ProseStyle};
+use crate::transcript::{caret_top_in_line, caret_visible, last_paragraph_runs, prose, ProseStyle, CARET_H, CARET_MARGIN_LEFT, CARET_W};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, ButtonSize};
@@ -44,8 +47,7 @@ const TOOLBAR_RISE: f32 = 4.0;
 /// `.a .ft{gap:10px;font:500 11px/1 mono;margin-top:10px}`.
 const FOOTER_GAP: f32 = 10.0;
 const FOOTER_TOP: f32 = 10.0;
-/// `.caret` blinks every second (steps 2).
-const CARET_PERIOD: std::time::Duration = std::time::Duration::from_millis(1000);
+
 
 /// Actions on a user turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -230,6 +232,22 @@ impl AssistantTurn {
     }
 }
 
+/// The width of the last *visual* line of `text` once it is wrapped at
+/// `wrap_width`: the whole line when it never wrapped, otherwise the shaped
+/// width from the last wrap boundary to the end.
+fn last_line_width(window: &Window, text: SharedString, font_size: Pixels, runs: &[TextRun], wrap_width: Pixels) -> Option<Pixels> {
+    let lines = window.text_system().shape_text(text, font_size, runs, Some(wrap_width), None).ok()?;
+    let line = lines.last()?;
+    let layout = &line.unwrapped_layout;
+    match line.wrap_boundaries.last() {
+        None => Some(layout.width),
+        Some(boundary) => {
+            let index = layout.runs.get(boundary.run_ix)?.glyphs.get(boundary.glyph_ix)?.index;
+            Some(layout.width - layout.x_for_index(index))
+        }
+    }
+}
+
 /// `2.4k tokens` / `$0.04` / `3.1 s` formatting for the footer.
 fn footer_items(meta: &TurnMeta) -> Vec<String> {
     let tokens = meta.tokens_in + meta.tokens_out;
@@ -272,6 +290,47 @@ impl RenderOnce for AssistantTurn {
             toolbar = toolbar.invisible();
         }
 
+        let style = prose_style(&p, BODY_TEXT, scale::LH_BODY, p.surface_2, p.ink);
+        // gpui text hosts no inline elements, so the caret is an absolutely
+        // positioned sibling of the prose: last frame's prose bounds give the
+        // wrap width, the last paragraph is re-shaped with the same runs the
+        // prose paints, and the caret lands after the final visual line.
+        let bounds: Rc<RefCell<Option<Bounds<Pixels>>>> =
+            window.use_keyed_state((id.clone(), "caret-bounds"), cx, |_, _| Rc::new(RefCell::new(None))).read(cx).clone();
+        let scale_factor = cx.aui().text_scale;
+        let caret = if self.streaming {
+            let visible = caret_visible((id.clone(), "caret"), window, cx);
+            let measured = *bounds.borrow();
+            match measured {
+                Some(b) if b.size.width > px(0.0) => {
+                    let font_size = window.rem_size() * (BODY_TEXT / scale::FS_13);
+                    let line_height = font_size * scale::LH_BODY;
+                    last_paragraph_runs(&self.markdown, &style)
+                        .and_then(|(text, runs)| last_line_width(window, text.into(), font_size, &runs, b.size.width))
+                        .map(|x| {
+                            let height = px(CARET_H * scale_factor);
+                            let top = b.size.height - line_height + caret_top_in_line(line_height, height, scale_factor);
+                            div()
+                                .absolute()
+                                .left(x + px(CARET_MARGIN_LEFT * scale_factor))
+                                .top(top)
+                                .w(px(CARET_W * scale_factor))
+                                .h(height)
+                                .bg(p.accent)
+                                .opacity(if visible { 1.0 } else { 0.0 })
+                        })
+                }
+                _ => {
+                    // Nothing measured yet: draw no caret and ask for the frame
+                    // that will have the bounds.
+                    window.request_animation_frame();
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let mut turn = v_flex()
             .id(id.clone())
             .relative()
@@ -281,14 +340,13 @@ impl RenderOnce for AssistantTurn {
             .text_color(p.ink)
             .track_interaction(&state)
             .child(toolbar)
-            .child(prose((id.clone(), "text"), &self.markdown, prose_style(&p, BODY_TEXT, scale::LH_BODY, p.surface_2, p.ink)));
-
-        if self.streaming {
-            // The caret cannot sit inline after the last glyph yet (gpui text
-            // hosts no inline elements); the composer phase measures the last
-            // line. Until then a streaming turn shows no caret.
-            let _ = looping((id.clone(), "caret"), Loop::linear(CARET_PERIOD).resting(1.0), window, cx);
-        }
+            .child(
+                div()
+                    .relative()
+                    .w_full()
+                    .child(div().w_full().on_prepaint(move |b, _, _| *bounds.borrow_mut() = Some(b)).child(prose((id.clone(), "text"), &self.markdown, style)))
+                    .children(caret),
+            );
 
         if let Some(meta) = &self.meta {
             let mut footer = h_flex().mt(px(FOOTER_TOP)).gap(px(FOOTER_GAP)).font_family(scale::FONT_MONO).text_px(scale::FS_11).line_height(relative(1.0)).medium().text_color(p.ink_4);

@@ -2,11 +2,10 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <script src="./support.js"></script>
-</head>
+  </head>
 <body>
-<x-dc>
-<helmet>
+
+
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
   <style>
 /* aui design tokens — single source of truth for HTML previews and the gpui theme JSON.
@@ -348,10 +347,80 @@ body{margin:0;background:#121317}
 .agents .chip{height:30px;padding:0 10px 0 8px}
 .agents .chip.on{border-color:var(--ink);color:var(--ink)}
 
+.sec{border-bottom:1px solid var(--line)}
+.role{display:flex;align-items:center;gap:8px;height:44px;padding:0 12px 0 10px;font-weight:600;color:var(--ink)}
+.role .i{color:var(--ink-3)}.role .chev{width:12px;height:12px}
+.role.closed{color:var(--ink-2)}
+.sub{padding:2px 8px 6px 8px}
+.gh{display:flex;align-items:center;gap:8px;height:24px;padding:0 4px 0 12px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.gh .rule{flex:1;height:1px;background:var(--line)}
+.gh .cnt{font:500 10.5px var(--font-mono);color:var(--ink-3)}
+.proj{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px 0 22px;border-radius:var(--r-sm);font-size:12.5px;font-weight:500;color:var(--ink-2)}.proj .i{color:var(--ink-3)}
+.proj .n{margin-left:auto;font:500 11px/1 var(--font-mono);color:var(--ink-3)}
+.sess{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px 0 40px;border-radius:var(--r-sm);font-size:12.5px;color:var(--ink-3);position:relative}
+.sess::before{content:"";position:absolute;left:29px;top:0;bottom:0;width:1px;background:var(--line)}
+.sess.on{background:var(--surface-3);color:var(--ink)}.sess .t{margin-left:auto;font:500 11px/1 var(--font-mono);color:var(--ink-3)}.sess .i{color:var(--ink-3)}
+.kb{margin:4px 8px 0;padding:10px 10px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2);font-size:12px}
+.kb .caps{margin-bottom:8px}.kb .row{gap:6px;flex-wrap:wrap}
+.cite{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:4px;background:var(--accent-soft);color:var(--accent-ink);font:600 10px/1 var(--font-mono);vertical-align:2px;margin:0 1px}
+.src{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface-1);overflow:hidden}
+.src .hh{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;font-weight:600;font-size:12.5px}
+.tier{display:flex;align-items:center;gap:8px;padding:6px 12px 4px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.tier .sw{width:8px;height:8px;border-radius:2px;display:block}
+.s{display:flex;align-items:flex-start;gap:10px;padding:6px 12px;font-size:12.5px;position:relative}
+.s .n{width:18px;height:18px;border-radius:4px;background:var(--accent-soft);color:var(--accent-ink);font:600 10px/18px var(--font-mono);text-align:center;flex:none}
+.s b{font-weight:500;display:block}.s span.sub2{font-size:11.5px;color:var(--ink-3)}
+.s .conf{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font:500 10.5px var(--font-mono);color:var(--ink-3);white-space:nowrap}
+.s .conf i{width:36px;height:4px;border-radius:2px;background:var(--surface-3);overflow:hidden;display:block}.s .conf i b{display:block;height:100%;background:var(--success)}
+.hover{position:absolute;right:24px;top:-8px;width:280px;background:var(--overlay);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-3);padding:10px 12px;font-size:12px;z-index:2}
+.hover .q{border-left:2px solid var(--accent);padding-left:8px;color:var(--ink-2);margin:6px 0 8px;font-size:12px;line-height:1.5}
+.hover .q mark{background:var(--accent-soft);color:var(--ink)}
+.fc{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface-1)}
+.fc .ic{width:36px;height:36px;border-radius:8px;display:grid;place-items:center;flex:none}
+.fc b{display:block;font-weight:600;font-size:13px}.fc span.d{font-size:12px;color:var(--ink-3)}
+.fc .acts{margin-left:auto;display:flex;gap:6px}
+/* document pane */
+.dtabs{display:flex;align-items:center;gap:2px;height:34px;padding:0 6px;border-bottom:1px solid var(--line)}.dtabs .tab{white-space:nowrap;flex:none}
+.tool{display:flex;align-items:center;gap:4px;height:36px;padding:0 10px;border-bottom:1px solid var(--line);font-size:12px;white-space:nowrap;overflow:hidden}.tool .chip{flex:none}
+.tool .sepv{width:1px;height:16px;background:var(--line);margin:0 4px}
+.tool .sel{height:26px;padding:0 8px;border-radius:5px;border:1px solid var(--line);background:var(--surface-2);font-size:12px;color:var(--ink);display:inline-flex;align-items:center;gap:6px}
+.doc{flex:1;background:var(--surface-2);display:flex;justify-content:center;padding:20px;overflow:hidden}
+.paper{width:340px;background:#fff;color:#1a1c22;box-shadow:var(--shadow-2);padding:34px 36px;font-family:Georgia,"Times New Roman",serif;font-size:12.5px;line-height:1.6}
+.paper h1{font-size:18px;margin:0 0 4px;font-family:var(--font-ui);line-height:1.3}.paper .k{font:11px var(--font-ui);color:#7b818f;margin-bottom:18px}
+.paper p{margin:0 0 10px}.paper .ai{background:rgba(86,92,196,.12);border-bottom:2px solid #565CC4}
+.paper ol{padding-left:18px;margin:0 0 10px}
+.arts{display:flex;gap:6px;padding:6px 10px;border-top:1px solid var(--line);overflow:hidden;align-items:center;white-space:nowrap}.arts .caps{flex:none}
+.art{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 8px 0 6px;border:1px solid var(--line);border-radius:6px;font-size:11.5px;color:var(--ink-2);white-space:nowrap}
+.art.on{border-color:var(--accent-ring);background:var(--accent-soft);color:var(--ink)}
+.art .v{font:500 10px var(--font-mono);color:var(--ink-3)}
+.dstat{display:flex;align-items:center;gap:10px;height:28px;padding:0 12px;border-top:1px solid var(--line);font:11px var(--font-ui);color:var(--ink-3)}
+/* pdf pane */
+.pdf{flex:1;background:var(--surface-2);display:flex;justify-content:center;padding:20px;overflow:hidden}
+.pg{width:340px;background:#fff;color:#1a1c22;box-shadow:var(--shadow-2);padding:34px 36px;font:11.5px/1.6 Georgia,"Times New Roman",serif}
+.pg h2{font:600 12px/1.4 var(--font-ui);margin:0 0 10px;color:#1a1c22}
+.pg p{margin:0 0 9px}.pg .hl{background:rgba(86,92,196,.16);box-shadow:0 0 0 2px rgba(86,92,196,.16)}
+.pg .pn{position:absolute}
+/* sheet */
+.sheet{flex:1;overflow:hidden;background:var(--surface-1);font:11.5px var(--font-ui);display:flex;flex-direction:column}
+.fx{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;border-bottom:1px solid var(--line);font-size:12px;white-space:nowrap}.fx .chip{flex:none}
+.fx .cell{width:52px;height:22px;border:1px solid var(--line);border-radius:4px;background:var(--surface-2);font:500 11px/22px var(--font-mono);text-align:center}
+.fx .f{flex:1;height:22px;border:1px solid var(--line);border-radius:4px;background:var(--surface-2);font:11px/22px var(--font-mono);padding:0 8px;color:var(--ink-2)}
+.grid{display:grid;grid-template-columns:32px repeat(5, minmax(0, 1fr));font-size:11.5px}
+.grid div{height:26px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:0 8px;display:flex;align-items:center;white-space:nowrap;overflow:hidden}
+.grid .h{background:var(--surface-2);color:var(--ink-3);font:500 10.5px var(--font-mono);justify-content:center}
+.grid .hr{background:var(--surface-2);color:var(--ink-3);font:500 10.5px var(--font-mono);justify-content:center}
+.grid .num{justify-content:flex-end;font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.grid .th{font-weight:600;background:var(--surface-2)}
+.grid .selc{outline:2px solid var(--accent);outline-offset:-2px;background:var(--accent-soft)}
+.grid .tot{font-weight:600}
+.stabs{display:flex;align-items:center;gap:2px;height:30px;padding:0 8px;border-top:1px solid var(--line);font-size:11.5px}
+.stabs span{height:22px;padding:0 10px;border-radius:5px;display:inline-flex;align-items:center;color:var(--ink-3)}
+.stabs span.on{background:var(--surface-3);color:var(--ink)}
+
   a { color: var(--accent-ink); } a:hover { color: var(--accent); }
   </style>
-</helmet>
-<div class="aui" data-theme="{{theme}}">
+
+<div class="aui" data-theme="light">
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
 <symbol id="chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
 <symbol id="chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
@@ -424,59 +493,46 @@ body{margin:0;background:#121317}
 
 
 <div class="hd"><div class="lights"><i></i><i></i><i></i></div><button class="btn icon sm ghost"><svg class="i" ><use href="#arrow-left"></use></svg></button><button class="btn icon sm ghost" style="opacity:.45"><svg class="i" ><use href="#arrow-right"></use></svg></button><span class="grow"></span><button class="btn icon sm ghost"><svg class="i" ><use href="#search"></use></svg></button><button class="btn icon sm ghost"><svg class="i" ><use href="#sidebar"></use></svg></button></div>
-<div class="hd"><span class="ttl"><i class="mark claude" >C</i><span class="trunc">checkout-flow-v2</span><span class="tag">feature/checkout-flow-v2</span></span><span class="grow"></span><button class="btn icon sm ghost"><svg class="i" ><use href="#dots"></use></svg></button><button class="btn icon sm ghost" title="Toggle right pane"><svg class="i" ><use href="#panel-right"></use></svg></button></div>
-<div class="hd tabs"><div class="tab on"><svg class="i" style="width:12px;height:12px"><use href="#git"></use></svg>Diff</div><div class="tab"><svg class="i" style="width:12px;height:12px"><use href="#folder"></use></svg>Files</div><div class="tab"><svg class="i" style="width:12px;height:12px"><use href="#terminal"></use></svg>Terminal</div><div class="tab"><svg class="i" style="width:12px;height:12px"><use href="#globe"></use></svg>Browser</div><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#plus"></use></svg></button><span class="grow"></span><button class="btn icon sm ghost"><svg class="i" ><use href="#x"></use></svg></button></div>
+<div class="hd"><span class="ttl"><svg class="i" style="color:var(--ink-3)"><use href="#grad-cap"></use></svg><span class="trunc">Teacher recruitment RFP</span><span class="tag">RFP draft v3</span></span><span class="grow"></span><button class="btn icon sm ghost"><svg class="i" ><use href="#dots"></use></svg></button><button class="btn icon sm ghost" title="Toggle right pane"><svg class="i" ><use href="#panel-right"></use></svg></button></div>
+<div class="hd tabs"><div class="tab on"><svg class="i" style="width:12px;height:12px"><use href="#doc"></use></svg>RFP-draft-v3.docx</div><div class="tab"><svg class="i" style="width:12px;height:12px"><use href="#sheet"></use></svg>vendor-scoring.xlsx</div><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#plus"></use></svg></button><span class="grow"></span><button class="btn icon sm ghost"><svg class="i" ><use href="#x"></use></svg></button></div>
 <aside class="side">
-  <div class="nav"><div class="it"><svg class="i" ><use href="#list"></use></svg>Tasks<span class="n">7</span></div><div class="it"><svg class="i" ><use href="#zap"></use></svg>Automations</div><div class="it"><svg class="i" ><use href="#inbox"></use></svg>Inbox<span class="n" style="color:var(--warning)">2</span></div></div>
-  <div class="grp"><span class="caps">Workspaces</span><span class="grow"></span><button class="btn icon xs ghost" title="View options"><svg class="i" style="width:12px;height:12px"><use href="#sliders"></use></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#plus"></use></svg></button></div>
-  <div class="grp"><svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"></use></svg><span style="font-weight:600;font-size:12px">Pinned</span><span class="count">3</span></div>
-  <div class="wt sel"><i class="dot running pulse"></i><div class="nm">checkout-flow-v2</div><span class="t">49m</span><div class="meta"><span class="tag">acme-web</span><span class="tag trunc">feature/checkout-flow-v2</span><i class="mark claude" style="width:13px;height:13px;font-size:6px">C</i></div><div class="meta" style="color:var(--ink-2)"><i class="spinner" style="width:10px;height:10px"></i><span class="trunc" style="max-width:190px">running checkout regression tests</span></div></div><div class="wt"><i class="dot waiting pulse"></i><div class="nm">infra/notifier</div><span class="t">3h</span><div class="meta"><span class="tag">orca</span><span class="tag">main</span><i class="mark codex" style="width:13px;height:13px;font-size:6px">O</i></div><div class="meta" style="color:var(--warning)"><svg class="i" style="width:11px;height:11px"><use href="#shield"></use></svg><span class="trunc" style="max-width:190px">awaiting permission · sudo apt install</span></div></div><div class="wt"><i class="dot done"></i><div class="nm">auth-session-refresh</div><span class="t">4h</span><div class="meta"><span class="tag">acme-web</span><span>PR #2491 open</span></div></div>
-  <div class="grp"><svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"></use></svg><span style="font-weight:600;font-size:12px">In progress</span><span class="count">17</span></div>
-  <div class="wt"><i class="dot running"></i><div class="nm">cart-recovery-email</div><span class="t">12m</span><div class="meta"><span class="tag">acme-web</span><span class="tag trunc">feature/cart-recovery</span><i class="mark claude" style="width:13px;height:13px;font-size:6px">C</i></div></div><div class="wt"><i class="dot "></i><div class="nm">Webhook retry backoff</div><span class="t">2d</span><div class="meta"><span class="tag">acme-internal</span><span class="tag trunc">fix/webhook-retry</span></div></div><div class="wt"><i class="dot failed"></i><div class="nm">Observability tiles</div><span class="t">1d</span><div class="meta"><span class="tag">acme-internal</span><span style="color:var(--danger)">2 tests failed</span></div></div><div class="wt"><i class="dot "></i><div class="nm">checkout-baseline</div><span class="t">3d</span><div class="meta"><span class="tag">acme-web</span><span class="tag">feature/checkout-baseline</span></div></div>
-  <div style="margin-top:auto;border-top:1px solid var(--line);padding:10px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3)"><i class="avatar">B</i><span class="grow trunc">Bharani · Max</span><span class="meter" title="Claude usage, 5-hour window"><i class="mark claude" style="width:11px;height:11px;font-size:6px">C</i><i><b style="width:78%"></b></i>78%</span><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#chevron-down"></use></svg></button></div>
+  <div class="sec">
+    <div class="role"><svg class="chev"><use href="#chevron-down"></use></svg><svg class="i" ><use href="#grad-cap"></use></svg>Director, Education</div>
+    <div class="gh">Projects<span class="rule"></span><span class="cnt">3</span></div>
+    <div class="sub">
+      <div class="proj"><svg class="i" ><use href="#folder"></use></svg>Teacher recruitment RFP<span class="n">6</span></div>
+      <div class="sess on"><svg class="i" ><use href="#doc"></use></svg>RFP draft v3<span class="t">now</span></div>
+      <div class="sess"><svg class="i" ><use href="#sparkle"></use></svg>Eligibility criteria review<span class="t">2h</span></div>
+      <div class="sess"><svg class="i" ><use href="#sheet"></use></svg>Vendor scoring sheet<span class="t">1d</span></div>
+      <div class="proj"><svg class="i" ><use href="#folder"></use></svg>Annual report 2026<span class="n">3</span></div>
+      <div class="proj"><svg class="i" ><use href="#folder"></use></svg>Letters and notes<span class="n">12</span></div>
+    </div>
+    <div class="gh">Knowledge<span class="rule"></span><span class="cnt">3</span></div>
+    <div class="kb"><div class="row"><span class="chip"><svg class="i" style="width:11px;height:11px"><use href="#book"></use></svg>Education Code</span><span class="chip"><svg class="i" style="width:11px;height:11px"><use href="#book"></use></svg>Procurement Rules 2019</span><span class="chip"><svg class="i" style="width:11px;height:11px"><use href="#book"></use></svg>GO 2024-18</span><span class="chip" style="color:var(--accent-ink)">+ add</span></div></div>
+    <div style="height:10px"></div>
+  </div>
+  <div class="sec"><div class="role closed"><svg class="chev"><use href="#chevron"></use></svg><svg class="i" ><use href="#scale"></use></svg>Director, Law<span class="grow"></span><span class="cnt tag">2</span></div></div>
+  <div class="sec"><div class="role closed"><svg class="chev"><use href="#chevron"></use></svg><svg class="i" ><use href="#gear"></use></svg>Operations<span class="grow"></span><span class="cnt tag">4</span></div></div>
+  <div style="margin-top:auto;border-top:1px solid var(--line);padding:8px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3)"><i class="avatar">B</i><span class="grow trunc">Bharani</span><span class="meter"><i class="mark claude" style="width:11px;height:11px;font-size:6px">C</i><i><b style="width:78%"></b></i>78%</span></div>
 </aside>
 <main class="center">
   <div class="tr">
     
-    <div class="u">tighten address validation and add coverage</div>
-    <div class="ag"><div class="hh"><i class="glyph ok"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#check"></use></svg></i><span style="font-weight:500">Ran 4 commands</span><span class="subtle">· read 2 files · edited 3 files</span><span class="t">4 m 12 s</span><svg class="chev"><use href="#chevron"></use></svg></div></div>
-    <div class="a">Updated validation behaviour and added regression tests for US ZIP+4, Canadian postal codes and a missing country. The checkout copy is unchanged.</div>
-    <div class="sm"><div class="hh"><i class="glyph ok"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#check"></use></svg></i>Done · address validation tightened<span class="grow"></span><span class="subtle mono" style="font-size:11px;font-weight:400">4 m 12 s · $0.31</span></div>
-      <div class="files"><div class="f"><span class="stt m">M</span>src/checkout/validators.ts<span class="d"><span style="color:var(--success)">+8</span> <span style="color:var(--danger)">−3</span></span></div><div class="f"><span class="stt a">A</span>src/checkout/validators.test.ts<span class="d"><span style="color:var(--success)">+41</span></span></div><div class="f"><span class="stt m">M</span>src/checkout/AddressForm.tsx<span class="d"><span style="color:var(--success)">+2</span> <span style="color:var(--danger)">−1</span></span></div></div>
-      <div class="checks"><span><svg class="i" style="width:12px;height:12px;color:var(--success);vertical-align:-2px"><use href="#check"></use></svg> 27 tests pass</span><span><svg class="i" style="width:12px;height:12px;color:var(--success);vertical-align:-2px"><use href="#check"></use></svg> lint clean</span><span><svg class="i" style="width:12px;height:12px;color:var(--success);vertical-align:-2px"><use href="#check"></use></svg> typecheck</span></div>
-      <div class="actions tint"><span class="hint">3 files changed</span><span class="spacer"></span><button class="btn sm ghost">Create PR</button><button class="btn sm">Commit…</button><button class="btn sm primary">Review diff</button></div></div>
-    <div class="row status"><i class="dot done" style="width:6px;height:6px"></i><span>Idle</span><span>·</span><span>2 notes pending in Diff</span></div>
+    <div class="u">Tighten section 2. Eligibility must reflect the current procurement rules and the 2024 verification order.</div>
+    <div class="ag"><div class="hh"><i class="glyph ok"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#check"></use></svg></i><span style="font-weight:500">Searched 3 knowledge sets</span><span class="subtle">· read 2 regulations · 11 passages</span><span class="steps"><i class="ok"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#check"></use></svg></i><i class="ok"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#check"></use></svg></i><i class="ok"><svg class="i" style="width:9px;height:9px;stroke-width:3"><use href="#check"></use></svg></i></span><span class="t">6 s</span><svg class="chev"><use href="#chevron"></use></svg></div></div>
+    <div class="a">Under the current rules a bidder needs a valid registration and three years of comparable placements<span class="cite">1</span>. The 2024 order moved certificate verification to onboarding and requires originals<span class="cite">2</span>. The brief sets the cohort at 240 teachers across 38 institutions<span class="cite">3</span>. I folded all three into section 2 and left the rest of the draft untouched.</div>
+    <div class="fc"><span class="ic" style="background:var(--surface-2);color:var(--info)"><svg class="i" style="width:18px;height:18px"><use href="#doc"></use></svg></span><div><b>RFP-draft-v3.docx</b><span class="d">Section 2 rewritten · 3 changes highlighted · v3</span></div><div class="acts"><button class="btn sm ghost">Download</button><button class="btn sm">Open in pane</button></div></div>
+    <div class="row status"><i class="dot done" style="width:6px;height:6px"></i><span>Done</span><span>·</span><span>3 sources cited</span></div>
   </div>
-  <div class="comp"><div class="txt">Reply, or type / for commands and @ to mention files</div><div class="bar"><button class="btn icon"><svg class="i" ><use href="#plus"></use></svg></button><span class="chip"><i class="mark claude" style="width:12px;height:12px;font-size:6px">C</i>Opus 4.6<svg class="i" style="width:10px;height:10px"><use href="#chevron-down"></use></svg></span><span class="chip">Plan<svg class="i" style="width:10px;height:10px"><use href="#chevron-down"></use></svg></span><span class="subtle" style="font-size:11px;margin-left:6px">context 34%</span><div class="send"><svg class="i" style="stroke:#fff;width:13px;height:13px"><use href="#arrow-up"></use></svg></div></div></div>
+  <div class="comp"><div class="txt">Ask, draft, or type / for commands</div><div class="bar"><button class="btn icon"><svg class="i" ><use href="#plus"></use></svg></button><span class="chip"><svg class="i" style="width:11px;height:11px"><use href="#book"></use></svg>Education + project<svg class="i" style="width:10px;height:10px"><use href="#chevron-down"></use></svg></span><span class="chip"><i class="mark claude" style="width:12px;height:12px;font-size:6px">C</i>Opus 4.6<svg class="i" style="width:10px;height:10px"><use href="#chevron-down"></use></svg></span><div class="send"><svg class="i" style="stroke:#fff;width:13px;height:13px"><use href="#arrow-up"></use></svg></div></div></div>
 </main>
 <aside class="right">
-  
-  <div class="row" style="padding:10px 12px 6px;font-size:12px;color:var(--ink-3)"><span class="chip" style="color:var(--ink);border-color:var(--line-strong)">This turn</span><span class="chip">Branch</span><span class="chip">Unstaged</span><span class="grow"></span><span class="tag">vs main</span></div>
-  <div class="files"><div class="fr" style="background:var(--surface-3);color:var(--ink)"><svg class="fic ts" ><use href="#ft-ts"></use></svg>validators.ts<span class="tag">src/checkout</span><span class="n" style="margin-left:6px">2</span><span class="stt m">M</span></div><div class="fr"><svg class="fic test" ><use href="#ft-test"></use></svg>validators.test.ts<span class="tag">src/checkout</span><span class="stt a">A</span></div><div class="fr"><svg class="fic tsx" ><use href="#ft-tsx"></use></svg>AddressForm.tsx<span class="tag">src/checkout</span><span class="stt m">M</span></div><div class="fr"><svg class="fic ts" ><use href="#ft-ts"></use></svg>legacy-zip.ts<span class="tag">src/checkout</span><span class="stt d">D</span></div></div>
-  <div class="diff"><div class="fh"><span class="mono">validators.ts</span><span class="tag"><span style="color:var(--success)">+8</span> <span style="color:var(--danger)">−3</span></span><span class="grow"></span><button class="btn xs ghost">Open in editor</button></div>
-    <div class="hunk">@@ -42,7 +42,9 @@ export function validateAddress</div>
-    <div class="ln "><span class="gutter">44</span><span class="gutter" style="width:22px;color:var(--ink-4)">44</span>export function validateAddress(values) {</div>
-    <div class="ln del"><span class="gutter">45</span><span class="gutter" style="width:22px;color:var(--ink-4)"></span>  if (!values.country) return true;</div>
-    <div class="ln add"><span class="gutter"></span><span class="gutter" style="width:22px;color:var(--ink-4)">45</span>  if (!values.country) return invalid('country');</div>
-    <div class="ln add"><span class="gutter"></span><span class="gutter" style="width:22px;color:var(--ink-4)">46</span>  if (values.country === 'CA') return validateCanadianPostal(values);</div>
-  </div>
-  <div class="note"><div class="caps">Note 1 · line 46</div>Also handle 'GB' here, postcode format differs.</div>
-  <div class="diff" style="margin-top:0"><div class="hunk" style="border-top:0">@@ -88,3 +90,4 @@ function backfillUsers(rows)</div>
-    <div class="ln "><span class="gutter">88</span><span class="gutter" style="width:22px;color:var(--ink-4)">90</span>  for (const row of rows) {</div>
-    <div class="ln del"><span class="gutter">89</span><span class="gutter" style="width:22px;color:var(--ink-4)"></span>    db.exec(sql, row)</div>
-    <div class="ln add"><span class="gutter"></span><span class="gutter" style="width:22px;color:var(--ink-4)">91</span>    if (!row.tier) continue</div>
-  </div>
-  <div class="note pend"><div class="caps">Note 2 · line 91</div>Silently skipping rows. Log the count or surface it.<div class="row" style="margin-top:6px;gap:6px;justify-content:flex-end"><button class="btn xs ghost">Cancel</button><button class="btn xs primary">Add note</button></div></div>
-  <div class="actions tint" style="margin-top:auto"><span class="hint">2 notes on 1 file</span><span class="spacer"></span><button class="btn sm ghost">Clear</button><button class="btn sm primary">Send to Claude Code</button></div>
+  <div class="tool"><span class="sel">Body text<svg class="i" style="width:10px;height:10px"><use href="#chevron-down"></use></svg></span><span class="sel">Georgia · 11</span><span class="sepv"></span><button class="btn icon xs ghost"><b>B</b></button><button class="btn icon xs ghost"><i>I</i></button><button class="btn icon xs ghost"><u>U</u></button><span class="sepv"></span><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#list"></use></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#link"></use></svg></button><button class="btn icon xs ghost"><svg class="i" style="width:12px;height:12px"><use href="#image"></use></svg></button><span class="grow"></span><span class="chip" style="color:var(--accent-ink)"><svg class="i" style="width:11px;height:11px"><use href="#sparkle"></use></svg>Ask</span></div>
+  <div class="doc"><div class="paper"><h1>Request for Proposal: Teacher Recruitment Services</h1><div class="k">Directorate of Education · Draft v3 · 5 September 2026</div><p><b>1. Purpose.</b> The Directorate invites proposals from qualified agencies for the recruitment of 240 secondary-school teachers across 38 institutions for the 2027 academic year.</p><p><b>2. Eligibility.</b> Bidders must hold a valid registration under the <span class="ai">Procurement Rules 2019, Rule 14(2)</span> and demonstrate <span class="ai">three years of comparable placements</span>. <span class="ai">Original certificates are verified at onboarding in line with GO 2024-18.</span></p><p><b>3. Scope of services.</b></p><ol><li>Sourcing and screening against the qualification matrix in Annex A.</li><li>Document verification in line with GO 2024-18.</li><li>Onboarding support through the first term.</li></ol></div></div>
+  <div class="arts"><span class="caps" style="margin-right:4px">Created in chat</span><span class="art on"><svg class="i" style="width:11px;height:11px;color:var(--info)"><use href="#doc"></use></svg>RFP-draft-v3.docx<span class="v">v3</span></span><span class="art"><svg class="i" style="width:11px;height:11px;color:var(--success)"><use href="#sheet"></use></svg>vendor-scoring.xlsx<span class="v">v1</span></span><span class="art"><svg class="i" style="width:11px;height:11px"><use href="#file"></use></svg>notes.md</span></div>
+  <div class="dstat"><span>Page 1 of 4</span><span>·</span><span>1,214 words</span><span class="grow"></span><span style="color:var(--accent-ink)">3 changes from chat highlighted</span><span>·</span><span>Saved</span></div>
 </aside>
 </div>
-</x-dc>
-<script data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark","section":"Theme"}}'>
-class Component extends DCLogic {
-  renderVals() {
-    return { theme: this.props.theme ?? 'dark' };
-  }
-}
-</script>
+
 </body>
 </html>

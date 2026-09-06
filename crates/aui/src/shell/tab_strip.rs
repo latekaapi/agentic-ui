@@ -24,6 +24,8 @@ const STRIP_PAD: f32 = 6.0;
 const STRIP_GAP: f32 = 2.0;
 /// `.ind{height:2px;border-radius:2px 2px 0 0}` inset 8 px from the tab edges.
 const INDICATOR_HEIGHT: f32 = 2.0;
+/// The 1 px hairline the shell header draws under every cell.
+const HAIRLINE: f32 = 1.0;
 const INDICATOR_INSET: f32 = 8.0;
 /// `.cl{width:14px;height:14px;border-radius:3px}` with a 10 px x.
 const CLOSE_SIZE: f32 = 14.0;
@@ -148,7 +150,11 @@ impl RenderOnce for TabStrip {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let height = if self.in_shell_header { cx.aui().metrics.header } else { cx.aui().metrics.tab_strip };
+        let in_shell_header = self.in_shell_header;
+        // In the shell header the strip fills the cell's *content* box: the
+        // header's bottom hairline is not part of it, and the indicator hangs
+        // below the strip to cover that hairline the way `.tab.on::after` does.
+        let height = if self.in_shell_header { cx.aui().metrics.header - px(HAIRLINE) } else { cx.aui().metrics.tab_strip };
         let tab_pad = if self.in_shell_header { SHELL_TAB_PAD } else { TAB_PAD };
 
         let geometry = window
@@ -174,16 +180,18 @@ impl RenderOnce for TabStrip {
             Some((left, width)) => {
                 let left = spring_px((id.clone(), "indicator-left"), left, SpringKind::Swap, window, cx);
                 let width = spring_px((id.clone(), "indicator-width"), width, SpringKind::Swap, window, cx);
-                Some(
-                    div()
-                        .absolute()
-                        .bottom(px(-1.0))
-                        .left(left)
-                        .w(width.max(px(0.0)))
-                        .h(px(INDICATOR_HEIGHT))
-                        .rounded_t(px(INDICATOR_HEIGHT))
-                        .bg(p.ink),
-                )
+                let bar = div()
+                    .absolute()
+                    .bottom(px(if in_shell_header { -INDICATOR_HEIGHT } else { -HAIRLINE }))
+                    .left(left)
+                    .w(width.max(px(0.0)))
+                    .h(px(INDICATOR_HEIGHT))
+                    .rounded_t(px(INDICATOR_HEIGHT))
+                    .bg(p.ink);
+                // In the shell header the bar straddles the header's bottom
+                // hairline, and gpui paints a border after its children, so
+                // the bar has to leave the surrounding paint order.
+                Some(if in_shell_header { crate::overlay::popover_layer(bar).into_any_element() } else { bar.into_any_element() })
             }
             None => {
                 window.request_animation_frame();

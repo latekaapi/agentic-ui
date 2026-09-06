@@ -9,29 +9,28 @@ ASSIST_CSS = """
 .role{display:flex;align-items:center;gap:8px;height:44px;padding:0 12px 0 10px;font-weight:600;color:var(--ink)}
 .role .i{color:var(--ink-3)}.role .chev{width:12px;height:12px}
 .role.closed{color:var(--ink-2)}
-.sub{padding:0 8px 10px}
+.sub{padding:2px 8px 6px 8px}
 .gh{display:flex;align-items:center;gap:8px;height:24px;padding:0 4px 0 12px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
 .gh .rule{flex:1;height:1px;background:var(--line)}
 .gh .cnt{font:500 10.5px var(--font-mono);color:var(--ink-3)}
-.proj{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px 0 22px;border-radius:var(--r-sm);font-size:12.5px;font-weight:500;color:var(--ink-2)}.proj .i{color:var(--ink-3)}
+.proj{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px 0 22px;border-radius:var(--r-sm);font-size:12.5px;font-weight:500;color:var(--ink-2)}.proj .i{color:var(--ink-3)}
 .proj .n{margin-left:auto;font:500 11px/1 var(--font-mono);color:var(--ink-3)}
-.sess{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px 0 40px;border-radius:var(--r-sm);font-size:12.5px;color:var(--ink-3);position:relative}
+.sess{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px 0 40px;border-radius:var(--r-sm);font-size:12.5px;color:var(--ink-3);position:relative}
 .sess::before{content:"";position:absolute;left:29px;top:0;bottom:0;width:1px;background:var(--line)}
 .sess.on{background:var(--surface-3);color:var(--ink)}.sess .t{margin-left:auto;font:500 11px/1 var(--font-mono);color:var(--ink-3)}.sess .i{color:var(--ink-3)}
-.kb{margin:6px 8px 0;padding:10px 10px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2);font-size:12px}
+.kb{margin:4px 8px 0;padding:10px 10px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2);font-size:12px}
 .kb .caps{margin-bottom:8px}.kb .row{gap:6px;flex-wrap:wrap}
 .cite{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:4px;background:var(--accent-soft);color:var(--accent-ink);font:600 10px/1 var(--font-mono);vertical-align:2px;margin:0 1px}
 .src{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface-1);overflow:hidden}
-.src .hh{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;font-weight:600;font-size:12.5px}
-.tier{display:flex;align-items:center;gap:8px;padding:8px 12px 4px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.src .hh{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;font-weight:600;font-size:12.5px}
+.tier{display:flex;align-items:center;gap:8px;padding:6px 12px 4px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .tier .sw{width:8px;height:8px;border-radius:2px;display:block}
-.s{display:flex;align-items:flex-start;gap:10px;padding:7px 12px;font-size:12.5px;position:relative}
-.s.on{background:var(--surface-2)}
+.s{display:flex;align-items:flex-start;gap:10px;padding:6px 12px;font-size:12.5px;position:relative}
 .s .n{width:18px;height:18px;border-radius:4px;background:var(--accent-soft);color:var(--accent-ink);font:600 10px/18px var(--font-mono);text-align:center;flex:none}
 .s b{font-weight:500;display:block}.s span.sub2{font-size:11.5px;color:var(--ink-3)}
 .s .conf{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font:500 10.5px var(--font-mono);color:var(--ink-3);white-space:nowrap}
 .s .conf i{width:36px;height:4px;border-radius:2px;background:var(--surface-3);overflow:hidden;display:block}.s .conf i b{display:block;height:100%;background:var(--success)}
-.hover{position:absolute;right:16px;top:-6px;width:300px;background:var(--overlay);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-3);padding:10px 12px;font-size:12px;z-index:2}
+.hover{position:absolute;right:24px;top:-8px;width:280px;background:var(--overlay);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-3);padding:10px 12px;font-size:12px;z-index:2}
 .hover .q{border-left:2px solid var(--accent);padding-left:8px;color:var(--ink-2);margin:6px 0 8px;font-size:12px;line-height:1.5}
 .hover .q mark{background:var(--accent-soft);color:var(--ink)}
 .fc{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface-1)}
@@ -44,13 +43,13 @@ ASSIST_CSS = """
 .tool .sepv{width:1px;height:16px;background:var(--line);margin:0 4px}
 .tool .sel{height:26px;padding:0 8px;border-radius:5px;border:1px solid var(--line);background:var(--surface-2);font-size:12px;color:var(--ink);display:inline-flex;align-items:center;gap:6px}
 .doc{flex:1;background:var(--surface-2);display:flex;justify-content:center;padding:20px;overflow:hidden}
-.paper{width:340px;background:#fff;color:#1a1c22;box-shadow:var(--shadow-2);padding:34px 36px;font-family:Georgia,"Times New Roman",serif;font-size:12px;line-height:1.65}
-.paper h1{font-size:16px;margin:0 0 4px;font-family:var(--font-ui);line-height:1.3}.paper .k{font:11px var(--font-ui);color:#7b818f;margin-bottom:16px}
+.paper{width:340px;background:#fff;color:#1a1c22;box-shadow:var(--shadow-2);padding:34px 36px;font-family:Georgia,"Times New Roman",serif;font-size:12.5px;line-height:1.6}
+.paper h1{font-size:18px;margin:0 0 4px;font-family:var(--font-ui);line-height:1.3}.paper .k{font:11px var(--font-ui);color:#7b818f;margin-bottom:18px}
 .paper p{margin:0 0 10px}.paper .ai{background:rgba(86,92,196,.12);border-bottom:2px solid #565CC4}
 .paper ol{padding-left:18px;margin:0 0 10px}
-.arts{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--line);overflow:hidden;align-items:center;white-space:nowrap}.arts .caps{flex:none}
+.arts{display:flex;gap:6px;padding:6px 10px;border-top:1px solid var(--line);overflow:hidden;align-items:center;white-space:nowrap}.arts .caps{flex:none}
 .art{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 8px 0 6px;border:1px solid var(--line);border-radius:6px;font-size:11.5px;color:var(--ink-2);white-space:nowrap}
-.art.on{border-color:var(--line-strong);background:var(--surface-3);color:var(--ink)}
+.art.on{border-color:var(--accent-ring);background:var(--accent-soft);color:var(--ink)}
 .art .v{font:500 10px var(--font-mono);color:var(--ink-3)}
 .dstat{display:flex;align-items:center;gap:10px;height:28px;padding:0 12px;border-top:1px solid var(--line);font:11px var(--font-ui);color:var(--ink-3)}
 /* pdf pane */
@@ -100,7 +99,7 @@ def a_sidebar(active="RFP draft v3"):
   </div>
   <div class="sec"><div class="role closed"><svg class="chev"><use href="#chevron"></use></svg>{icon('scale')}Director, Law<span class="grow"></span><span class="cnt tag">2</span></div></div>
   <div class="sec"><div class="role closed"><svg class="chev"><use href="#chevron"></use></svg>{icon('gear')}Operations<span class="grow"></span><span class="cnt tag">4</span></div></div>
-  <div style="margin-top:auto;border-top:1px solid var(--line);padding:10px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3)"><i class="avatar">B</i><span class="grow trunc">Bharani</span><span class="meter">{mark("claude","C",11)}<i><b style="width:78%"></b></i>78%</span></div>
+  <div style="margin-top:auto;border-top:1px solid var(--line);padding:8px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3)"><i class="avatar">B</i><span class="grow trunc">Bharani</span><span class="meter">{mark("claude","C",11)}<i><b style="width:78%"></b></i>78%</span></div>
 </aside>"""
 
 def a_header(center_title, center_sub, right_title, right_sub):
@@ -150,7 +149,7 @@ PAPER = """<div class="paper"><h1>Request for Proposal: Teacher Recruitment Serv
 def doc_pane():
     return f"""
 <aside class="right">
-  <div class="tool"><span class="sel">Body text{icon('chevron-down','style="width:10px;height:10px"')}</span><span class="sel">Georgia · 11</span><span class="sepv"></span><button class="btn icon xs ghost"><b>B</b></button><button class="btn icon xs ghost"><i>I</i></button><button class="btn icon xs ghost"><u>U</u></button><span class="sepv"></span><button class="btn icon xs ghost">{icon('list','style="width:12px;height:12px"')}</button><button class="btn icon xs ghost">{icon('link','style="width:12px;height:12px"')}</button><span class="grow"></span><span class="chip" style="color:var(--accent-ink)">{icon('sparkle','style="width:11px;height:11px"')}Ask</span></div>
+  <div class="tool"><span class="sel">Body text{icon('chevron-down','style="width:10px;height:10px"')}</span><span class="sel">Georgia · 11</span><span class="sepv"></span><button class="btn icon xs ghost"><b>B</b></button><button class="btn icon xs ghost"><i>I</i></button><button class="btn icon xs ghost"><u>U</u></button><span class="sepv"></span><button class="btn icon xs ghost">{icon('list','style="width:12px;height:12px"')}</button><button class="btn icon xs ghost">{icon('link','style="width:12px;height:12px"')}</button><button class="btn icon xs ghost">{icon('image','style="width:12px;height:12px"')}</button><span class="grow"></span><span class="chip" style="color:var(--accent-ink)">{icon('sparkle','style="width:11px;height:11px"')}Ask</span></div>
   <div class="doc">{PAPER}</div>
   <div class="arts"><span class="caps" style="margin-right:4px">Created in chat</span><span class="art on">{icon('doc','style="width:11px;height:11px;color:var(--info)"')}RFP-draft-v3.docx<span class="v">v3</span></span><span class="art">{icon('sheet','style="width:11px;height:11px;color:var(--success)"')}vendor-scoring.xlsx<span class="v">v1</span></span><span class="art">{icon('file','style="width:11px;height:11px"')}notes.md</span></div>
   <div class="dstat"><span>Page 1 of 4</span><span>·</span><span>1,214 words</span><span class="grow"></span><span style="color:var(--accent-ink)">3 changes from chat highlighted</span><span>·</span><span>Saved</span></div>

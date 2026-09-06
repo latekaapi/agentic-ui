@@ -3,6 +3,7 @@
 //! runs so inline code can switch to the mono face (gpui-kit's markdown view
 //! keeps one font per paragraph).
 
+use aui_motion::{looping, Loop};
 use aui_tokens::{scale, AuiStyled};
 use gpui::{div, font, prelude::*, px, relative, App, ElementId, Font, FontWeight, Hsla, IntoElement, StyledText, TextRun, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -12,6 +13,34 @@ const LIST_INDENT: f32 = 18.0;
 /// `.a ul{margin:6px 0}` — the top margin collapses into the paragraph gap
 /// above; the bottom one stands when a paragraph follows.
 const LIST_MARGIN: f32 = 6.0;
+
+/// `.caret{width:2px;height:15px;background:var(--accent);vertical-align:-3px;
+/// margin-left:1px;animation:blink 1s steps(2) infinite}` — the streaming
+/// caret's geometry, shared by every turn that can stream.
+pub const CARET_W: f32 = 2.0;
+/// The caret's height.
+pub const CARET_H: f32 = 15.0;
+/// The caret's gap from the last glyph.
+pub const CARET_MARGIN_LEFT: f32 = 1.0;
+/// `vertical-align:-3px`: the caret's box hangs 3 px below the text baseline.
+pub const CARET_BASELINE_DROP: f32 = 3.0;
+/// One blink.
+const CARET_PERIOD: std::time::Duration = std::time::Duration::from_millis(1000);
+
+/// Whether the streaming caret is on this frame. `blink 1s steps(2)` is on for
+/// the first half of every second; reduced motion holds it on.
+pub fn caret_visible(id: impl Into<gpui_kit::base::TransitionId>, window: &mut Window, cx: &mut App) -> bool {
+    if cx.reduce_motion() {
+        return true;
+    }
+    looping(id, Loop::linear(CARET_PERIOD), window, cx) < 0.5
+}
+
+/// The caret's offset from the top of the line box it closes: centred in the
+/// line, then dropped by `vertical-align`.
+pub fn caret_top_in_line(line_height: gpui::Pixels, caret_height: gpui::Pixels, text_scale: f32) -> gpui::Pixels {
+    (line_height - caret_height) / 2.0 + px(CARET_BASELINE_DROP * text_scale)
+}
 
 /// Colours and sizes for a prose block.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -124,6 +153,17 @@ fn runs(spans: &[Span], style: &ProseStyle) -> (String, Vec<TextRun>) {
         runs.push(run);
     }
     (text, runs)
+}
+
+/// The text and text runs of the paragraph that closes `markdown`, built
+/// exactly as [`prose`] builds them, so a caller that has to measure where the
+/// prose ends (the streaming caret) shapes the same glyphs that are painted.
+/// `None` when a list closes the prose: the caret does not follow a bullet.
+pub fn last_paragraph_runs(markdown: &str, style: &ProseStyle) -> Option<(String, Vec<TextRun>)> {
+    match parse(markdown).pop()? {
+        Block::Paragraph(spans) => Some(runs(&spans, style)),
+        Block::List(_) => None,
+    }
 }
 
 /// Renders `markdown` as prose blocks.
