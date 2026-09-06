@@ -1,37 +1,46 @@
-//! `aui-terminal` — the PTY-backed terminal pane of the workbench.
+//! `aui-terminal` — the backends behind the workbench's terminal panes.
 //!
-//! Nothing is implemented yet: this crate is scaffolding, and the scope below is
-//! the contract it must meet, taken from `docs/02-component-spec.md` section 5.1
-//! (workbench card 50, rendered at `design/reference/cards/50-terminal.png`).
+//! [`aui::workbench`] draws the block terminal and the TUI pane but does no
+//! I/O. This crate supplies the bytes and turns them into the shapes those
+//! components take:
 //!
-//! # Scope
+//! | module | what it does |
+//! |---|---|
+//! | [`backend`] | the [`TerminalBackend`] trait and its [`TermEvent`] stream |
+//! | [`parser`] | [`BlockParser`] — OSC 133 shell integration to `TermBlock`s |
+//! | [`fake`] | [`FakePty`], a scripted transcript that replays card 50 |
+//! | [`pty`] | a real login shell over `portable-pty` (feature `pty`) |
+//! | [`tui_grid`] | the alacritty grid model behind the TUI pane (feature `tui`) |
+//! | [`view`] | [`TerminalState`] plus the two gpui elements |
 //!
-//! **PTY** — a real pseudo-terminal running the user's own login shell, with the
-//! grid parsed from the byte stream and rendered as a `gpui` element. Tabs live
-//! in the shell header; splits (`⌘D` / `⌘⇧D`) resize on the layout spring. The
-//! ANSI 16 palette comes from `aui-tokens`, never from hard-coded colours.
+//! ```ignore
+//! let state = window.use_keyed_state("term", cx, |window, cx| {
+//!     let fake = FakePty::card50();
+//!     let parser = BlockParser::with_clock(fake.clock());
+//!     TerminalState::with_parser(Box::new(fake), parser)
+//! });
+//! block_terminal_view("term", &state).marker("restored scrollback · 09:02")
+//! ```
 //!
-//! **Block terminal, not a wall of text** — each command is a block with a radius
-//! of 8: a one-line command row (6 px exit dot in success / danger / accent with a
-//! ring while running, an accent `$`, the command in mono 12, and on the right the
-//! provider mark plus the agent name when an agent ran it, then the duration in
-//! mono 11 dim), the output lines below it (one element per line, nowrap with
-//! ellipsis), and a fold row once past eight lines. Old blocks sit at .72 opacity;
-//! the live block gets surface-1 and a 1 px line; failed blocks tint the command
-//! row danger-soft and keep their output at full ink. Hovering a block reveals
-//! copy and "ask the agent" actions. A restored-scrollback marker separates the
-//! previous session, and the 36 px prompt row carries the blinking accent cursor
-//! and the branch and cwd tags.
-//!
-//! **TUI mode** — a terminal-only view of the agent itself: a 40 px pane toolbar
-//! (Chat | Terminal segmented control, agent chips, the "runs in a PTY with your
-//! own login" note, a split button), the agent's TUI rendered line by line, its
-//! input box docked at the bottom, and a 36 px status row with the model,
-//! permission mode and branch as tags.
+//! Nothing here holds a colour or a hard-coded font size: everything visible
+//! comes from `aui`, `aui-tokens`, `aui-icons` and `aui-motion`.
 
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 
-/// The delivery phase this crate belongs to, from `docs/01-research-and-plan.md`.
-///
-/// The terminal ships with the rest of the workbench.
-pub const PHASE: &str = "phase 3 · workbench";
+pub mod backend;
+pub mod fake;
+pub mod parser;
+#[cfg(feature = "pty")]
+pub mod pty;
+#[cfg(feature = "tui")]
+pub mod tui_grid;
+pub mod view;
+
+pub use backend::{TermEvent, TerminalBackend};
+pub use fake::{FakePty, ScriptChunk};
+pub use parser::{BlockParser, ManualClock};
+#[cfg(feature = "pty")]
+pub use pty::{Pty, ZSH_INTEGRATION};
+#[cfg(feature = "tui")]
+pub use tui_grid::TuiGrid;
+pub use view::{block_terminal_view, tui_view, BlockTerminalView, TerminalIntent, TerminalState, TuiView};

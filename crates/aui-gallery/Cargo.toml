@@ -18,5 +18,7 @@ aui-tokens.workspace = true
 aui-icons.workspace = true
 aui-motion.workspace = true
 aui.workspace = true
+aui-webview.workspace = true
+aui-terminal.workspace = true
 anyhow.workspace = true
 image.workspace = true
