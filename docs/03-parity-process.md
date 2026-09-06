@@ -165,8 +165,8 @@ documented in `crates/aui-gallery/src/cards/views.rs`.
 | 51 Browser and annotator | workbench::BrowserNav, AnnotationsPanel, pins, NotePopover | workbench/browser | a447df3 · 1.0 % |
 | 52 Diff review | workbench::DiffReview, Segmented | workbench/diff | dc89a4a · 1.6 % (code indentation) |
 | 53 Git and PR | workbench::GitChanges, PrForm | workbench/git | 6157e0f · 1.0 % (description flows as prose; design fixed) |
-| 54 Files and documents | workbench::FileTree, DocPane, ArtifactStrip (+ PdfPane, SheetPane used by the screens) | workbench/files-docs | 6978bd9 · 1.2 % dark / 1.2 % light (artifact chips truncate their name, so the strip no longer slices the last chip) |
+| 54 Files and documents | workbench::FileTree, DocPane, ArtifactStrip (+ PdfPane, SheetPane used by the screens) | workbench/files-docs | 8dcc368 · 1.2 % dark / 1.2 % light (artifact chips truncate their name, so the strip no longer slices the last chip) |
 | 55 Sources and citations | workbench::Citation, CitedAnswer, SourcesCard, SourceHoverCard | transcript/citations | dc89a4a · 2.9 % (glyph weight; geometry within 1 px) |
-| Screens (3 assistant) | the three assistant screens assembled live; `AUI_GALLERY_SCREEN=<Main\|Sources\|Sheet>` picks one | screens/assistant | 6978bd9 · 2.5 % Main / 2.4 % Sources / 1.1 % Sheet (Geist and Georgia rasterise wider than Chrome, so the doc paper wraps one word early; at `RIGHT_WIDTH` the doc toolbar drops the font select and the export button and the strip caps at two chips plus `+N`) |
+| Screens (3 assistant) | the three assistant screens assembled live; `AUI_GALLERY_SCREEN=<Main\|Sources\|Sheet>` picks one | screens/assistant | 8dcc368 · 2.5 % Main / 2.4 % Sources / 1.1 % Sheet (Geist and Georgia rasterise wider than Chrome, so the doc paper wraps one word early; at `RIGHT_WIDTH` the doc toolbar drops the font select and the export button and the strip caps at two chips plus `+N`) |
 | Screens page | the three assistant screens side by side at 1440×900, horizontally scrolling | screens/all | dc89a4a · no reference (a gallery page, not a design card) |
 | Screens (4 harness) | harness screens not assembled | — | — |
