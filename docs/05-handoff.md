@@ -35,3 +35,9 @@ The session's persistent memory lives outside the repo at
 - Design fixes made this phase (references re-rendered): continuous first divider (card 10 + screens/common.py), card 38 `.sm` class collision, card 50 tab indicator to ink/bottom, card 52 notes column line number, card 53 PR description block flow; sprite gained `spinner-ring`, `spinner-arc`, `check-bold`, `x-bold`, `chev`.
 - Protocol additions: `Attachment.meta`, `ToolBody::Web.hidden`, `ToolBody::Browser.caption`, ANSI-coloured sample shell output, extra sample hunks.
 - Known follow-ups are listed under "Known, accepted gaps" in docs/03 and in the phase-4 prompt above.
+
+## State after Phase 4 (2026-09-06)
+
+Commits: dc89a4a (step 1: assistant screens Main/Sources/Sheet at 2.5/2.4/1.1 %, `screens/all`, streaming caret, screen references re-rendered), 3589b25 (step 2: transcript model + scripted fake backend in the mock, `aui::keys`, tab stops, focus ring, live toasts and view menu, `AUI_GALLERY_STEPS`), 4caba55 (step 3: docs/06-api.md, 64 unit tests, segmented sliding thumb, `chevron_sized`, `tree-sitter` feature), 00cfe13 (step 4: `aui-webview` and `aui-terminal` with fake backends; `wry`, `pty`, `tui` features compile; docs/07-backends.md).
+
+Open items: the Claude Design screen canvases are behind the repo (design/screens/*.dc.html were aligned to the cards in step 1); the design's right pane clips its toolbar and artifact strip at 400 px (visible in the references too); `WryBackend` and `Pty` compile but were never run against a real WKWebView or shell; the wry child view paints above gpui so popovers over a live page are hidden; screenshots from wry are unimplemented; keymap entries were exercised through `dispatch_action`, not real keystrokes; the `:focus-visible` approximation stays armed after a mouse press outside a control; Main/Sources sit at 2.5/2.4 % because gpui rasterises Geist/Georgia wider than Chrome (doc paper wraps one word early).
