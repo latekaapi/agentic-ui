@@ -3,7 +3,7 @@
 //! spring and the account footer.
 
 use aui_icons::{icon, IconName, Provider};
-use aui_motion::{spring_phase, tween, SpringKind, Tween};
+use aui_motion::{spring_phase, tint_fade, tween, SpringKind, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, radians, AnyElement, App, ElementId, Hsla, IntoElement, SharedString, Window};
 use gpui_kit::base::h_flex;
@@ -74,7 +74,7 @@ impl RenderOnce for NavItem {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let bg = tween((id.clone(), "bg"), if flags.hovered { p.surface_2 } else { gpui::transparent_black() }, Tween::FAST, window, cx);
+        let bg = tint_fade((id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
         let text = tween((id.clone(), "text"), if flags.hovered { p.ink } else { p.ink_2 }, Tween::FAST, window, cx);
         let mut row = h_flex()
             .id(id)

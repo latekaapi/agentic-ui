@@ -32,7 +32,7 @@ pub use approval::{approval_card, ApprovalCard};
 pub use question::{answered_row, question_card, AnsweredRow, QuestionCard};
 pub use plan::{plan_card, PlanCard};
 pub use todo::{todo_list, TodoList};
-pub use code::{code_block, diff_block, diff_note, CodeBlock, CodeBlockAction, DiffBlock, DiffBlockAction, DiffNote};
+pub use code::{code_block, diff_block, diff_note, diff_note_inset, CodeBlock, CodeBlockAction, DiffBlock, DiffBlockAction, DiffNote, NoteInsets};
 pub use syntax::{syntax_runs, token_color, tokenize_line, TokenKind};
 pub use summary::{summary_card, SummaryAction, SummaryCard};
 pub use status::{error_card, jump_pill, needs_you_banner, status_row, ErrorCard, JumpPill, NeedsYouBanner, StatusLead, StatusRow};

@@ -10,7 +10,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_motion::{presence, tween, EnterExit, PresenceStyle, Tween};
+use aui_motion::{presence, tint_fade, tween, EnterExit, PresenceStyle, Tween};
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette, TextRole};
 use gpui::{
     black, div, linear_color_stop, linear_gradient, prelude::*, px, App, ElementId, FontWeight, HighlightStyle, IntoElement, SharedString,
@@ -19,7 +19,7 @@ use gpui::{
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{kbd, pill, status_dot, PillVariant};
-use crate::util::interaction_flags;
+use crate::util::{interaction_flags, Interaction};
 
 /// `.scrim{height:470px;border-radius:var(--r-lg);padding-top:56px}`.
 const SCRIM_H: f32 = 470.0;
@@ -260,8 +260,28 @@ impl RenderOnce for CommandPalette {
             .text_color(p.ink)
             .child(query_row(&id, &p, &self.query, &self.placeholder, self.on_dismiss.clone()));
 
+        // One highlight, not one per row. The pointer and the arrow keys drive
+        // the same row: while the pointer is over a row it owns the highlight,
+        // and the keyboard's `selected` takes it back the moment the pointer
+        // leaves, so the palette never lights two rows at once — with or
+        // without a caller wired to `on_hover`.
+        let mut rows: Vec<(ElementId, gpui::Entity<Interaction>)> = Vec::new();
+        let mut hovered_row = None;
+        for (s, section) in self.sections.iter().enumerate() {
+            for _ in &section.items {
+                let index = rows.len();
+                let key: ElementId = (id.clone(), SharedString::from(format!("row-{s}-{index}"))).into();
+                let (state, flags) = interaction_flags(key.clone(), window, cx);
+                if flags.hovered {
+                    hovered_row = Some(index);
+                }
+                rows.push((key, state));
+            }
+        }
+        let active = hovered_row.unwrap_or(self.selected);
+
         let mut index = 0usize;
-        for (s, section) in self.sections.into_iter().enumerate() {
+        for section in self.sections.into_iter() {
             let mut block = v_flex()
                 .flex_none()
                 .w_full()
@@ -279,8 +299,8 @@ impl RenderOnce for CommandPalette {
                         .child(section.title.to_uppercase()),
                 );
             for item in section.items {
-                let key: ElementId = (id.clone(), SharedString::from(format!("row-{s}-{index}"))).into();
-                block = block.child(palette_row(key, &p, item, index, index == self.selected, &self.on_select, &self.on_hover, window, cx));
+                let (key, state) = rows[index].clone();
+                block = block.child(palette_row(key, state, &p, item, index, index == active, &self.on_select, &self.on_hover, window, cx));
                 index += 1;
             }
             pal = pal.child(block);
@@ -318,24 +338,27 @@ fn query_row(id: &ElementId, p: &Palette, query: &SharedString, placeholder: &Sh
         .child(esc)
 }
 
-/// `.it`: one row. Hovering a row highlights it exactly as the selection does,
-/// so the pointer and the arrow keys agree on what `↩` would open.
+/// `.it`: one row. `active` is the palette's single highlight — the hovered row
+/// if the pointer is over one, otherwise the keyboard's selection — so the
+/// pointer and the arrow keys always agree on what `↩` would open. The tint,
+/// the label and the glyph all cross-fade over the hover duration, which lets
+/// the highlight travel between neighbouring rows instead of flashing.
 #[allow(clippy::too_many_arguments)]
 fn palette_row(
     id: ElementId,
+    state: gpui::Entity<Interaction>,
     p: &Palette,
     item: PaletteItem,
     index: usize,
-    selected: bool,
+    on: bool,
     on_select: &Option<SelectHandler>,
     on_hover: &Option<HoverHandler>,
     window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement {
-    let (state, flags) = interaction_flags(id.clone(), window, cx);
-    let on = selected || flags.hovered;
-    let ground = tween((id.clone(), "bg"), if on { p.surface_3 } else { gpui::transparent_black() }, Tween::FAST, window, cx);
-    let glyph_color = if on { p.ink } else { p.ink_3 };
+    let ground = tint_fade((id.clone(), "bg"), on, p.surface_3, Tween::FAST, window, cx);
+    let glyph_color = tween((id.clone(), "glyph"), if on { p.ink } else { p.ink_3 }, Tween::FAST, window, cx);
+    let text_color = tween((id.clone(), "text"), if on { p.ink } else { p.ink_2 }, Tween::FAST, window, cx);
 
     let mut row = h_flex()
         .id(id.clone())
@@ -347,7 +370,7 @@ fn palette_row(
         .rounded(px(scale::R_SM))
         .bg(ground)
         .ui(scale::FS_13)
-        .text_color(if on { p.ink } else { p.ink_2 })
+        .text_color(text_color)
         .cursor_pointer();
 
     // One `on_hover` per element is all gpui allows, so the row's own hover

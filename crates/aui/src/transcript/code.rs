@@ -51,12 +51,11 @@ const GUTTER_PAD: f32 = 8.0;
 const ADD_NOTE_INSET: f32 = 2.0;
 const ADD_NOTE: f32 = 16.0;
 const ADD_NOTE_GLYPH: f32 = 10.0;
-/// `.note{margin:4px 12px 6px 64px;border-left:2px;padding:6px 8px;font:12px/1.4}`; caps margin-bottom 2; actions margin-top 6 gap 6.
+/// `.note{margin:4px 12px 6px 64px;border:1px solid var(--line);padding:6px 8px;font:12px/1.4}`; caps margin-bottom 2; actions margin-top 6 gap 6.
 const NOTE_MT: f32 = 4.0;
 const NOTE_MR: f32 = 12.0;
 const NOTE_MB: f32 = 6.0;
 const NOTE_ML: f32 = 64.0;
-const NOTE_RAIL: f32 = 2.0;
 const NOTE_PAD_Y: f32 = 6.0;
 const NOTE_PAD_X: f32 = 8.0;
 const NOTE_LH: f32 = 1.4;
@@ -317,27 +316,52 @@ impl DiffBlock {
     }
 }
 
+/// Geometry a host can override on [`diff_note_inset`]. The defaults are the
+/// transcript diff block's own values (card 37).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NoteInsets {
+    /// Margins around the card: top, right, bottom, left.
+    pub margin: (f32, f32, f32, f32),
+    /// Body line height, relative to the font size.
+    pub line_height: f32,
+    /// Gap under the caps line.
+    pub caps_gap: f32,
+}
+
+impl Default for NoteInsets {
+    fn default() -> Self {
+        Self { margin: (NOTE_MT, NOTE_MR, NOTE_MB, NOTE_ML), line_height: NOTE_LH, caps_gap: NOTE_CAPS_GAP }
+    }
+}
+
 /// `.note`: the note under a diff line, saved or pending.
 pub fn diff_note(p: &Palette, id: ElementId, note: &DiffNote, on_action: Option<DiffHandler>) -> impl IntoElement {
+    diff_note_inset(p, id, note, NoteInsets::default(), on_action)
+}
+
+/// [`diff_note`] with host-supplied margins and body metrics, so a pane that
+/// insets its notes differently still draws the one note card.
+///
+/// Every note card carries the same frame: a hairline `line` border all the way
+/// round on `surface-2` at `--r-sm`. Pending and saved differ only in content.
+pub fn diff_note_inset(p: &Palette, id: ElementId, note: &DiffNote, insets: NoteInsets, on_action: Option<DiffHandler>) -> impl IntoElement {
+    let (mt, mr, mb, ml) = insets.margin;
     let mut el = v_flex()
         .id(id.clone())
-        .relative()
-        .mt(px(NOTE_MT))
-        .mr(px(NOTE_MR))
-        .mb(px(NOTE_MB))
-        .ml(px(NOTE_ML))
+        .mt(px(mt))
+        .mr(px(mr))
+        .mb(px(mb))
+        .ml(px(ml))
         .py(px(NOTE_PAD_Y))
         .px(px(NOTE_PAD_X))
         .rounded(px(scale::R_SM))
         .border_1()
-        .border_l(px(NOTE_RAIL))
-        .border_color(p.line_strong)
+        .border_color(p.line)
         .bg(p.surface_2)
         .ui(scale::FS_12)
-        .line_height(relative(NOTE_LH))
+        .line_height(relative(insets.line_height))
         .text_color(p.ink)
-        .child(div().absolute().left(px(-NOTE_RAIL)).top(px(-1.0)).bottom(px(-1.0)).w(px(NOTE_RAIL)).rounded_l(px(scale::R_SM)).bg(p.accent))
-        .child(div().mb(px(NOTE_CAPS_GAP)).text_role(TextRole::Caps).line_height(relative(NOTE_LH)).text_color(p.accent_ink).child(format!("NOTE · LINE {}", note.line)))
+        .child(div().mb(px(insets.caps_gap)).text_role(TextRole::Caps).line_height(relative(insets.line_height)).text_color(p.accent_ink).child(format!("NOTE · LINE {}", note.line)))
         .child(note.text.clone());
     if note.pending {
         let line = note.line;

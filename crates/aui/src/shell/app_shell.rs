@@ -17,6 +17,10 @@ pub const SIDEBAR_WIDTH: f32 = 252.0;
 pub const RIGHT_WIDTH: f32 = 400.0;
 /// The collapsed sidebar rail (⌘B).
 pub const RAIL_WIDTH: f32 = 48.0;
+/// The collapsed sidebar column when the window's controls sit above it: the
+/// macOS traffic lights own the top-left of the window whether the shell paints
+/// them or the system does, so the rail column widens to clear them.
+pub const RAIL_WIDTH_WITH_LIGHTS: f32 = 72.0;
 
 /// The shell. Build with [`app_shell`].
 #[derive(IntoElement)]
@@ -26,11 +30,13 @@ pub struct AppShell {
     right_width: Pixels,
     right_open: bool,
     sidebar_open: bool,
+    traffic_lights: bool,
     framed: bool,
     header_sidebar: Option<AnyElement>,
     header_centre: Option<AnyElement>,
     header_right: Option<AnyElement>,
     sidebar: Option<AnyElement>,
+    rail: Option<AnyElement>,
     centre: Option<AnyElement>,
     right: Option<AnyElement>,
 }
@@ -43,11 +49,13 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         right_width: px(RIGHT_WIDTH),
         right_open: true,
         sidebar_open: true,
+        traffic_lights: false,
         framed: false,
         header_sidebar: None,
         header_centre: None,
         header_right: None,
         sidebar: None,
+        rail: None,
         centre: None,
         right: None,
     }
@@ -72,9 +80,17 @@ impl AppShell {
         self
     }
 
-    /// Whether the sidebar is expanded (false = the 48 px rail).
+    /// Whether the sidebar is expanded (false = the rail).
     pub fn sidebar_open(mut self, open: bool) -> Self {
         self.sidebar_open = open;
+        self
+    }
+
+    /// The window's controls sit in the shell's top-left corner (the gallery
+    /// paints them; a real window's are native). The collapsed column widens to
+    /// [`RAIL_WIDTH_WITH_LIGHTS`] so the lights never sit over the rail's cells.
+    pub fn traffic_lights(mut self, on: bool) -> Self {
+        self.traffic_lights = on;
         self
     }
 
@@ -109,6 +125,15 @@ impl AppShell {
         self
     }
 
+    /// The collapsed sidebar pane: the rail that replaces [`AppShell::sidebar`]
+    /// while `sidebar_open` is false. The expanded sidebar is never drawn into
+    /// the rail column — without a rail the column is simply empty, so
+    /// full-width content can never be clipped into it.
+    pub fn rail(mut self, el: impl IntoElement) -> Self {
+        self.rail = Some(el.into_any_element());
+        self
+    }
+
     /// The centre pane (transcript + composer).
     pub fn centre(mut self, el: impl IntoElement) -> Self {
         self.centre = Some(el.into_any_element());
@@ -128,11 +153,15 @@ impl RenderOnce for AppShell {
         let header_h = cx.aui().metrics.header;
         let id = self.id.clone();
 
-        let sidebar_target = if self.sidebar_open { self.sidebar_width } else { px(RAIL_WIDTH) };
+        let rail_width = if self.traffic_lights { px(RAIL_WIDTH_WITH_LIGHTS) } else { px(RAIL_WIDTH) };
+        let sidebar_target = if self.sidebar_open { self.sidebar_width } else { rail_width };
         let sidebar_w = spring_px((id.clone(), "sidebar-width"), sidebar_target, SpringKind::Layout, window, cx).max(px(0.0));
         let right_target = if self.right_open { self.right_width } else { px(0.0) };
         let right_w = spring_px((id.clone(), "right-width"), right_target, SpringKind::Layout, window, cx).max(px(0.0));
         let right_inner = self.right_width;
+        // The pane keeps its resting width while the column springs, so the
+        // content slides under the divider instead of reflowing every frame.
+        let (pane, pane_width) = if self.sidebar_open { (self.sidebar, self.sidebar_width) } else { (self.rail, rail_width) };
 
         // Header cells: surface-1, bottom hairline. The sidebar cell owns the
         // first divider (its right border) and the right cell the second (its
@@ -145,7 +174,13 @@ impl RenderOnce for AppShell {
             .border_b_1()
             .border_color(p.line)
             .bg(p.surface_1)
-            .child(cell(div()).w(sidebar_w).border_r_1().border_color(p.line).children(self.header_sidebar))
+            .child(
+                cell(div())
+                    .w(sidebar_w)
+                    .border_r_1()
+                    .border_color(p.line)
+                    .child(div().h_full().w(pane_width).flex_none().flex().items_center().children(self.header_sidebar)),
+            )
             .child(cell(div()).flex_1().children(self.header_centre))
             .child(
                 cell(div())
@@ -167,7 +202,7 @@ impl RenderOnce for AppShell {
                     .border_r_1()
                     .border_color(p.line)
                     .bg(p.surface_1)
-                    .children(self.sidebar),
+                    .child(div().w(pane_width).h_full().flex_none().overflow_hidden().children(pane)),
             )
             .child(div().flex_1().h_full().min_w(px(0.0)).overflow_hidden().bg(p.bg).children(self.centre))
             .child(

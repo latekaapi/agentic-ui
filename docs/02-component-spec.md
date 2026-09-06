@@ -10,7 +10,7 @@ Conventions used below: **anatomy** (parts, left to right / top to bottom), **si
 
 ### 0.1 Colour (card 01)
 - Two themes, both first-class. Harness defaults dark, assistant defaults light; every window exposes a theme switch.
-- Neutrals are hue-tinted toward the accent (iris). Accent is the only decorative hue and is used for: primary buttons, send button, focus ring, running-state dot, links, citation markers, note left rails. Nothing else.
+- Neutrals are hue-tinted toward the accent (iris). Accent is the only decorative hue and is used for: primary buttons, send button, focus ring, running-state dot, links, citation markers, the blockquote rail on a source hover card. Nothing else.
 - Status colours carry meaning only: success, warning, danger, info. Agent states map: running → accent, waiting/needs-you → warning, done → success, failed → danger, idle → ink-4.
 - Soft variants (`*-soft`, ~10% alpha) are the only tinted grounds allowed: status pills, glyph circles, diff add/remove rows, waiting/error banners.
 - Provider marks (Claude, Codex, Grok, Gemini, Pi, Cursor) are 16 px rounded-4 squares with a single letter; opacity .92; sizes 16 / 13 / 12 / 11 exist.
@@ -50,6 +50,7 @@ Conventions used below: **anatomy** (parts, left to right / top to bottom), **si
 - Centre pane: transcript scroll area padding 18 32 0 (28 in the card), blocks gap 16; then a status row (spinner/glyph + text, 12 px, ink-3, 12 px bottom padding); then the docked composer.
 - Docked composer: full pane width, 1 px top border, surface-1, padding 12 32 12 (28 in the card). Text area 13.5/1.5, min 40 px; toolbar row 10 px below: `+` (bordered `btn icon`, 28), model chip, mode chip, effort chip (28 px chips in the composer, 22 elsewhere), context %, spacer, send/stop button 28 × 28 radius 6 accent (IconMorph between arrow-up and stop square).
 - Sidebar footer: 1 px top border, padding 10 12: avatar 22, name (ink-3 12 px, truncates), provider usage meter (mark 11 px + 40 × 3 bar in ink-3 on surface-3 + "78%" mono 11), chevron-down xs ghost.
+- Sidebar toggle: collapsing the sidebar swaps the pane for the rail (never a clipped sidebar) on the layout spring. In the shell the rail column is 72 wide, not 48, because the window's traffic lights own the top-left; the collapsed sidebar header cell keeps the lights and nothing else, and the sidebar toggle moves to the leading edge of the centre header (⌘B does the same) so the sidebar can always be reopened.
 - Right pane toggle: closing the pane collapses the third column with the layout spring (slow 280 ms) and the toggle icon in the centre header reopens it; the `x` in the right cell does the same.
 - Data: worktree name, branch, provider, right-pane tabs, active tab.
 
@@ -82,7 +83,7 @@ Conventions used below: **anatomy** (parts, left to right / top to bottom), **si
 - Sections: nav (Tasks with count, Automations, Inbox with warning-coloured count) 30 px rows; group row 28 px (caps label, spacer, sliders icon = view options, plus); group headers 28 px with chevron (rotates 90° on the swap spring), 12 px 600 label, mono count.
 - Three groupings, same row anatomy: **status** (Needs you / Running / Done groups), **project** (project rows 30 px 600 with folder-open/folder `fic` icon and count; sessions and child sessions beneath), **date** (caps headers Today / Yesterday / This week with a hairline rule).
 - View options menu (from the sliders icon): 250 wide, overlay, radius 12, elevation 3; rows 30 px: Status ▸ Active, Environment ▸ All, — Group by ▸ Project, Sort by ▸ Last activity, — Show empty groups, Show PR status ✓, Show archived. Submenu 170 wide: Status, Project ✓, Date, Custom groups, — None. Choice persists per workspace.
-- Collapsed rail (⌘B): 48 wide; nav icons 32 px; one dot per active worktree in its state colour; avatar at the bottom; tooltips on hover; width animates on the layout spring.
+- Collapsed rail (⌘B): 48 wide standalone (72 as the shell's collapsed column, clearing the traffic lights); nav icons 32 px; one dot per active worktree in its state colour; avatar at the bottom; tooltips on hover; width animates on the layout spring.
 
 ### 2.3 Assistant sidebar (card 22)
 - Roles are bordered sections (1 px bottom border each). Role header 44 px: chevron 12 px, role icon (grad-cap / scale / gear, ink-3), name 600 ink; closed roles ink-2 with a count tag at the right. No background on the active role.
@@ -129,7 +130,7 @@ Conventions used below: **anatomy** (parts, left to right / top to bottom), **si
 
 ### 3.8 Code and diff blocks (card 37)
 - Code block: term-bg, 1 px line, radius 8. Header 30 px surface-2: file icon + filename mono 11.5, language ink-3, actions (wrap, open in editor, copy) at .6 → 1 on hover. Copy morphs to a success check (IconMorph, swap spring) for ~1.2 s. Body mono 12/1.6 with 22 px line numbers in term-dim. Fold row 24 px after 12 lines. Syntax colours: keyword magenta, function blue, string green, number yellow, comment dim italic.
-- Diff block: header with `+2 −1`, Unified/Split ghost toggle, "Open in Diff". Hunk row surface-2 11 px ink-3. Rows with old/new gutters (36 + 20 px), add/del grounds; hovering a row shows a 16 px accent "+" at the left edge to add a note. Note: surface-2, 1 px line-strong, 2 px accent left rail, radius 6, caps "NOTE · LINE 44" in accent-ink, body 12/1.4, Cancel/Add note xs actions right-aligned.
+- Diff block: header with `+2 −1`, Unified/Split ghost toggle, "Open in Diff". Hunk row surface-2 11 px ink-3. Rows with old/new gutters (36 + 20 px), add/del grounds; hovering a row shows a 16 px accent "+" at the left edge to add a note. Note: one uniform card, the same frame the approval card uses — surface-2, a 1 px solid `line` border all the way round, radius 6. No left accent rail and no dashed variant. Caps "NOTE · LINE 44" in accent-ink, body 12/1.4, Cancel/Add note xs actions right-aligned while pending, Edit/Delete once saved.
 
 ### 3.9 Summary, error, status rows (card 38)
 - Summary: 1 px line, radius 12. Header ok glyph + "Done · title" 600 + duration/cost mono right. File rows 26 px mono 12 with M/A/D letter (warning/success/danger) and +/− counts right. Checks row (success checks + labels). Action row: "3 files changed" hint, spacer, Create PR ghost, Commit…, Review diff primary.
@@ -179,7 +180,7 @@ Conventions used below: **anatomy** (parts, left to right / top to bottom), **si
 ### 5.3 Diff review (card 52)
 - Top row 38 px: scope segmented control (This turn / Branch / Unstaged; 24 px segments, active surface-1 + elevation 1), summary "vs main · 3 files · +51 −7", spacer, Unified/Split segmented, search, "Collapse all".
 - Files column 230 px: caps header, rows 26 px (M/A/D letter, name, note count badge 14 px accent, +/− mono right), selected surface-3; Notes list beneath.
-- Diff body: sticky file header 30 px surface-2 (file icon, mono path, +/− pill, Open in editor, Stage); hunk rows; code rows with 36 + 26 px gutters, add/del grounds, word-level highlights (add-strong / del-strong); hover shows the 16 px accent "+" note affordance. Notes as in 3.8; pending note dashed with textarea.
+- Diff body: sticky file header 30 px surface-2 (file icon, mono path, +/− pill, Open in editor, Stage); hunk rows; code rows with 36 + 26 px gutters, add/del grounds, word-level highlights (add-strong / del-strong); hover shows the 16 px accent "+" note affordance. Notes as in 3.8 — the same plain hairline card whether saved or pending; pending carries the textarea and the Cancel / Add note row, saved carries Edit / Delete. The border never changes.
 - Bottom action row: "2 notes on 1 file" hint, spacer, Clear ghost, "Send to ‹mark› Claude Code" primary.
 
 ### 5.4 Git and PR (card 53)

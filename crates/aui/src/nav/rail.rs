@@ -2,7 +2,7 @@
 //! active session in its state colour, the avatar at the bottom.
 
 use aui_icons::{icon, IconName};
-use aui_motion::{tween, Tween};
+use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AgentState};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::v_flex;
@@ -42,6 +42,8 @@ pub enum RailItem {
         glyph: IconName,
         /// The 7 px warning badge in the top-right corner.
         badge: bool,
+        /// The cell the screen is showing: accent-soft ground, accent ink.
+        current: bool,
     },
     /// The 24 × 1 hairline between the nav glyphs and the sessions.
     Separator,
@@ -61,7 +63,7 @@ pub enum RailItem {
 impl RailItem {
     /// A nav glyph named `name` (the name `on_action` reports).
     pub fn nav(name: impl Into<SharedString>, glyph: IconName) -> Self {
-        RailItem::Nav { name: name.into(), glyph, badge: false }
+        RailItem::Nav { name: name.into(), glyph, badge: false, current: false }
     }
 
     /// The hairline separator.
@@ -78,6 +80,15 @@ impl RailItem {
     pub fn badge(mut self) -> Self {
         if let RailItem::Nav { badge, .. } = &mut self {
             *badge = true;
+        }
+        self
+    }
+
+    /// Marks a [`RailItem::Nav`] as the cell the screen is showing; ignored by
+    /// other kinds ([`RailItem::selected`] does the same for a session).
+    pub fn current(mut self, is_current: bool) -> Self {
+        if let RailItem::Nav { current, .. } = &mut self {
+            *current = is_current;
         }
         self
     }
@@ -107,6 +118,7 @@ type ActionHandler = std::rc::Rc<dyn Fn(&str, &mut Window, &mut App)>;
 pub struct Rail {
     id: ElementId,
     items: Vec<RailItem>,
+    flat: bool,
     initial: Option<SharedString>,
     on_select: Option<SelectHandler>,
     on_action: Option<ActionHandler>,
@@ -114,10 +126,18 @@ pub struct Rail {
 
 /// A rail showing `items`, top to bottom.
 pub fn rail(id: impl Into<ElementId>, items: Vec<RailItem>) -> Rail {
-    Rail { id: id.into(), items, initial: None, on_select: None, on_action: None }
+    Rail { id: id.into(), items, flat: false, initial: None, on_select: None, on_action: None }
 }
 
 impl Rail {
+    /// Drops the rail's own card (border, radius, ground) and lets it fill the
+    /// column it is given: the shell already paints the sidebar column's
+    /// surface and divider, so the standalone card would double them.
+    pub fn flat(mut self, flat: bool) -> Self {
+        self.flat = flat;
+        self
+    }
+
     /// The account avatar pinned to the bottom.
     pub fn avatar(mut self, initial: impl Into<SharedString>) -> Self {
         self.initial = Some(initial.into());
@@ -141,29 +161,25 @@ impl RenderOnce for Rail {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let mut col = v_flex()
-            .flex_none()
-            .w(px(RAIL_WIDTH))
-            .h_full()
-            .items_center()
-            .py(px(RAIL_PAD_Y))
-            .gap(px(RAIL_GAP))
-            .rounded(px(scale::R_LG))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.surface_1)
-            .overflow_hidden();
+        let mut col = v_flex().flex_none().h_full().items_center().py(px(RAIL_PAD_Y)).gap(px(RAIL_GAP)).overflow_hidden();
+        col = if self.flat {
+            col.w_full()
+        } else {
+            col.w(px(RAIL_WIDTH)).rounded(px(scale::R_LG)).border_1().border_color(p.line).bg(p.surface_1)
+        };
 
         for (i, item) in self.items.into_iter().enumerate() {
             match item {
                 RailItem::Separator => {
                     col = col.child(div().flex_none().w(px(SEP_WIDTH)).h(px(1.0)).my(px(SEP_MARGIN)).bg(p.line));
                 }
-                RailItem::Nav { name, glyph, badge } => {
+                RailItem::Nav { name, glyph, badge, current } => {
                     let cell_id: ElementId = (id.clone(), SharedString::from(format!("nav-{i}"))).into();
                     let (state, flags) = interaction_flags(cell_id.clone(), window, cx);
-                    let bg = tween((cell_id.clone(), "bg"), if flags.hovered { p.surface_2 } else { gpui::transparent_black() }, Tween::FAST, window, cx);
-                    let fg = tween((cell_id.clone(), "fg"), if flags.hovered { p.ink } else { p.ink_3 }, Tween::FAST, window, cx);
+                    let rest_fg = if current { p.accent_ink } else { p.ink_3 };
+                    let tint = if current { p.accent_soft } else { p.surface_2 };
+                    let bg = tint_fade((cell_id.clone(), "bg"), current || flags.hovered, tint, Tween::FAST, window, cx);
+                    let fg = tween((cell_id.clone(), "fg"), if flags.hovered && !current { p.ink } else { rest_fg }, Tween::FAST, window, cx);
                     let mut cell = div()
                         .id(cell_id)
                         .relative()
@@ -199,14 +215,8 @@ impl RenderOnce for Rail {
                 RailItem::Session { id: session_id, state: agent_state, pulse, selected } => {
                     let cell_id: ElementId = (id.clone(), SharedString::from(format!("session-{i}"))).into();
                     let (state, flags) = interaction_flags(cell_id.clone(), window, cx);
-                    let rest = if selected { p.accent_soft } else { gpui::transparent_black() };
-                    let bg = tween(
-                        (cell_id.clone(), "bg"),
-                        if flags.hovered && !selected { p.surface_2 } else { rest },
-                        Tween::FAST,
-                        window,
-                        cx,
-                    );
+                    let tint = if selected { p.accent_soft } else { p.surface_2 };
+                    let bg = tint_fade((cell_id.clone(), "bg"), selected || flags.hovered, tint, Tween::FAST, window, cx);
                     let mut cell = div()
                         .id(cell_id.clone())
                         .flex_none()

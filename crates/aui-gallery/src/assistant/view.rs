@@ -2,7 +2,7 @@
 
 use aui::composer::{composer, composer_state_rows, ComposerIntent};
 use aui::data::{button, status_dot};
-use aui::nav::{role_section, sidebar_footer, Project, Role, RoleSession, SessionKind};
+use aui::nav::{rail, role_section, sidebar_footer, Project, RailItem, Role, RoleSession, SessionKind};
 use aui::protocol::{ActivityState, Step, StepState};
 use aui::shell::{app_shell, centre_header, right_header, sidebar_header, tab_strip, TabItem};
 use aui::transcript::{activity_group, user_turn, ProseStyle};
@@ -56,7 +56,7 @@ impl AssistantMock {
         let composer = cx.new(|cx| composer_state_rows("Ask, draft, or type / for commands", 1, 8, window, cx));
         Self {
             right_open: true,
-            sidebar_open: true,
+            sidebar_open: !crate::cards::app_shell::collapsed_by_default(),
             right_tab: RightTab::Doc,
             open_roles: [true, false, false],
             active_session: "rfp-v3".into(),
@@ -106,6 +106,28 @@ impl AssistantMock {
             );
         }
         col.child(div().flex_1()).child(sidebar_footer("assistant-footer", "B", "Bharani").meter(Provider::Claude, 0.78).pad_y(8.0))
+    }
+
+    /// The collapsed sidebar: one cell per role, then the open project's
+    /// sessions by kind. No sliver of the expanded sidebar is drawn here.
+    fn render_rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let roles = Self::roles();
+        let mut items: Vec<RailItem> = roles
+            .iter()
+            .enumerate()
+            .map(|(i, role)| RailItem::nav(role.id.clone(), role.icon.icon()).current(self.open_roles[i]))
+            .collect();
+        items.push(RailItem::separator());
+        for project in roles.first().map(|r| r.projects.as_slice()).unwrap_or_default() {
+            for session in &project.sessions {
+                items.push(RailItem::nav(session.id.clone(), session.kind.icon()).current(session.id == self.active_session));
+            }
+        }
+        let select = cx.listener(|this, id: &str, _, cx| {
+            this.active_session = id.to_string().into();
+            cx.notify();
+        });
+        rail("assistant-rail", items).flat(true).avatar("B").on_action(move |id, w, cx| select(id, w, cx))
     }
 
     fn render_transcript(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -323,31 +345,45 @@ impl Render for AssistantMock {
             cx.notify();
         }));
         let sidebar = self.render_sidebar(cx);
+        let rail = self.render_rail(cx);
         let transcript = self.render_transcript(window, cx);
         let composer = self.render_composer(cx);
         let right = self.render_right(cx);
         div().size_full().child(
             app_shell("assistant-shell")
+                .traffic_lights(true)
                 .right_open(self.right_open)
                 .sidebar_open(self.sidebar_open)
-                .header_sidebar(sidebar_header("assistant-hd-side").traffic_lights(true).on_toggle_sidebar(cx.listener(|this, _, _, cx| {
-                    this.sidebar_open = !this.sidebar_open;
-                    cx.notify();
-                })))
-                .header_centre(
-                    centre_header("assistant-hd-centre", "Teacher recruitment RFP")
+                .header_sidebar(
+                    sidebar_header("assistant-hd-side").traffic_lights(true).collapsed(!self.sidebar_open).on_toggle_sidebar(cx.listener(
+                        |this, _, _, cx| {
+                            this.sidebar_open = !this.sidebar_open;
+                            cx.notify();
+                        },
+                    )),
+                )
+                .header_centre({
+                    let mut centre = centre_header("assistant-hd-centre", "Teacher recruitment RFP")
                         .glyph(IconName::GradCap)
                         .branch("RFP draft v3")
                         .on_toggle_right(cx.listener(|this, _, _, cx| {
                             this.right_open = !this.right_open;
                             cx.notify();
-                        })),
-                )
+                        }));
+                    if !self.sidebar_open {
+                        centre = centre.on_expand_sidebar(cx.listener(|this, _, _, cx| {
+                            this.sidebar_open = true;
+                            cx.notify();
+                        }));
+                    }
+                    centre
+                })
                 .header_right(right_header("assistant-hd-right").tabs(strip).on_close(cx.listener(|this, _, _, cx| {
                     this.right_open = false;
                     cx.notify();
                 })))
                 .sidebar(sidebar)
+                .rail(rail)
                 .centre(v_flex().size_full().child(transcript).child(composer))
                 .right(right),
         )

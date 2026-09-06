@@ -4,7 +4,7 @@
 //! (swap spring); a body behind a 1 px top border that collapses on the
 //! layout spring.
 
-use aui_motion::{collapse, tween, Tween};
+use aui_motion::{collapse, tint_fade, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -89,7 +89,7 @@ impl RenderOnce for TranscriptCard {
         let header_id: ElementId = (id.clone(), "header").into();
         let (state, flags) = interaction_flags(header_id.clone(), window, cx);
         let tint = self.hover_tint && flags.hovered;
-        let bg = tween((header_id.clone(), "bg"), if tint { p.surface_2 } else { gpui::transparent_black() }, Tween::FAST, window, cx);
+        let bg = tint_fade((header_id.clone(), "bg"), tint, p.surface_2, Tween::FAST, window, cx);
 
         let mut header = h_flex()
             .id(header_id.clone())

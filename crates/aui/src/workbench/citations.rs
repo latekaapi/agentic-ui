@@ -14,7 +14,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_motion::{presence, spring_phase, tween, EnterExit, PresenceStyle, SpringKind, Tween};
+use aui_motion::{presence, spring_phase, tint_fade, tween, EnterExit, PresenceStyle, SpringKind, Tween};
 use aui_tokens::{scale, scaled, ActiveAui, AuiStyled, Palette};
 use gpui::{
     div, font, prelude::*, px, relative, AnyElement, App, ElementId, IntoElement, SharedString, StyledText, TextRun,
@@ -497,13 +497,7 @@ fn source_row(
 ) -> impl IntoElement {
     let p = cx.aui().colors;
     let (state, flags) = interaction_flags(id.clone(), window, cx);
-    let ground = tween(
-        (id.clone(), "bg"),
-        if flags.hovered { p.surface_2 } else { gpui::transparent_black() },
-        Tween::FAST,
-        window,
-        cx,
-    );
+    let ground = tint_fade((id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
     let cited = source.index.is_some();
     let (num_bg, num_ink) = if cited { (p.accent_soft, p.accent_ink) } else { (p.surface_3, p.ink_3) };
     let title_ink = if cited { p.ink } else { p.ink_2 };
@@ -556,8 +550,8 @@ fn source_row(
     }
     if let Some(card) = hover {
         // `.hover{z-index:2}`: the popover paints over the rows below it, which
-        // in gpui means deferring it past its later siblings.
-        row = row.child(gpui::deferred(div().absolute().right(px(HOVER_RIGHT)).top(px(HOVER_TOP)).child(card)));
+        // in gpui means lifting it onto the popover layer.
+        row = row.child(crate::overlay::popover_layer(div().absolute().right(px(HOVER_RIGHT)).top(px(HOVER_TOP)).child(card)));
     }
     if let (Some(h), Some(index)) = (on_open, source.index) {
         row = row.on_click(move |_, w, cx| h(index, w, cx));

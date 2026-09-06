@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use aui_tokens::{durations, Easing};
-use gpui::{App, Window};
+use gpui::{App, Hsla, Window};
 use gpui_kit::base::{Interpolate, Transition, TransitionId};
 
 /// A named timing policy: duration + easing (+ optional delay).
@@ -65,6 +65,22 @@ where
     T: Interpolate + PartialEq + 'static,
 {
     gpui_kit::base::transition(id, target, policy.policy(), window, cx)
+}
+
+/// Fades a tint in and out over whatever ground is behind it: the highlight a
+/// row wears while it is hovered or selected.
+///
+/// Use this instead of tweening the tint against `transparent_black()`. `Hsla`
+/// interpolates channel by channel, so a tween toward transparent black drags
+/// the hue round to red and the lightness down to black on the way out: for
+/// half of its 120 ms the row wears a colour *darker* than both the tint and
+/// the ground it sits on, which reads as a flash rather than a fade. Holding
+/// the tint's own hue and moving only its alpha is what `transition:background`
+/// does in the CSS, and it lets two neighbouring rows cross-fade cleanly as the
+/// pointer travels between them.
+pub fn tint_fade(id: impl Into<TransitionId>, on: bool, tint: Hsla, policy: Tween, window: &mut Window, cx: &mut App) -> Hsla {
+    let clear = Hsla { a: 0.0, ..tint };
+    tween(id, if on { tint } else { clear }, policy, window, cx)
 }
 
 #[cfg(test)]

@@ -14,7 +14,7 @@
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_motion::{tween, Tween};
+use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{
     div, font, prelude::*, px, relative, rgb, AnyElement, App, ElementId, FontWeight, Hsla, IntoElement, SharedString, StyledText, TextRun,
@@ -416,7 +416,7 @@ fn mark_button(
     let p = cx.aui().colors;
     let id: ElementId = id.into();
     let (state, flags) = interaction_flags(id.clone(), window, cx);
-    let bg = tween((id.clone(), "bg"), if flags.hovered { p.surface_2 } else { gpui::transparent_black() }, Tween::FAST, window, cx);
+    let bg = tint_fade((id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
     let text = tween((id.clone(), "text"), if flags.hovered { p.ink } else { p.ink_2 }, Tween::FAST, window, cx);
     let mut letter = div().ui(scale::FS_11).line_height(relative(1.0)).child(mark.letter());
     letter = match mark {

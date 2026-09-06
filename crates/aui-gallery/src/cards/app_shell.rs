@@ -9,7 +9,8 @@
 use std::time::Duration;
 
 use aui::data::{button, chip, glyph_ok, kbd, spinner, tag};
-use aui::nav::{group_header, group_row, nav_item, session_row, sidebar_footer, ActivityKind, MetaItem, SessionSummary};
+use aui::nav::{group_header, group_row, nav_item, rail, session_row, sidebar_footer, ActivityKind, MetaItem, RailItem, SessionSummary};
+use aui::transcript::{diff_note_inset, DiffNote, NoteInsets};
 use aui::shell::{app_shell, centre_header, docked_composer, right_header, sidebar_header, tab_strip, TabItem};
 use aui_icons::{icon, FileType, IconName, Provider};
 use aui_motion::{looping, shimmer_text, Loop};
@@ -81,14 +82,12 @@ const DIFF_HEAD_PAD_X: f32 = 10.0;
 const DIFF_LINE_PAD_X: f32 = 8.0;
 const GUTTER_W: f32 = 26.0;
 const GUTTER_PAD: f32 = 8.0;
-/// `.note{margin:8px 10px 10px 44px;line-height:1.5;border-left:2px solid accent;padding:6px 8px;font-size:12px}` and `.note .caps{margin-bottom:3px}`.
+/// `.note{margin:8px 10px 10px 44px;line-height:1.5;border:1px solid var(--line);padding:6px 8px;font-size:12px}` and `.note .caps{margin-bottom:3px}`. Drawn by `aui::transcript::diff_note_inset`.
 const NOTE_MARGIN_TOP: f32 = 8.0;
 const NOTE_MARGIN_RIGHT: f32 = 10.0;
 const NOTE_MARGIN_BOTTOM: f32 = 10.0;
 const NOTE_MARGIN_LEFT: f32 = 44.0;
-const NOTE_RAIL: f32 = 2.0;
-const NOTE_PAD_Y: f32 = 6.0;
-const NOTE_PAD_X: f32 = 8.0;
+const NOTE_LH: f32 = 1.5;
 const NOTE_CAPS_GAP: f32 = 3.0;
 /// `.actions{gap:8px;padding:10px 12px}` with the `.hint` at 11 px.
 const ACTIONS_GAP: f32 = 8.0;
@@ -105,7 +104,7 @@ struct ShellState {
 
 /// Builds the card content.
 pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
-    let state = window.use_keyed_state("card10-state", cx, |_, _| ShellState { right_open: true, sidebar_open: true, tab: 0 });
+    let state = window.use_keyed_state("card10-state", cx, |_, _| ShellState { right_open: true, sidebar_open: !collapsed_by_default(), tab: 0 });
     let current = *state.read(cx);
     let update = |f: fn(&mut ShellState)| {
         let state = state.clone();
@@ -139,22 +138,67 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(
             app_shell("card10-shell")
                 .framed(true)
+                .traffic_lights(true)
                 .right_width(px(RIGHT_WIDTH))
                 .right_open(current.right_open)
                 .sidebar_open(current.sidebar_open)
-                .header_sidebar(sidebar_header("card10-hd-side").traffic_lights(true).on_toggle_sidebar(update(|s| s.sidebar_open = !s.sidebar_open)))
-                .header_centre(
-                    centre_header("card10-hd-centre", "checkout-flow-v2")
+                .header_sidebar(
+                    sidebar_header("card10-hd-side")
+                        .traffic_lights(true)
+                        .collapsed(!current.sidebar_open)
+                        .on_toggle_sidebar(update(|s| s.sidebar_open = !s.sidebar_open)),
+                )
+                .header_centre({
+                    let mut centre = centre_header("card10-hd-centre", "checkout-flow-v2")
                         .provider(Provider::Claude)
                         .branch("feature/checkout-flow-v2")
-                        .on_toggle_right(update(|s| s.right_open = !s.right_open)),
-                )
+                        .on_toggle_right(update(|s| s.right_open = !s.right_open));
+                    if !current.sidebar_open {
+                        centre = centre.on_expand_sidebar(update(|s| s.sidebar_open = true));
+                    }
+                    centre
+                })
                 .header_right(right_header("card10-hd-right").tabs(strip).on_close(update(|s| s.right_open = false)))
                 .sidebar(sidebar(cx))
+                .rail(shell_rail())
                 .centre(centre(window, cx))
                 .right(right_pane(cx)),
         )
         .into_any_element()
+}
+
+/// The gallery renders one static frame per screenshot, so the collapsed state
+/// is reached with `AUI_GALLERY_COLLAPSED=1` as well as by clicking the toggle.
+pub(crate) fn collapsed_by_default() -> bool {
+    std::env::var("AUI_GALLERY_COLLAPSED").is_ok_and(|v| v != "0" && !v.is_empty())
+}
+
+/// The collapsed sidebar: the nav glyphs, then one dot per active worktree.
+fn shell_rail() -> impl IntoElement {
+    let (pinned, in_progress) = sessions();
+    let mut items = vec![
+        RailItem::nav("tasks", IconName::List),
+        RailItem::nav("automations", IconName::Zap),
+        RailItem::nav("inbox", IconName::Inbox).badge(),
+        RailItem::separator(),
+    ];
+    for (session, selected) in &pinned {
+        if session.state == AgentState::Idle {
+            continue;
+        }
+        let mut cell = RailItem::session(session.id.clone(), session.state).selected(*selected);
+        if session.pulse {
+            cell = cell.pulse();
+        }
+        items.push(cell);
+    }
+    for session in &in_progress {
+        if session.state == AgentState::Idle {
+            continue;
+        }
+        items.push(RailItem::session(session.id.clone(), session.state));
+    }
+    rail("card10-rail", items).flat(true).avatar("B")
 }
 
 fn sessions() -> (Vec<(SessionSummary, bool)>, Vec<SessionSummary>) {
@@ -384,26 +428,17 @@ fn right_pane(cx: &mut App) -> impl IntoElement {
                 .child(file_row("card10-file-3", FileType::Tsx, "AddressForm.tsx", "src/checkout", "M", p.warning)),
         )
         .child(diff_block(p))
-        .child(
-            v_flex()
-                .mt(px(NOTE_MARGIN_TOP))
-                .mr(px(NOTE_MARGIN_RIGHT))
-                .mb(px(NOTE_MARGIN_BOTTOM))
-                .ml(px(NOTE_MARGIN_LEFT))
-                .py(px(NOTE_PAD_Y))
-                .px(px(NOTE_PAD_X))
-                .relative()
-                .rounded(px(scale::R_SM))
-                .border_1()
-                .border_l(px(NOTE_RAIL))
-                .border_color(p.line_strong)
-                .bg(p.surface_2)
-                .child(div().absolute().left(px(-NOTE_RAIL)).top(px(-1.0)).bottom(px(-1.0)).w(px(NOTE_RAIL)).rounded_l(px(scale::R_SM)).bg(p.accent))
-                .ui(scale::FS_12)
-                .text_color(p.ink)
-                .child(div().mb(px(NOTE_CAPS_GAP)).text_role(TextRole::Caps).line_height(relative(scale::LH_UI)).text_color(p.accent_ink).child("NOTE · LINE 46"))
-                .child("Also handle 'GB' here, postcode format differs."),
-        )
+        .child(diff_note_inset(
+            &p,
+            ElementId::from("card10-note"),
+            &DiffNote { line: 46, text: "Also handle 'GB' here, postcode format differs.".into(), pending: false },
+            NoteInsets {
+                margin: (NOTE_MARGIN_TOP, NOTE_MARGIN_RIGHT, NOTE_MARGIN_BOTTOM, NOTE_MARGIN_LEFT),
+                line_height: NOTE_LH,
+                caps_gap: NOTE_CAPS_GAP,
+            },
+            None,
+        ))
         .child(div().flex_1())
         .child(
             h_flex()

@@ -11,11 +11,11 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_motion::{presence, EnterExit, PresenceStyle};
+use aui_motion::{presence, tint_fade, tween, EnterExit, PresenceStyle, Tween};
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette, TextRole};
 use gpui::{
-    div, prelude::*, px, relative, transparent_black, App, Div, ElementId, FontWeight, HighlightStyle, IntoElement, SharedString, Stateful,
-    StyledText, Window,
+    div, prelude::*, px, relative, App, Div, ElementId, FontWeight, HighlightStyle, IntoElement, SharedString, Stateful, StyledText,
+    Window,
 };
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -192,12 +192,15 @@ impl RenderOnce for CommandMenu {
         let sample = presence((id.clone(), "presence"), self.present, self.timing, window, cx);
         let mut pop = popover_frame(PresenceStyle::fade_rise_scale(sample, POP_RISE, POP_FROM_SCALE), &p);
 
+        let counts: Vec<usize> = self.sections.iter().map(|s| s.items.len()).collect();
+        let active = active_row(&id, "command", &counts, self.selected, window, cx);
+
         let mut index = 0usize;
         for (s, section) in self.sections.into_iter().enumerate() {
             pop = pop.child(caps_header(&p, section.title));
             for item in section.items {
                 let key: ElementId = (id.clone(), SharedString::from(format!("command-{s}-{index}"))).into();
-                pop = pop.child(command_row(key, &p, item, &self.query, index, index == self.selected, &self.on_select, &self.on_hover, window, cx));
+                pop = pop.child(command_row(key, &p, item, &self.query, index, index == active, &self.on_select, &self.on_hover, window, cx));
                 index += 1;
             }
         }
@@ -350,12 +353,15 @@ impl RenderOnce for MentionPicker {
         let sample = presence((id.clone(), "presence"), self.present, self.timing, window, cx);
         let mut pop = popover_frame(PresenceStyle::fade_rise_scale(sample, POP_RISE, POP_FROM_SCALE), &p);
 
+        let counts: Vec<usize> = self.sections.iter().map(|s| s.items.len()).collect();
+        let active = active_row(&id, "mention", &counts, self.selected, window, cx);
+
         let mut index = 0usize;
         for (s, section) in self.sections.into_iter().enumerate() {
             pop = pop.child(caps_header(&p, section.title));
             for item in section.items {
                 let key: ElementId = (id.clone(), SharedString::from(format!("mention-{s}-{index}"))).into();
-                pop = pop.child(mention_row(key, &p, item, &self.query, index, index == self.selected, &self.on_select, &self.on_hover, window, cx));
+                pop = pop.child(mention_row(key, &p, item, &self.query, index, index == active, &self.on_select, &self.on_hover, window, cx));
                 index += 1;
             }
         }
@@ -398,8 +404,29 @@ fn caps_header(p: &Palette, title: SharedString) -> impl IntoElement {
         .child(title.to_uppercase())
 }
 
+/// The row the menu lights: the row under the pointer while there is one,
+/// otherwise the caller's `selected`. Both menus read every row's hover flag
+/// before any row is built, so the pointer and the arrow keys drive a single
+/// highlight and the menu never shows two rows lit at once. `counts` is the
+/// item count of each section, in order, and `prefix` the row key prefix.
+fn active_row(id: &ElementId, prefix: &str, counts: &[usize], selected: usize, window: &mut Window, cx: &mut App) -> usize {
+    let mut index = 0usize;
+    let mut hovered = None;
+    for (s, count) in counts.iter().enumerate() {
+        for _ in 0..*count {
+            let key: ElementId = (id.clone(), SharedString::from(format!("{prefix}-{s}-{index}"))).into();
+            if interaction_flags(key, window, cx).1.hovered {
+                hovered = Some(index);
+            }
+            index += 1;
+        }
+    }
+    hovered.unwrap_or(selected)
+}
+
 /// `.it`: the row shell both menus share — 32 px, 10 px gaps, accent-soft when
-/// it is the selected (or hovered) row.
+/// it is the selected (or hovered) row, cross-fading over the hover duration
+/// so the highlight travels between neighbours instead of flashing.
 #[allow(clippy::too_many_arguments)]
 fn menu_row(
     id: ElementId,
@@ -411,6 +438,8 @@ fn menu_row(
     cx: &mut App,
 ) -> Stateful<Div> {
     let (state, _) = interaction_flags(id.clone(), window, cx);
+    let ground = tint_fade((id.clone(), "bg"), on, p.accent_soft, Tween::FAST, window, cx);
+    let text = tween((id.clone(), "text"), if on { p.ink } else { p.ink_2 }, Tween::FAST, window, cx);
     let mut row = h_flex()
         .id(id)
         .flex_none()
@@ -419,9 +448,9 @@ fn menu_row(
         .gap(px(ROW_GAP))
         .px(px(ROW_PAD_X))
         .rounded(px(scale::R_SM))
-        .bg(if on { p.accent_soft } else { transparent_black() })
+        .bg(ground)
         .ui(ROW_TEXT)
-        .text_color(if on { p.ink } else { p.ink_2 })
+        .text_color(text)
         .cursor_pointer();
 
     // gpui allows one `on_hover` per element, so the row's own hover tint and
@@ -453,14 +482,12 @@ fn command_row(
     item: CommandItem,
     query: &SharedString,
     index: usize,
-    selected: bool,
+    on: bool,
     on_select: &Option<SelectHandler>,
     on_hover: &Option<HoverHandler>,
     window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement {
-    let (_, flags) = interaction_flags(id.clone(), window, cx);
-    let on = selected || flags.hovered;
     let mut row = menu_row(id, p, on, index, on_hover, window, cx);
 
     let matched = match item.command.find(query.as_ref()) {
@@ -505,14 +532,12 @@ fn mention_row(
     item: MentionItem,
     query: &SharedString,
     index: usize,
-    selected: bool,
+    on: bool,
     on_select: &Option<SelectHandler>,
     on_hover: &Option<HoverHandler>,
     window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement {
-    let (_, flags) = interaction_flags(id.clone(), window, cx);
-    let on = selected || flags.hovered;
     let dot_id: ElementId = (id.clone(), "dot").into();
     let mut row = menu_row(id, p, on, index, on_hover, window, cx);
 

@@ -60,7 +60,7 @@ pub use shimmer::{shimmer_text, skeleton};
 pub use spring::{spring, spring_phase, spring_px, SpringKind};
 pub use stagger::stagger_delay;
 pub use ticker::number_ticker;
-pub use tween::{tween, Tween};
+pub use tween::{tint_fade, tween, Tween};
 
 /// Delivery phase of this crate, from `docs/01-research-and-plan.md`.
 pub const PHASE: &str = "phase 2 · motion engine";

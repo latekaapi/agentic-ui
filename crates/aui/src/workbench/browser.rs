@@ -13,7 +13,7 @@
 use std::rc::Rc;
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
-use aui_motion::{shimmer_text, tween, Tween};
+use aui_motion::{shimmer_text, tint_fade, tween, Tween};
 use aui_tokens::{light, scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::{div, linear_color_stop, linear_gradient, prelude::*, px, relative, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -797,13 +797,7 @@ fn annotation_row(
     let p = cx.aui().colors;
     let id: ElementId = id.into();
     let (state, flags) = interaction_flags(id.clone(), window, cx);
-    let ground = tween(
-        (id.clone(), "bg"),
-        if selected || flags.hovered { p.surface_2 } else { gpui::transparent_black() },
-        Tween::FAST,
-        window,
-        cx,
-    );
+    let ground = tint_fade((id.clone(), "bg"), selected || flags.hovered, p.surface_2, Tween::FAST, window, cx);
 
     let mut disc = div()
         .flex()

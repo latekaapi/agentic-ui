@@ -19,6 +19,8 @@ The design is the contract. Three artefacts define it, in this order of authorit
 - Text never clips: truncate with ellipsis or wrap in its own container.
 - Class-name-style collisions do not exist in Rust, but the equivalent does: shared style helpers must be named for their purpose (a file-type icon helper must not be reused for a footer).
 - Every component takes data in and emits intents out; no I/O inside `aui`.
+- gpui paints an element's border *after* its children, so an absolutely positioned overlay can never sit on top of its own container's border. A per-side border colour (CSS `border-left: 2px solid var(--accent)` on an otherwise `--line-strong` box) has to be drawn as a wrapper whose left border carries the accent, with the card inside dropping its left border — not as a rail laid over the border. Line-note cards no longer need this: every one of them (cards 10, 37, 52) is a single box with a plain 1 px `line` border all the way round, matching the approval card. Pending and saved notes differ only in their actions.
+- One implementation of the note card: `aui::transcript::diff_note` (and `diff_note_inset`, which takes the host's margins and body metrics). Card 10's mock in `aui-gallery` calls it rather than hand-building a note.
 
 ## Tooling
 - `scripts/parity.sh <entry-id> <reference-stem>` builds the gallery, renders the entry, writes `target/parity/<stem>.png` and `<stem>-diff.png`, and prints the ImageMagick RMSE and the count of pixels that differ at 6 % fuzz. Card 01 sits at 0.7 % differing pixels; anything above ~2 % on a static card needs a look.
@@ -51,7 +53,7 @@ The design is the contract. Three artefacts define it, in this order of authorit
 | 03 Space/radius/elevation | aui-tokens | foundations/space | 0b8a535 · 0.6 % |
 | 04 Motion | aui-motion | foundations/motion (playground) | 0b8a535 · 1.2 % (frames) |
 | 05 Icons and marks | aui-icons | foundations/icons | 0b8a535 · 1.7 % (ts/tsx text) |
-| 10 App shell | shell::AppShell, HeaderCells, DockedComposer | shell/app-shell | e8ceba3 · 1.0 % |
+| 10 App shell | shell::AppShell, HeaderCells, DockedComposer (note via transcript::diff_note_inset) | shell/app-shell | working tree · 1.0 % |
 | 11 Panel chrome | shell::PanelHeader, TabStrip, DropZones | shell/panel-chrome | e8ceba3 · 0.7 % (ghost rotation) |
 | 12 Command palette | overlay::CommandPalette | shell/command-palette | a70ab8a · 0.4 % |
 | 13 Toasts and banners | feedback::ToastStack, Banner | shell/toasts | a70ab8a · 1.1 % |
@@ -66,14 +68,14 @@ The design is the contract. Three artefacts define it, in this order of authorit
 | 34 Tool cards | transcript::ToolCard (+ bodies) | transcript/tool-cards | cc4d03f · 1.6 % (code indentation) |
 | 35 Approval | transcript::ApprovalCard | transcript/approval | cc4d03f · 1.1 % (26 px tile kept) |
 | 36 Question, plan, todo | transcript::QuestionCard, PlanCard, TodoList | transcript/question-plan-todo | cc4d03f · 1.0 % |
-| 37 Code and diff blocks | transcript::CodeBlock, DiffBlock, DiffNote | transcript/code-diff | cc4d03f · 2.1 % (diff keeps code indentation the HTML collapsed) |
+| 37 Code and diff blocks | transcript::CodeBlock, DiffBlock, DiffNote | transcript/code-diff | working tree · 2.0 % (diff keeps code indentation the HTML collapsed) |
 | 38 Summary, error, status | transcript::SummaryCard, ErrorCard, StatusRow, NeedsYouBanner, JumpPill | transcript/summary-status | cc4d03f · 0.9 % (design `.sm` collision fixed) |
 | 40 Composer | composer::Composer (docked + floating), PlusMenu, queue, suggestions | composer/composer | 337db31 · 2.3 % (kit textarea line box) |
 | 41 Slash and mentions | composer::CommandMenu, MentionPicker | composer/menus | f94bc7c · 0.9 % |
 | 42 Attachments | composer::AttachmentRow, DropOverlay | composer/attachments | f94bc7c · 1.1 % |
 | 50 Terminal | workbench::BlockTerminal, TuiPane | workbench/terminal | 19bcd60 · 1.4 % (tab indicator moved to ink/bottom per the rules) |
 | 51 Browser and annotator | workbench::BrowserNav, AnnotationsPanel, pins, NotePopover | workbench/browser | a447df3 · 1.0 % |
-| 52 Diff review | workbench::DiffReview, Segmented | workbench/diff | a447df3 · 1.7 % (code indentation) |
+| 52 Diff review | workbench::DiffReview, Segmented | workbench/diff | working tree · 1.6 % (code indentation) |
 | 53 Git and PR | workbench::GitChanges, PrForm | workbench/git | 6157e0f · 1.0 % (description flows as prose; design fixed) |
 | 54 Files and documents | workbench::FileTree, DocPane, ArtifactStrip (+ PdfPane, SheetPane used by the screens) | workbench/files-docs | 6157e0f · 1.3 % dark / 1.3 % light |
 | 55 Sources and citations | workbench::Citation, CitedAnswer, SourcesCard, SourceHoverCard | transcript/citations | 542b86e · 2.9 % (glyph weight; geometry within 1 px) |

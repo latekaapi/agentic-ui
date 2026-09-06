@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName, RoleIcon};
-use aui_motion::{collapse, tween, Tween};
+use aui_motion::{collapse, tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -193,7 +193,7 @@ impl RenderOnce for ProjectRow {
         let (state, flags) = interaction_flags(id.clone(), window, cx);
         // `.proj` has no hover rule in the card; the row is clickable, so it
         // takes the same quiet surface-2 tint as `.sess:hover`.
-        let bg = tween((id.clone(), "bg"), if flags.hovered { p.surface_2 } else { gpui::transparent_black() }, Tween::FAST, window, cx);
+        let bg = tint_fade((id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
         let mut row = h_flex()
             .id(id)
             .w_full()
@@ -262,8 +262,8 @@ impl RenderOnce for RoleSessionRow {
         let id = self.id.clone();
         let s = self.session;
         let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let rest_bg = if self.active { p.surface_3 } else { gpui::transparent_black() };
-        let bg = tween((id.clone(), "bg"), if flags.hovered && !self.active { p.surface_2 } else { rest_bg }, Tween::FAST, window, cx);
+        let tint = if self.active { p.surface_3 } else { p.surface_2 };
+        let bg = tint_fade((id.clone(), "bg"), self.active || flags.hovered, tint, Tween::FAST, window, cx);
         let rest_text = if self.active { p.ink } else { p.ink_3 };
         let text = tween((id.clone(), "text"), if flags.hovered { p.ink } else { rest_text }, Tween::FAST, window, cx);
         let mut row = h_flex()

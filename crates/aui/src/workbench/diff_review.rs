@@ -97,12 +97,11 @@ const PLUS: f32 = 16.0;
 const PLUS_GLYPH: f32 = 10.0;
 
 // ── the note under a line ───────────────────────────────────────────────────
-/// `.note{margin:4px 12px 6px 70px;border-left:2px;border-radius:r-sm;padding:6px 8px;font:12px/1.4 ui}`.
+/// `.note{margin:4px 12px 6px 70px;border:1px solid var(--line);border-radius:r-sm;padding:6px 8px;font:12px/1.4 ui}`.
 const NOTE_MT: f32 = 4.0;
 const NOTE_MR: f32 = 12.0;
 const NOTE_MB: f32 = 6.0;
 const NOTE_ML: f32 = 70.0;
-const NOTE_RAIL: f32 = 2.0;
 const NOTE_PAD_Y: f32 = 6.0;
 const NOTE_PAD_X: f32 = 8.0;
 const NOTE_TEXT: f32 = 12.0;
@@ -197,7 +196,8 @@ pub struct ReviewNote {
     pub text: SharedString,
     /// Short form for the Notes column; falls back to [`ReviewNote::text`].
     pub summary: Option<SharedString>,
-    /// Still being written: dashed frame, Cancel / Add note.
+    /// Still being written: Cancel / Add note instead of Edit / Delete. The frame
+    /// is the same either way.
     pub pending: bool,
 }
 
@@ -421,10 +421,11 @@ fn review_note(p: &Palette, id: ElementId, index: usize, note: &ReviewNote, on_a
             }
         }
     };
-    let mut rail = div().absolute().left(px(-NOTE_RAIL)).top(px(-1.0)).bottom(px(-1.0)).w(px(NOTE_RAIL)).border_l(px(NOTE_RAIL)).border_color(p.accent);
-    let mut el = v_flex()
+    // One uniform note card: a hairline `line` border all the way round on
+    // surface-2, the same frame the approval card uses. Pending and saved
+    // differ in content (Cancel / Add note vs Edit / Delete), never in border.
+    let el = v_flex()
         .id(id.clone())
-        .relative()
         .mt(px(NOTE_MT))
         .mr(px(NOTE_MR))
         .mb(px(NOTE_MB))
@@ -433,20 +434,12 @@ fn review_note(p: &Palette, id: ElementId, index: usize, note: &ReviewNote, on_a
         .px(px(NOTE_PAD_X))
         .rounded(px(scale::R_SM))
         .border_1()
-        .border_l(px(NOTE_RAIL))
-        .border_color(p.line_strong)
+        .border_color(p.line)
         .bg(p.surface_2)
         .ui(NOTE_TEXT)
         .line_height(relative(NOTE_LH))
         .text_color(p.ink);
-    if note.pending {
-        el = el.border_dashed();
-        rail = rail.border_dashed();
-    } else {
-        rail = rail.bg(p.accent);
-    }
-    el = el
-        .child(rail)
+    let el = el
         .child(
             div()
                 .mb(px(NOTE_CAPS_GAP))
@@ -456,7 +449,7 @@ fn review_note(p: &Palette, id: ElementId, index: usize, note: &ReviewNote, on_a
                 .child(format!("NOTE {} · LINE {}", index + 1, note.line)),
         )
         .child(div().w_full().when(note.pending, |d| d.py(px(NOTE_TEXTAREA_PAD))).child(note.text.clone()));
-    if note.pending {
+    let el = if note.pending {
         el.child(
             h_flex()
                 .w_full()
@@ -474,7 +467,8 @@ fn review_note(p: &Palette, id: ElementId, index: usize, note: &ReviewNote, on_a
                 .child(button((id.clone(), "edit"), "Edit").xs().ghost().on_click(emit(DiffReviewAction::EditNote(index))))
                 .child(button((id, "delete"), "Delete").xs().ghost().on_click(emit(DiffReviewAction::DeleteNote(index)))),
         )
-    }
+    };
+    el
 }
 
 impl RenderOnce for DiffReview {

@@ -120,13 +120,13 @@ fn menu_surface(p: &aui_tokens::Palette, width: f32) -> gpui::Div {
 fn menu_row(id: ElementId, height: gpui::Pixels, ground: gpui::Hsla, window: &mut Window, cx: &mut App) -> gpui::Stateful<gpui::Div> {
     let p = cx.aui().colors;
     let (state, flags) = interaction_flags(id.clone(), window, cx);
-    let bg = aui_motion::tween(
-        (id.clone(), "bg"),
-        if flags.hovered && ground == gpui::transparent_black() { p.surface_2 } else { ground },
-        aui_motion::Tween::FAST,
-        window,
-        cx,
-    );
+    // A row without its own ground borrows surface-2 while the pointer is on
+    // it; either way the tint fades its own alpha rather than tweening toward
+    // transparent black, which would dip the row through a darker colour than
+    // both the tint and the menu ground.
+    let lit = flags.hovered || ground.a > 0.0;
+    let tint = if ground.a > 0.0 { ground } else { p.surface_2 };
+    let bg = aui_motion::tint_fade((id.clone(), "bg"), lit, tint, aui_motion::Tween::FAST, window, cx);
     h_flex()
         .id(id)
         .w_full()

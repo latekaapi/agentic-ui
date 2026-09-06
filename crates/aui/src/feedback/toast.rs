@@ -377,17 +377,42 @@ impl RenderOnce for ToastStack {
             fanned[index] = offset;
             offset += self.toasts[index].height(text_scale) + FAN_GAP;
         }
+        // How far the fanned list reaches below the stack's own box. The
+        // pointer must keep the stack hovered while it travels over a toast
+        // that hangs past that box, or the fan collapses the moment it leaves
+        // the container and the stack flickers between the two states.
+        let fan_extent = (offset - FAN_GAP).max(0.0) * fan.clamp(0.0, 1.0);
+        // Once the toasts leave the stack's box they are an overlay: they are
+        // deferred so they paint above whatever the stack's siblings drew,
+        // instead of having that content painted through them.
+        let overlay = fan > 0.0;
 
-        // Painted oldest first, so the newest toast lands on top.
-        let mut stack = div().id(id.clone()).relative().size_full().track_interaction(&state);
+        // Painted oldest first, so the newest toast lands on top. The hover
+        // hitbox is an absolute pad rather than the stack box itself, so it can
+        // cover the fanned toasts without ever changing the stack's layout.
+        let mut stack = div().relative().size_full().child(
+            div()
+                .id(id.clone())
+                .absolute()
+                .top_0()
+                .left_0()
+                .right_0()
+                .bottom_0()
+                .min_h(px(fan_extent))
+                .track_interaction(&state),
+        );
         for (index, data) in self.toasts.iter().enumerate() {
             let depth = count - 1 - index;
             let rest_top = -TUCK_RISE * depth as f32;
             let rest_scale = 1.0 - TUCK_SCALE_STEP * depth as f32;
             let rest_opacity = 1.0 - TUCK_OPACITY_STEP * depth as f32;
+            // The layout spring overshoots; the fan's position rides the
+            // overshoot but its scale and opacity are clamped, so a fanned
+            // toast is never wider than itself and never more than opaque.
+            let settle = fan.clamp(0.0, 1.0);
             let top = rest_top + (fanned[index] - rest_top) * fan;
-            let scale = rest_scale + (1.0 - rest_scale) * fan;
-            let opacity = rest_opacity + (1.0 - rest_opacity) * fan;
+            let scale = rest_scale + (1.0 - rest_scale) * settle;
+            let opacity = rest_opacity + (1.0 - rest_opacity) * settle;
 
             let key: ElementId = (id.clone(), data.id.clone()).into();
             let mut card = toast(key, data)
@@ -396,15 +421,20 @@ impl RenderOnce for ToastStack {
             if self.at_rest {
                 card = card.at_rest();
             }
-            stack = stack.child(
-                div()
-                    .absolute()
-                    .top(px(top))
-                    .left(relative((1.0 - scale) / 2.0))
-                    .w(relative(scale))
-                    .opacity(opacity)
-                    .child(card),
-            );
+            let placed = div()
+                .absolute()
+                .top(px(top))
+                .left(relative((1.0 - scale) / 2.0))
+                .w(relative(scale))
+                .opacity(opacity)
+                .child(card);
+            stack = if overlay {
+                // Priority rises with the index so the newest toast still lands
+                // on top of the older ones among the deferred draws.
+                stack.child(gpui::deferred(placed).with_priority(index))
+            } else {
+                stack.child(placed)
+            };
         }
         stack
     }

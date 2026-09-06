@@ -33,3 +33,5 @@ Learned 2026-09-05 (phase 3, shell + sidebar):
 - Concurrent subagents in one working tree break the shared `cargo build`; give yourself a `git worktree` with its own `CARGO_TARGET_DIR` for parity runs while they work.
 
 **How to apply:** reuse these before re-reading the registry sources. See [[gpui-ecosystem-versions]] and [[project-decisions-2026-09-05]].
+
+**Paint-order gotchas (found 2026-09-06 while fixing Phase 3 bugs):** gpui paints background → children → border, so an absolutely positioned child at a negative inset is covered by the parent's own border; draw accent rails as a wrapper's border instead. Anything that overflows its box (popovers, fanned toast stacks) must go through `aui::overlay::popover_layer` (a `gpui::deferred` wrapper) or later siblings paint over it. Collapsed shell rail is 72 px when traffic lights are present; `AUI_GALLERY_COLLAPSED=1` renders the shell/assistant screens collapsed.

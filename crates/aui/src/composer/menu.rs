@@ -1,5 +1,9 @@
 //! `.menu`: the `+` popover — 200 wide, overlay ground, morphs out of the
 //! button's corner on the gentle spring.
+//!
+//! It is anchored to the `+` button (absolute, from the button's holder) but
+//! painted on [`crate::overlay::popover_layer`], so the composer's focus ring,
+//! chips and toolbar cannot draw over it.
 
 use aui_icons::{icon, IconName};
 use aui_motion::{spring_phase, SpringKind};
@@ -8,6 +12,7 @@ use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Windo
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::kbd;
+use crate::overlay::popover_layer;
 use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.menu{bottom:38px;left:0;width:200px;padding:6px}` — measured from the
@@ -86,7 +91,17 @@ impl RenderOnce for PlusMenu {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let phase = if self.at_rest { 1.0 } else { spring_phase((id.clone(), "morph"), self.open, SpringKind::Gentle, window, cx).clamp(0.0, 1.0) };
+        // At rest the menu is either fully out or fully gone; `open` still
+        // decides which, or a closed menu would draw itself in static captures.
+        let phase = if self.at_rest {
+            if self.open {
+                1.0
+            } else {
+                0.0
+            }
+        } else {
+            spring_phase((id.clone(), "morph"), self.open, SpringKind::Gentle, window, cx).clamp(0.0, 1.0)
+        };
         if !self.open && phase <= 0.001 {
             return div().invisible().into_any_element();
         }
@@ -108,6 +123,10 @@ impl RenderOnce for PlusMenu {
         for item in self.items {
             let item_id: ElementId = (id.clone(), SharedString::from(format!("item-{}", item.id))).into();
             let (state, flags) = interaction_flags(item_id.clone(), window, cx);
+            // The hover tint fades in and out over the hover duration, like
+            // every other list row in the library.
+            let ground = aui_motion::tint_fade((item_id.clone(), "bg"), flags.hovered, p.surface_2, aui_motion::Tween::FAST, window, cx);
+            let text = aui_motion::tween((item_id.clone(), "text"), if flags.hovered { p.ink } else { p.ink_2 }, aui_motion::Tween::FAST, window, cx);
             let mut row = h_flex()
                 .id(item_id)
                 .w_full()
@@ -116,8 +135,8 @@ impl RenderOnce for PlusMenu {
                 .px(px(ITEM_PAD))
                 .rounded(px(scale::R_SM))
                 .ui(ITEM_TEXT)
-                .text_color(if flags.hovered { p.ink } else { p.ink_2 })
-                .when(flags.hovered, |d| d.bg(p.surface_2))
+                .text_color(text)
+                .bg(ground)
                 .cursor_pointer()
                 .track_interaction(&state)
                 .child(icon(item.icon))
@@ -131,6 +150,6 @@ impl RenderOnce for PlusMenu {
             }
             menu = menu.child(row);
         }
-        menu.into_any_element()
+        popover_layer(menu).into_any_element()
     }
 }

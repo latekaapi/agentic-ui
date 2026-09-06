@@ -2,7 +2,7 @@
 //! compact one-line row used by the project and date groupings.
 
 use aui_icons::{icon, provider_mark, IconName};
-use aui_motion::{tween, Tween};
+use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, App, Div, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -264,8 +264,8 @@ impl RenderOnce for SessionRow {
         let (state, flags) = interaction_flags(id.clone(), window, cx);
         let hovered = flags.hovered;
 
-        let rest_bg = if self.selected { p.surface_3 } else { gpui::transparent_black() };
-        let bg = tween((id.clone(), "bg"), if hovered && !self.selected { p.surface_2 } else { rest_bg }, Tween::FAST, window, cx);
+        let tint = if self.selected { p.surface_3 } else { p.surface_2 };
+        let bg = tint_fade((id.clone(), "bg"), self.selected || hovered, tint, Tween::FAST, window, cx);
         let acts_visible = hovered && self.show_actions;
         let acts_opacity = tween((id.clone(), "acts-opacity"), if acts_visible { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
         let acts_slide = tween((id.clone(), "acts-slide"), if acts_visible { 0.0f32 } else { ACTS_SLIDE }, Tween::BASE.with_easing(aui_tokens::Easing::OUT), window, cx);
@@ -421,8 +421,8 @@ impl RenderOnce for CompactSessionRow {
         let id = self.id.clone();
         let s = self.session;
         let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let rest_bg = if self.selected { p.surface_3 } else { gpui::transparent_black() };
-        let bg = tween((id.clone(), "bg"), if flags.hovered && !self.selected { p.surface_2 } else { rest_bg }, Tween::FAST, window, cx);
+        let tint = if self.selected { p.surface_3 } else { p.surface_2 };
+        let bg = tint_fade((id.clone(), "bg"), self.selected || flags.hovered, tint, Tween::FAST, window, cx);
         let text = if self.selected { p.ink } else { p.ink_2 };
 
         let mut lines = v_flex().flex_1().min_w(px(0.0)).gap(px(ROW_GAP));

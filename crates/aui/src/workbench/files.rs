@@ -11,7 +11,7 @@
 use std::rc::Rc;
 
 use aui_icons::{icon, FileType, IconName};
-use aui_motion::{spring_phase, tween, SpringKind, Tween};
+use aui_motion::{spring_phase, tint_fade, SpringKind, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, radians, App, ElementId, Hsla, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -276,14 +276,8 @@ fn tree_row(id: impl Into<ElementId>, node: FileNode, on_action: Option<ActionHa
     let id: ElementId = id.into();
     let (state, flags) = interaction_flags(id.clone(), window, cx);
     // `.n:hover{background:var(--surface-2)}`, `.n.on{background:var(--accent-soft);color:var(--ink)}`.
-    let target_bg = if node.selected {
-        p.accent_soft
-    } else if flags.hovered {
-        p.surface_2
-    } else {
-        gpui::transparent_black()
-    };
-    let bg = tween((id.clone(), "bg"), target_bg, Tween::FAST, window, cx);
+    let tint = if node.selected { p.accent_soft } else { p.surface_2 };
+    let bg = tint_fade((id.clone(), "bg"), node.selected || flags.hovered, tint, Tween::FAST, window, cx);
     // `.n{color:var(--ink-2)}`, `.n.dir{color:var(--ink)}`.
     let text = if node.selected || node.is_dir() { p.ink } else { p.ink_2 };
     let icon_color = node.kind.hue().map(Into::into).unwrap_or(p.ink_3);

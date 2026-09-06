@@ -68,6 +68,7 @@ fn header_row(cx: &App) -> gpui::Div {
 pub struct SidebarHeader {
     id: ElementId,
     traffic_lights: bool,
+    collapsed: bool,
     can_go_back: bool,
     can_go_forward: bool,
     on_back: Option<ClickHandler>,
@@ -81,6 +82,7 @@ pub fn sidebar_header(id: impl Into<ElementId>) -> SidebarHeader {
     SidebarHeader {
         id: id.into(),
         traffic_lights: false,
+        collapsed: false,
         can_go_back: true,
         can_go_forward: false,
         on_back: None,
@@ -94,6 +96,16 @@ impl SidebarHeader {
     /// Paints the three traffic lights (for the gallery; real windows have native ones).
     pub fn traffic_lights(mut self, on: bool) -> Self {
         self.traffic_lights = on;
+        self
+    }
+
+    /// The sidebar is collapsed to the rail: the cell is only as wide as the
+    /// rail, so it keeps the window controls (the top-left of a macOS window is
+    /// theirs whether or not the shell paints them) and drops the navigation
+    /// actions, which move to the leading edge of the centre header
+    /// ([`CentreHeader::on_expand_sidebar`]). Nothing is clipped.
+    pub fn collapsed(mut self, collapsed: bool) -> Self {
+        self.collapsed = collapsed;
         self
     }
 
@@ -146,6 +158,10 @@ impl RenderOnce for SidebarHeader {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let id = self.id.clone();
         let mut row = header_row(cx).id(id.clone());
+        if self.collapsed && !self.traffic_lights {
+            // A rail-wide cell with native window controls above it: leave it empty.
+            return row;
+        }
         if self.traffic_lights {
             let light = |rgb: u32| div().flex_none().size(px(LIGHT_SIZE)).rounded_full().bg(gpui::rgb(rgb));
             row = row.child(
@@ -158,6 +174,9 @@ impl RenderOnce for SidebarHeader {
                     .child(light(LIGHT_MIN))
                     .child(light(LIGHT_ZOOM)),
             );
+        }
+        if self.collapsed {
+            return row;
         }
         row.child(ghost(id.clone(), "back", IconName::ArrowLeft, self.on_back).disabled(!self.can_go_back))
             .child(ghost(id.clone(), "forward", IconName::ArrowRight, self.on_forward).disabled(!self.can_go_forward))
@@ -178,12 +197,23 @@ pub struct CentreHeader {
     trailing: Option<AnyElement>,
     on_overflow: Option<ClickHandler>,
     on_toggle_right: Option<ClickHandler>,
+    on_expand_sidebar: Option<ClickHandler>,
 }
 
 /// The centre header: provider mark + worktree name + branch tag, spacer,
 /// overflow menu, right-pane toggle. Nothing else lives here.
 pub fn centre_header(id: impl Into<ElementId>, title: impl Into<SharedString>) -> CentreHeader {
-    CentreHeader { id: id.into(), provider: None, glyph: None, title: title.into(), branch: None, trailing: None, on_overflow: None, on_toggle_right: None }
+    CentreHeader {
+        id: id.into(),
+        provider: None,
+        glyph: None,
+        title: title.into(),
+        branch: None,
+        trailing: None,
+        on_overflow: None,
+        on_toggle_right: None,
+        on_expand_sidebar: None,
+    }
 }
 
 impl CentreHeader {
@@ -217,6 +247,14 @@ impl CentreHeader {
         self
     }
 
+    /// Shows the sidebar toggle at the leading edge of the centre header and
+    /// calls `f` when it is clicked. Set this while the sidebar is collapsed:
+    /// it is the affordance that brings the sidebar back (⌘B does the same).
+    pub fn on_expand_sidebar(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_expand_sidebar = Some(Box::new(f));
+        self
+    }
+
     /// Right-pane toggle click.
     pub fn on_toggle_right(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_toggle_right = Some(Box::new(f));
@@ -242,8 +280,10 @@ impl RenderOnce for CentreHeader {
         if let Some(trailing) = self.trailing {
             title = title.child(trailing);
         }
+        let expand = self.on_expand_sidebar.map(|h| ghost(id.clone(), "expand-sidebar", IconName::Sidebar, Some(h)));
         header_row(cx)
             .id(id.clone())
+            .children(expand)
             .child(title)
             .child(div().flex_1())
             .child(ghost(id.clone(), "overflow", IconName::Dots, self.on_overflow))
