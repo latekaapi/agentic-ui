@@ -216,7 +216,7 @@ mod ts {
         styled.sort_by_key(|(r, _)| r.start);
 
         let mut out: Vec<(Range<usize>, TokenKind)> = Vec::new();
-        let mut push = |out: &mut Vec<(Range<usize>, TokenKind)>, range: Range<usize>, kind: TokenKind| {
+        let push = |out: &mut Vec<(Range<usize>, TokenKind)>, range: Range<usize>, kind: TokenKind| {
             if range.is_empty() {
                 return;
             }

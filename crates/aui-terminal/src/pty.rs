@@ -127,7 +127,7 @@ impl Pty {
     /// the reader thread finish. Idempotent, and called for you when the
     /// `Pty` is dropped or re-[`spawn`](TerminalBackend::spawn)ed.
     ///
-    /// The reader is given [`JOIN_GRACE`] to notice the closed pty. If a
+    /// The reader is given a short grace period (`JOIN_GRACE`, 200 ms) to notice the closed pty. If a
     /// background job the shell started still holds the slave open past that,
     /// the thread is detached rather than blocking the UI thread; it ends on
     /// its own as soon as the read fails, and it can no longer reach this

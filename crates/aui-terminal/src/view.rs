@@ -20,7 +20,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use aui::workbench::{block_terminal, tui_pane, BlockState, TermBlock, TermPrompt, TerminalAction};
-use gpui::{canvas, prelude::*, px, App, Bounds, ElementId, Entity, IntoElement, Pixels, SharedString, Task, Window};
+use gpui::{canvas, prelude::*, px, App, Bounds, ElementId, Entity, IntoElement, Pixels, ScrollHandle, SharedString, Task, Window};
 
 use crate::backend::{TermEvent, TerminalBackend};
 use crate::parser::BlockParser;
@@ -144,6 +144,12 @@ pub struct TerminalState {
     /// The size the pane last measured, in character cells. `(0, 0)` until it
     /// has been measured once, so the first measurement always lands.
     cells: (u16, u16),
+    /// The block list's scroll position, shared with the pane so new output
+    /// can follow the tail.
+    scroll: ScrollHandle,
+    /// Set when output arrived since the last frame: the pane then keeps the
+    /// tail in view if the user was already looking at it.
+    follow: bool,
     /// Grid mode: when this is set, polled bytes go to the screen model
     /// instead of the block parser.
     #[cfg(feature = "tui")]
@@ -168,6 +174,8 @@ impl TerminalState {
             poll: None,
             started: false,
             cells: (0, 0),
+            scroll: ScrollHandle::new(),
+            follow: false,
             #[cfg(feature = "tui")]
             grid: None,
         }
@@ -239,6 +247,7 @@ impl TerminalState {
     /// Routes a chunk of output: to the screen in grid mode, to the block
     /// parser otherwise.
     fn feed(&mut self, bytes: &[u8]) {
+        self.follow = true;
         #[cfg(feature = "tui")]
         if let Some(grid) = self.grid.as_mut() {
             grid.feed(bytes);
@@ -432,7 +441,20 @@ impl RenderOnce for BlockTerminalView {
             None => state.read(cx).prompt().clone(),
         };
         let on_intent = self.on_intent.clone();
-        let mut pane = block_terminal(self.id, blocks).prompt(prompt).on_action(move |action, window, cx| {
+        // Tail-follow: output since the last frame scrolls the list to its
+        // end, but only if the user was already at the end (within a line).
+        // The handle's max offset is last frame's, i.e. before this output,
+        // which is exactly the position to test against.
+        let scroll = self.state.update(cx, |state, _| {
+            if std::mem::take(&mut state.follow) {
+                let at_end = (-state.scroll.offset().y) >= state.scroll.max_offset().y - px(TERM_TEXT * BLOCK_LH);
+                if at_end {
+                    state.scroll.scroll_to_bottom();
+                }
+            }
+            state.scroll.clone()
+        });
+        let mut pane = block_terminal(self.id, blocks).track_scroll(scroll).prompt(prompt).on_action(move |action, window, cx| {
             let intent = TerminalIntent::from(action);
             state.update(cx, |state, cx| {
                 state.apply(&intent);

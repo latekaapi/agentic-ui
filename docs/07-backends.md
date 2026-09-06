@@ -264,10 +264,11 @@ machine:
   up to the next `m` and a stray `ESC[2K` would eat the rest of the line.
 - `TuiGrid` carries the cursor's **position** (inverted in place in the
   snapshot's runs) but not its shape or blink, and no selection.
-- **`aui::workbench::block_terminal` does not scroll.** Its body is
-  `overflow_hidden`, which is right for a design card and wrong for a session
-  that outgrows the pane: a long transcript is clipped at the bottom with no way
-  to reach it. Fixing that means changing the component in `crates/aui`.
+- `aui::workbench::block_terminal` scrolls vertically and accepts a
+  `track_scroll(ScrollHandle)`; `block_terminal_view` uses it to follow the
+  tail — output that arrives while the user is at the end (within one line)
+  scrolls the list to the end, output that arrives while they have scrolled up
+  leaves the view where it is. There is no "jump to latest" pill yet.
 - `tui_grid_view` reproduces `aui::workbench::tui_pane`'s padding, type, input
   box, footer and hint keys rather than reusing it, because the component takes
   `Vec<String>` and the grid needs `TextRun`s. The two panes are drawn from

@@ -30,7 +30,7 @@
 //! The parser does not model a screen. There is no cursor, no scroll region
 //! and no in-place redraw — cursor-movement CSI sequences are kept verbatim in
 //! the line rather than acted on. For a full-screen program use
-//! [`TuiGrid`](crate::tui_grid) instead.
+//! `TuiGrid` (module `tui_grid`, feature `tui`) instead.
 
 use std::cell::Cell;
 use std::rc::Rc;

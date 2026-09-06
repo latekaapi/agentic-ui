@@ -59,6 +59,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   feature, exposed as `workbench/webview`, `workbench/terminal-live` and
   `workbench/tui-live` gallery entries. Documented in `docs/07-backends.md`.
 
+- `block_terminal` scrolls and can track a `ScrollHandle`; the live terminal
+  view follows the tail of a real session.
+
 ### Changed
 
 - Product text scale defaulted to 1.1 (the design grid itself stays 13 px);

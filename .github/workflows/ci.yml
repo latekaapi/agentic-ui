@@ -29,14 +29,18 @@ jobs:
       - name: Test workspace
         run: cargo test --workspace
 
-      # NOTE: clippy for aui-webview and aui-terminal is owned by another
-      # workstream (the wry/pty/tui backends) and may not be clean yet. Not
-      # excluding it here on purpose — this is left as the workspace-wide
-      # command as specified.
-      - name: Clippy
+      - name: Clippy (default features)
         run: cargo clippy --workspace -- -D warnings
 
-      - name: Doc
+      - name: Clippy (all features)
+        run: cargo clippy --workspace --all-features -- -D warnings
+
+      - name: Doc (default features)
         run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+      - name: Doc (all features)
+        run: cargo doc --workspace --no-deps --all-features
         env:
           RUSTDOCFLAGS: -D warnings

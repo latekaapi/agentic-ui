@@ -9,8 +9,8 @@
 //! | [`backend`] | the [`TerminalBackend`] trait and its [`TermEvent`] stream |
 //! | [`parser`] | [`BlockParser`] — OSC 133 shell integration to `TermBlock`s |
 //! | [`fake`] | [`FakePty`], a scripted transcript that replays card 50 |
-//! | [`pty`] | a real login shell over `portable-pty` (feature `pty`) |
-//! | [`tui_grid`] | the alacritty grid model behind the TUI pane (feature `tui`) |
+//! | `pty` | a real login shell over `portable-pty` (feature `pty`) |
+//! | `tui_grid` | the alacritty grid model behind the TUI pane (feature `tui`) |
 //! | [`view`] | [`TerminalState`] plus the three gpui elements |
 //!
 //! ```ignore

@@ -6,7 +6,7 @@
 use aui_icons::{icon, provider_mark, IconName, Provider};
 use aui_motion::{looping, tween, Loop, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
-use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, StyledText, Window};
+use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, ScrollHandle, SharedString, StyledText, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, spinner, ButtonSize};
@@ -157,11 +157,12 @@ pub struct BlockTerminal {
     blocks: Vec<TermBlock>,
     prompt: Option<TermPrompt>,
     on_action: Option<ActionHandler>,
+    scroll: Option<ScrollHandle>,
 }
 
 /// A terminal pane over `blocks`.
 pub fn block_terminal(id: impl Into<ElementId>, blocks: Vec<TermBlock>) -> BlockTerminal {
-    BlockTerminal { id: id.into(), marker: None, blocks, prompt: None, on_action: None }
+    BlockTerminal { id: id.into(), marker: None, blocks, prompt: None, on_action: None, scroll: None }
 }
 
 impl BlockTerminal {
@@ -180,6 +181,15 @@ impl BlockTerminal {
     /// Action handler.
     pub fn on_action(mut self, f: impl Fn(TerminalAction, &mut Window, &mut App) + 'static) -> Self {
         self.on_action = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Track the block list's scroll position with `handle`, so a live
+    /// session can follow its tail (`handle.scroll_to_bottom()`) and a
+    /// caller can tell whether the user has scrolled away from it. The list
+    /// scrolls vertically whether or not a handle is given.
+    pub fn track_scroll(mut self, handle: ScrollHandle) -> Self {
+        self.scroll = Some(handle);
         self
     }
 }
@@ -340,13 +350,16 @@ impl RenderOnce for BlockTerminal {
             .flex_1()
             .min_h(px(0.0))
             .w_full()
-            .overflow_hidden()
+            .overflow_y_scroll()
             .py(px(SCROLL_PAD_Y))
             .px(px(SCROLL_PAD_X))
             .gap(px(BLOCK_GAP))
             .mono(TERM_TEXT)
             .line_height(relative(TERM_LH))
             .text_color(p.term_fg);
+        if let Some(handle) = &self.scroll {
+            scroll = scroll.track_scroll(handle);
+        }
         if let Some(marker) = self.marker {
             let rule = || div().flex_1().h(px(1.0)).bg(p.line);
             scroll = scroll.child(
