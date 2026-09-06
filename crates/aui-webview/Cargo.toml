@@ -4,11 +4,23 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Embedded browser pane (wry/WKWebView) with tabs, a JS bridge and the annotator."
+description = "Embedded browser pane: a WebBackend trait, a scripted fake page for the gallery, and a wry/WKWebView backend behind the `wry` feature."
+
+[features]
+default = []
+# The real browser: a wry child webview parented to the gpui window's NSView.
+wry = ["dep:wry", "dep:raw-window-handle", "dep:serde", "dep:serde_json"]
 
 [dependencies]
 gpui.workspace = true
-# The wry integration is switched on when the pane is actually built (phase 3).
-# It pulls in a native WKWebView, so it stays out of the dependency graph until
-# then to keep `cargo check` on the rest of the workspace fast and portable.
-# gpui-wry = "0.6.0"
+gpui-kit.workspace = true
+aui.workspace = true
+aui-tokens.workspace = true
+aui-icons.workspace = true
+aui-motion.workspace = true
+aui-protocol.workspace = true
+
+wry = { version = "0.55", optional = true }
+raw-window-handle = { version = "0.6", optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }

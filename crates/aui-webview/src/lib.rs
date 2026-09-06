@@ -1,44 +1,48 @@
-//! `aui-webview` — the embedded browser pane of the workbench.
+//! `aui-webview` — the embedded browser pane of the workbench (spec §5.2,
+//! `design/reference/cards/51-browser.png`).
 //!
-//! Nothing is implemented yet: this crate is scaffolding, and the scope below is
-//! the contract it must meet, taken from `docs/02-component-spec.md` section 5.2
-//! (workbench card 51, rendered at `design/reference/cards/51-browser.png`).
+//! The crate is four layers, and the top one does not know which bottom one it
+//! is running on:
 //!
-//! # Scope
+//! - [`backend`] — [`WebBackend`], the contract a page fulfils: commands down,
+//!   [`WebEvent`]s up on a poll.
+//! - [`page`] — the scripted "Simple pricing" document card 51 is drawn over,
+//!   plus [`page::fake_elements`], its element boxes as data.
+//! - [`fake`] — [`FakeWebBackend`], that document as a backend: real history,
+//!   real hit-testing, real annotations, no browser.
+//! - [`view`] — [`WebviewState`] and [`webview_pane`], the gpui elements: the
+//!   nav row, the page with the annotator's overlays, and the annotations
+//!   panel.
 //!
-//! **The pane** — a `wry`/WKWebView surface hosted in a `gpui` element, with tabs
-//! in the shell header and a 38 px nav row: back / forward (disabled at .4 alpha)
-//! / reload, a 28 px mono URL field with a success shield and `⌘L`, an Annotate
-//! mode toggle with `esc`, and screenshot and console icon buttons. Loading shows
-//! a 2 px accent hairline along the bottom of the nav row.
-//!
-//! **JS bridge** — script injection and evaluation both ways, so the pane can
-//! read the DOM for the annotator, drive the page on the agent's behalf, and
-//! surface console messages and network activity.
-//!
-//! **Annotator** — a crosshair mode that outlines the hovered element (1 px
-//! accent at .6 over an accent-soft fill) with a mono tag above-left
-//! (`p · 392 × 34`), drops a numbered 20 px teardrop pin on click, and opens a
-//! 236 px note popover carrying the element path. Annotations collect in a 272 px
-//! side panel with the selector, box, outer HTML, computed styles, source file,
-//! URL and a screenshot preview with the pins on it.
-//!
-//! **Screenshot to chat** — the "Send to Claude Code" action packages the pins,
-//! notes and element metadata as `aui-protocol` notes and hands them to the app
-//! as a `SendNotes` intent, with the annotated screenshot attached.
+//! `wry_backend` (behind the `wry` feature) is the same contract over a real
+//! WKWebView parented to the gpui window.
 //!
 //! # The native-overlay caveat
 //!
-//! The webview is a **native overlay** composited above the `gpui` scene, not a
-//! layer inside it. It always paints on top, and `gpui` cannot draw over it. So
-//! every popover, menu, tooltip and note bubble must either be positioned outside
-//! the webview's bounds or be rendered inside the page itself through the JS
-//! bridge. The same applies to drag overlays and the command palette when the
-//! browser pane is open.
+//! With the real backend the page is a **native overlay composited above the
+//! gpui scene**, not a layer inside it. It always paints on top, and gpui
+//! cannot draw over it: every popover, menu, tooltip and note bubble that
+//! would sit over the page is hidden. Anything over the page must either be
+//! positioned outside the webview's bounds or be rendered inside the page
+//! through the JS bridge (as `wry_backend::ANNOTATOR_JS` draws the hover
+//! outline). The same applies to drag overlays and the command palette while
+//! the browser pane is open.
+//!
+//! None of that constrains [`FakeWebBackend`], whose page is gpui elements —
+//! which is why the gallery card can show the note popover over the page at
+//! all.
 
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 
-/// The delivery phase this crate belongs to, from `docs/01-research-and-plan.md`.
-///
-/// The browser pane ships with the rest of the workbench.
-pub const PHASE: &str = "phase 3 · workbench";
+pub mod backend;
+pub mod fake;
+pub mod page;
+pub mod view;
+
+#[cfg(feature = "wry")]
+pub mod wry_backend;
+
+pub use backend::{ElementInfo, WebBackend, WebEvent};
+pub use fake::FakeWebBackend;
+pub use page::{fake_elements, FakeElement};
+pub use view::{webview_pane, WebviewIntent, WebviewPane, WebviewState};

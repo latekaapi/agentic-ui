@@ -4,7 +4,23 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "PTY-backed block terminal and TUI mode rendered as a gpui element."
+description = "Block terminal and TUI backends: a TerminalBackend trait, an OSC 133 block parser, a scripted fake PTY, a portable-pty backend and an alacritty_terminal grid."
+
+[features]
+default = []
+# A real pseudo-terminal running the user's login shell.
+pty = ["dep:portable-pty"]
+# The alacritty grid model behind the TUI pane.
+tui = ["dep:alacritty_terminal"]
 
 [dependencies]
 gpui.workspace = true
+gpui-kit.workspace = true
+aui.workspace = true
+aui-tokens.workspace = true
+aui-icons.workspace = true
+aui-motion.workspace = true
+
+vte = "0.15"
+portable-pty = { version = "0.8", optional = true }
+alacritty_terminal = { version = "0.26", optional = true }
