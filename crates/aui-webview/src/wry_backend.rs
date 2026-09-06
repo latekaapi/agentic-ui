@@ -416,3 +416,81 @@ fn png_bytes(image: &NSImage) -> Option<Vec<u8>> {
     let png = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &properties) }?;
     Some(png.to_vec())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One IPC message, as `ANNOTATOR_JS` builds it.
+    fn message(selector: &str, html: &str) -> String {
+        format!(
+            r#"{{"selector":"{selector}","label":"div","rect":{{"x":12.5,"y":30,"w":150,"h":118}},"outerHTML":"{html}"}}"#
+        )
+    }
+
+    #[test]
+    fn a_click_becomes_an_annotation_and_its_element() {
+        let shared = Arc::new(Shared::default());
+        on_ipc(&shared, &message("div.card.starter", "<div>hi</div>"));
+
+        let events = std::mem::take(&mut *locked(&shared.events));
+        let WebEvent::Annotation(annotation) = &events[0] else { panic!("expected an annotation, got {events:?}") };
+        assert_eq!(events.len(), 1);
+        // The first pin is number 1, and it opens pending so its note can be
+        // typed before it is saved.
+        assert_eq!(annotation.index, 1);
+        assert_eq!(annotation.selector, "div.card.starter");
+        assert!(annotation.pending);
+
+        let info = locked(&shared.elements).get(&1).cloned().expect("the side table");
+        assert_eq!(info.label, "div");
+        assert_eq!(info.origin, (12.5, 30.0));
+        assert_eq!(info.size, (150.0, 118.0));
+        assert_eq!(info.outer_html, "<div>hi</div>");
+        // A real page reports no source file: nothing maps it to one yet.
+        assert!(info.source.is_empty());
+    }
+
+    #[test]
+    fn pins_are_numbered_in_the_order_they_are_clicked() {
+        let shared = Arc::new(Shared::default());
+        on_ipc(&shared, &message("h1", "<h1/>"));
+        on_ipc(&shared, &message("p", "<p/>"));
+        let indices: Vec<usize> = locked(&shared.elements).keys().copied().collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+        assert_eq!(indices, vec![1, 2]);
+        assert_eq!(locked(&shared.elements)[&2].selector, "p");
+    }
+
+    #[test]
+    fn oversized_outer_html_is_trimmed_to_the_limit() {
+        let shared = Arc::new(Shared::default());
+        let big = "x".repeat(OUTER_HTML_LIMIT * 2);
+        on_ipc(&shared, &message("div", &big));
+        assert_eq!(locked(&shared.elements)[&1].outer_html.len(), OUTER_HTML_LIMIT);
+    }
+
+    #[test]
+    fn an_unreadable_message_is_dropped_rather_than_panicking() {
+        let shared = Arc::new(Shared::default());
+        // Not JSON at all, JSON of the wrong shape, and a rect with a missing
+        // field: a page can post anything through `window.ipc.postMessage`.
+        on_ipc(&shared, "not json");
+        on_ipc(&shared, r#"{"selector":"div"}"#);
+        on_ipc(&shared, r#"{"selector":"div","label":"div","rect":{"x":1,"y":2,"w":3},"outerHTML":""}"#);
+        assert!(locked(&shared.events).is_empty());
+        assert!(locked(&shared.elements).is_empty());
+    }
+
+    #[test]
+    fn a_bounds_rectangle_survives_the_round_trip_into_wry() {
+        let rect = logical_rect((10.0, 20.0), (300.0, 200.0));
+        // wry takes logical pixels and flips the y against the parent view
+        // itself, so what goes in is exactly what gpui measured.
+        assert_eq!(rect.position.to_logical::<f64>(1.0), wry::dpi::LogicalPosition::new(10.0, 20.0));
+        assert_eq!(rect.size.to_logical::<f64>(1.0), wry::dpi::LogicalSize::new(300.0, 200.0));
+        // A pane laid out at zero (or a negative overflow) must not become a
+        // negative frame.
+        let empty = logical_rect((0.0, 0.0), (-5.0, 0.0));
+        assert_eq!(empty.size.to_logical::<f64>(1.0), wry::dpi::LogicalSize::new(0.0, 0.0));
+    }
+}

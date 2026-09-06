@@ -780,3 +780,25 @@ impl RenderOnce for WebviewPane {
             .child(h_flex().flex_1().w_full().min_h(px(0.0)).items_stretch().child(page).children(panel))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_url;
+
+    #[test]
+    fn what_is_typed_in_the_url_field_becomes_a_url() {
+        assert_eq!(normalize_url("https://example.com"), "https://example.com");
+        assert_eq!(normalize_url("  example.com/pricing "), "https://example.com/pricing");
+        assert_eq!(normalize_url("localhost:3000/checkout"), "https://duckduckgo.com/?q=localhost%3A3000%2Fcheckout");
+        assert_eq!(normalize_url("about:blank"), "about:blank");
+        assert_eq!(normalize_url("file:///tmp/page.html"), "file:///tmp/page.html");
+        assert_eq!(normalize_url("data:text/html,<b>hi</b>"), "data:text/html,<b>hi</b>");
+        assert_eq!(normalize_url(""), "about:blank");
+    }
+
+    #[test]
+    fn a_phrase_is_a_search_rather_than_a_host() {
+        assert_eq!(normalize_url("simple pricing page"), "https://duckduckgo.com/?q=simple+pricing+page");
+        assert_eq!(normalize_url("worktrees"), "https://duckduckgo.com/?q=worktrees");
+    }
+}
