@@ -33,7 +33,8 @@ approval card and a streamed reply, under 400 commented lines.
 [`docs/08-getting-started.md`](docs/08-getting-started.md) walks through adding
 the crates to a project, the init sequence, the data-in / intents-out pattern,
 theming, text scale, motion and the keyboard, with that example as the running
-thread:
+thread. [`docs/09-integration-brief.md`](docs/09-integration-brief.md) is the
+paste-able brief for integrating the library into an existing app, pane by pane:
 
 ```sh
 cargo run -p aui --example minimal
