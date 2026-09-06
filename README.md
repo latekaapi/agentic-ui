@@ -19,6 +19,17 @@ reference screenshots, and then matched pixel for pixel in Rust.
 | `aui-terminal` | PTY-backed block terminal and the agent's TUI mode, rendered as a gpui element. |
 | `aui-gallery` | Storybook app: every component in every state, a motion playground and a theme switcher; also the source of the design-system previews. |
 
+## Getting started
+
+[`docs/08-getting-started.md`](docs/08-getting-started.md) walks through adding
+the crates to a project, the init sequence, the data-in / intents-out pattern,
+theming, text scale, motion and the keyboard, with a runnable example as the
+running thread:
+
+```sh
+cargo run -p aui --example minimal
+```
+
 ## Prerequisites
 
 - macOS (the shell, webview and terminal panes use AppKit and WKWebView).
