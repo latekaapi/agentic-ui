@@ -27,6 +27,90 @@ The design is the contract. Three artefacts define it, in this order of authorit
 - `aui-gallery --screenshot-window <out.png>` captures the whole gallery window (chrome included) for shell reviews.
 - References are re-rendered with headless Chrome when a design file changes: `python3 design/build.py`, then `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu --hide-scrollbars --window-size=<w>,<h> --virtual-time-budget=5000 --screenshot=design/reference/cards/<stem>.png "file://$PWD/design/dist/components/<group>/<stem>.html"`.
 
+## Live behaviour (phase 4 step 2)
+
+The `screens/assistant` mock is no longer a still. `assistant/model.rs` holds the
+transcript (`Vec<Block>`: user turn, activity, answer, approval, question, file
+card, sources) and `view.rs` renders only from it, so the three parity screens
+and a running turn go through the same code. `assistant/script.rs` is a scripted
+fake backend driven by `gpui` timers on the window executor.
+
+- **Send.** `ComposerIntent::Send` appends the user's turn and picks a scenario
+  from the text: a `?` asks a question card first; a prompt starting `write` /
+  `update` / `change` asks for approval first; anything else runs the default
+  scenario straight away.
+- **Default scenario.** An activity group goes live for ~1.2 s with its three
+  steps flipping to done one at a time, then it folds and an answer streams word
+  groups at ~40 ms each through `CitedAnswer::streaming` (the model reveals a
+  prefix; the caret is the component's own), then the status row reads "Done".
+- **Stop.** `ComposerIntent::Stop` clears the answer's streaming flag, which
+  freezes it at the group it had reached and ends the turn.
+- **Approval.** Y / allow-once and A / always resolve the card, raise a
+  "Saved vendor-scoring.xlsx" toast and continue into the default scenario; N
+  denies it and answers "Left the sheet unchanged."
+- **Question.** Single select, three options plus Other; choosing one collapses
+  the card to an answered row and starts the default scenario.
+- **Overlays.** The ⌘K palette ("Toggle right pane", "Collapse sidebar",
+  "New session", which appends a session to the open project) and the composer's
+  `+` menu both go through `overlay::popover_layer`. The composer's textarea is
+  the resting focus; opening the palette moves the keyboard to it and closing
+  restores whatever had it (`window.focused(cx)` on open, `window.focus` on
+  close).
+- **Toasts.** `feedback::ToastStack` in the shell's bottom-right corner, entering
+  and leaving on the components' own presence, auto-dismissing after 4 s, with
+  the timer held while the pointer is over the stack.
+- **Sidebar views.** The `sidebar/views` entry (card 23) is live: the sliders
+  button opens `nav::ViewMenu` through the popover layer and "Group by" switches
+  the rendered grouping. The fourth column keeps the at-rest specimens the
+  reference shows.
+
+### Keys
+
+Bound once in `aui::keys::bind`, which `aui::init` calls. Components declare a
+`key_context` and handle the actions; nothing reads raw keystrokes.
+
+| keys | action | context |
+|---|---|---|
+| `⌘B` | `ToggleSidebar` | anywhere |
+| `⌘K` | `TogglePalette` | anywhere |
+| `⌘\` | `ToggleRightPane` | anywhere |
+| `↑` / `↓` | `SelectPrev` / `SelectNext` | `AuiMenu` (palette, view menu, question card) |
+| `↩` | `Confirm` | `AuiMenu` |
+| `esc` | `Cancel` | `AuiMenu`, `AuiApproval`, `AuiRoot` |
+| `Y` / `A` / `N` | `ApproveOnce` / `ApproveAlways` / `Deny` | `AuiApproval` (the newest pending card, which takes focus when it appears) |
+| `Tab` / `⇧Tab` | `FocusNext` / `FocusPrev` | `AuiRoot` |
+
+`data::Button` and `data::icon_button` are tab stops and draw the accent focus
+ring from `.btn:focus-visible` (`box-shadow:0 0 0 3px var(--accent-ring)`).
+
+### `AUI_GALLERY_STEPS`
+
+The gallery cannot receive keys from the command line, so the `screens/assistant`
+entry accepts a comma-separated script that is applied after the first frame.
+Every step is dispatched as the action or intent the UI itself would produce,
+never straight into the model. Combine it with `--screenshot-delay <ms>` to
+capture a frame mid-flight.
+
+| step | what it does |
+|---|---|
+| `send:<text>` | puts `<text>` in the composer and sends it |
+| `answer:<n>` | picks option `n` (1-based) on the pending question card |
+| `wait:<ms>` | delays the script |
+| `cmdk` / `cmdb` / `cmdright` | dispatches `TogglePalette` / `ToggleSidebar` / `ToggleRightPane` |
+| `up` / `down` / `enter` / `esc` | dispatches `SelectPrev` / `SelectNext` / `Confirm` / `Cancel` |
+| `tab` / `shift-tab` | dispatches `FocusNext` / `FocusPrev` |
+| `approve` / `always` / `deny` | dispatches `ApproveOnce` / `ApproveAlways` / `Deny` |
+| `stop` / `plus` | the composer's Stop and `+` intents |
+| `shot` | a no-op marker for readability |
+
+```bash
+AUI_GALLERY_STEPS='send:write the weights,wait:600,approve,wait:1500,cmdk,wait:200,down,shot' \
+  cargo run -p aui-gallery -- --screenshot screens/assistant /tmp/step.png --screenshot-delay 3000
+```
+
+The `sidebar/views` entry has its own small hook, `AUI_GALLERY_VIEWS_STEPS`,
+documented in `crates/aui-gallery/src/cards/views.rs`.
+
 ## Known, accepted gaps (gpui cannot express these today)
 - Caps labels lose their `.08em` letter-spacing: gpui has no letter-spacing text style.
 - SVG `<text>` is not rasterised, so the `ft-ts` / `ft-tsx` glyph labels do not render until the sprite carries them as paths.

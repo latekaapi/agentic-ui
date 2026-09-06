@@ -1,11 +1,22 @@
 //! `.btn`: secondary (filled, bordered, hairline shadow) by default; primary
 //! (accent), ghost (quiet icon/text), outline and danger (outlined) variants;
 //! md 28 / sm 24 / xs 20 heights; square icon buttons; the press spring.
+//!
+//! Buttons are tab stops and activate on `enter` / `space` while focused (gpui
+//! turns an activation keystroke on a focused element into a `ClickEvent`, so
+//! the keyboard and the mouse run the same [`Button::on_click`] handler).
+//!
+//! gpui has no `:focus-visible`, so "the focus came from the keyboard" is
+//! approximated with one process-wide flag: any key pressed on a button turns
+//! it on, any mouse press on a button turns it off, and the ring paints only
+//! while it is on. A mouse press on something that is not a button therefore
+//! does not clear it; the ring still never appears from a click on the button
+//! itself, which is what the design cares about.
 
 use aui_icons::{icon, IconName};
 use aui_motion::{spring_phase, tween, SpringKind, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
-use gpui::{div, prelude::*, px, AnyElement, App, ElementId, Hsla, IntoElement, Pixels, SharedString, Window};
+use gpui::{div, point, prelude::*, px, AnyElement, App, BoxShadow, ElementId, Hsla, IntoElement, MouseButton, Pixels, SharedString, Window};
 
 use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
 
@@ -79,6 +90,9 @@ const PRESS_SCALE: f32 = 0.97;
 const CONTENT_GAP: f32 = 6.0;
 /// Disabled controls (`opacity:.45` on the forward arrow in the shell header).
 const DISABLED_OPACITY: f32 = 0.45;
+/// `.btn:focus-visible{outline:none;box-shadow:0 0 0 3px var(--accent-ring)}`:
+/// no offset, no blur, a 3 px spread in `accent-ring`, replacing `--shadow-1`.
+const FOCUS_RING: f32 = 3.0;
 
 /// A button. Build with [`button`] or [`icon_button`].
 #[derive(IntoElement)]
@@ -274,6 +288,14 @@ impl RenderOnce for Button {
         let height = self.size.height(cx);
         let id = self.id.clone();
 
+        // One focus handle per button id; disabled buttons are not tab stops.
+        let focus = window
+            .use_keyed_state((id.clone(), "focus"), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone()
+            .tab_stop(!self.disabled);
+        let ring = !self.disabled && focus.is_focused(window) && crate::keys::keyboard_nav(cx);
+
         let (state, flags) = interaction_flags(id.clone(), window, cx);
         let hovered = flags.hovered && !self.disabled;
         let pressed = flags.pressed && !self.disabled;
@@ -305,7 +327,15 @@ impl RenderOnce for Button {
             .line_height(gpui::relative(1.0))
             .medium()
             .whitespace_nowrap();
-        if look.shadow {
+        if ring {
+            inner = inner.shadow(vec![BoxShadow {
+                color: p.accent_ring,
+                offset: point(px(0.0), px(0.0)),
+                blur_radius: px(0.0),
+                spread_radius: px(FOCUS_RING),
+                inset: false,
+            }]);
+        } else if look.shadow {
             inner = inner.shadow(p.shadow(1));
         }
         if let Some(glyph) = self.icon {
@@ -328,8 +358,26 @@ impl RenderOnce for Button {
             .when(!self.disabled, |d| d.cursor_pointer())
             .child(inner);
         if !self.disabled {
-            outer = outer.track_interaction(&state);
+            outer = outer
+                .track_focus(&focus)
+                .track_interaction(&state)
+                // The `:focus-visible` approximation: keys arm the ring, the
+                // mouse disarms it. `window.refresh()` repaints the flip.
+                .on_key_down(|_, window, cx| {
+                    if !crate::keys::keyboard_nav(cx) {
+                        crate::keys::set_keyboard_nav(true, cx);
+                        window.refresh();
+                    }
+                })
+                .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                    if crate::keys::keyboard_nav(cx) {
+                        crate::keys::set_keyboard_nav(false, cx);
+                        window.refresh();
+                    }
+                });
             if let Some(on_click) = self.on_click {
+                // gpui synthesises a `ClickEvent::Keyboard` from enter/space on
+                // a focused element, so this one handler serves both inputs.
                 outer = outer.on_click(move |e, w, cx| on_click(e, w, cx));
             }
         }

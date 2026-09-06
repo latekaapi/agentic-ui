@@ -34,6 +34,7 @@ pub mod assets;
 pub mod composer;
 pub mod data;
 pub mod feedback;
+pub mod keys;
 pub mod nav;
 pub mod overlay;
 pub mod shell;
@@ -48,9 +49,11 @@ pub use aui_tokens as tokens;
 
 use gpui::App;
 
-/// Initialises gpui-kit and installs the design tokens, fonts and theme. Call
-/// once at application start, before opening any window.
+/// Initialises gpui-kit, installs the design tokens, fonts and theme, and
+/// binds the library's keyboard actions ([`keys`]). Call once at application
+/// start, before opening any window.
 pub fn init(theme: aui_tokens::ThemeKind, cx: &mut App) {
     gpui_kit::init(cx);
     aui_tokens::AuiTheme::init(theme, cx);
+    keys::bind(cx);
 }

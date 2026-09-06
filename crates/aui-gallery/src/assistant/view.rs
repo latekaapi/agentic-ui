@@ -1,20 +1,36 @@
 //! The stateful mock view.
+//!
+//! The mock renders a [`Transcript`](super::model::Transcript) and nothing
+//! else, so the sample state that stands in for the three design references and
+//! the state [`super::script`] builds while a turn runs go through the same
+//! code. On top of that it owns the shell's overlays — the ⌘K palette, the
+//! composer's `+` menu, the toast stack — and the keyboard, through the actions
+//! in [`aui::keys`].
 
-use aui::composer::{composer, composer_state_rows, ComposerIntent};
+use std::time::Duration;
+
+use aui::composer::{composer, composer_state_rows, plus_menu, ComposerIntent, PlusMenuItem};
 use aui::data::{button, status_dot};
+use aui::feedback::{toast_stack, ToastData};
+use aui::keys::{ApproveAlways, ApproveOnce, Cancel, Confirm, Deny as DenyAction, FocusNext, FocusPrev, SelectNext, SelectPrev, ToggleRightPane, ToggleSidebar, TogglePalette};
 use aui::nav::{rail, role_section, sidebar_footer, Project, RailItem, Role, RoleSession, SessionKind};
-use aui::protocol::{ActivityState, Step, StepState};
+use aui::overlay::{command_palette, popover_layer, PaletteIcon, PaletteItem, PaletteSection};
+use aui::protocol::{ApprovalDecision, ApprovalState};
 use aui::shell::{app_shell, centre_header, right_header, sidebar_header, tab_strip, TabItem};
-use aui::transcript::{activity_group, user_turn, ProseStyle};
+use aui::transcript::{activity_group, answered_row, approval_card, question_card, user_turn, ProseStyle};
+use aui::util::{interaction_flags, TrackInteraction};
 use aui::workbench::{
     artifact_strip, cited_answer, doc_pane, doc_toolbar, pane_status, pane_status_row, pdf_pane, sheet_pane, source_hover_card, sources_card, Artifact, ArtifactKind, DocBlock, DocPage,
     DocRun, PdfPage, PdfRun, SheetCell, Source, SourceTier,
 };
 use aui_icons::{icon, IconName, Provider, RoleIcon};
-use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled};
+use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::input::TextareaState;
 use gpui_kit::base::{h_flex, v_flex};
+
+use super::model::{revealed_text, Block, BlockKind, Transcript, BODY_TEXT};
+use super::script::STEPS_DELAY;
 
 /// `.tr{padding:18px 32px 0;gap:16px}` and the status row's 12 px bottom padding.
 const TRANSCRIPT_PAD_TOP: f32 = 18.0;
@@ -42,8 +58,16 @@ const SCREENS_GAP: f32 = 24.0;
 const SCREENS_PAD_X: f32 = 20.0;
 const SCREENS_PAD_Y: f32 = 12.0;
 const SCREENS_CAPTION: f32 = 28.0;
-/// The assistant body text: 13.5 / 1.65.
-const BODY_TEXT: f32 = 13.5;
+/// `.scrim{padding-top:56px}` in card 12 — how far below the window's top edge
+/// the palette floats, and the scrim's own black tint over the shell.
+const PALETTE_TOP: f32 = 56.0;
+const SCRIM_TINT: f32 = 0.32;
+/// Card 13 draws the stack in a 340 px column; in the shell it sits in the
+/// bottom-right corner on the standard 24 px inset.
+const TOAST_COLUMN: f32 = 340.0;
+const TOAST_INSET: f32 = 24.0;
+/// The stack reserves the height of one toast so the fan has room to grow into.
+const TOAST_STACK_H: f32 = 84.0;
 
 /// Which of the three assistant screen references the mock stands in for.
 /// `AUI_GALLERY_SCREEN=<Main|Sources|Sheet>` picks one for a parity render;
@@ -126,6 +150,31 @@ pub enum RightTab {
     Pdf,
 }
 
+/// Where the keyboard should go on the next frame. gpui focuses through a
+/// `Window`, which the async script does not hold, so a scenario parks its
+/// request here and [`AssistantMock::render`] applies it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    /// The composer's textarea: the mock's resting focus.
+    Composer,
+    /// The command palette's query row.
+    Palette,
+    /// The newest pending approval card, so Y / A / N reach it.
+    Approval,
+    /// The newest pending question card.
+    Question,
+}
+
+/// The open command palette.
+struct Palette {
+    /// What has been typed into the query row.
+    query: SharedString,
+    /// The highlighted row, across all sections in order.
+    selected: usize,
+    /// What had the keyboard when the palette opened.
+    restore: Option<FocusHandle>,
+}
+
 /// The mock's state.
 pub struct AssistantMock {
     screen: AssistantScreen,
@@ -134,15 +183,39 @@ pub struct AssistantMock {
     right_tab: RightTab,
     open_roles: [bool; 3],
     active_session: SharedString,
-    composer: Entity<TextareaState>,
-    plus_open: bool,
-    streaming: bool,
+    /// Sessions the palette's "New session" command added to the open project.
+    new_sessions: Vec<SharedString>,
+    pub(super) composer: Entity<TextareaState>,
+    pub(super) plus_open: bool,
+    /// The transcript the view renders.
+    pub(super) transcript: Transcript,
+    /// Bumped by every send, so a scenario left over from an interrupted turn
+    /// stops touching the model.
+    pub(super) run: u64,
+    palette: Option<Palette>,
+    /// The toasts the shell is showing, oldest first.
+    pub(super) toasts: Vec<ToastData>,
+    /// Whether the pointer is over the stack, which holds the dismiss timers.
+    pub(super) toast_hovered: bool,
+    pub(super) want_focus: Option<Focus>,
+    /// The handle the palette took the keyboard from, restored when it closes.
+    restore_focus: Option<FocusHandle>,
+    focus_root: FocusHandle,
+    focus_palette: FocusHandle,
+    focus_approval: FocusHandle,
+    focus_question: FocusHandle,
+    /// `AUI_GALLERY_STEPS`, applied once after the first frame.
+    steps: Vec<String>,
+    started: bool,
+    /// Timers keep running only while their task is alive.
+    pub(super) tasks: Vec<Task<()>>,
 }
 
 impl AssistantMock {
     /// Creates the mock in the sample state of one assistant screen.
-    pub fn new(screen: AssistantScreen, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(screen: AssistantScreen, scripted: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let composer = cx.new(|cx| composer_state_rows(screen.placeholder(), 1, 8, window, cx));
+        let steps = if scripted { steps_from_env() } else { Vec::new() };
         Self {
             screen,
             right_open: true,
@@ -150,22 +223,38 @@ impl AssistantMock {
             right_tab: screen.right_tab(),
             open_roles: [true, false, false],
             active_session: screen.session().into(),
+            new_sessions: Vec::new(),
             composer,
             plus_open: false,
-            streaming: false,
+            transcript: Transcript::sample(screen),
+            run: 0,
+            palette: None,
+            toasts: Vec::new(),
+            toast_hovered: false,
+            want_focus: Some(Focus::Composer),
+            restore_focus: None,
+            focus_root: cx.focus_handle(),
+            focus_palette: cx.focus_handle(),
+            focus_approval: cx.focus_handle(),
+            focus_question: cx.focus_handle(),
+            steps,
+            started: false,
+            tasks: Vec::new(),
         }
     }
 
-    fn roles() -> Vec<Role> {
+    fn roles(&self) -> Vec<Role> {
+        let mut rfp = Project::new("rfp", "Teacher recruitment RFP", 6)
+            .session(RoleSession::new("rfp-v3", "RFP draft v3", SessionKind::Document, "now"))
+            .session(RoleSession::new("eligibility", "Eligibility criteria review", SessionKind::Chat, "2h"))
+            .session(RoleSession::new("scoring", "Vendor scoring sheet", SessionKind::Sheet, "1d"));
+        for (index, name) in self.new_sessions.iter().enumerate() {
+            rfp = rfp.session(RoleSession::new(format!("new-{index}"), name.clone(), SessionKind::Chat, "now"));
+        }
         vec![
             Role::new("education", "Director, Education", RoleIcon::GradCap, 3)
                 .open()
-                .project(
-                    Project::new("rfp", "Teacher recruitment RFP", 6)
-                        .session(RoleSession::new("rfp-v3", "RFP draft v3", SessionKind::Document, "now"))
-                        .session(RoleSession::new("eligibility", "Eligibility criteria review", SessionKind::Chat, "2h"))
-                        .session(RoleSession::new("scoring", "Vendor scoring sheet", SessionKind::Sheet, "1d")),
-                )
+                .project(rfp)
                 .project(Project::new("annual", "Annual report 2026", 3))
                 .project(Project::new("letters", "Letters and notes", 12))
                 .knowledge("Education Code")
@@ -178,7 +267,7 @@ impl AssistantMock {
 
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let mut col = v_flex().size_full();
-        for (i, mut role) in Self::roles().into_iter().enumerate() {
+        for (i, mut role) in self.roles().into_iter().enumerate() {
             role.open = self.open_roles[i];
             let toggle = cx.listener(move |this, _: &str, _, cx| {
                 this.open_roles[i] = !this.open_roles[i];
@@ -201,7 +290,7 @@ impl AssistantMock {
     /// The collapsed sidebar: one cell per role, then the open project's
     /// sessions by kind. No sliver of the expanded sidebar is drawn here.
     fn render_rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let roles = Self::roles();
+        let roles = self.roles();
         let mut items: Vec<RailItem> = roles
             .iter()
             .enumerate()
@@ -231,97 +320,115 @@ impl AssistantMock {
         ]
     }
 
-    fn render_transcript(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    /// One transcript block.
+    fn render_block(&self, index: usize, block: &Block, cx: &mut Context<Self>) -> AnyElement {
         let p = cx.aui().colors;
-        let style = ProseStyle { ink: p.ink, code_ink: p.accent_ink, code_bg: p.accent_soft, size: BODY_TEXT, line_height: scale::LH_BODY, paragraph_gap: 10.0 };
-        let (prompt, answer, status) = match self.screen {
-            AssistantScreen::Main => (
-                "Tighten section 2. Eligibility must reflect the current procurement rules and the 2024 verification order.",
-                "Under the current rules a bidder needs a valid registration and three years of comparable placements[[1]]. The 2024 order moved certificate verification to onboarding and requires originals[[2]]. The brief sets the cohort at 240 teachers across 38 institutions[[3]]. I folded all three into section 2 and left the rest of the draft untouched.",
-                "3 sources cited",
-            ),
-            AssistantScreen::Sources => (
-                "What does a bidder need to qualify, and where does that come from?",
-                "Three requirements, each from a different source. A valid registration with the Directorate and at least three years of comparable placements in the preceding five[[1]]. Original certificates verified at onboarding rather than at bid time[[2]]. And for this RFP specifically, capacity for 240 teachers across 38 institutions[[3]]. Nothing in the Education Code adds to this; it defers to the procurement rules.",
-                "hovering citation 1 \u{b7} source open on the right",
-            ),
-            AssistantScreen::Sheet => (
-                "Score the four vendors against the Annex A matrix. Weight experience 45, coverage 30, price 25.",
-                "Northlight leads on the weighted score, mostly on experience. Civic Talent is cheapest but thin on experience, which the matrix penalises hardest. The weights sit in row 7 so you can change them and the totals follow.",
-                "E2 selected in the sheet",
-            ),
-        };
-        let done = |verb: &str, target: &str, result: Option<&str>| Step {
-            verb: verb.to_string(),
-            target: target.to_string(),
-            state: StepState::Done,
-            result: result.map(|r| r.to_string()),
-        };
-        let activity = match self.screen {
-            AssistantScreen::Sheet => activity_group(
-                "assistant-activity",
-                vec![done("Read", "Annex A", None), done("Built", "the scoring matrix", None), done("Wrote", "vendor-scoring.xlsx", None)],
-                "Read Annex A",
-                "14 s",
-                ActivityState::Done,
-            )
-            .detail("\u{b7} built the matrix \u{b7} wrote vendor-scoring.xlsx")
-            .open(false),
-            _ => activity_group(
-                "assistant-activity",
-                vec![
-                    done("Searched", "Education Code", Some("4 passages")),
-                    done("Searched", "Procurement Rules 2019", Some("5 passages")),
-                    done("Searched", "GO 2024-18", Some("2 passages")),
-                ],
-                "Searched 3 knowledge sets",
-                "6 s",
-                ActivityState::Done,
-            )
-            .detail("\u{b7} read 2 regulations \u{b7} 11 passages")
-            .open(false),
-        };
-        // `assistant-Sources` closes with the sources card and the hover card
-        // held open over citation 1; the other two close with the artifact card.
-        let body: AnyElement = match self.screen {
-            AssistantScreen::Sources => {
+        let id = block.id.clone();
+        match &block.kind {
+            BlockKind::UserTurn { text } => div().w_full().flex().justify_end().child(user_turn(id, text.clone())).into_any_element(),
+            BlockKind::Activity { steps, summary, detail, elapsed, state, open } => {
+                let toggle = cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
+                    if let BlockKind::Activity { open, .. } = &mut this.transcript.blocks[index].kind {
+                        *open = !*open;
+                    }
+                    cx.notify();
+                });
+                let mut group = activity_group(id, steps.clone(), summary.clone(), elapsed.clone(), *state).open(*open).on_toggle(toggle);
+                if let Some(detail) = detail {
+                    group = group.detail(detail.clone());
+                }
+                group.into_any_element()
+            }
+            BlockKind::Answer { text, revealed, streaming } => {
+                let style = ProseStyle { ink: p.ink, code_ink: p.accent_ink, code_bg: p.accent_soft, size: BODY_TEXT, line_height: scale::LH_BODY, paragraph_gap: 10.0 };
+                cited_answer(id, revealed_text(text, *revealed), style).streaming(*streaming).into_any_element()
+            }
+            BlockKind::Approval { tool, command, reason, state } => {
+                let decide = cx.listener(move |this, decision: &ApprovalDecision, window, cx| this.decide(*decision, window, cx));
+                let card = approval_card(id, tool.clone(), command.clone(), state.clone())
+                    .reason(reason.clone())
+                    .cwd("~/Documents/Teacher recruitment RFP")
+                    .capabilities(["write files"])
+                    .rule("Write *.xlsx")
+                    .on_decide(move |decision, w, cx| decide(&decision, w, cx));
+                let pending = *state == ApprovalState::Pending;
+                let mut holder = div().w_full();
+                if pending {
+                    holder = holder
+                        .key_context(aui::keys::APPROVAL_CONTEXT)
+                        .track_focus(&self.focus_approval)
+                        .on_action(cx.listener(|this, _: &ApproveOnce, window, cx| this.decide(ApprovalDecision::Once, window, cx)))
+                        .on_action(cx.listener(|this, _: &ApproveAlways, window, cx| this.decide(ApprovalDecision::Always, window, cx)))
+                        .on_action(cx.listener(|this, _: &DenyAction, window, cx| this.decide(ApprovalDecision::Deny, window, cx)));
+                }
+                holder.child(card).into_any_element()
+            }
+            BlockKind::Question { prompt, subtitle, options, selected, answered } => {
+                if let Some(chip) = answered {
+                    return answered_row(id, vec![chip.clone()]).into_any_element();
+                }
+                let pick = cx.listener(move |this, choice: &usize, window, cx| this.answer_question(*choice, window, cx));
+                let card = question_card(id, prompt.clone(), options.clone())
+                    .subtitle(subtitle.clone())
+                    .selected(selected.map(|s| vec![s]).unwrap_or_default())
+                    .allow_other(true)
+                    .hint("\u{2191}\u{2193} to move \u{b7} \u{21a9} to choose")
+                    .on_select(move |choice, w, cx| pick(&choice, w, cx));
+                div()
+                    .w_full()
+                    .key_context(aui::keys::MENU_CONTEXT)
+                    .track_focus(&self.focus_question)
+                    .on_action(cx.listener(|this, _: &SelectNext, _, cx| this.move_question(1, cx)))
+                    .on_action(cx.listener(|this, _: &SelectPrev, _, cx| this.move_question(-1, cx)))
+                    .on_action(cx.listener(|this, _: &Confirm, window, cx| this.confirm_question(window, cx)))
+                    .child(card)
+                    .into_any_element()
+            }
+            BlockKind::FileCard { sheet } => self.file_card(id, *sheet, cx).into_any_element(),
+            BlockKind::Sources => {
                 let start = SOURCE_QUOTE.find(SOURCE_HIGHLIGHT).unwrap_or(0);
                 let hover = source_hover_card("assistant-hover", "Rule 14(2) \u{b7} Eligibility of bidders", SOURCE_QUOTE, start..start + SOURCE_HIGHLIGHT.len(), 31).at_rest();
-                sources_card("assistant-sources", Self::source_tiers()).cited(3).retrieved(11).hover_card(0, hover).into_any_element()
+                sources_card(id, Self::source_tiers()).cited(3).retrieved(11).hover_card(0, hover).into_any_element()
             }
-            _ => self.file_card(cx).into_any_element(),
-        };
-        v_flex()
+        }
+    }
+
+    fn render_transcript(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = cx.aui().colors;
+        let mut list = div()
+            .id("assistant-transcript")
             .flex_1()
             .min_h(px(0.0))
             .w_full()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
             .pt(px(TRANSCRIPT_PAD_TOP))
             .px(px(TRANSCRIPT_PAD_X))
-            .gap(px(BLOCK_GAP))
-            .child(div().w_full().flex().justify_end().child(user_turn("assistant-user-1", prompt)))
-            .child(activity)
-            .child(cited_answer("assistant-answer", answer, style).streaming(self.streaming))
-            .child(body)
-            .child(div().flex_1())
-            .child(
-                h_flex()
-                    .w_full()
-                    .pb(px(STATUS_PAD_BOTTOM))
-                    .gap(px(scale::SP_3))
-                    .ui(scale::FS_12)
-                    .text_color(p.ink_3)
-                    .child(status_dot("assistant-status-dot", AgentState::Done))
-                    .child("Done")
-                    .child("\u{b7}")
-                    .child(status),
-            )
+            .gap(px(BLOCK_GAP));
+        for (index, block) in self.transcript.blocks.iter().enumerate() {
+            list = list.child(self.render_block(index, block, cx));
+        }
+        let status = &self.transcript.status;
+        v_flex().flex_1().min_h(px(0.0)).w_full().child(list).child(
+            h_flex()
+                .w_full()
+                .px(px(TRANSCRIPT_PAD_X))
+                .pb(px(STATUS_PAD_BOTTOM))
+                .gap(px(scale::SP_3))
+                .ui(scale::FS_12)
+                .text_color(p.ink_3)
+                .child(status_dot("assistant-status-dot", status.state))
+                .child(status.label.clone())
+                .child("\u{b7}")
+                .child(status.detail.clone()),
+        )
     }
 
     /// `.fc`: the artifact card under the answer. The tile is surface-2 with
     /// the file type's tint, as `file_card()` builds it in the screen source.
-    fn file_card(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn file_card(&self, id: SharedString, sheet: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let p = cx.aui().colors;
-        let sheet = self.screen == AssistantScreen::Sheet;
         let (glyph, tint, name, desc) = if sheet {
             (IconName::Sheet, p.success, "vendor-scoring.xlsx", "Scores, Matrix and Notes sheets \u{b7} formulas live \u{b7} v1")
         } else {
@@ -329,6 +436,7 @@ impl AssistantMock {
         };
         let tab = if sheet { RightTab::Sheet } else { RightTab::Doc };
         h_flex()
+            .id(ElementId::from(id))
             .w_full()
             .gap(px(FILE_CARD_GAP))
             .py(px(FILE_CARD_PAD_Y))
@@ -364,23 +472,51 @@ impl AssistantMock {
     }
 
     fn render_composer(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let streaming = self.transcript.streaming_answer().is_some();
+        let menu = self.plus_open.then(|| {
+            popover_layer(
+                div()
+                    .key_context(aui::keys::MENU_CONTEXT)
+                    .on_action(cx.listener(|this, _: &Cancel, _, cx| {
+                        this.plus_open = false;
+                        cx.notify();
+                    }))
+                    .child(plus_menu(
+                        "assistant-plus-menu",
+                        vec![
+                            PlusMenuItem::new("attach", IconName::Paperclip, "Attach file").key("\u{2318}U"),
+                            PlusMenuItem::new("knowledge", IconName::Book, "Add knowledge source"),
+                            PlusMenuItem::new("mention", IconName::At, "Mention a document").key("@"),
+                            PlusMenuItem::new("commands", IconName::Slash, "Commands").key("/"),
+                        ],
+                        true,
+                    )),
+            )
+        });
         composer("assistant-composer", &self.composer, Provider::Claude, "Opus 4.6")
             .docked(true)
             .mode("Education + project")
             .knowledge_first(true)
-            .streaming(self.streaming)
-            .plus_menu(self.plus_open, None::<Div>)
+            .streaming(streaming)
+            .plus_menu(self.plus_open, menu)
             .on_intent({
-                let handler = cx.listener(|this, intent: &ComposerIntent, _, cx| {
-                    match intent {
-                        ComposerIntent::TogglePlus => this.plus_open = !this.plus_open,
-                        ComposerIntent::Send | ComposerIntent::Stop => this.streaming = !this.streaming,
-                        _ => {}
-                    }
-                    cx.notify();
-                });
+                let handler = cx.listener(|this, intent: &ComposerIntent, window, cx| this.on_intent(intent.clone(), window, cx));
                 move |intent, w, cx| handler(&intent, w, cx)
             })
+    }
+
+    /// Every composer intent, in one place, so the `AUI_GALLERY_STEPS` harness
+    /// can reach the same handlers a click does.
+    pub(super) fn on_intent(&mut self, intent: ComposerIntent, window: &mut Window, cx: &mut Context<Self>) {
+        match intent {
+            ComposerIntent::TogglePlus => {
+                self.plus_open = !self.plus_open;
+                cx.notify();
+            }
+            ComposerIntent::Send => self.send(window, cx),
+            ComposerIntent::Stop => self.stop(cx),
+            _ => {}
+        }
     }
 
     /// The "created in chat" strip. The document pane also lists the notes
@@ -493,10 +629,258 @@ impl AssistantMock {
             }
         }
     }
+
+    // ---- overlays -------------------------------------------------------
+
+    /// The commands the ⌘K palette offers.
+    fn palette_sections(&self, query: &str) -> Vec<PaletteSection> {
+        let items = vec![
+            PaletteItem::new("toggle-right", PaletteIcon::Glyph(IconName::PanelRight), "Toggle right pane").matching(query).key("\u{2318}").key("\\"),
+            PaletteItem::new("collapse-sidebar", PaletteIcon::Glyph(IconName::Sidebar), "Collapse sidebar").matching(query).key("\u{2318}").key("B"),
+            PaletteItem::new("new-session", PaletteIcon::Glyph(IconName::Plus), "New session").matching(query).key("\u{2318}").key("N"),
+        ];
+        let items: Vec<PaletteItem> = if query.is_empty() {
+            items
+        } else {
+            items.into_iter().filter(|i| i.label.to_lowercase().contains(&query.to_lowercase())).collect()
+        };
+        if items.is_empty() {
+            Vec::new()
+        } else {
+            vec![PaletteSection::new("Actions", items)]
+        }
+    }
+
+    /// Every row of the palette, in the order the arrows walk them.
+    fn palette_rows(&self, query: &str) -> Vec<SharedString> {
+        self.palette_sections(query).into_iter().flat_map(|s| s.items.into_iter().map(|i| i.id)).collect()
+    }
+
+    fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.palette.is_some() {
+            self.close_palette(cx);
+        } else {
+            self.palette = Some(Palette { query: SharedString::default(), selected: 0, restore: window.focused(cx) });
+            self.want_focus = Some(Focus::Palette);
+        }
+        cx.notify();
+    }
+
+    fn close_palette(&mut self, cx: &mut Context<Self>) {
+        if let Some(palette) = self.palette.take() {
+            match palette.restore {
+                Some(handle) => self.restore_focus = Some(handle),
+                None => self.want_focus = Some(Focus::Composer),
+            }
+        }
+        cx.notify();
+    }
+
+    fn move_palette(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let rows = self.palette.as_ref().map(|p| self.palette_rows(&p.query).len()).unwrap_or(0);
+        if rows == 0 {
+            return;
+        }
+        if let Some(palette) = &mut self.palette {
+            palette.selected = ((palette.selected as isize + delta).rem_euclid(rows as isize)) as usize;
+        }
+        cx.notify();
+    }
+
+    fn confirm_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(palette) = &self.palette else { return };
+        let rows = self.palette_rows(&palette.query);
+        let Some(id) = rows.get(palette.selected).cloned() else { return };
+        self.run_command(&id, window, cx);
+    }
+
+    /// Runs one palette command by id, whether it was clicked or confirmed.
+    fn run_command(&mut self, id: &str, _window: &mut Window, cx: &mut Context<Self>) {
+        match id {
+            "toggle-right" => self.right_open = !self.right_open,
+            "collapse-sidebar" => self.sidebar_open = !self.sidebar_open,
+            "new-session" => {
+                let n = self.new_sessions.len() + 1;
+                self.new_sessions.push(SharedString::from(format!("New session {n}")));
+                self.active_session = SharedString::from(format!("new-{}", n - 1));
+            }
+            _ => {}
+        }
+        self.close_palette(cx);
+    }
+
+    fn render_palette(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let palette = self.palette.as_ref()?;
+        let p = cx.aui().colors;
+        let sections = self.palette_sections(&palette.query);
+        let selected = palette.selected;
+        let hover = cx.listener(|this, index: &usize, _, cx| {
+            if let Some(palette) = &mut this.palette {
+                palette.selected = *index;
+            }
+            cx.notify();
+        });
+        let select = cx.listener(|this, id: &SharedString, window, cx| this.run_command(id.as_ref(), window, cx));
+        let dismiss = cx.listener(|this, _: &gpui::ClickEvent, _, cx| this.close_palette(cx));
+        let _ = p;
+        Some(
+            popover_layer(
+                div()
+                    .id("assistant-palette-layer")
+                    .absolute()
+                    .inset_0()
+                    .bg(black().opacity(SCRIM_TINT))
+                    .on_click(dismiss)
+                    .child(
+                        h_flex()
+                            .absolute()
+                            .inset_0()
+                            .justify_center()
+                            .items_start()
+                            .pt(px(PALETTE_TOP))
+                            .child(
+                                div()
+                                    .key_context(aui::keys::MENU_CONTEXT)
+                                    .track_focus(&self.focus_palette)
+                                    .on_action(cx.listener(|this, _: &SelectNext, _, cx| this.move_palette(1, cx)))
+                                    .on_action(cx.listener(|this, _: &SelectPrev, _, cx| this.move_palette(-1, cx)))
+                                    .on_action(cx.listener(|this, _: &Confirm, window, cx| this.confirm_palette(window, cx)))
+                                    .on_action(cx.listener(|this, _: &Cancel, _, cx| this.close_palette(cx)))
+                                    .child(
+                                        command_palette("assistant-palette", palette.query.clone(), sections, selected)
+                                            .placeholder("Search actions, sessions, documents\u{2026}")
+                                            .on_hover(move |index, w, cx| hover(&index, w, cx))
+                                            .on_select(move |id, w, cx| select(id, w, cx))
+                                            .on_dismiss({
+                                            let close = cx.listener(|this, _: &(), _, cx| this.close_palette(cx));
+                                            move |w, cx| close(&(), w, cx)
+                                        }),
+                                    ),
+                            ),
+                    ),
+            )
+            .into_any_element(),
+        )
+    }
+
+    fn render_toasts(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.toasts.is_empty() {
+            return None;
+        }
+        // The dismiss timers hold while the pointer is over the stack, so the
+        // hover flag is read back out of the frame's interaction state.
+        let (state, flags) = interaction_flags("assistant-toasts", window, cx);
+        self.toast_hovered = flags.hovered;
+        let close = cx.listener(|this, _: &(), _, cx| {
+            this.toasts.pop();
+            cx.notify();
+        });
+        Some(
+            popover_layer(
+                div()
+                    .id("assistant-toasts")
+                    .absolute()
+                    .right(px(TOAST_INSET))
+                    .bottom(px(TOAST_INSET))
+                    .w(px(TOAST_COLUMN))
+                    .h(px(TOAST_STACK_H))
+                    .track_interaction(&state)
+                    .child(toast_stack("assistant-toast-stack", self.toasts.clone()).on_action(|_, _, _| {}).on_close(move |w, cx| close(&(), w, cx))),
+            )
+            .into_any_element(),
+        )
+    }
+
+    // ---- the AUI_GALLERY_STEPS harness ----------------------------------
+
+    /// Applies one step of `AUI_GALLERY_STEPS`. Every step goes through the
+    /// same action or intent the UI produces, never straight into the model.
+    fn apply_step(&mut self, step: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let dispatch = |action: Box<dyn Action>, window: &mut Window, cx: &mut App| window.dispatch_action(action, cx);
+        match step.split_once(':') {
+            Some(("send", text)) => {
+                let text = text.to_string();
+                self.composer.update(cx, |state, cx| state.set_value(text, window, cx));
+                self.on_intent(ComposerIntent::Send, window, cx);
+            }
+            Some(("answer", n)) => {
+                let choice = n.parse::<usize>().unwrap_or(1).saturating_sub(1);
+                self.answer_question(choice, window, cx);
+            }
+            _ => match step {
+                "cmdk" => dispatch(Box::new(TogglePalette), window, cx),
+                "cmdb" => dispatch(Box::new(ToggleSidebar), window, cx),
+                "cmdright" => dispatch(Box::new(ToggleRightPane), window, cx),
+                "up" => dispatch(Box::new(SelectPrev), window, cx),
+                "down" => dispatch(Box::new(SelectNext), window, cx),
+                "enter" => dispatch(Box::new(Confirm), window, cx),
+                "esc" => dispatch(Box::new(Cancel), window, cx),
+                "tab" => dispatch(Box::new(FocusNext), window, cx),
+                "shift-tab" => dispatch(Box::new(FocusPrev), window, cx),
+                "approve" => dispatch(Box::new(ApproveOnce), window, cx),
+                "always" => dispatch(Box::new(ApproveAlways), window, cx),
+                "deny" => dispatch(Box::new(DenyAction), window, cx),
+                "stop" => self.on_intent(ComposerIntent::Stop, window, cx),
+                "plus" => self.on_intent(ComposerIntent::TogglePlus, window, cx),
+                // `shot` is a marker for `--screenshot-delay`; it does nothing.
+                "shot" | "" => {}
+                other => eprintln!("AUI_GALLERY_STEPS: unknown step `{other}`"),
+            },
+        }
+    }
+
+    /// Starts the harness after the first frame.
+    fn start_steps(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let steps = std::mem::take(&mut self.steps);
+        let this = cx.entity().downgrade();
+        let task = window.spawn(cx, async move |cx| {
+            cx.background_executor().timer(STEPS_DELAY).await;
+            for step in steps {
+                if let Some(ms) = step.strip_prefix("wait:") {
+                    let ms: u64 = ms.parse().unwrap_or(0);
+                    cx.background_executor().timer(Duration::from_millis(ms)).await;
+                    continue;
+                }
+                if this.update_in(cx, |this, window, cx| this.apply_step(&step, window, cx)).is_err() {
+                    return;
+                }
+            }
+        });
+        self.tasks.push(task);
+    }
+}
+
+/// `AUI_GALLERY_STEPS` split into steps, empty when the variable is unset.
+fn steps_from_env() -> Vec<String> {
+    std::env::var("AUI_GALLERY_STEPS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 impl Render for AssistantMock {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Focus requests parked by the async script (which holds no Window).
+        if let Some(handle) = self.restore_focus.take() {
+            window.focus(&handle, cx);
+        } else if let Some(target) = self.want_focus.take() {
+            let handle = match target {
+                Focus::Composer => self.composer.focus_handle(cx),
+                Focus::Palette => self.focus_palette.clone(),
+                Focus::Approval => self.focus_approval.clone(),
+                Focus::Question => self.focus_question.clone(),
+            };
+            window.focus(&handle, cx);
+        }
+        if !self.started {
+            self.started = true;
+            if !self.steps.is_empty() {
+                self.start_steps(window, cx);
+            }
+        }
+
         // `dtabs()` keeps the two chat-created files and adds the open PDF
         // only when it is the one being read.
         let mut tabs = vec![
@@ -524,61 +908,96 @@ impl Render for AssistantMock {
         let transcript = self.render_transcript(window, cx);
         let composer = self.render_composer(cx);
         let right = self.render_right(cx);
-        div().size_full().child(
-            app_shell("assistant-shell")
-                .traffic_lights(true)
-                .right_open(self.right_open)
-                .sidebar_open(self.sidebar_open)
-                .header_sidebar(
-                    sidebar_header("assistant-hd-side").traffic_lights(true).collapsed(!self.sidebar_open).on_toggle_sidebar(cx.listener(
-                        |this, _, _, cx| {
-                            this.sidebar_open = !this.sidebar_open;
-                            cx.notify();
-                        },
-                    )),
-                )
-                .header_centre({
-                    let mut centre = centre_header("assistant-hd-centre", "Teacher recruitment RFP")
-                        .glyph(IconName::GradCap)
-                        .branch(self.screen.branch())
-                        .on_toggle_right(cx.listener(|this, _, _, cx| {
-                            this.right_open = !this.right_open;
-                            cx.notify();
-                        }));
-                    if !self.sidebar_open {
-                        centre = centre.on_expand_sidebar(cx.listener(|this, _, _, cx| {
-                            this.sidebar_open = true;
-                            cx.notify();
-                        }));
-                    }
-                    centre
-                })
-                .header_right(
-                    right_header("assistant-hd-right")
-                        .tabs(strip)
-                        .on_add(|_, _, _| {})
-                        .on_close(cx.listener(|this, _, _, cx| {
-                            this.right_open = false;
-                            cx.notify();
-                        })),
-                )
-                .sidebar(sidebar)
-                .rail(rail)
-                .centre(v_flex().size_full().child(transcript).child(composer))
-                .right(right),
-        )
+        let palette = self.render_palette(cx);
+        let toasts = self.render_toasts(window, cx);
+        div()
+            .size_full()
+            .relative()
+            .key_context(aui::keys::ROOT_CONTEXT)
+            .track_focus(&self.focus_root)
+            .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
+                this.sidebar_open = !this.sidebar_open;
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ToggleRightPane, _, cx| {
+                this.right_open = !this.right_open;
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &TogglePalette, window, cx| this.toggle_palette(window, cx)))
+            .on_action(cx.listener(|this, _: &Cancel, _, cx| {
+                if this.palette.is_some() {
+                    this.close_palette(cx);
+                } else if this.plus_open {
+                    this.plus_open = false;
+                    cx.notify();
+                }
+            }))
+            // Tab is keyboard navigation, so it arms the focus ring.
+            .on_action(|_: &FocusNext, window, cx| {
+                aui::keys::set_keyboard_nav(true, cx);
+                window.focus_next(cx);
+            })
+            .on_action(|_: &FocusPrev, window, cx| {
+                aui::keys::set_keyboard_nav(true, cx);
+                window.focus_prev(cx);
+            })
+            .child(
+                app_shell("assistant-shell")
+                    .traffic_lights(true)
+                    .right_open(self.right_open)
+                    .sidebar_open(self.sidebar_open)
+                    .header_sidebar(
+                        sidebar_header("assistant-hd-side").traffic_lights(true).collapsed(!self.sidebar_open).on_toggle_sidebar(cx.listener(
+                            |this, _, _, cx| {
+                                this.sidebar_open = !this.sidebar_open;
+                                cx.notify();
+                            },
+                        )),
+                    )
+                    .header_centre({
+                        let mut centre = centre_header("assistant-hd-centre", "Teacher recruitment RFP")
+                            .glyph(IconName::GradCap)
+                            .branch(self.screen.branch())
+                            .on_toggle_right(cx.listener(|this, _, _, cx| {
+                                this.right_open = !this.right_open;
+                                cx.notify();
+                            }));
+                        if !self.sidebar_open {
+                            centre = centre.on_expand_sidebar(cx.listener(|this, _, _, cx| {
+                                this.sidebar_open = true;
+                                cx.notify();
+                            }));
+                        }
+                        centre
+                    })
+                    .header_right(
+                        right_header("assistant-hd-right")
+                            .tabs(strip)
+                            .on_add(|_, _, _| {})
+                            .on_close(cx.listener(|this, _, _, cx| {
+                                this.right_open = false;
+                                cx.notify();
+                            })),
+                    )
+                    .sidebar(sidebar)
+                    .rail(rail)
+                    .centre(v_flex().size_full().child(transcript).child(composer))
+                    .right(right),
+            )
+            .children(palette)
+            .children(toasts)
     }
 }
 
 /// One mock in window state, keyed so the `screens/all` page can hold three.
-pub fn mock(key: &'static str, screen: AssistantScreen, window: &mut Window, cx: &mut App) -> AnyElement {
-    let view = window.use_keyed_state(SharedString::from(key), cx, move |window, cx| AssistantMock::new(screen, window, cx));
+pub fn mock(key: &'static str, screen: AssistantScreen, scripted: bool, window: &mut Window, cx: &mut App) -> AnyElement {
+    let view = window.use_keyed_state(SharedString::from(key), cx, move |window, cx| AssistantMock::new(screen, scripted, window, cx));
     div().size_full().child(view).into_any_element()
 }
 
 /// The `screens/assistant` entry: the screen named by `AUI_GALLERY_SCREEN`.
 pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
-    mock("assistant-mock", AssistantScreen::from_env(), window, cx)
+    mock("assistant-mock", AssistantScreen::from_env(), true, window, cx)
 }
 
 /// `screens/all`: the three assistant screens side by side at their reference
@@ -605,7 +1024,7 @@ pub fn build_all(window: &mut Window, cx: &mut App) -> AnyElement {
                         .child(div().ui(scale::FS_13).semibold().text_color(p.ink).child(screen.caption()))
                         .child(div().mono(scale::FS_11).text_color(p.ink_3).child("1440\u{d7}900")),
                 )
-                .child(div().w(px(SCREEN_W)).h(px(SCREEN_H)).flex_none().overflow_hidden().child(mock(key, screen, window, cx))),
+                .child(div().w(px(SCREEN_W)).h(px(SCREEN_H)).flex_none().overflow_hidden().child(mock(key, screen, false, window, cx))),
         );
     }
     div().id("screens-all").size_full().overflow_x_scroll().child(row).into_any_element()
