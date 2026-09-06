@@ -11,7 +11,7 @@ mod types;
 mod view_menu;
 mod views;
 
-pub use parts::{chevron, group_header, group_row, nav_item, sidebar_footer, GroupHeader, GroupRow, NavItem, SidebarFooter};
+pub use parts::{chevron, chevron_sized, group_header, group_row, nav_item, sidebar_footer, GroupHeader, GroupRow, NavItem, SidebarFooter};
 pub use session_row::{compact_session_row, session_row, CompactSessionRow, RowAction, SessionRow};
 pub use types::{Activity, ActivityKind, MetaItem, SessionSummary};
 pub use rail::{rail, Rail, RailItem, RAIL_WIDTH};

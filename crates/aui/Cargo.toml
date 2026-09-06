@@ -13,3 +13,17 @@ aui-icons.workspace = true
 aui-motion.workspace = true
 aui-protocol.workspace = true
 anyhow.workspace = true
+
+[features]
+default = []
+# Route `transcript::syntax_runs` through gpui-kit's tree-sitter highlighter
+# (gpui-component's `SyntaxHighlighter`) instead of the small lexer. Off by
+# default: it pulls five grammar crates and their C sources.
+tree-sitter = [
+    "gpui-kit/tree-sitter",
+    "gpui-kit/tree-sitter-rust",
+    "gpui-kit/tree-sitter-typescript",
+    "gpui-kit/tree-sitter-tsx",
+    "gpui-kit/tree-sitter-python",
+    "gpui-kit/tree-sitter-bash",
+]

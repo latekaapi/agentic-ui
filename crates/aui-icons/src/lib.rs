@@ -500,4 +500,69 @@ mod tests {
         assert_eq!(Provider::ALL.len(), 6);
         assert_eq!(RoleIcon::Scale.icon(), IconName::Scale);
     }
+
+    #[test]
+    fn typescript_extensions_all_land_on_ts() {
+        use FileType::*;
+        for (path, expected) in [
+            ("src/app.mts", Ts),
+            ("src/app.cts", Ts),
+            ("src/app.tsx", Tsx),
+            ("tsconfig.jsonc", Json),
+            ("notes.mdx", Md),
+            ("theme.scss", Css),
+            ("theme.sass", Css),
+            ("theme.less", Css),
+            ("hero.jpeg", Image),
+            ("hero.webp", Image),
+            ("anim.gif", Image),
+        ] {
+            assert_eq!(FileType::from_path(path), expected, "path `{path}`");
+        }
+    }
+
+    #[test]
+    fn a_directory_prefix_never_changes_the_type() {
+        assert_eq!(FileType::from_path("a/b/c/x.spec.tsx"), FileType::Test);
+        assert_eq!(FileType::from_path("app/package-lock.json"), FileType::Lock);
+        // Windows separators too: only the last segment is the file name.
+        assert_eq!(FileType::from_path(r"src\ui\app.ts"), FileType::Ts);
+        assert_eq!(FileType::from_path(r"C:\repo\Cargo.lock"), FileType::Lock);
+        // A dot in a directory name is not the file's extension.
+        assert_eq!(FileType::from_path("v1.2/README"), FileType::File);
+    }
+
+    #[test]
+    fn test_and_lock_patterns_win_over_the_extension() {
+        assert_eq!(FileType::from_path("api.test.ts"), FileType::Test);
+        assert_eq!(FileType::from_path("api.spec.json"), FileType::Test);
+        assert_eq!(FileType::from_path("Api.Test.TS"), FileType::Test);
+        assert_eq!(FileType::from_path("deps.lock"), FileType::Lock);
+        // `test` has to be its own dotted segment.
+        assert_eq!(FileType::from_path("latest.ts"), FileType::Ts);
+    }
+
+    #[test]
+    fn names_without_a_usable_extension_are_generic_files() {
+        for path in ["", "Makefile", "LICENSE", ".gitignore", "archive.tar.zzz", "src/"] {
+            assert_eq!(FileType::from_path(path), FileType::File, "path `{path}`");
+        }
+    }
+
+    #[test]
+    fn from_path_never_infers_a_directory() {
+        for path in ["src", "src/", "folder.ts", "node_modules"] {
+            let ft = FileType::from_path(path);
+            assert!(ft != FileType::Folder && ft != FileType::FolderOpen, "path `{path}` inferred {ft:?}");
+        }
+    }
+
+    #[test]
+    fn every_file_type_has_a_distinct_glyph_and_a_defined_hue() {
+        let glyphs: std::collections::HashSet<IconName> = FileType::ALL.iter().map(|ft| ft.icon()).collect();
+        assert_eq!(glyphs.len(), FileType::ALL.len(), "two file types share a glyph");
+
+        let hued: Vec<FileType> = FileType::ALL.iter().copied().filter(|ft| ft.hue().is_some()).collect();
+        assert_eq!(hued, vec![FileType::Ts, FileType::Tsx, FileType::Json, FileType::Md, FileType::Test, FileType::Css]);
+    }
 }

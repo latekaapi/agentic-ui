@@ -127,4 +127,71 @@ mod tests {
         assert_eq!(SpringKind::Press.describe(), "500 / 30 / 0.6");
         assert_eq!(SpringKind::Layout.describe(), "360 / 32 / 1");
     }
+
+    /// The four kinds, in card order.
+    const KINDS: [SpringKind; 4] = [SpringKind::Press, SpringKind::Swap, SpringKind::Layout, SpringKind::Gentle];
+
+    #[test]
+    fn every_kind_carries_positive_physical_parameters() {
+        for kind in KINDS {
+            let c = kind.config();
+            assert!(c.stiffness > 0.0 && c.damping > 0.0 && c.mass > 0.0, "{kind:?} has a non-physical config");
+        }
+    }
+
+    #[test]
+    fn configs_match_motion_json() {
+        assert_eq!(SpringKind::Swap.describe(), "460 / 30 / 0.55");
+        assert_eq!(SpringKind::Gentle.describe(), "200 / 26 / 1");
+        assert_eq!(SpringKind::Swap.config().mass, 0.55);
+        assert_eq!(SpringKind::Gentle.config().stiffness, 200.0);
+    }
+
+    #[test]
+    fn labels_are_the_lowercase_card_names_and_are_distinct() {
+        let labels: Vec<&str> = KINDS.iter().map(|k| k.label()).collect();
+        assert_eq!(labels, vec!["press", "swap", "layout", "gentle"]);
+        let unique: std::collections::HashSet<&str> = labels.iter().copied().collect();
+        assert_eq!(unique.len(), labels.len());
+    }
+
+    #[test]
+    fn the_policy_is_the_config_in_canonical_form() {
+        for kind in KINDS {
+            let (omega, zeta) = kind.config().canonical();
+            let expected = Spring::new(Duration::from_secs_f32(std::f32::consts::TAU / omega)).with_damping(zeta);
+            // `Spring`'s fields are private; its Debug is the only equality on offer.
+            assert_eq!(format!("{:?}", kind.policy()), format!("{expected:?}"), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn the_pixel_policy_only_coarsens_the_tolerance() {
+        for kind in KINDS {
+            assert_eq!(format!("{:?}", kind.policy_px()), format!("{:?}", kind.policy().with_epsilon(0.1)), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn every_spring_settles_at_its_target() {
+        for kind in KINDS {
+            let cfg = kind.config();
+            let mut state = gpui::SpringState { position: 0.0, velocity: 0.0 };
+            // A fixed 120 Hz step over the reported settle time, plus a margin.
+            let steps = (kind.settle_time().as_secs_f32() * 120.0).ceil() as usize + 12;
+            for _ in 0..steps {
+                state = cfg.step(state, 1.0, 1.0 / 120.0);
+            }
+            assert!((state.position - 1.0).abs() < 0.01, "{kind:?} rests at {}", state.position);
+            assert!(state.velocity.abs() < 0.1, "{kind:?} is still moving at {}", state.velocity);
+        }
+    }
+
+    #[test]
+    fn settle_times_are_positive_and_ordered_by_stiffness() {
+        let times: Vec<u128> = KINDS.iter().map(|k| k.settle_time().as_millis()).collect();
+        assert!(times.iter().all(|&t| t > 0), "a spring settles instantly: {times:?}");
+        assert!(times[0] < times[2], "press should settle before layout: {times:?}");
+        assert!(times[1] < times[3], "swap should settle before gentle: {times:?}");
+    }
 }

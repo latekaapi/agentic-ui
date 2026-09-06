@@ -7,14 +7,14 @@
 //! The segmented control ([`segmented`]) is exported on its own: cards 51 and
 //! 53 use the same track.
 
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
-use aui_motion::{child_id, spring_phase, tween, SpringKind, Tween};
+use aui_motion::{child_id, spring_px, tween, SpringKind, Tween};
 use aui_protocol::{ChangeKind, Diff, DiffKind, FileChange};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
-use gpui::{div, prelude::*, px, relative, App, ElementId, Hsla, IntoElement, SharedString, StyledText, TextRun, Window};
-use gpui_kit::base::{h_flex, v_flex};
+use gpui::{div, prelude::*, px, relative, App, Bounds, ElementId, Hsla, IntoElement, Pixels, SharedString, StyledText, TextRun, Window};
+use gpui_kit::base::{h_flex, v_flex, ElementExt};
 
 use crate::data::{button, icon_button, pill, ButtonSize, PillVariant};
 use crate::util::{interaction_flags, TrackInteraction};
@@ -254,8 +254,16 @@ type Handler = Rc<dyn Fn(DiffReviewAction, &mut Window, &mut App)>;
 
 type SelectHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 
-/// `.seg`: a surface-2 track of 24 px segments; the active one is a surface-1
-/// thumb at elevation 1. Build with [`segmented`].
+/// Previous-frame geometry the sliding thumb is positioned from.
+#[derive(Default)]
+struct SegGeometry {
+    track: Option<Bounds<Pixels>>,
+    segments: Vec<Option<Bounds<Pixels>>>,
+}
+
+/// `.seg`: a surface-2 track of 24 px segments; the active one wears a single
+/// surface-1 thumb at elevation 1 that *slides* between segments on the layout
+/// spring rather than cross-fading. Build with [`segmented`].
 #[derive(IntoElement)]
 pub struct Segmented {
     id: ElementId,
@@ -281,12 +289,65 @@ impl RenderOnce for Segmented {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let mut track = h_flex().flex_none().p(px(SEG_PAD)).gap(px(SEG_GAP)).rounded(px(scale::R_SM)).bg(p.surface_2);
+        let count = self.labels.len();
+
+        let geometry = window
+            .use_keyed_state((id.clone(), "seg-geometry"), cx, |_, _| Rc::new(RefCell::new(SegGeometry::default())))
+            .read(cx)
+            .clone();
+
+        // The thumb is placed from last frame's bounds: an absolute `left` is
+        // measured from the track's content box while the captured track
+        // bounds are its border box, so the track's own padding comes back out.
+        // The first frame has no bounds yet — draw nothing and ask for another.
+        let target = {
+            let g = geometry.borrow();
+            match (g.track, g.segments.get(self.active).copied().flatten()) {
+                (Some(track), Some(seg)) => Some((seg.origin.x - track.origin.x - px(SEG_PAD), seg.size.width)),
+                _ => None,
+            }
+        };
+        // Reduced motion snaps: `spring_px` resolves instantly.
+        let thumb = match target {
+            Some((left, width)) => {
+                let left = spring_px((id.clone(), "thumb-left"), left, SpringKind::Layout, window, cx);
+                let width = spring_px((id.clone(), "thumb-width"), width, SpringKind::Layout, window, cx);
+                Some(
+                    div()
+                        .absolute()
+                        .top(px(0.0))
+                        .left(left)
+                        .w(width.max(px(0.0)))
+                        .h(px(SEG_H))
+                        .rounded(px(SEG_RADIUS))
+                        .bg(p.surface_1)
+                        .shadow(p.shadow(1)),
+                )
+            }
+            None => {
+                window.request_animation_frame();
+                None
+            }
+        };
+
+        // The thumb is the track's first child so the labels paint over it.
+        let mut track = h_flex()
+            .id((id.clone(), "track"))
+            .relative()
+            .flex_none()
+            .p(px(SEG_PAD))
+            .gap(px(SEG_GAP))
+            .rounded(px(scale::R_SM))
+            .bg(p.surface_2)
+            .on_prepaint({
+                let geometry = geometry.clone();
+                move |bounds, _, _| geometry.borrow_mut().track = Some(bounds)
+            })
+            .children(thumb);
         for (i, label) in self.labels.into_iter().enumerate() {
             let on = i == self.active;
             let seg_id: ElementId = child_id(id.clone(), i);
-            // The thumb swaps on the swap spring; the label colour follows on the fast tween.
-            let phase = spring_phase((seg_id.clone(), "thumb"), on, SpringKind::Swap, window, cx).clamp(0.0, 1.0);
+            // The label colour follows the thumb on the fast tween.
             let text = tween((seg_id.clone(), "text"), if on { p.ink } else { p.ink_3 }, Tween::FAST, window, cx);
             let select = self.on_select.clone();
             track = track.child(
@@ -304,7 +365,16 @@ impl RenderOnce for Segmented {
                     .line_height(relative(1.0))
                     .text_color(text)
                     .whitespace_nowrap()
-                    .child(div().absolute().inset_0().rounded(px(SEG_RADIUS)).bg(p.surface_1).shadow(p.shadow(1)).opacity(phase))
+                    .on_prepaint({
+                        let geometry = geometry.clone();
+                        move |bounds, _, _| {
+                            let mut g = geometry.borrow_mut();
+                            if g.segments.len() < count {
+                                g.segments.resize(count, None);
+                            }
+                            g.segments[i] = Some(bounds);
+                        }
+                    })
                     .child(div().relative().child(label))
                     .on_click(move |_, w, cx| {
                         if let Some(f) = &select {

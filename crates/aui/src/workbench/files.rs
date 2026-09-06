@@ -11,9 +11,9 @@
 use std::rc::Rc;
 
 use aui_icons::{icon, FileType, IconName};
-use aui_motion::{spring_phase, tint_fade, SpringKind, Tween};
+use aui_motion::{tint_fade, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
-use gpui::{div, prelude::*, px, radians, App, ElementId, Hsla, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, App, ElementId, Hsla, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, ButtonSize};
@@ -39,7 +39,7 @@ const ROW_PAD: f32 = 6.0;
 const INDENT_BASE: f32 = 4.0;
 const INDENT_STEP: f32 = 14.0;
 /// `.n .chev{width:10px;height:10px}` — narrower than the shared 12 px
-/// [`crate::nav::chevron`], so the rotation is applied here.
+/// [`crate::nav::chevron`], so the row asks for [`crate::nav::chevron_sized`].
 const CHEVRON: f32 = 10.0;
 /// `.n .fic{width:14px;height:14px}`.
 const FILE_ICON: f32 = 14.0;
@@ -298,13 +298,7 @@ fn tree_row(id: impl Into<ElementId>, node: FileNode, on_action: Option<ActionHa
         .track_interaction(&state);
 
     if let Some(open) = node.open {
-        let phase = spring_phase((id.clone(), "chevron"), open, SpringKind::Swap, window, cx);
-        row = row.child(
-            icon(IconName::Chev)
-                .size(px(CHEVRON))
-                .color(p.ink_3)
-                .rotate(radians(phase * std::f32::consts::FRAC_PI_2)),
-        );
+        row = row.child(crate::nav::chevron_sized(id.clone(), open, p.ink_3, CHEVRON, window, cx));
     }
     row = row
         .child(icon(node.kind.icon()).size(px(FILE_ICON)).color(icon_color))

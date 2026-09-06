@@ -9,10 +9,10 @@
 
 use std::rc::Rc;
 
-use aui_icons::{icon, FileType, IconName};
-use aui_motion::{collapse, spring_phase, SpringKind};
+use aui_icons::{icon, FileType};
+use aui_motion::collapse;
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
-use gpui::{div, prelude::*, px, radians, AnyElement, App, ElementId, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::tag;
@@ -306,7 +306,7 @@ impl RenderOnce for ProjectGroupRow {
         let p = cx.aui().colors;
         let id = self.id.clone();
         // `.pj .chev{width:11px}` rotates 0° → 90° on the swap spring.
-        let phase = spring_phase((id.clone(), "chevron"), self.open, SpringKind::Swap, window, cx);
+        let chev = super::chevron_sized(id.clone(), self.open, p.ink_3, PJ_CHEVRON, window, cx);
         let folder = if self.open { FileType::FolderOpen } else { FileType::Folder };
         let mut row = h_flex()
             .id(id)
@@ -320,7 +320,7 @@ impl RenderOnce for ProjectGroupRow {
             .ui(PJ_TEXT)
             .text_color(if self.muted { p.ink_3 } else { p.ink })
             .cursor_pointer()
-            .child(icon(IconName::Chev).size(px(PJ_CHEVRON)).color(p.ink_3).rotate(radians(phase * std::f32::consts::FRAC_PI_2)))
+            .child(chev)
             .child(icon(folder.icon()).size(px(FIC)).color(p.ink_3))
             .child(
                 div()

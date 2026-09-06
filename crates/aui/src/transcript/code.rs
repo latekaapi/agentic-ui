@@ -13,7 +13,7 @@ use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, icon_button, pill, ButtonSize, PillVariant};
 use crate::icons::{icon, IconName};
-use crate::transcript::syntax::syntax_runs;
+use crate::transcript::syntax::syntax_runs_in;
 use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.cb .hd{height:30px;gap:8px;padding:0 6px 0 12px;font:500 11.5px mono}`.
@@ -209,9 +209,10 @@ impl RenderOnce for CodeBlock {
         let after: Vec<gpui::AnyElement> = self.language.iter().map(|l| div().text_color(p.ink_3).child(l.clone()).into_any_element()).collect();
         let header = block_header(&p, IconName::File, self.path.clone(), after, actions, flags.hovered, window, cx, &id);
 
+        let language = self.language.clone();
         let mut body = v_flex().w_full().py(px(CODE_PAD_Y)).px(px(CODE_PAD_X)).mono(scale::FS_12).line_height(relative(CODE_LH)).text_color(p.term_fg).whitespace_nowrap();
         for (i, line) in self.code.lines().enumerate() {
-            let runs = syntax_runs(line, &p, scale::FONT_MONO);
+            let runs = syntax_runs_in(line, language.as_deref(), &p, scale::FONT_MONO);
             let text = if line.is_empty() { " ".to_string() } else { line.to_string() };
             let runs = if line.is_empty() { Vec::new() } else { runs };
             let styled = if runs.is_empty() { StyledText::new(text) } else { StyledText::new(text).with_runs(runs) };

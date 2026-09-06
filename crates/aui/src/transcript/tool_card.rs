@@ -115,12 +115,16 @@ impl ToolCard {
 }
 
 /// `12.4 s`, `1 m 12 s`, `0.3 s`.
+///
+/// Rounded to tenths *before* the branch: 59 999 ms reads `1 m 00 s`, not the
+/// `60.0 s` a raw comparison would print.
 pub fn format_duration(ms: u64) -> String {
-    if ms >= 60_000 {
-        let s = ms / 1000;
+    let tenths = (ms + 50) / 100;
+    if tenths >= 600 {
+        let s = tenths / 10;
         format!("{} m {:02} s", s / 60, s % 60)
     } else {
-        format!("{:.1} s", ms as f64 / 1000.0)
+        format!("{}.{} s", tenths / 10, tenths % 10)
     }
 }
 
@@ -377,4 +381,37 @@ fn mcp_body(p: &Palette, params: &[(String, String)], result_json: &str) -> impl
         body = body.child(h_flex().gap(px(scale::SP_3)).child(div().text_color(p.ink_3).child(k.clone())).child(div().child(v.clone())));
     }
     body.child(div().text_color(p.ink_2).child(result_json.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn durations_under_a_minute_print_tenths_of_a_second() {
+        assert_eq!(format_duration(0), "0.0 s");
+        assert_eq!(format_duration(300), "0.3 s");
+        assert_eq!(format_duration(999), "1.0 s");
+        assert_eq!(format_duration(1_000), "1.0 s");
+        assert_eq!(format_duration(12_400), "12.4 s");
+        assert_eq!(format_duration(59_000), "59.0 s");
+    }
+
+    #[test]
+    fn a_minute_and_over_prints_minutes_and_padded_seconds() {
+        // Rounding decides the branch, so 59 999 ms is already a minute.
+        assert_eq!(format_duration(59_999), "1 m 00 s");
+        assert_eq!(format_duration(60_000), "1 m 00 s");
+        assert_eq!(format_duration(61_000), "1 m 01 s");
+        assert_eq!(format_duration(72_000), "1 m 12 s");
+        assert_eq!(format_duration(3_600_000), "60 m 00 s");
+    }
+
+    #[test]
+    fn the_seconds_branch_never_prints_sixty_seconds() {
+        for ms in 59_900..=60_100 {
+            let out = format_duration(ms);
+            assert!(!out.starts_with("60.") && !out.starts_with("60 s"), "{ms} ms printed `{out}`");
+        }
+    }
 }

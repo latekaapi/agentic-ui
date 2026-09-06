@@ -222,4 +222,115 @@ mod tests {
         assert_eq!(text, "a b c");
         assert_eq!(runs.iter().map(|r| r.len).sum::<usize>(), text.len());
     }
+
+    /// A style with distinguishable colours, for the run assertions.
+    fn style() -> ProseStyle {
+        ProseStyle { ink: gpui::black(), code_ink: gpui::red(), code_bg: gpui::white(), size: 13.5, line_height: 1.65, paragraph_gap: 10.0 }
+    }
+
+    #[test]
+    fn a_bold_lead_splits_from_the_rest_of_the_line() {
+        assert_eq!(parse_inline("**Lead** rest"), vec![Span::Bold("Lead".into()), Span::Text(" rest".into())]);
+    }
+
+    #[test]
+    fn bold_in_the_middle_keeps_both_sides() {
+        assert_eq!(parse_inline("a **b** c"), vec![Span::Text("a ".into()), Span::Bold("b".into()), Span::Text(" c".into())]);
+    }
+
+    #[test]
+    fn a_single_star_is_literal_text() {
+        assert_eq!(parse_inline("2 * 3 = 6"), vec![Span::Text("2 * 3 = 6".into())]);
+    }
+
+    #[test]
+    fn inline_code_switches_to_the_mono_face_and_ground() {
+        let style = style();
+        let (text, r) = runs(&parse_inline("run `cargo test` now"), &style);
+        assert_eq!(text, "run cargo test now");
+        assert_eq!(r.len(), 3);
+        assert_eq!(&*r[0].font.family, scale::FONT_UI);
+        assert_eq!(&*r[1].font.family, scale::FONT_MONO);
+        assert_eq!(r[1].color, style.code_ink);
+        assert_eq!(r[1].background_color, Some(style.code_bg));
+        assert_eq!(r[2].background_color, None);
+    }
+
+    #[test]
+    fn bold_runs_are_semibold_in_the_ui_face() {
+        let (_, r) = runs(&parse_inline("**Lead** rest"), &style());
+        assert_eq!(r[0].font.weight, FontWeight::SEMIBOLD);
+        assert_eq!(&*r[0].font.family, scale::FONT_UI);
+        assert_eq!(r[1].font.weight, FontWeight::default());
+    }
+
+    #[test]
+    fn bullets_lose_their_marker_and_parse_inline() {
+        let blocks = parse("- **one** two\n-   three `x`");
+        let Block::List(items) = &blocks[0] else { panic!("expected a list") };
+        assert_eq!(items[0], vec![Span::Bold("one".into()), Span::Text(" two".into())]);
+        assert_eq!(items[1], vec![Span::Text("three ".into()), Span::Code("x".into())]);
+    }
+
+    #[test]
+    fn indented_bullets_are_still_a_list() {
+        assert!(matches!(&parse("  - one\n  - two")[0], Block::List(items) if items.len() == 2));
+    }
+
+    #[test]
+    fn a_chunk_that_mixes_bullets_and_prose_is_one_paragraph() {
+        // Every line has to be a bullet; a lead-in line makes the chunk prose.
+        assert_eq!(parse("Steps:\n- one")[0], Block::Paragraph(vec![Span::Text("Steps: - one".into())]));
+    }
+
+    #[test]
+    fn soft_wrapped_lines_join_with_a_space() {
+        assert_eq!(parse("one\ntwo\nthree")[0], Block::Paragraph(vec![Span::Text("one two three".into())]));
+    }
+
+    #[test]
+    fn blank_lines_separate_blocks_and_extra_ones_are_dropped() {
+        let blocks = parse("one\n\n\n\ntwo");
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[1], Block::Paragraph(vec![Span::Text("two".into())]));
+    }
+
+    #[test]
+    fn an_unterminated_mark_runs_to_the_end_of_the_line() {
+        assert_eq!(parse_inline("a `b"), vec![Span::Text("a ".into()), Span::Code("b".into())]);
+        assert_eq!(parse_inline("a **b"), vec![Span::Text("a ".into()), Span::Bold("b".into())]);
+    }
+
+    #[test]
+    fn empty_and_blank_input_have_no_blocks() {
+        assert!(parse("").is_empty());
+        assert!(parse("\n\n   \n\n\t").is_empty());
+        assert!(parse_inline("").is_empty());
+    }
+
+    #[test]
+    fn run_lengths_sum_to_the_text_length() {
+        let style = style();
+        for src in ["", "plain", "a `b` c", "**b**", "``", "****", "a ` b ** c", "π `é` — ok", "`code`**bold**"] {
+            let (text, r) = runs(&parse_inline(src), &style);
+            assert_eq!(r.iter().map(|run| run.len).sum::<usize>(), text.len(), "runs do not cover `{src}`");
+        }
+    }
+
+    #[test]
+    fn last_paragraph_runs_ignores_a_closing_list() {
+        let style = style();
+        assert!(last_paragraph_runs("intro\n\n- one\n- two", &style).is_none());
+        assert!(last_paragraph_runs("", &style).is_none());
+        let (text, _) = last_paragraph_runs("- one\n\nDone `now`", &style).expect("a paragraph closes the prose");
+        assert_eq!(text, "Done now");
+    }
+
+    #[test]
+    fn caret_top_centres_then_drops_by_the_baseline_offset() {
+        let top = caret_top_in_line(px(24.0), px(CARET_H), 1.0);
+        assert_eq!(top, px((24.0 - CARET_H) / 2.0 + CARET_BASELINE_DROP));
+        // The drop scales with the text, the centring with the line box.
+        assert_eq!(caret_top_in_line(px(24.0), px(CARET_H), 2.0), top + px(CARET_BASELINE_DROP));
+    }
 }

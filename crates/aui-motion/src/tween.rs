@@ -96,4 +96,92 @@ mod tests {
         assert_eq!(Tween::SLOW.duration.as_millis(), 280);
         assert_eq!(Tween::ENTER.easing, Easing::OUT);
     }
+
+    /// Every preset, for the invariants that hold across all of them.
+    const PRESETS: [Tween; 5] = [Tween::FAST, Tween::BASE, Tween::ENTER, Tween::EXIT, Tween::SLOW];
+
+    #[test]
+    fn presets_carry_the_right_easings_and_no_delay() {
+        assert_eq!(Tween::FAST.easing, Easing::STD);
+        assert_eq!(Tween::BASE.easing, Easing::STD);
+        assert_eq!(Tween::EXIT.easing, Easing::STD);
+        assert_eq!(Tween::SLOW.easing, Easing::OUT);
+        for t in PRESETS {
+            assert_eq!(t.delay, Duration::ZERO, "{t:?} starts delayed");
+            assert!(t.duration > Duration::ZERO, "{t:?} has no duration");
+        }
+    }
+
+    #[test]
+    fn with_delay_and_with_easing_change_one_field_each() {
+        let staggered = Tween::ENTER.with_delay(Duration::from_millis(40));
+        assert_eq!(staggered.delay.as_millis(), 40);
+        assert_eq!(staggered.duration, Tween::ENTER.duration);
+        assert_eq!(staggered.easing, Tween::ENTER.easing);
+
+        let eased = Tween::BASE.with_easing(Easing::OUT);
+        assert_eq!(eased.easing, Easing::OUT);
+        assert_eq!(eased.duration, Tween::BASE.duration);
+        assert_eq!(eased.delay, Tween::BASE.delay);
+
+        // The builders chain and leave the preset itself alone.
+        assert_eq!(Tween::BASE.easing, Easing::STD);
+        let both = Tween::new(Duration::from_millis(90), Easing::INOUT).with_delay(Duration::from_millis(10)).with_easing(Easing::OUT);
+        assert_eq!(both, Tween { duration: Duration::from_millis(90), easing: Easing::OUT, delay: Duration::from_millis(10) });
+    }
+
+    #[test]
+    fn easings_start_at_zero_and_end_at_one() {
+        for e in [Easing::OUT, Easing::INOUT, Easing::STD] {
+            assert!(e.sample(0.0).abs() < 1e-3, "{e:?} does not start at 0");
+            assert!((e.sample(1.0) - 1.0).abs() < 1e-3, "{e:?} does not end at 1");
+        }
+    }
+
+    #[test]
+    fn easings_are_monotonic_and_bounded_in_between() {
+        for e in [Easing::OUT, Easing::INOUT, Easing::STD] {
+            let mut last = 0.0;
+            for i in 0..=100 {
+                let v = e.sample(i as f32 / 100.0);
+                assert!((0.0..=1.0).contains(&v), "{e:?} left 0..=1 at {i}");
+                assert!(v >= last - 1e-4, "{e:?} is not monotonic at {i}");
+                last = v;
+            }
+        }
+    }
+
+    #[test]
+    fn easing_samples_clamp_outside_the_unit_interval() {
+        for e in [Easing::OUT, Easing::INOUT, Easing::STD] {
+            assert_eq!(e.sample(-1.0), e.sample(0.0));
+            assert_eq!(e.sample(2.0), e.sample(1.0));
+        }
+    }
+
+    #[test]
+    fn tint_fade_clears_the_alpha_and_nothing_else() {
+        // The target `tint_fade` builds for the "off" state.
+        let tint = Hsla { h: 0.58, s: 0.62, l: 0.44, a: 0.14 };
+        let clear = Hsla { a: 0.0, ..tint };
+        assert_eq!((clear.h, clear.s, clear.l), (tint.h, tint.s, tint.l));
+        assert_eq!(clear.a, 0.0);
+    }
+
+    #[test]
+    fn interpolating_tint_to_clear_never_moves_the_hue() {
+        let tint = Hsla { h: 0.58, s: 0.62, l: 0.44, a: 0.14 };
+        let clear = Hsla { a: 0.0, ..tint };
+        let mut last = tint.a;
+        for i in 0..=10 {
+            let t = i as f32 / 10.0;
+            let mid = tint.interpolate(&clear, t);
+            assert_eq!((mid.h, mid.s, mid.l), (tint.h, tint.s, tint.l), "hue moved at t = {t}");
+            assert!(mid.a <= last + 1e-6 && mid.a >= 0.0, "alpha is not falling at t = {t}");
+            last = mid.a;
+        }
+        // A tween toward transparent black is what this avoids: it drags h, s and l.
+        let flash = tint.interpolate(&gpui::transparent_black(), 0.5);
+        assert_ne!((flash.h, flash.s, flash.l), (tint.h, tint.s, tint.l));
+    }
 }

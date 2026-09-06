@@ -18,19 +18,28 @@ const NAV_PAD: f32 = 8.0;
 const GROUP_H: f32 = 28.0;
 const GROUP_GAP: f32 = 6.0;
 const GROUP_PAD: f32 = 12.0;
-/// `.chev{width:12px;height:12px}`.
-const CHEVRON: f32 = 12.0;
+/// `.chev{width:12px;height:12px}` — the default; rows that override it
+/// (`.pj .chev` 11 px, `.n .chev` 10 px) pass their own size to
+/// [`chevron_sized`].
+pub const CHEVRON: f32 = 12.0;
 /// xs ghost buttons on group rows carry 12 px glyphs.
 const XS_GLYPH: f32 = 12.0;
 /// Footer: `padding:10px 12px` (shell) / `8px 12px` (sidebar cards), gap 8.
 const FOOTER_PAD_X: f32 = 12.0;
 const FOOTER_GAP: f32 = 8.0;
 
-/// A `.chev` glyph rotated 0° (closed) → 90° (open) on the swap spring.
+/// A `.chev` glyph rotated 0° (closed) → 90° (open) on the swap spring, at the
+/// default 12 px.
 pub fn chevron(id: impl Into<ElementId>, open: bool, color: Hsla, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    chevron_sized(id, open, color, CHEVRON, window, cx)
+}
+
+/// [`chevron`] at an explicit `size` in design px, for the rows whose CSS
+/// narrows the glyph (`.pj .chev` 11 px, the file tree's `.n .chev` 10 px).
+pub fn chevron_sized(id: impl Into<ElementId>, open: bool, color: Hsla, size: f32, window: &mut Window, cx: &mut App) -> impl IntoElement {
     let id: ElementId = id.into();
     let phase = spring_phase((id, "chevron"), open, SpringKind::Swap, window, cx);
-    icon(IconName::Chev).size(px(CHEVRON)).color(color).rotate(radians(phase * std::f32::consts::FRAC_PI_2))
+    icon(IconName::Chev).size(px(size)).color(color).rotate(radians(phase * std::f32::consts::FRAC_PI_2))
 }
 
 /// A primary nav row. Build with [`nav_item`].
