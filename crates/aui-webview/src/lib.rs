@@ -46,3 +46,5 @@ pub use backend::{ElementInfo, WebBackend, WebEvent};
 pub use fake::FakeWebBackend;
 pub use page::{fake_elements, FakeElement};
 pub use view::{webview_pane, WebviewIntent, WebviewPane, WebviewState};
+#[cfg(feature = "wry")]
+pub use wry_backend::{WryBackend, ANNOTATOR_JS};

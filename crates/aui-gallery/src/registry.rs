@@ -380,6 +380,17 @@ pub static ENTRIES: &[Entry] = &[
         theme: CardTheme::Dark,
         build: crate::cards::webview_live::build,
     },
+    #[cfg(feature = "wry")]
+    Entry {
+        id: "workbench/webview-real",
+        group: "Workbench",
+        title: "Webview (real)",
+        subtitle: "The same pane over a real WKWebView in a wry child view: real navigation, real page events, the annotator posting from the page itself \u{2014} and \u{2318}K hiding the native view so gpui can paint over it",
+        width: 980.0,
+        height: 640.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::webview_live::build_real,
+    },
     Entry {
         id: "workbench/terminal-live",
         group: "Workbench",
@@ -399,6 +410,28 @@ pub static ENTRIES: &[Entry] = &[
         height: 560.0,
         theme: CardTheme::Dark,
         build: crate::cards::terminal_live::build_tui,
+    },
+    #[cfg(feature = "pty")]
+    Entry {
+        id: "workbench/terminal-real",
+        group: "Workbench",
+        title: "Terminal (real)",
+        subtitle: "The block terminal over a real pseudo-terminal: your login zsh with OSC 133 shell integration, split into blocks as you run things",
+        width: 980.0,
+        height: 720.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::terminal_live::build_real,
+    },
+    #[cfg(all(feature = "pty", feature = "tui"))]
+    Entry {
+        id: "workbench/tui-real",
+        group: "Workbench",
+        title: "TUI (real)",
+        subtitle: "The TUI pane over a real alacritty grid: a full-screen program in a pty, redrawing in place, with its cursor",
+        width: 980.0,
+        height: 560.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::terminal_live::build_tui_real,
     },
     Entry {
         id: "screens/assistant",

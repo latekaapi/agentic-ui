@@ -9,6 +9,15 @@ description = "Gallery app for the Agentic UI (aui) component library: every des
 name = "aui-gallery"
 path = "src/main.rs"
 
+# The real backends. Off by default so `cargo run -p aui-gallery` still needs
+# no browser and no shell; on, the three `-real` entries appear beside the
+# scripted ones, which are left exactly as they were.
+[features]
+default = []
+wry = ["aui-webview/wry"]
+pty = ["aui-terminal/pty"]
+tui = ["aui-terminal/tui"]
+
 [dependencies]
 # `test-support` exposes `Window::render_to_image`, which the --screenshot flag uses.
 gpui = { workspace = true, features = ["test-support"] }

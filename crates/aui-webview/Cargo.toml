@@ -9,7 +9,17 @@ description = "Embedded browser pane: a WebBackend trait, a scripted fake page f
 [features]
 default = []
 # The real browser: a wry child webview parented to the gpui window's NSView.
-wry = ["dep:wry", "dep:raw-window-handle", "dep:serde", "dep:serde_json"]
+wry = [
+  "dep:wry",
+  "dep:raw-window-handle",
+  "dep:serde",
+  "dep:serde_json",
+  "dep:objc2",
+  "dep:objc2-foundation",
+  "dep:objc2-app-kit",
+  "dep:objc2-web-kit",
+  "dep:block2",
+]
 
 [dependencies]
 gpui.workspace = true
@@ -24,3 +34,32 @@ wry = { version = "0.55", optional = true }
 raw-window-handle = { version = "0.6", optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+
+# WKWebView takeSnapshot, and the NSImage -> PNG encode after it. The versions
+# are the ones wry 0.55 already resolves to (`cargo tree -i objc2`), so the
+# `Retained<WryWebView>` wry hands back is the same objc2 0.6 type this crate
+# calls methods on; a different major would be a different, incompatible type.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", optional = true }
+block2 = { version = "0.6", optional = true }
+objc2-foundation = { version = "0.3", optional = true, default-features = false, features = [
+  "std",
+  "NSData",
+  "NSDictionary",
+  "NSError",
+  "NSString",
+] }
+objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = [
+  "std",
+  "objc2-core-foundation",
+  "NSImage",
+  "NSImageRep",
+  "NSBitmapImageRep",
+  "NSGraphics",
+] }
+objc2-web-kit = { version = "0.3", optional = true, default-features = false, features = [
+  "std",
+  "block2",
+  "WKWebView",
+  "WKSnapshotConfiguration",
+] }

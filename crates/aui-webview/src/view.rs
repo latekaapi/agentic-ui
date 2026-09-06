@@ -8,11 +8,12 @@
 //! same element tree runs over the scripted mock and over a real WKWebView.
 
 use std::rc::Rc;
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use aui::workbench::{annotations_panel, browser_nav, element_outline, note_popover, Annotation, AnnotatorAction, BrowserAction, NoteAction};
 use aui_tokens::ActiveAui;
-use gpui::{canvas, div, prelude::*, px, App, Context, ElementId, Entity, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, SharedString, Size, Task, Window};
+use gpui::{canvas, div, img, prelude::*, px, App, Context, ElementId, Entity, FocusHandle, Image, ImageFormat, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, SharedString, Size, Task, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::backend::{ElementInfo, WebBackend, WebEvent};
@@ -28,6 +29,10 @@ const NOTE_DROP: f32 = 14.0;
 /// The note a saved pin keeps. The pane has no text field over the page yet,
 /// so Save keeps this stand-in rather than an empty row.
 const SAVED_NOTE: &str = "Note for the agent.";
+/// A native page is hidden again if it has not been laid out for this long —
+/// the gallery switched card, or the window went away. Two poll ticks, so a
+/// dropped frame does not flicker it.
+const STALE_LAYOUT: Duration = Duration::from_millis(200);
 
 /// What the pane asks the app to do.
 #[derive(Debug, Clone, PartialEq)]
@@ -75,6 +80,30 @@ pub struct WebviewState {
     note: Option<usize>,
     /// The last screenshot the backend produced.
     screenshot: Option<Vec<u8>>,
+    /// The same bytes decoded once, so the stand-in for an obscured native page
+    /// is not re-hashed on every frame.
+    screenshot_image: Option<Arc<Image>>,
+    /// Whether the backend draws itself over the gpui scene
+    /// ([`WebBackend::is_native`]); everything below is only meaningful then.
+    native: bool,
+    /// The URL field's edit buffer while `⌘L` has the keyboard.
+    editing: Option<String>,
+    /// Whether that buffer is still the URL the field opened on. A browser's
+    /// address bar selects its contents on focus, so the first character typed
+    /// replaces the whole thing rather than appending to it.
+    editing_fresh: bool,
+    /// The keyboard focus the URL field takes.
+    focus: FocusHandle,
+    /// Set by the host while a gpui overlay covers the page; see
+    /// [`Self::set_obscured`].
+    obscured: bool,
+    /// The last box pushed into a native backend, so an unchanged layout costs
+    /// no `setFrame:`.
+    pushed: Option<(Point<Pixels>, Size<Pixels>)>,
+    /// When the page area was last laid out, and what the native view was last
+    /// told, so a card that stopped rendering takes its webview with it.
+    laid_out: Instant,
+    shown: bool,
     /// The page area's box, recorded during prepaint so pointer positions can
     /// be turned into page coordinates.
     page_origin: Point<Pixels>,
@@ -92,6 +121,7 @@ impl WebviewState {
                 return;
             }
         });
+        let native = backend.is_native();
         let mut state = Self {
             backend,
             url: SharedString::default(),
@@ -104,6 +134,15 @@ impl WebviewState {
             selected: None,
             note: None,
             screenshot: None,
+            screenshot_image: None,
+            native,
+            editing: None,
+            editing_fresh: false,
+            focus: cx.focus_handle(),
+            obscured: false,
+            pushed: None,
+            laid_out: Instant::now(),
+            shown: true,
             page_origin: gpui::point(px(0.0), px(0.0)),
             page_size: gpui::size(px(0.0), px(0.0)),
             _poll: poll,
@@ -147,6 +186,8 @@ impl WebviewState {
     /// Loads `url` through the backend.
     pub fn navigate(&mut self, url: &str) {
         self.url = SharedString::from(url.to_string());
+        self.editing = None;
+        self.editing_fresh = false;
         self.backend.navigate(url);
     }
 
@@ -168,6 +209,141 @@ impl WebviewState {
         self.note = None;
     }
 
+    /// Whether the page is a native surface over the gpui scene.
+    pub fn is_native(&self) -> bool {
+        self.native
+    }
+
+    /// The focus the URL field takes; the host can `focus` it to open `⌘L`.
+    pub fn focus_handle(&self) -> &FocusHandle {
+        &self.focus
+    }
+
+    /// Asks the backend for a screenshot. The bytes arrive on the poll as
+    /// [`WebEvent::Screenshot`] and are what
+    /// [`WebviewIntent::SendAnnotations`] then carries.
+    pub fn capture(&mut self) {
+        self.backend.capture();
+    }
+
+    /// The last screenshot the backend produced, PNG-encoded.
+    pub fn screenshot(&self) -> Option<&[u8]> {
+        self.screenshot.as_deref()
+    }
+
+    /// **Hides the native page so gpui can paint over its rectangle.**
+    ///
+    /// A `wry` child view is composited *above* the gpui scene, so a command
+    /// palette, a menu or a note popover that overlaps the browser pane is
+    /// simply not drawn. There is no compositing fix for that: the only way to
+    /// put gpui pixels in that rectangle is to take the native view out of it.
+    ///
+    /// So the host calls this with `true` while such an overlay is open. The
+    /// pane hides the native view and paints the last screenshot in its place
+    /// (a flat surface if there is none yet), which keeps the page looking
+    /// like the page while the overlay is up. `false` puts it back.
+    ///
+    /// Ask for a [`Self::capture`] when the pane opens and after each
+    /// navigation, or the stand-in will be a flat surface.
+    pub fn set_obscured(&mut self, obscured: bool) {
+        if self.obscured == obscured {
+            return;
+        }
+        self.obscured = obscured;
+        self.sync_visibility();
+    }
+
+    /// Whether the host has the page covered.
+    pub fn obscured(&self) -> bool {
+        self.obscured
+    }
+
+    /// Shows the native view only while the pane is both on screen and not
+    /// covered. A card the gallery switched away from stops laying the page
+    /// area out, and its webview would otherwise stay pinned over whatever
+    /// replaced it.
+    fn sync_visibility(&mut self) {
+        if !self.native {
+            return;
+        }
+        let want = !self.obscured && self.laid_out.elapsed() < STALE_LAYOUT;
+        if want != self.shown {
+            self.shown = want;
+            self.backend.set_visible(want);
+        }
+    }
+
+    /// The page area was laid out at `origin`/`size` (window coordinates). A
+    /// native backend is moved to match; everything else only records the box.
+    fn laid_out(&mut self, origin: Point<Pixels>, size: Size<Pixels>) -> bool {
+        self.page_origin = origin;
+        self.laid_out = Instant::now();
+        let resized = self.page_size != size;
+        self.page_size = size;
+        if self.native && self.pushed != Some((origin, size)) {
+            self.pushed = Some((origin, size));
+            self.backend.set_bounds((f32::from(origin.x), f32::from(origin.y)), (f32::from(size.width), f32::from(size.height)));
+            if resized {
+                // The stand-in an overlay is painted over has to be the page at
+                // *this* size, so a reflow is worth a new picture. Taking it
+                // here rather than in `set_obscured` also keeps it a picture of
+                // a visible view: `takeSnapshot` on a hidden one comes back
+                // blank.
+                self.backend.capture();
+            }
+        }
+        self.sync_visibility();
+        resized
+    }
+
+    /// Opens the URL field for typing, taking the keyboard back off a native
+    /// page (which holds first responder while it has focus).
+    fn begin_editing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.editing = Some(self.url.to_string());
+        self.editing_fresh = true;
+        self.backend.set_focused(false);
+        window.focus(&self.focus, cx);
+    }
+
+    /// A keystroke while the URL field has the keyboard. Answers whether it
+    /// was consumed.
+    fn url_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
+        let fresh = std::mem::take(&mut self.editing_fresh);
+        let Some(buffer) = self.editing.as_mut() else { return false };
+        let key = event.keystroke.key.as_str();
+        match key {
+            "enter" => {
+                let url = normalize_url(&self.editing.take().unwrap_or_default());
+                self.navigate(&url);
+            }
+            "escape" => {
+                self.editing = None;
+            }
+            "backspace" => {
+                if fresh {
+                    buffer.clear();
+                } else {
+                    buffer.pop();
+                }
+            }
+            _ => {
+                // `key_char` is the character the layout actually produced, so
+                // this types the same text a browser's URL bar would.
+                match event.keystroke.key_char.as_deref() {
+                    Some(text) if !event.keystroke.modifiers.control && !event.keystroke.modifiers.platform => {
+                        if fresh {
+                            buffer.clear();
+                        }
+                        buffer.push_str(text);
+                    }
+                    _ => return false,
+                }
+            }
+        }
+        cx.notify();
+        true
+    }
+
     /// Takes everything the backend has to say and folds it into the state,
     /// answering whether anything changed. Draws nothing: [`Self::drain`] is
     /// what turns a change into a re-render.
@@ -175,23 +351,50 @@ impl WebviewState {
         let events = self.backend.poll_events();
         let hovered = self.backend.hovered();
         let mut changed = hovered != self.hovered;
+        let mut settled = false;
         self.hovered = hovered;
         for event in events {
             changed = true;
             match event {
                 WebEvent::Title(title) => self.title = SharedString::from(title),
-                WebEvent::Url(url) => self.url = SharedString::from(url),
-                WebEvent::Loading(loading) => self.loading = loading,
+                WebEvent::Url(url) => {
+                    // Typing in the URL field survives the page announcing
+                    // itself underneath it.
+                    if self.editing.is_none() {
+                        self.url = SharedString::from(url);
+                    }
+                }
+                WebEvent::Loading(loading) => {
+                    self.loading = loading;
+                    settled |= !loading;
+                }
                 WebEvent::Annotation(annotation) => self.push_annotation(annotation),
-                WebEvent::Screenshot(bytes) => self.screenshot = Some(bytes),
+                WebEvent::Screenshot(bytes) => {
+                    self.screenshot_image = Some(Arc::new(Image::from_bytes(ImageFormat::Png, bytes.clone())));
+                    self.screenshot = Some(bytes);
+                }
             }
+        }
+        if settled {
+            // The page that just finished loading is what an obscuring overlay
+            // will be painted over, so take its picture now.
+            self.backend.capture();
         }
         changed
     }
 
     /// The poll timer's tick: fold and, if anything moved, re-render.
     fn drain(&mut self, cx: &mut Context<Self>) {
-        if self.apply_pending() {
+        // A card the gallery navigated away from stops laying the page out;
+        // the tick is where a native view notices and hides itself.
+        self.sync_visibility();
+        let changed = self.apply_pending();
+        // A native page is asked to redraw on every tick even when nothing
+        // changed. That is not decoration: `laid_out` is only refreshed by a
+        // prepaint, and the prepaint is what tells the webview where the pane
+        // moved to — a still window would let the view go stale under its own
+        // liveness check and hide itself.
+        if changed || self.native {
             cx.notify();
         }
     }
@@ -236,7 +439,7 @@ impl WebviewState {
     }
 
     /// Handles a nav-row control, answering with the intent it raises.
-    fn browser_action(&mut self, action: BrowserAction, cx: &mut Context<Self>) -> Option<WebviewIntent> {
+    fn browser_action(&mut self, action: BrowserAction, window: &mut Window, cx: &mut Context<Self>) -> Option<WebviewIntent> {
         cx.notify();
         match action {
             BrowserAction::Back => {
@@ -251,7 +454,10 @@ impl WebviewState {
                 self.backend.reload();
                 None
             }
-            BrowserAction::FocusUrl => Some(WebviewIntent::FocusUrl),
+            BrowserAction::FocusUrl => {
+                self.begin_editing(window, cx);
+                Some(WebviewIntent::FocusUrl)
+            }
             BrowserAction::ToggleAnnotate => {
                 let on = !self.annotate;
                 self.set_annotate(on);
@@ -331,6 +537,37 @@ impl WebviewState {
     }
 }
 
+/// What a person types in a URL field is rarely a URL. Anything with a scheme
+/// is taken as it is; a bare host gets `https://`; anything with a space is a
+/// search. This is the whole of the pane's address-bar cleverness.
+fn normalize_url(typed: &str) -> String {
+    let typed = typed.trim();
+    if typed.is_empty() {
+        return String::from("about:blank");
+    }
+    if typed.contains("://") || typed.starts_with("about:") || typed.starts_with("data:") || typed.starts_with("file:") {
+        return typed.to_string();
+    }
+    if typed.contains(' ') || !typed.contains('.') {
+        return format!("https://duckduckgo.com/?q={}", urlencode(typed));
+    }
+    format!("https://{typed}")
+}
+
+/// Percent-encodes a search term. Only the handful of bytes a query string
+/// cannot carry — this is not a general-purpose URL encoder.
+fn urlencode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
+            b' ' => out.push('+'),
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
+}
+
 type IntentHandler = Rc<dyn Fn(WebviewIntent, &mut Window, &mut App)>;
 
 /// The browser pane. Build with [`webview_pane`].
@@ -369,7 +606,17 @@ impl RenderOnce for WebviewPane {
         let selected = view.selected;
         let note = view.note;
         let preview = view.preview_pins();
-        let nav = browser_nav((id.clone(), "nav"), view.url.clone())
+        let native = view.native;
+        let obscured = view.obscured;
+        let focus = view.focus.clone();
+        let stand_in = view.screenshot_image.clone();
+        // While `⌘L` has the keyboard the field shows what is being typed, not
+        // where the page currently is.
+        let shown_url = match &view.editing {
+            Some(buffer) => SharedString::from(buffer.clone()),
+            None => view.url.clone(),
+        };
+        let nav = browser_nav((id.clone(), "nav"), shown_url)
             .annotating(annotate)
             .loading(if view.loading { 1.0 } else { 0.0 })
             .can_go_back(view.backend.can_go_back())
@@ -378,7 +625,7 @@ impl RenderOnce for WebviewPane {
                 let state = state.clone();
                 let handler = handler.clone();
                 move |action, window, cx| {
-                    let intent = state.update(cx, |state, cx| state.browser_action(action, cx));
+                    let intent = state.update(cx, |state, cx| state.browser_action(action, window, cx));
                     if let (Some(intent), Some(handler)) = (intent, handler.clone()) {
                         handler(intent, window, cx);
                     }
@@ -387,8 +634,18 @@ impl RenderOnce for WebviewPane {
 
         // The page area records its own box during prepaint, so a pointer
         // position can be turned into page coordinates without the state
-        // having to guess the layout.
-        let mut page = page_body()
+        // having to guess the layout — and so a native page can be moved to
+        // sit exactly on it.
+        //
+        // A native backend draws its own document over this rectangle, so the
+        // rectangle itself is left as bare ground; only the scripted page is a
+        // gpui document.
+        let base = if native {
+            div().relative().flex_1().min_w(px(0.0)).overflow_hidden().bg(p.surface_2)
+        } else {
+            page_body()
+        };
+        let mut page = base
             .id((id.clone(), "page"))
             .child(
                 canvas(
@@ -396,12 +653,13 @@ impl RenderOnce for WebviewPane {
                         let state = state.clone();
                         move |bounds, _, cx| {
                             state.update(cx, |state, cx| {
-                                state.page_origin = bounds.origin;
-                                if state.page_size != bounds.size {
+                                // This is also where a native page is moved:
+                                // the webview follows the pane because the pane
+                                // measures itself every prepaint.
+                                if state.laid_out(bounds.origin, bounds.size) {
                                     // The panel's preview tile is drawn from
                                     // this box, so a resize — the first layout
                                     // included — needs one more frame.
-                                    state.page_size = bounds.size;
                                     cx.notify();
                                 }
                             });
@@ -430,6 +688,17 @@ impl RenderOnce for WebviewPane {
                     state.update(cx, |state, cx| state.pointer_down(event.position, cx));
                 }
             });
+
+        // The native view has been hidden so gpui can paint here; its last
+        // screenshot stands in for it, and a flat surface stands in for that
+        // when the page has not been captured yet.
+        if native && obscured {
+            let cover = div().absolute().inset_0().overflow_hidden().bg(p.surface_2);
+            page = page.child(match stand_in {
+                Some(image) => cover.child(img(image).size_full()).into_any_element(),
+                None => cover.into_any_element(),
+            });
+        }
 
         // The hovered element, unless it is already the selected one — that
         // one keeps the tighter selected outline instead.
@@ -495,6 +764,15 @@ impl RenderOnce for WebviewPane {
         });
 
         v_flex()
+            .track_focus(&focus)
+            .on_key_down({
+                let state = state.clone();
+                move |event: &KeyDownEvent, _, cx| {
+                    state.update(cx, |state, cx| {
+                        state.url_key(event, cx);
+                    });
+                }
+            })
             .size_full()
             .min_h(px(0.0))
             .bg(p.surface_1)

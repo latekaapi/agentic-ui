@@ -130,6 +130,40 @@ pub trait WebBackend {
     /// Backends that cannot capture do nothing, which is the default.
     fn capture(&mut self) {}
 
+    /// Whether the page is a **native surface composited over the gpui scene**
+    /// rather than gpui elements inside it.
+    ///
+    /// The pane asks because a native page changes three things: gpui cannot
+    /// paint over it (see
+    /// [`WebviewState::set_obscured`](crate::view::WebviewState::set_obscured)),
+    /// it hit-tests inside the page so the Rust-side pointer methods below are
+    /// dead, and it has to be told where to sit ([`Self::set_bounds`]).
+    fn is_native(&self) -> bool {
+        false
+    }
+
+    /// Puts the page's native surface at `origin` with size `size`, both in
+    /// logical pixels relative to the window's top-left. A page made of gpui
+    /// elements is laid out by gpui and ignores this.
+    fn set_bounds(&mut self, origin: (f32, f32), size: (f32, f32)) {
+        let _ = (origin, size);
+    }
+
+    /// Shows or hides the page's native surface. Hiding it is the only way gpui
+    /// gets to draw in that rectangle at all; see
+    /// [`WebviewState::set_obscured`](crate::view::WebviewState::set_obscured).
+    fn set_visible(&mut self, visible: bool) {
+        let _ = visible;
+    }
+
+    /// Moves the keyboard focus into the page (`true`) or back to the host
+    /// window (`false`). A native page holds first responder while it is
+    /// focused, so the pane hands focus back before it reads a keystroke of its
+    /// own — the URL field, for instance.
+    fn set_focused(&mut self, focused: bool) {
+        let _ = focused;
+    }
+
     /// The pointer moved to `at` in page coordinates, or left the page
     /// (`None`). Only backends that hit-test in Rust — the mock — use this; a
     /// real webview does its own hit-testing inside the page, so the default

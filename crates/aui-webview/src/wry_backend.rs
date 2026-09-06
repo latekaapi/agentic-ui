@@ -19,30 +19,36 @@
 //!    [`ANNOTATOR_JS`] draws the hover outline.
 //!
 //! The same applies to the command palette, drag overlays and the loading
-//! hairline whenever the browser pane is open: shrink or hide the webview
-//! ([`wry::WebView::set_bounds`], [`wry::WebView::set_visible`]) rather than
-//! trying to draw across it.
+//! hairline whenever the browser pane is open. The way out is
+//! [`WebBackend::set_visible`]: the pane hides the native view and paints the
+//! last [`WebBackend::capture`] in its place, which is what
+//! [`crate::view::WebviewState::set_obscured`] does.
 //!
 //! # Screenshots
 //!
-//! [`crate::backend::WebEvent::Screenshot`] is **not** implemented. wry 0.55
-//! exposes no capture API; a screenshot needs `WKWebView takeSnapshot:
-//! withCompletionHandler:` called through `objc2` / `objc2-web-kit` on the
-//! webview's native handle, then the resulting `NSImage` encoded as PNG.
-//! `objc2` is in the workspace lock file only as a transitive dependency of
-//! gpui and wry, not as a direct dependency of this crate, so wiring it up
-//! would mean adding `objc2` and `objc2-web-kit` to `Cargo.toml` — a manifest
-//! change this crate does not make on its own. Until then
-//! [`WebBackend::capture`] is a no-op and no screenshot event is produced.
+//! [`WebBackend::capture`] calls `-[WKWebView
+//! takeSnapshotWithConfiguration:completionHandler:]` on the handle
+//! [`wry::WebViewExtMacOS::webview`] hands back, and encodes the `NSImage` the
+//! completion block delivers as PNG through `NSBitmapImageRep`. The bytes
+//! arrive on the queue the poll drains, as
+//! [`crate::backend::WebEvent::Screenshot`].
+//!
+//! The `objc2` crates this needs are pinned to the versions wry 0.55 already
+//! resolves to (objc2 0.6, objc2-web-kit 0.3). That is not a nicety: the
+//! `Retained<WryWebView>` wry returns is an objc2 0.6 type, and a different
+//! objc2 major would make it a different, unrelated Rust type.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use aui::workbench::Annotation;
 use gpui::SharedString;
+use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage};
+use objc2_foundation::{NSDictionary, NSError};
 use raw_window_handle::HasWindowHandle;
 use serde::Deserialize;
-use wry::{PageLoadEvent, Rect, WebView, WebViewBuilder};
+use wry::dpi::{LogicalPosition, LogicalSize};
+use wry::{PageLoadEvent, Rect, WebView, WebViewBuilder, WebViewExtMacOS};
 
 use crate::backend::{ElementInfo, WebBackend, WebEvent, OUTER_HTML_LIMIT};
 
@@ -194,6 +200,10 @@ pub struct WryBackend {
     /// do rather than by the page's real history.
     behind: usize,
     ahead: usize,
+    /// What the native view was last told; `set_visible` is a no-op when it
+    /// would not change anything, so an obscuring overlay can push the same
+    /// value every frame.
+    visible: bool,
 }
 
 impl WryBackend {
@@ -228,7 +238,15 @@ impl WryBackend {
             })
             .build_as_child(parent)?;
 
-        Ok(Self { webview, shared, behind: 0, ahead: 0 })
+        Ok(Self { webview, shared, behind: 0, ahead: 0, visible: true })
+    }
+
+    /// A child webview at `origin` with size `size`, in logical pixels
+    /// relative to the window's top-left — the same rectangle
+    /// [`WebBackend::set_bounds`] takes, so a host never has to name a `wry`
+    /// type to build one.
+    pub fn new_at<W: HasWindowHandle>(parent: &W, url: &str, origin: (f32, f32), size: (f32, f32)) -> wry::Result<Self> {
+        Self::new(parent, url, logical_rect(origin, size))
     }
 
     /// The webview itself, for the things only the host can do: moving it with
@@ -268,6 +286,14 @@ fn on_ipc(shared: &Arc<Shared>, body: &str) {
     );
     drop(elements);
     locked(&shared.events).push(WebEvent::Annotation(Annotation::new(index, hit.selector, "").pending(true)));
+}
+
+/// A `wry` rectangle from a top-left origin and a size, both logical pixels.
+fn logical_rect(origin: (f32, f32), size: (f32, f32)) -> Rect {
+    Rect {
+        position: LogicalPosition::new(origin.0 as f64, origin.1 as f64).into(),
+        size: LogicalSize::new(size.0.max(0.0) as f64, size.1.max(0.0) as f64).into(),
+    }
 }
 
 impl WebBackend for WryBackend {
@@ -324,4 +350,69 @@ impl WebBackend for WryBackend {
     fn element_info(&self, index: usize) -> Option<ElementInfo> {
         locked(&self.shared.elements).get(&index).cloned()
     }
+
+    fn is_native(&self) -> bool {
+        true
+    }
+
+    fn set_bounds(&mut self, origin: (f32, f32), size: (f32, f32)) {
+        // wry's macOS `set_bounds` flips the y itself against the parent view,
+        // so this is the same top-left-origin logical rectangle gpui laid the
+        // page area out in.
+        report("set_bounds", self.webview.set_bounds(logical_rect(origin, size)));
+    }
+
+    fn set_visible(&mut self, visible: bool) {
+        if visible == self.visible {
+            return;
+        }
+        self.visible = visible;
+        report("set_visible", self.webview.set_visible(visible));
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        let result = if focused { self.webview.focus() } else { self.webview.focus_parent() };
+        report(if focused { "focus" } else { "focus_parent" }, result);
+    }
+
+    fn capture(&mut self) {
+        let shared = Arc::clone(&self.shared);
+        // The completion block runs on the main thread once WebKit has a
+        // bitmap; until then the poll simply sees no screenshot event.
+        let handler = block2::RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {
+            if !error.is_null() {
+                // Safety: WebKit hands the block a valid NSError or null.
+                let message = unsafe { &*error }.localizedDescription();
+                eprintln!("aui-webview: takeSnapshot failed: {message}");
+                return;
+            }
+            if image.is_null() {
+                return;
+            }
+            // Safety: non-null means WebKit produced an NSImage for this call,
+            // and the block owns it for the duration of the call.
+            match png_bytes(unsafe { &*image }) {
+                Some(bytes) => locked(&shared.events).push(WebEvent::Screenshot(bytes)),
+                None => eprintln!("aui-webview: takeSnapshot produced an image that would not encode as PNG"),
+            }
+        });
+        // Safety: a null configuration means "the visible viewport", and the
+        // block is retained by WebKit for as long as the capture takes.
+        unsafe {
+            self.webview.webview().takeSnapshotWithConfiguration_completionHandler(None, &handler);
+        }
+    }
+}
+
+/// Encodes an `NSImage` as PNG the long way round: TIFF representation into an
+/// `NSBitmapImageRep`, then that rep out as PNG. `NSImage` has no PNG encoder
+/// of its own, and this is the encode AppKit itself uses.
+fn png_bytes(image: &NSImage) -> Option<Vec<u8>> {
+    let tiff = image.TIFFRepresentation()?;
+    let rep = NSBitmapImageRep::imageRepWithData(&tiff)?;
+    let properties = NSDictionary::new();
+    // Safety: the properties dictionary is empty, so it cannot carry a value of
+    // the wrong type for a key.
+    let png = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &properties) }?;
+    Some(png.to_vec())
 }
