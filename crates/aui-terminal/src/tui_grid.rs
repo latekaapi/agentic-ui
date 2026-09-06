@@ -8,18 +8,22 @@
 //! [`TuiRow`] per screen line, each already a `String` plus the
 //! [`gpui::TextRun`]s that colour it on the [`Palette`]'s ANSI 16.
 //!
-//! **Out of scope.** The snapshot carries no cursor and no selection: the TUI
-//! pane draws its own blinking cursor in its docked input box, and there is no
-//! mouse interaction on the grid yet. Cell background colours are read but not
-//! rendered — `gpui::TextRun::background_color` is set, and nothing else about
-//! a cell (blink, strikethrough width, wide-character spacing) is modelled.
+//! The snapshot carries the cursor: [`TuiGrid::cursor`] is its `(row, column)`
+//! when the program has asked for a visible one, and that cell's run is
+//! already inverted (`term_cursor` behind `term_bg`) so any caller drawing the
+//! rows shows the cursor without knowing where it is.
+//!
+//! **Out of scope.** No selection and no mouse interaction on the grid yet;
+//! the cursor's *shape* (block, beam, underline) is not modelled, only its
+//! position. Nothing else about a cell — blink, strikethrough width,
+//! wide-character spacing — is modelled either.
 
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::test::TermSize;
-use alacritty_terminal::term::{Config, Term};
+use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor, Rgb};
 use aui_tokens::{scale, Palette};
 use gpui::{font, FontWeight, Hsla, TextRun};
@@ -56,6 +60,10 @@ pub struct TuiRow {
 pub struct TuiGrid {
     /// Top to bottom, one entry per screen row.
     pub rows: Vec<TuiRow>,
+    /// The text cursor as `(row, column)`, or `None` when the program has
+    /// hidden it (`DECTCEM`). The cell it names is already inverted in
+    /// [`TuiRow::runs`], so drawing the rows draws the cursor.
+    pub cursor: Option<(usize, usize)>,
 }
 
 impl TuiGrid {
@@ -100,17 +108,33 @@ impl TuiTerm {
         &self.term
     }
 
-    /// Flattens the visible screen into styled rows on `palette`.
+    /// Flattens the visible screen into styled rows on `palette`, inverting
+    /// the cursor cell.
     pub fn snapshot(&self, palette: &Palette) -> TuiGrid {
         let grid = self.term.grid();
         let ansi = palette.ansi16();
         let (screen_lines, columns) = (self.term.screen_lines(), self.term.columns());
+        // The cursor is a grid point, so a scrolled-back view has to bring it
+        // back into screen coordinates; `display_offset` is zero here because
+        // the pane keeps no scrollback, but the arithmetic is the honest one.
+        let cursor = if self.term.mode().contains(TermMode::SHOW_CURSOR) {
+            let point = grid.cursor.point;
+            let line = point.line.0 + grid.display_offset() as i32;
+            let col = point.column.0;
+            (line >= 0 && (line as usize) < screen_lines && col < columns).then_some((line as usize, col))
+        } else {
+            None
+        };
         let mut rows = Vec::with_capacity(screen_lines);
         for line in 0..screen_lines {
             let row = &grid[Line(line as i32)];
+            let cursor_col = cursor.filter(|(r, _)| *r == line).map(|(_, c)| c);
             let mut text = String::new();
             let mut runs: Vec<TextRun> = Vec::new();
             let mut last: Option<(Hsla, Option<Hsla>, bool)> = None;
+            // Byte length of the row up to and including the cursor cell, so
+            // trimming the trailing blanks cannot swallow the cursor.
+            let mut keep_bytes = 0usize;
             for col in 0..columns {
                 let cell = &row[Column(col)];
                 if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
@@ -122,13 +146,20 @@ impl TuiTerm {
                 let inverse = cell.flags.contains(Flags::INVERSE);
                 let base_fg = resolve(cell.fg, &ansi, palette, dim);
                 let base_bg = resolve_bg(cell.bg, &ansi, palette);
-                let (mut fg, bg) = if inverse {
+                let (mut fg, mut bg) = if inverse {
                     (base_bg.unwrap_or(palette.term_bg), Some(base_fg))
                 } else {
                     (base_fg, base_bg)
                 };
                 if hidden {
                     fg = bg.unwrap_or(palette.term_bg);
+                }
+                // The cursor is drawn as an inverted cell rather than a
+                // separate element, so it survives into whatever draws the
+                // rows: ink on `term_cursor`.
+                if cursor_col == Some(col) {
+                    fg = palette.term_bg;
+                    bg = Some(palette.term_cursor);
                 }
                 let c = if cell.c == '\0' { ' ' } else { cell.c };
                 let style = (fg, bg, bold);
@@ -148,13 +179,16 @@ impl TuiTerm {
                     last = Some(style);
                 }
                 text.push(c);
+                if cursor_col == Some(col) {
+                    keep_bytes = text.len();
+                }
             }
             if TRIM_TRAILING_BLANKS {
-                trim_trailing(&mut text, &mut runs);
+                trim_trailing(&mut text, &mut runs, keep_bytes);
             }
             rows.push(TuiRow { text, runs });
         }
-        TuiGrid { rows }
+        TuiGrid { rows, cursor }
     }
 }
 
@@ -218,10 +252,12 @@ fn resolve_bg(color: Color, ansi: &[Hsla; 16], palette: &Palette) -> Option<Hsla
     }
 }
 
-/// Drops the trailing run of spaces from a row, keeping the runs in step.
-fn trim_trailing(text: &mut String, runs: &mut Vec<TextRun>) {
-    let trimmed = text.trim_end_matches(' ').len();
-    if trimmed == text.len() {
+/// Drops the trailing run of spaces from a row, keeping the runs in step and
+/// never cutting back past `keep` bytes (the cursor cell, which is a blank
+/// more often than not).
+fn trim_trailing(text: &mut String, runs: &mut Vec<TextRun>, keep: usize) {
+    let trimmed = text.trim_end_matches(' ').len().max(keep);
+    if trimmed >= text.len() {
         return;
     }
     text.truncate(trimmed);
@@ -248,9 +284,38 @@ mod tests {
         term.feed(b"\x1b[32mok\x1b[0m rest");
         let grid = term.snapshot(&p);
         assert_eq!(grid.rows.len(), 3);
-        assert_eq!(grid.rows[0].text, "ok rest");
+        // The trailing blank is the cursor cell, kept so the cursor is drawn.
+        assert_eq!(grid.rows[0].text, "ok rest ");
         assert_eq!(grid.rows[0].runs[0].color, p.ansi16()[2]);
         assert_eq!(grid.rows[0].runs.iter().map(|r| r.len).sum::<usize>(), grid.rows[0].text.len());
+    }
+
+    #[test]
+    fn the_cursor_is_where_the_program_left_it_and_is_drawn_inverted() {
+        let p = Palette::for_kind(ThemeKind::Dark);
+        let mut term = TuiTerm::with_size(20, 3);
+        term.feed(b"ab\r\ncd");
+        let grid = term.snapshot(&p);
+        // Two characters written on row 1, so the cursor sits on column 2.
+        assert_eq!(grid.cursor, Some((1, 2)));
+        // …a blank cell, which the trailing-blank trim must not swallow.
+        assert_eq!(grid.rows[1].text, "cd ");
+        let last = grid.rows[1].runs.last().expect("a run for the cursor cell");
+        assert_eq!(last.background_color, Some(p.term_cursor));
+        assert_eq!(last.color, p.term_bg);
+        assert_eq!(grid.rows[1].runs.iter().map(|r| r.len).sum::<usize>(), grid.rows[1].text.len());
+    }
+
+    #[test]
+    fn a_hidden_cursor_is_not_reported_and_not_painted() {
+        let p = Palette::for_kind(ThemeKind::Dark);
+        let mut term = TuiTerm::with_size(20, 2);
+        // DECTCEM off — what every full-screen program does while redrawing.
+        term.feed(b"\x1b[?25lhi");
+        let grid = term.snapshot(&p);
+        assert_eq!(grid.cursor, None);
+        assert_eq!(grid.rows[0].text, "hi");
+        assert!(grid.rows[0].runs.iter().all(|r| r.background_color.is_none()));
     }
 
     #[test]
@@ -260,7 +325,7 @@ mod tests {
         term.feed(b"first\r\nsecond");
         term.feed(b"\x1b[H\x1b[2Kagain");
         let grid = term.snapshot(&p);
-        assert_eq!(grid.rows[0].text, "again");
+        assert_eq!(grid.rows[0].text, "again ", "the trailing blank is the cursor cell");
         assert_eq!(grid.rows[1].text, "second");
     }
 }

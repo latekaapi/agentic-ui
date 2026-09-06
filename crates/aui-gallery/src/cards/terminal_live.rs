@@ -21,9 +21,9 @@ use gpui_kit::base::{h_flex, v_flex};
 const FRAME_INSET: f32 = -8.0;
 const FRAME_W: f32 = 980.0 - 24.0;
 /// `.term{height:690px}` in the 980×720 card…
-const TERM_FRAME_H: f32 = 690.0;
+pub(super) const TERM_FRAME_H: f32 = 690.0;
 /// …and the TUI-only card is 980×560.
-const TUI_FRAME_H: f32 = 530.0;
+pub(super) const TUI_FRAME_H: f32 = 530.0;
 /// The tab strip's hint text: `font-size:11px;margin-right:8px`.
 const HINT_TEXT: f32 = 11.0;
 const HINT_MARGIN: f32 = 8.0;
@@ -50,7 +50,7 @@ fn session(key: &'static str, tui: bool, window: &mut Window, cx: &mut App) -> E
 /// Card 50's tab strip, over a fresh key so it can sit beside card 50 itself.
 /// `start` is the tab it opens on — the shell for the split card, the agent
 /// for the TUI-only one, which is the tab that pane actually belongs to.
-fn strip(key: &'static str, start: usize, window: &mut Window, cx: &mut App) -> impl IntoElement {
+pub(super) fn strip(key: &'static str, start: usize, window: &mut Window, cx: &mut App) -> impl IntoElement {
     let p = cx.aui().colors;
     let active = window.use_keyed_state(SharedString::from(key), cx, move |_, _| start);
     let current = *active.read(cx);
@@ -77,7 +77,7 @@ fn strip(key: &'static str, start: usize, window: &mut Window, cx: &mut App) -> 
 }
 
 /// The rounded, hairlined terminal frame with the strip on top.
-fn frame(height: f32, strip: impl IntoElement, body: impl IntoElement, cx: &mut App) -> AnyElement {
+pub(super) fn frame(height: f32, strip: impl IntoElement, body: impl IntoElement, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
     div()
         .w(px(FRAME_W))
@@ -141,3 +141,139 @@ pub fn build_tui(window: &mut Window, cx: &mut App) -> AnyElement {
         .hint_key("⌘⇧D");
     frame(TUI_FRAME_H, strip, div().w_full().flex_1().min_h(px(0.0)).child(pane), cx)
 }
+
+// ---------------------------------------------------------------------------
+// The real backends (`--features pty` and `--features pty,tui`)
+// ---------------------------------------------------------------------------
+
+/// `workbench/terminal-real` and `workbench/tui-real`: the same two panes over
+/// a real pseudo-terminal running the user's login shell.
+#[cfg(feature = "pty")]
+mod real {
+    use super::{frame, strip, TERM_FRAME_H, TUI_FRAME_H};
+    use aui::workbench::TermPrompt;
+    use aui_terminal::{block_terminal_view, login_shell, BlockParser, Pty, TerminalBackend, TerminalState};
+    use gpui::*;
+    use gpui_kit::base::v_flex;
+
+    /// What the TUI card runs. A full-screen program that redraws in place, so
+    /// the grid has something the block parser could not represent; `top`
+    /// ships with macOS and needs no configuration.
+    const TUI_COMMAND: &str = "top\n";
+    /// The grid opens at this size until the pane measures itself.
+    const GRID_COLS: u16 = 100;
+    /// …and this many rows.
+    const GRID_ROWS: u16 = 30;
+
+    /// The bytes a keystroke sends to the shell, or `None` when it is not
+    /// something a terminal carries. This is the whole keyboard: the shell
+    /// echoes what it receives, so there is no local line editing to keep in
+    /// step with it.
+    fn key_bytes(keystroke: &Keystroke) -> Option<Vec<u8>> {
+        let m = &keystroke.modifiers;
+        if m.control {
+            // `⌃C`, `⌃D`, `⌃Z`: the control character is the letter's position
+            // in the alphabet.
+            let c = keystroke.key.chars().next()?.to_ascii_lowercase();
+            return c.is_ascii_lowercase().then(|| vec![c as u8 - b'a' + 1]);
+        }
+        if m.platform {
+            return None;
+        }
+        let named: &[u8] = match keystroke.key.as_str() {
+            "enter" => b"\r",
+            "backspace" => b"\x7f",
+            "delete" => b"\x1b[3~",
+            "tab" => b"\t",
+            "escape" => b"\x1b",
+            "up" => b"\x1b[A",
+            "down" => b"\x1b[B",
+            "right" => b"\x1b[C",
+            "left" => b"\x1b[D",
+            "home" => b"\x1b[H",
+            "end" => b"\x1b[F",
+            "pageup" => b"\x1b[5~",
+            "pagedown" => b"\x1b[6~",
+            _ => return keystroke.key_char.as_ref().map(|text| text.as_bytes().to_vec()),
+        };
+        Some(named.to_vec())
+    }
+
+    /// Wraps `body` so it holds the keyboard and forwards every keystroke to
+    /// `state`'s session.
+    fn keyboard(id: &'static str, state: &Entity<TerminalState>, window: &mut Window, cx: &mut App, body: impl IntoElement) -> AnyElement {
+        let focus = window.use_keyed_state(SharedString::from(format!("{id}-focus")), cx, |_, cx| cx.focus_handle());
+        let handle = focus.read(cx).clone();
+        // The card is the only thing on the stage, so it takes the keyboard as
+        // soon as it is drawn; without this the shell would never see a key.
+        if !handle.is_focused(window) {
+            window.focus(&handle, cx);
+        }
+        let state = state.clone();
+        v_flex()
+            .track_focus(&handle)
+            .size_full()
+            .on_key_down(move |event: &KeyDownEvent, _, cx| {
+                if let Some(bytes) = key_bytes(&event.keystroke) {
+                    state.update(cx, |state, cx| {
+                        state.write(&bytes);
+                        cx.notify();
+                    });
+                }
+            })
+            .child(body)
+            .into_any_element()
+    }
+
+    /// A session on a real pty running the user's login shell, kept in window
+    /// state so the shell outlives a frame — and dies with the window, because
+    /// dropping the `Pty` kills it.
+    fn session(key: &'static str, grid: bool, window: &mut Window, cx: &mut App) -> Entity<TerminalState> {
+        window.use_keyed_state(SharedString::from(key), cx, move |_, _| {
+            let mut pty = Pty::new();
+            let home = std::env::var("HOME").map(std::path::PathBuf::from).unwrap_or_else(|_| std::env::temp_dir());
+            let shell = login_shell();
+            if let Err(error) = pty.spawn(&shell, &home) {
+                eprintln!("aui-gallery: no pty ({error})");
+            }
+            if grid {
+                #[cfg(feature = "tui")]
+                {
+                    // The shell reads this as soon as it is ready, so there is
+                    // nothing to wait for.
+                    pty.write(TUI_COMMAND.as_bytes());
+                    return TerminalState::with_grid(Box::new(pty), GRID_COLS, GRID_ROWS);
+                }
+            }
+            let mut state = TerminalState::with_parser(Box::new(pty), BlockParser::new());
+            state.set_prompt(TermPrompt { text: SharedString::default(), context: vec![SharedString::from(shell)] });
+            state
+        })
+    }
+
+    /// Builds the block-terminal card over the real shell.
+    pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
+        let blocks = session("terminal-real-shell", false, window, cx);
+        let strip = strip("terminal-real-tabs", 0, window, cx);
+        let pane = block_terminal_view("terminal-real-term", &blocks).on_intent(|intent, _, _| {
+            eprintln!("aui-gallery: terminal intent {intent:?}");
+        });
+        let body = keyboard("terminal-real", &blocks, window, cx, div().w_full().flex_1().min_h(px(0.0)).child(pane));
+        frame(TERM_FRAME_H, strip, div().w_full().flex_1().min_h(px(0.0)).child(body), cx)
+    }
+
+    /// Builds the TUI card over a full-screen program in the same real pty.
+    #[cfg(feature = "tui")]
+    pub fn build_tui(window: &mut Window, cx: &mut App) -> AnyElement {
+        let screen = session("tui-real-screen", true, window, cx);
+        let strip = strip("tui-real-tabs", 2, window, cx);
+        let pane = aui_terminal::tui_grid_view("tui-real-pane", &screen).hint_key("⌘⇧D");
+        let body = keyboard("tui-real", &screen, window, cx, div().w_full().flex_1().min_h(px(0.0)).child(pane));
+        frame(TUI_FRAME_H, strip, div().w_full().flex_1().min_h(px(0.0)).child(body), cx)
+    }
+}
+
+#[cfg(feature = "pty")]
+pub use real::build as build_real;
+#[cfg(all(feature = "pty", feature = "tui"))]
+pub use real::build_tui as build_tui_real;

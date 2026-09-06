@@ -327,7 +327,16 @@ impl vte::Perform for Perform {
         const LF: u8 = 0x0a;
         const CR: u8 = 0x0d;
         const TAB: u8 = 0x09;
+        const BS: u8 = 0x08;
         match (byte, self.phase) {
+            // zsh's line editor echoes the first character typed, then backs
+            // over it and redraws the whole line, so a real shell's command
+            // arrives as `e\x08echo hi`. Undo the erase instead of keeping
+            // the character it erased.
+            (BS, Phase::Command) => {
+                self.command.pop();
+            }
+            (BS, _) => {}
             // A carriage return is layout, not content: card 50 draws one
             // element per line and never redraws one in place.
             (CR, _) => {}
@@ -600,6 +609,112 @@ mod tests {
         let spans = parse_ansi(&p.blocks()[0].output[0]);
         assert_eq!(spans[0].text, "warn");
         assert_eq!(spans[1].text, " tidy");
+    }
+
+    #[test]
+    fn an_osc_133_marker_split_mid_parameter_still_dispatches() {
+        let (mut p, _) = parser();
+        // Every byte of the D marker arrives in its own feed.
+        p.feed(a());
+        p.feed(b());
+        p.feed(b"pnpm lint");
+        p.feed(c());
+        p.feed(b"boom\n");
+        for byte in b"\x1b]133;D;7\x07" {
+            p.feed(&[*byte]);
+        }
+        assert_eq!(p.blocks().len(), 1);
+        assert_eq!(p.blocks()[0].state, BlockState::Failed);
+        assert!(p.blocks()[0].duration.ends_with("exit 7"), "{:?}", p.blocks()[0].duration);
+    }
+
+    #[test]
+    fn a_done_marker_with_no_c_still_reports_the_command() {
+        let (mut p, clock) = parser();
+        p.feed(a());
+        p.feed(b());
+        p.feed(b"cd /tmp");
+        clock.advance(Duration::from_millis(400));
+        // A shell that reports D without ever having reported C (an empty
+        // line, or a builtin its integration does not wrap).
+        p.feed(b"\x1b]133;D;0\x07");
+        assert_eq!(p.blocks().len(), 1);
+        assert_eq!(p.blocks()[0].command, "cd /tmp");
+        assert_eq!(p.blocks()[0].state, BlockState::Done);
+        assert_eq!(p.blocks()[0].duration, "0.4 s");
+        assert!(p.blocks()[0].output.is_empty());
+    }
+
+    #[test]
+    fn a_done_marker_with_no_block_at_all_opens_one() {
+        let (mut p, _) = parser();
+        p.feed(b"\x1b]133;D;2\x07");
+        assert_eq!(p.blocks().len(), 1);
+        assert_eq!(p.blocks()[0].command, "");
+        assert_eq!(p.blocks()[0].state, BlockState::Failed);
+    }
+
+    #[test]
+    fn an_osc_0_title_inside_a_block_is_dropped_without_eating_the_output() {
+        let (mut p, _) = parser();
+        p.feed(a());
+        p.feed(b());
+        p.feed(b"vite build");
+        p.feed(c());
+        p.feed(b"before\n\x1b]0;vite \xe2\x80\x94 building\x07after\n");
+        p.feed(b"\x1b]133;D;0\x07");
+        assert_eq!(p.blocks().len(), 1);
+        assert_eq!(p.blocks()[0].output, vec!["before".to_string(), "after".to_string()]);
+    }
+
+    #[test]
+    fn an_osc_133_after_an_unterminated_osc_0_still_splits_the_block() {
+        let (mut p, _) = parser();
+        p.feed(a());
+        p.feed(b());
+        p.feed(b"vite build");
+        p.feed(c());
+        // The title sequence never gets its terminator: the ESC that starts
+        // the next OSC ends it, and the 133 marker behind it must still land.
+        p.feed(b"out\n\x1b]0;half a title\x1b]133;D;0\x07");
+        p.feed(a());
+        p.feed(b());
+        p.feed(b"echo next");
+        p.feed(c());
+        p.feed(b"next\n");
+        assert_eq!(p.blocks().len(), 2);
+        assert_eq!(p.blocks()[0].state, BlockState::Done);
+        assert_eq!(p.blocks()[0].output, vec!["out".to_string()]);
+        assert_eq!(p.blocks()[1].command, "echo next");
+        assert_eq!(p.blocks()[1].output, vec!["next".to_string()]);
+    }
+
+    #[test]
+    fn an_unterminated_osc_at_the_end_of_the_stream_is_held_not_printed() {
+        let (mut p, _) = parser();
+        p.feed(a());
+        p.feed(b());
+        p.feed(b"echo hi");
+        p.feed(c());
+        p.feed(b"hi\n\x1b]133;D;0");
+        // Nothing has been printed and nothing has been closed yet…
+        assert_eq!(p.blocks()[0].state, BlockState::Running);
+        assert_eq!(p.blocks()[0].output, vec!["hi".to_string()]);
+        // …and the terminator in the next chunk completes the same sequence.
+        p.feed(b"\x07");
+        assert_eq!(p.blocks()[0].state, BlockState::Done);
+    }
+
+    #[test]
+    fn the_line_editors_backspace_echo_does_not_double_the_first_character() {
+        let (mut p, _) = parser();
+        p.feed(a());
+        p.feed(b());
+        // What a real zsh writes: the first key echoed, erased, then the line.
+        p.feed(b"e\x08echo hi");
+        p.feed(c());
+        p.feed(b"hi\n");
+        assert_eq!(p.blocks()[0].command, "echo hi");
     }
 
     #[test]

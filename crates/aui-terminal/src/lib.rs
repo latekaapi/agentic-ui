@@ -11,7 +11,7 @@
 //! | [`fake`] | [`FakePty`], a scripted transcript that replays card 50 |
 //! | [`pty`] | a real login shell over `portable-pty` (feature `pty`) |
 //! | [`tui_grid`] | the alacritty grid model behind the TUI pane (feature `tui`) |
-//! | [`view`] | [`TerminalState`] plus the two gpui elements |
+//! | [`view`] | [`TerminalState`] plus the three gpui elements |
 //!
 //! ```ignore
 //! let state = window.use_keyed_state("term", cx, |window, cx| {
@@ -40,7 +40,9 @@ pub use backend::{TermEvent, TerminalBackend};
 pub use fake::{FakePty, ScriptChunk};
 pub use parser::{BlockParser, ManualClock};
 #[cfg(feature = "pty")]
-pub use pty::{Pty, ZSH_INTEGRATION};
+pub use pty::{login_shell, Pty, ZSH_INTEGRATION};
 #[cfg(feature = "tui")]
-pub use tui_grid::TuiGrid;
+pub use tui_grid::{TuiGrid, TuiRow, TuiTerm};
 pub use view::{block_terminal_view, tui_view, BlockTerminalView, TerminalIntent, TerminalState, TuiView};
+#[cfg(feature = "tui")]
+pub use view::{tui_grid_view, TuiGridView};

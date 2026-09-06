@@ -20,10 +20,12 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use aui::workbench::{block_terminal, tui_pane, BlockState, TermBlock, TermPrompt, TerminalAction};
-use gpui::{prelude::*, App, ElementId, Entity, IntoElement, SharedString, Task, Window};
+use gpui::{canvas, prelude::*, px, App, Bounds, ElementId, Entity, IntoElement, Pixels, SharedString, Task, Window};
 
 use crate::backend::{TermEvent, TerminalBackend};
 use crate::parser::BlockParser;
+#[cfg(feature = "tui")]
+use crate::tui_grid::{TuiGrid, TuiTerm};
 
 /// The backend is drained on this cadence — about twice a display frame, so a
 /// block appears in the same frame its bytes arrive.
@@ -35,6 +37,64 @@ const FOLD_AFTER: usize = 8;
 const LIVE_TAIL: usize = 2;
 /// The interrupt character `run`'s counterpart writes.
 const CTRL_C: &[u8] = b"\x03";
+/// Both panes draw their terminal text at 12 px mono — `.scroll` on card 50
+/// (`crates/aui/src/workbench/terminal.rs`) and `.tui` on the TUI pane
+/// (`crates/aui/src/workbench/tui.rs`).
+const TERM_TEXT: f32 = 12.0;
+/// `.tui{font:12px/1.5 mono}` — the TUI pane's line height.
+const TUI_LH: f32 = 1.5;
+/// `.scroll{font:12px/1.55 mono}` — the block terminal's line height.
+const BLOCK_LH: f32 = 1.55;
+/// `.tui{padding:10px 12px}`: the horizontal inset a TUI row loses.
+const TUI_INSET_X: f32 = 12.0 * 2.0;
+/// …and the vertical one.
+const TUI_INSET_Y: f32 = 10.0 * 2.0;
+/// `.scroll{padding:10px 12px}` plus `.out{padding-left:26px;padding-right:10px}`:
+/// what a block's output line loses horizontally.
+const BLOCK_INSET_X: f32 = 12.0 * 2.0 + 26.0 + 10.0;
+/// `.scroll{padding:10px 12px}` vertically.
+const BLOCK_INSET_Y: f32 = 10.0 * 2.0;
+// The grid pane redraws `aui::workbench::tui_pane` with real runs, so it
+// carries that component's own numbers. They are only compiled with the grid.
+/// `.tui{padding:10px 12px}` — the TUI pane's own padding, mirrored so the
+/// grid pane lines up with `aui::workbench::tui_pane` exactly.
+#[cfg(feature = "tui")]
+const TUI_PAD_Y: f32 = 10.0;
+/// …horizontally.
+#[cfg(feature = "tui")]
+const TUI_PAD_X: f32 = 12.0;
+/// `.box{padding:6px 10px;margin:6px 0}` — the docked input box.
+#[cfg(feature = "tui")]
+const BOX_PAD_Y: f32 = 6.0;
+/// …horizontally.
+#[cfg(feature = "tui")]
+const BOX_PAD_X: f32 = 10.0;
+/// …and the gap above and below it.
+#[cfg(feature = "tui")]
+const BOX_MARGIN_Y: f32 = 6.0;
+/// The input box's cursor: 7 x 14, blinking on a one-second loop.
+#[cfg(feature = "tui")]
+const CURSOR_W: f32 = 7.0;
+/// …its height.
+#[cfg(feature = "tui")]
+const CURSOR_H: f32 = 14.0;
+/// …and its period.
+#[cfg(feature = "tui")]
+const CURSOR_PERIOD: Duration = Duration::from_millis(1000);
+/// `.hint{right:10px;top:8px;gap:4px}` — the keycaps in the corner.
+#[cfg(feature = "tui")]
+const HINT_RIGHT: f32 = 10.0;
+/// …from the top.
+#[cfg(feature = "tui")]
+const HINT_TOP: f32 = 8.0;
+/// …and between them.
+#[cfg(feature = "tui")]
+const HINT_GAP: f32 = 4.0;
+/// A pty is never asked for fewer cells than this, however small the pane is
+/// drawn — a zero-column terminal makes curses programs misbehave.
+const MIN_COLS: u16 = 8;
+/// …and never fewer rows.
+const MIN_ROWS: u16 = 2;
 
 /// What the terminal pane asks its host for.
 ///
@@ -81,6 +141,13 @@ pub struct TerminalState {
     exit: Option<i32>,
     poll: Option<Task<()>>,
     started: bool,
+    /// The size the pane last measured, in character cells. `(0, 0)` until it
+    /// has been measured once, so the first measurement always lands.
+    cells: (u16, u16),
+    /// Grid mode: when this is set, polled bytes go to the screen model
+    /// instead of the block parser.
+    #[cfg(feature = "tui")]
+    grid: Option<TuiTerm>,
 }
 
 impl TerminalState {
@@ -100,7 +167,36 @@ impl TerminalState {
             exit: None,
             poll: None,
             started: false,
+            cells: (0, 0),
+            #[cfg(feature = "tui")]
+            grid: None,
         }
+    }
+
+    /// A session in **grid mode**: bytes go into an `alacritty_terminal`
+    /// screen `cols` × `rows` cells instead of the block parser, which is what
+    /// a full-screen program needs. Draw it with [`tui_grid_view`].
+    ///
+    /// [`blocks`](Self::blocks) stays empty in this mode — a screen that
+    /// redraws in place has no blocks to report.
+    #[cfg(feature = "tui")]
+    pub fn with_grid(backend: Box<dyn TerminalBackend>, cols: u16, rows: u16) -> Self {
+        let mut this = Self::new(backend);
+        this.grid = Some(TuiTerm::with_size(cols as usize, rows as usize));
+        this.cells = (cols, rows);
+        this
+    }
+
+    /// The visible screen on `palette`, or `None` when this session is not in
+    /// grid mode. Cheap enough to call once per frame: it walks the grid.
+    #[cfg(feature = "tui")]
+    pub fn grid(&self, palette: &aui_tokens::Palette) -> Option<TuiGrid> {
+        self.grid.as_ref().map(|t| t.snapshot(palette))
+    }
+
+    /// The size the pane last reported, in character cells.
+    pub fn cells(&self) -> (u16, u16) {
+        self.cells
     }
 
     /// The prompt row's text and context tags.
@@ -133,21 +229,39 @@ impl TerminalState {
     pub fn pump(&mut self) {
         for event in self.backend.poll() {
             match event {
-                TermEvent::Output(bytes) => self.parser.feed(&bytes),
+                TermEvent::Output(bytes) => self.feed(&bytes),
                 TermEvent::Exit(code) => self.exit = Some(code),
             }
         }
         self.parser.tick();
     }
 
-    /// Sends raw bytes to the session.
+    /// Routes a chunk of output: to the screen in grid mode, to the block
+    /// parser otherwise.
+    fn feed(&mut self, bytes: &[u8]) {
+        #[cfg(feature = "tui")]
+        if let Some(grid) = self.grid.as_mut() {
+            grid.feed(bytes);
+            return;
+        }
+        self.parser.feed(bytes);
+    }
+
+    /// Sends raw bytes to the session — a typed key, a pasted line, a signal
+    /// character. This is how a host wires a keyboard to a grid pane.
     pub fn write(&mut self, bytes: &[u8]) {
         self.backend.write(bytes);
     }
 
-    /// Tells the session its new size in character cells.
+    /// Tells the session its new size in character cells, resizing the screen
+    /// model too when this session is in grid mode.
     pub fn resize(&mut self, cols: u16, rows: u16) {
+        self.cells = (cols, rows);
         self.backend.resize(cols, rows);
+        #[cfg(feature = "tui")]
+        if let Some(grid) = self.grid.as_mut() {
+            grid.resize(cols, rows);
+        }
     }
 
     /// Performs the intents a terminal owns: running a line, interrupting it,
@@ -184,7 +298,7 @@ impl TerminalState {
                 if i < last_bright && b.state != BlockState::Running {
                     b = b.old();
                 }
-                if b.output.len() > FOLD_AFTER && !self.unfolded.iter().any(|k| *k == b.id) {
+                if b.output.len() > FOLD_AFTER && !self.unfolded.contains(&b.id) {
                     b.folded = b.output.len() - FOLD_AFTER;
                     b.output.truncate(FOLD_AFTER);
                 }
@@ -215,6 +329,57 @@ impl TerminalState {
         });
         self.poll = Some(task);
     }
+}
+
+/// The pane's box in character cells, given the padding its text sits inside
+/// and the line height it is drawn at. The cell width is the mono font's
+/// advance for `0` at 12 px, measured through the window's own text system so
+/// it matches what will actually be painted.
+fn cells_for(bounds: Bounds<Pixels>, inset_x: f32, inset_y: f32, line_height: f32, window: &Window) -> (u16, u16) {
+    let text = window.text_system();
+    let font_id = text.resolve_font(&gpui::font(aui_tokens::scale::FONT_MONO));
+    let advance = text.ch_advance(font_id, px(TERM_TEXT)).map(f32::from).unwrap_or(0.0);
+    let row_h = TERM_TEXT * line_height;
+    if advance <= 0.0 || row_h <= 0.0 {
+        return (MIN_COLS, MIN_ROWS);
+    }
+    let w = f32::from(bounds.size.width) - inset_x;
+    let h = f32::from(bounds.size.height) - inset_y;
+    let cols = (w / advance).floor().clamp(MIN_COLS as f32, u16::MAX as f32) as u16;
+    let rows = (h / row_h).floor().clamp(MIN_ROWS as f32, u16::MAX as f32) as u16;
+    (cols, rows)
+}
+
+/// An element that paints nothing and measures the pane, telling `state` its
+/// size in cells whenever that changes.
+///
+/// It has to be a `canvas`, because only prepaint knows how big the pane was
+/// laid out. It never calls `notify`: a resized program redraws itself and the
+/// poll timer picks that up, so a notify here would only spin the frame loop.
+fn resize_probe(
+    state: &Entity<TerminalState>,
+    inset_x: f32,
+    inset_y: f32,
+    line_height: f32,
+) -> impl IntoElement + use<> {
+    let state = state.clone();
+    canvas(
+        move |bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App| {
+            let size = cells_for(bounds, inset_x, inset_y, line_height, window);
+            if state.read(cx).cells() != size {
+                state.update(cx, |state, _| state.resize(size.0, size.1));
+            }
+        },
+        |_, _: (), _, _| {},
+    )
+    .absolute()
+    .size_full()
+}
+
+/// Wraps a pane so the [`resize_probe`] has a box to measure and a positioned
+/// ancestor to sit in.
+fn measured(pane: impl IntoElement, probe: impl IntoElement) -> impl IntoElement {
+    gpui::div().relative().size_full().child(pane).child(probe)
 }
 
 type IntentHandler = Rc<dyn Fn(TerminalIntent, &mut Window, &mut App)>;
@@ -280,7 +445,7 @@ impl RenderOnce for BlockTerminalView {
         if let Some(marker) = self.marker {
             pane = pane.marker(marker);
         }
-        pane
+        measured(pane, resize_probe(&self.state, BLOCK_INSET_X, BLOCK_INSET_Y, BLOCK_LH))
     }
 }
 
@@ -333,7 +498,132 @@ impl RenderOnce for TuiView {
         for key in self.hint_keys {
             pane = pane.hint_key(key);
         }
-        pane
+        measured(pane, resize_probe(&self.state, TUI_INSET_X, TUI_INSET_Y, TUI_LH))
+    }
+}
+
+/// The TUI grid over a [`TerminalState`] in grid mode. Build with
+/// [`tui_grid_view`].
+///
+/// This draws the `alacritty_terminal` screen — real ANSI colour, the cursor
+/// inverted in place — rather than [`tui_pane`]'s line-by-line ANSI path, and
+/// it carries the same padding, 12 px/1.5 mono type, docked input box, footer
+/// and hint keys so the two panes are indistinguishable at rest.
+///
+/// Keys are the host's business: write bytes to the session with
+/// `state.update(cx, |state, _| state.write(b"..."))`.
+#[cfg(feature = "tui")]
+#[derive(IntoElement)]
+pub struct TuiGridView {
+    id: ElementId,
+    state: Entity<TerminalState>,
+    input: Option<SharedString>,
+    footer: Option<SharedString>,
+    hint_keys: Vec<SharedString>,
+}
+
+/// The `alacritty` screen behind `state` (which must have been built with
+/// [`TerminalState::with_grid`]; a state without a grid draws an empty pane).
+#[cfg(feature = "tui")]
+pub fn tui_grid_view(id: impl Into<ElementId>, state: &Entity<TerminalState>) -> TuiGridView {
+    TuiGridView { id: id.into(), state: state.clone(), input: None, footer: None, hint_keys: Vec::new() }
+}
+
+#[cfg(feature = "tui")]
+impl TuiGridView {
+    /// The docked input box and its text, with the blinking cursor after it.
+    pub fn input(mut self, text: impl Into<SharedString>) -> Self {
+        self.input = Some(text.into());
+        self
+    }
+
+    /// The dim hint line under the input.
+    pub fn footer(mut self, text: impl Into<SharedString>) -> Self {
+        self.footer = Some(text.into());
+        self
+    }
+
+    /// A keycap pinned to the pane's top right.
+    pub fn hint_key(mut self, key: impl Into<SharedString>) -> Self {
+        self.hint_keys.push(key.into());
+        self
+    }
+}
+
+/// One grid row as a styled line. The runs come from the snapshot, so the
+/// colour is the program's own; the fallback is only for a row whose runs do
+/// not add up (an empty line, which still needs a box of its own height).
+#[cfg(feature = "tui")]
+fn grid_line(row: &crate::tui_grid::TuiRow, p: &aui_tokens::Palette) -> impl IntoElement {
+    use gpui::{font, StyledText, TextRun};
+    let text = if row.text.is_empty() { " ".to_string() } else { row.text.clone() };
+    let fits = !row.runs.is_empty() && row.runs.iter().map(|r| r.len).sum::<usize>() == text.len();
+    let runs = if fits {
+        row.runs.clone()
+    } else {
+        vec![TextRun {
+            len: text.len(),
+            font: font(aui_tokens::scale::FONT_MONO),
+            color: p.term_fg,
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        }]
+    };
+    gpui::div().w_full().overflow_hidden().whitespace_nowrap().child(StyledText::new(text).with_runs(runs))
+}
+
+#[cfg(feature = "tui")]
+impl RenderOnce for TuiGridView {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        use aui::data::kbd;
+        use aui_motion::{looping, Loop};
+        use aui_tokens::{scale, ActiveAui, AuiStyled};
+        use gpui::{div, relative};
+        use gpui_kit::base::{h_flex, v_flex};
+
+        self.state.update(cx, |state, cx| state.ensure_started(window, cx));
+        let p = cx.aui().colors;
+        let grid = self.state.read(cx).grid(&p).unwrap_or_default();
+
+        let mut body = v_flex()
+            .w_full()
+            .py(px(TUI_PAD_Y))
+            .px(px(TUI_PAD_X))
+            .mono(TERM_TEXT)
+            .line_height(relative(TUI_LH))
+            .text_color(p.term_fg);
+        for row in &grid.rows {
+            body = body.child(grid_line(row, &p));
+        }
+        if let Some(input) = self.input {
+            let on = looping((self.id.clone(), "cursor"), Loop::linear(CURSOR_PERIOD).resting(1.0), window, cx) < 0.5;
+            body = body.child(
+                h_flex()
+                    .my(px(BOX_MARGIN_Y))
+                    .py(px(BOX_PAD_Y))
+                    .px(px(BOX_PAD_X))
+                    .gap(px(scale::SP_2))
+                    .rounded(px(scale::R_SM))
+                    .border_1()
+                    .border_color(p.line_strong)
+                    .child(div().text_color(p.term_dim).child("\u{203a}"))
+                    .child(div().child(input))
+                    .child(div().flex_none().w(px(CURSOR_W)).h(px(CURSOR_H)).bg(p.term_cursor).opacity(if on { 1.0 } else { 0.0 })),
+            );
+        }
+        if let Some(footer) = self.footer {
+            body = body.child(div().text_color(p.term_dim).child(footer));
+        }
+        let mut pane = div().id(self.id).relative().size_full().bg(p.term_bg).child(body);
+        if !self.hint_keys.is_empty() {
+            let mut hint = h_flex().absolute().right(px(HINT_RIGHT)).top(px(HINT_TOP)).gap(px(HINT_GAP));
+            for key in self.hint_keys {
+                hint = hint.child(kbd(key));
+            }
+            pane = pane.child(hint);
+        }
+        pane.child(resize_probe(&self.state, TUI_INSET_X, TUI_INSET_Y, TUI_LH))
     }
 }
 
@@ -378,6 +668,44 @@ mod tests {
         assert_eq!(state.decorated_blocks()[0].output.len(), 10);
         state.apply(&TerminalIntent::Fold(id));
         assert_eq!(state.decorated_blocks()[0].folded, 2);
+    }
+
+    #[test]
+    fn a_resize_is_remembered_so_the_pane_can_skip_the_next_one() {
+        let mut state = TerminalState::new(Box::new(FakePty::card50()));
+        assert_eq!(state.cells(), (0, 0), "unmeasured until the pane says otherwise");
+        state.resize(80, 24);
+        assert_eq!(state.cells(), (80, 24));
+    }
+
+    #[cfg(feature = "tui")]
+    #[test]
+    fn grid_mode_feeds_the_screen_and_leaves_the_block_parser_empty() {
+        use aui_tokens::{Palette, ThemeKind};
+        let fake = FakePty::new(vec![crate::fake::ScriptChunk::new(0, "first\r\nsecond")]);
+        let mut state = TerminalState::with_grid(Box::new(fake), 20, 3);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let p = Palette::for_kind(ThemeKind::Dark);
+        while std::time::Instant::now() < deadline
+            && state.grid(&p).map(|g| g.rows[1].text.trim().is_empty()).unwrap_or(true)
+        {
+            state.pump();
+        }
+        let grid = state.grid(&p).expect("grid mode");
+        assert_eq!(grid.rows.len(), 3);
+        assert_eq!(grid.rows[0].text, "first");
+        assert_eq!(grid.rows[1].text, "second ", "the trailing blank is the cursor cell");
+        assert_eq!(grid.cursor, Some((1, 6)));
+        assert!(state.blocks().is_empty(), "grid mode does not build blocks");
+        assert_eq!(state.cells(), (20, 3));
+    }
+
+    #[cfg(not(feature = "tui"))]
+    #[test]
+    fn without_the_tui_feature_a_state_still_parses_blocks() {
+        let mut state = TerminalState::new(Box::new(FakePty::card50()));
+        state.pump();
+        assert_eq!(state.cells(), (0, 0));
     }
 
     #[test]
