@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use aui::workbench::{annotations_panel, browser_nav, element_outline, note_popover, Annotation, AnnotatorAction, BrowserAction, NoteAction};
 use aui_tokens::ActiveAui;
-use gpui::{canvas, div, img, prelude::*, px, App, Context, ElementId, Entity, FocusHandle, Image, ImageFormat, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, SharedString, Size, Task, Window};
+use gpui::{canvas, div, img, prelude::*, px, App, Bounds, Context, ElementId, Entity, FocusHandle, Image, ImageFormat, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, SharedString, Size, Task, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::backend::{ElementInfo, WebBackend, WebEvent};
@@ -100,6 +100,9 @@ pub struct WebviewState {
     /// The last box pushed into a native backend, so an unchanged layout costs
     /// no `setFrame:`.
     pushed: Option<(Point<Pixels>, Size<Pixels>)>,
+    /// How much of the page area survived its ancestors' clipping, or `None`
+    /// when the pane has been scrolled out of sight entirely.
+    visible_box: Option<Bounds<Pixels>>,
     /// When the page area was last laid out, and what the native view was last
     /// told, so a card that stopped rendering takes its webview with it.
     laid_out: Instant,
@@ -141,6 +144,7 @@ impl WebviewState {
             focus: cx.focus_handle(),
             obscured: false,
             pushed: None,
+            visible_box: None,
             laid_out: Instant::now(),
             shown: true,
             page_origin: gpui::point(px(0.0), px(0.0)),
@@ -266,23 +270,38 @@ impl WebviewState {
         if !self.native {
             return;
         }
-        let want = !self.obscured && self.laid_out.elapsed() < STALE_LAYOUT;
+        let want = !self.obscured && self.visible_box.is_some() && self.laid_out.elapsed() < STALE_LAYOUT;
         if want != self.shown {
             self.shown = want;
             self.backend.set_visible(want);
         }
     }
 
-    /// The page area was laid out at `origin`/`size` (window coordinates). A
-    /// native backend is moved to match; everything else only records the box.
-    fn laid_out(&mut self, origin: Point<Pixels>, size: Size<Pixels>) -> bool {
+    /// The page area was laid out at `bounds` (window coordinates), inside an
+    /// ancestor clip of `clip`. A native backend is moved to match; everything
+    /// else only records the box.
+    ///
+    /// The two rectangles are different things. `bounds` is where the page's
+    /// document is, and it is what a pointer position is turned into page
+    /// coordinates against. `clip` is what gpui would have masked the pane to,
+    /// and a native child view **is not subject to that mask** — it is clipped
+    /// only by the window's content view. Without the intersection a pane in a
+    /// scrolling container paints its page over the app's own chrome, which is
+    /// exactly what the gallery's stage does when it scrolls.
+    fn laid_out(&mut self, bounds: Bounds<Pixels>, clip: Bounds<Pixels>) -> bool {
+        let (origin, size) = (bounds.origin, bounds.size);
         self.page_origin = origin;
         self.laid_out = Instant::now();
         let resized = self.page_size != size;
         self.page_size = size;
-        if self.native && self.pushed != Some((origin, size)) {
-            self.pushed = Some((origin, size));
-            self.backend.set_bounds((f32::from(origin.x), f32::from(origin.y)), (f32::from(size.width), f32::from(size.height)));
+        let visible = bounds.intersect(&clip);
+        self.visible_box = (!visible.is_empty()).then_some(visible);
+        if self.native && self.pushed != Some((visible.origin, visible.size)) {
+            self.pushed = Some((visible.origin, visible.size));
+            self.backend.set_bounds(
+                (f32::from(visible.origin.x), f32::from(visible.origin.y)),
+                (f32::from(visible.size.width), f32::from(visible.size.height)),
+            );
             if resized {
                 // The stand-in an overlay is painted over has to be the page at
                 // *this* size, so a reflow is worth a new picture. Taking it
@@ -651,12 +670,16 @@ impl RenderOnce for WebviewPane {
                 canvas(
                     {
                         let state = state.clone();
-                        move |bounds, _, cx| {
+                        move |bounds, window, cx| {
+                            // The clip its ancestors would have masked the pane
+                            // to. A native page is not masked by gpui, so the
+                            // pane has to do it by hand.
+                            let clip = window.content_mask().bounds;
                             state.update(cx, |state, cx| {
                                 // This is also where a native page is moved:
                                 // the webview follows the pane because the pane
                                 // measures itself every prepaint.
-                                if state.laid_out(bounds.origin, bounds.size) {
+                                if state.laid_out(bounds, clip) {
                                     // The panel's preview tile is drawn from
                                     // this box, so a resize — the first layout
                                     // included — needs one more frame.
