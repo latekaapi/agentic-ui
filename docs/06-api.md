@@ -44,12 +44,20 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
   - `pub fn composer_state_rows(placeholder: impl Into<SharedString>, min_rows: usize, max_rows: usize, window: &mut Window, cx: &mut Context<'_, TextareaState>) -> TextareaState`
 - **fn** `drop_overlay` — The overlay over the pane files are being dragged onto.
   - `pub fn drop_overlay(id: impl Into<ElementId>, visible: bool) -> DropOverlay`
+- **fn** `effort_menu` — The reasoning-effort picker.
+  - `pub fn effort_menu(id: impl Into<ElementId>, rows: Vec<PickerRow>, selected: usize, open: bool) -> PickerMenu`
 - **fn** `mention_picker` — The mention picker at the width of its container. `query` is what has been typed after the `@`; a row that carries no explicit `MentionItem::matched` range highlights the query wherever it occurs in the label. [...]
   - `pub fn mention_picker(id: impl Into<ElementId>, query: impl Into<SharedString>, sections: Vec<MentionSection>, selected: usize) -> MentionPicker`
+- **fn** `mode_menu` — The approval-mode picker.
+  - `pub fn mode_menu(id: impl Into<ElementId>, rows: Vec<PickerRow>, selected: usize, open: bool) -> PickerMenu`
+- **fn** `model_menu` — The model picker: rows from the provider catalog, `selected` on the row the session is actually using.
+  - `pub fn model_menu(id: impl Into<ElementId>, rows: Vec<PickerRow>, selected: usize, open: bool) -> PickerMenu`
 - **fn** `plus_menu` — A menu over `items`; render it as a child of the `+` button’s holder.
   - `pub fn plus_menu(id: impl Into<ElementId>, items: Vec<PlusMenuItem>, open: bool) -> PlusMenu`
 - **fn** `queue_row` — A queued message.
   - `pub fn queue_row(id: impl Into<ElementId>, text: impl Into<SharedString>) -> QueueRow`
+- **fn** `queue_strip` — The strip for `rows`, newest last, in server order.
+  - `pub fn queue_strip(id: impl Into<ElementId>, rows: Vec<QueueStripRow>) -> QueueStrip`
 - **fn** `suggestion_chips` — Chips for `items`; the first carries the sparkle glyph.
   - `pub fn suggestion_chips(id: impl Into<ElementId>, items: Vec<SharedString>) -> SuggestionChips`
 
@@ -75,8 +83,10 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
   - `pub fn new(title: impl Into<SharedString>, items: Vec<CommandItem>) -> Self` — A section with its header and rows.
 - **struct** `Composer` — The composer. Build with `composer`.
   - `pub fn can_send(self, can_send: bool) -> Self` — Whether the send button is enabled (surface-3 / ink-4 otherwise).
+  - `pub fn chip_menu(self, anchor: ComposerChipAnchor, menu: impl IntoElement) -> Self` — Hangs a picker off one of the toolbar chips. The menu renders inside that chip’s own positioning holder, so it stays anchored to the control that opened it however wide the composer is; the menu itsel [...]
   - `pub fn chips(self, chips: Vec<ComposerChip>) -> Self` — Context chips above the text.
-  - `pub fn context_percent(self, percent: u8) -> Self` — Shows `context N%` after the chips.
+  - `pub fn context(self, context: ContextMeterState) -> Self` — The context meter in the toolbar: the ring, the percentage (or the raw token count when the basis has no window) and the hover breakdown.
+  - `pub fn context_open(self, open: bool) -> Self` — Pins the context meter’s breakdown open (or shut) instead of letting it follow the pointer — what the keyboard and a static capture both need.
   - `pub fn docked(self, docked: bool) -> Self` — The docked variant: full width, top hairline only, no radius or shadow.
   - `pub fn effort(self, effort: impl Into<SharedString>) -> Self` — The effort chip (brain glyph + level).
   - `pub fn focused(self, focused: bool) -> Self` — Draws the focused ring (accent border + 3 px accent-ring).
@@ -84,6 +94,7 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
   - `pub fn meta(self, meta: ComposerMeta) -> Self` — The meta strip above the card.
   - `pub fn mode(self, mode: impl Into<SharedString>) -> Self` — The mode chip label.
   - `pub fn on_intent(self, f: impl Fn(ComposerIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler.
+  - `pub fn plan(self, plan: bool) -> Self` — Draws the “Plan” pill in the toolbar; clicking it emits `ComposerIntent::ExitPlan`.
   - `pub fn plus_menu(self, open: bool, menu: Option<impl IntoElement>) -> Self` — Whether the `+` menu is open (rotates the button); pass the menu element too.
   - `pub fn streaming(self, streaming: bool) -> Self` — A turn is running: the send button shows stop.
 - **struct** `ComposerChip` — A chip above the text.
@@ -109,6 +120,17 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
 - **struct** `MentionSection` — A titled block of mention rows (`Files in acme-web`, `Symbols`).
   - fields: `title`, `items`
   - `pub fn new(title: impl Into<SharedString>, items: Vec<MentionItem>) -> Self` — A section with its header and rows.
+- **struct** `PickerMenu` — A composer chip menu. Build with `model_menu`, `effort_menu` or `mode_menu`.
+  - `pub fn at_rest(self) -> Self` — Skips the enter morph (static captures).
+  - `pub fn on_close(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — A click outside the menu.
+  - `pub fn on_hover(self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self` — The pointer entered a row; the argument is its index, so the caller can move the selection to it and keep one highlight on screen.
+  - `pub fn on_pick(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A row was activated; the argument is its `PickerRow::id`.
+  - `pub fn title(self, title: impl Into<SharedString>) -> Self` — Replaces the caps header.
+- **struct** `PickerRow` — One row of a composer picker.
+  - fields: `id`, `label`, `detail`, `meta`, `badges`
+  - `pub fn badge(self, badge: impl Into<SharedString>) -> Self` — Adds one badge at the right edge.
+  - `pub fn meta(self, meta: impl Into<SharedString>) -> Self` — The trailing mono fact.
+  - `pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>, detail: impl Into<SharedString>) -> Self` — A row with a label and a description.
 - **struct** `PlusMenu` — The menu. Build with `plus_menu`.
   - `pub fn at_rest(self) -> Self` — Skips the enter morph (static captures).
   - `pub fn on_activate(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — Activation handler.
@@ -117,7 +139,14 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
   - `pub fn key(self, key: impl Into<SharedString>) -> Self` — Adds the keycap.
   - `pub fn new(id: impl Into<SharedString>, icon: IconName, label: impl Into<SharedString>) -> Self` — An item.
 - **struct** `QueueRow` — A queued message row. Build with `queue_row`.
+  - `pub fn editing(self) -> Self` — The row whose text is in the composer, waiting for the server’s `turn/unqueued` to take it out of the queue. The badge says so; nothing is removed until the wire says it was.
   - `pub fn on_intent(self, f: impl Fn(QueueIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler.
+- **struct** `QueueStrip` — The queued submissions above the docked composer. Build with `queue_strip`.
+  - `pub fn on_intent(self, f: impl Fn(&SharedString, QueueIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler; the first argument is the row’s `QueueStripRow::id`.
+- **struct** `QueueStripRow` — One row of a `QueueStrip`: the server’s turn id and the text it queued.
+  - fields: `id`, `text`, `editing`
+  - `pub fn editing(self) -> Self` — Marks the row as the one being edited.
+  - `pub fn new(id: impl Into<SharedString>, text: impl Into<SharedString>) -> Self` — A queued row.
 - **struct** `SuggestionChips` — Suggestion chips. Build with `suggestion_chips`.
   - `pub fn at_rest(self) -> Self` — Skips the staggered enter (static captures).
   - `pub fn on_pick(self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self` — Pick handler with the chip index.
@@ -125,21 +154,24 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
 - **enum** `AttachmentRowState` — Where one attachment row is in its life.
   - variants: `Ready`, `Uploading`, `Failed`, `Hint`
   - `pub fn from_upload(state: &UploadState) -> Self` — Maps the protocol’s `UploadState` onto a row state.
+- **enum** `ComposerChipAnchor` — Which toolbar control a `Composer::chip_menu` hangs off.
+  - variants: `Model`, `Mode`, `Effort`
 - **enum** `ComposerChipKind` — What a context chip stands for.
   - variants: `Mention`, `Image`, `File`, `Skill`
 - **enum** `ComposerIntent` — What the composer asks for.
-  - variants: `Send`, `Stop`, `TogglePlus`, `Model`, `Mode`, `Effort`, `RemoveChip`
+  - variants: `Send`, `Stop`, `TogglePlus`, `Model`, `Mode`, `Effort`, `RemoveChip`, `Steer`,
+    `ExitPlan`, `Attach`, `Compact`
 - **enum** `MentionIcon` — The leading glyph of a mention row.
   - variants: `Glyph`, `Symbol`, `Dot`
 - **enum** `QueueIntent` — What a queue row asks for.
-  - variants: `Edit`, `Remove`
+  - variants: `Edit`, `Remove`, `Steer`
 
 - **const** `ROW_STACK_GAP` — `.att{gap:6px}` — the gap between rows in the column.
   - `pub const ROW_STACK_GAP: f32 = 6.0;`
 
 ### `aui::data`
 
-Shared data-display primitives every card is built from (`base.css`): buttons, chips, pills, tags, status dots, kbd, avatars, status glyphs and the provider usage meter. [...]
+Shared data-display primitives every card is built from (`base.css`): buttons, chips, pills, tags, status dots, kbd, avatars, status glyphs, the provider usage meter and the context-window meter. [...]
 
 - **fn** `avatar` — The person’s initial in a circle.
   - `pub fn avatar(initial: impl Into<SharedString>) -> Avatar`
@@ -147,6 +179,8 @@ Shared data-display primitives every card is built from (`base.css`): buttons, c
   - `pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Button`
 - **fn** `chip` — A chip with a label.
   - `pub fn chip(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Chip`
+- **fn** `context_meter` — The meter for `state`; hover reveals the breakdown.
+  - `pub fn context_meter(id: impl Into<ElementId>, state: ContextMeterState) -> ContextMeter`
 - **fn** `glyph_err` — The error glyph.
   - `pub fn glyph_err() -> Glyph`
 - **fn** `glyph_ok` — The success glyph.
@@ -192,6 +226,14 @@ Shared data-display primitives every card is built from (`base.css`): buttons, c
   - `pub fn leading(self, element: impl IntoElement) -> Self` — Any leading element (a provider mark, a file-type icon).
   - `pub fn on_click(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Click handler.
   - `pub fn trailing(self, element: impl IntoElement) -> Self` — A trailing element (the remove `x` of a context chip).
+- **struct** `ContextMeter` — The context meter. Build with `context_meter`.
+  - `pub fn on_compact(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The Compact action, in the breakdown and — when the pressure is `ContextPressure::Blocked` — inline beside the number.
+  - `pub fn open(self, open: bool) -> Self` — Forces the breakdown open (or shut) instead of following the pointer — what a static capture and the keyboard both need.
+- **struct** `ContextMeterState` — Everything the meter draws.
+  - fields: `used_tokens`, `window_tokens`, `pressure`, `prompt_tokens`, `output_tokens`,
+    `total_tokens`
+  - `pub fn fraction(&self) -> Option<f32>` — Occupancy in `0..=1`, or `None` when there is no denominator.
+  - `pub fn label(&self) -> String` — The label beside the ring: `62%`, or `19.3k tokens` with no window.
 - **struct** `Glyph` — A status glyph. Build with `glyph_ok` / `glyph_err`.
   - `pub fn size(self, size: impl Into<Pixels>) -> Self` — Overrides the diameter; the mark scales with it.
 - **struct** `Kbd` — A keycap. Build with `kbd`.
@@ -215,6 +257,8 @@ Shared data-display primitives every card is built from (`base.css`): buttons, c
   - variants: `Md`, `Sm`, `Xs`
 - **enum** `ButtonVariant` — `.btn` variants.
   - variants: `Secondary`, `Primary`, `Ghost`, `Outline`, `Danger`
+- **enum** `ContextPressure` — How much context pressure the server reports.
+  - variants: `Normal`, `Warning`, `Blocked`
 - **enum** `GlyphKind` — Which status a glyph shows.
   - variants: `Ok`, `Err`
 - **enum** `PillVariant` — `.pill.*` variants.

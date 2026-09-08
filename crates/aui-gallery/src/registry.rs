@@ -311,6 +311,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::menus::build,
     },
     Entry {
+        id: "composer/pickers",
+        group: "Composer",
+        title: "Chip menus, context meter and queue strip",
+        subtitle: "Model / effort / approval-mode pickers, the context ring in every pressure state with its breakdown, the queued strip, and the composer in plan mode",
+        width: 900.0,
+        height: 1040.0,
+        theme: CardTheme::Both,
+        build: crate::cards::pickers::build,
+    },
+    Entry {
         id: "composer/attachments",
         group: "Composer",
         title: "Attachments and drop",

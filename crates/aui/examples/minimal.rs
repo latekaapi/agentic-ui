@@ -24,6 +24,7 @@
 use std::time::Duration;
 
 use aui::composer::{composer, composer_state, ComposerIntent};
+use aui::data::{ContextMeterState, ContextPressure};
 use aui::keys::{ApproveAlways, ApproveOnce, Cancel, Deny as DenyAction, FocusNext, FocusPrev, ToggleRightPane, ToggleSidebar};
 use aui::nav::{group_header, nav_item, sidebar_footer};
 use aui::protocol::{ApprovalDecision, ApprovalScope, ApprovalState, Block, Delta, PermissionMode, Provider, Session, Turn, TurnMeta};
@@ -325,6 +326,16 @@ impl Render for MinimalApp {
         let composer = composer("composer", &self.composer, ProviderMark::Claude, "Opus 4.6")
             .docked(true)
             .mode("Ask")
+            // The meter is a pure function of the session's own counters; a
+            // real app fills these from the server's context notification.
+            .context(ContextMeterState {
+                used_tokens: 19_328,
+                window_tokens: Some(200_000),
+                pressure: ContextPressure::Normal,
+                prompt_tokens: 19_213,
+                output_tokens: 115,
+                total_tokens: 19_328,
+            })
             .streaming(streaming)
             .on_intent({
                 // Data in, intents out: the composer never touches app state.

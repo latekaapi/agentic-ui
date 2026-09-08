@@ -5,9 +5,9 @@ use std::time::Duration;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{presence, stagger_delay, EnterExit, PresenceStyle};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, Window};
-use gpui_kit::base::h_flex;
+use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, ButtonSize};
 use crate::util::{interaction_flags, TrackInteraction};
@@ -29,14 +29,20 @@ const SUGG_PAD: f32 = 10.0;
 const SUGG_GLYPH: f32 = 11.0;
 const SUGG_STAGGER: Duration = Duration::from_millis(60);
 const SUGG_RISE: f32 = 4.0;
+/// The strip above the docked composer: `.queue{gap:6px}` with `.caps` 6 px above it.
+const STRIP_GAP: f32 = 6.0;
+const STRIP_HEAD_GAP: f32 = 2.0;
 
 /// What a queue row asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueueIntent {
-    /// Edit the queued text.
+    /// Unqueue it and put the text back in the composer.
     Edit,
     /// Drop it from the queue.
     Remove,
+    /// Unqueue it and interject it into the running turn instead
+    /// (MSP `turn/unqueue` then `turn/steer`).
+    Steer,
 }
 
 type QueueHandler = std::rc::Rc<dyn Fn(QueueIntent, &mut Window, &mut App)>;
@@ -46,15 +52,24 @@ type QueueHandler = std::rc::Rc<dyn Fn(QueueIntent, &mut Window, &mut App)>;
 pub struct QueueRow {
     id: ElementId,
     text: SharedString,
+    editing: bool,
     on_intent: Option<QueueHandler>,
 }
 
 /// A queued message.
 pub fn queue_row(id: impl Into<ElementId>, text: impl Into<SharedString>) -> QueueRow {
-    QueueRow { id: id.into(), text: text.into(), on_intent: None }
+    QueueRow { id: id.into(), text: text.into(), editing: false, on_intent: None }
 }
 
 impl QueueRow {
+    /// The row whose text is in the composer, waiting for the server's
+    /// `turn/unqueued` to take it out of the queue. The badge says so; nothing
+    /// is removed until the wire says it was.
+    pub fn editing(mut self) -> Self {
+        self.editing = true;
+        self
+    }
+
     /// Intent handler.
     pub fn on_intent(mut self, f: impl Fn(QueueIntent, &mut Window, &mut App) + 'static) -> Self {
         self.on_intent = Some(std::rc::Rc::new(f));
@@ -97,13 +112,14 @@ impl RenderOnce for QueueRow {
                     .line_height(relative(1.0))
                     .semibold()
                     .text_color(p.ink_3)
-                    .child("queued"),
+                    .child(if self.editing { "editing" } else { "queued" }),
             )
             .child(div().flex_1().min_w(px(0.0)).truncate().child(self.text))
             .child(
                 h_flex()
                     .flex_none()
                     .gap(px(scale::SP_1))
+                    .child(icon_button((id.clone(), "steer"), IconName::ArrowUp).ghost().size(ButtonSize::Xs).icon_size(px(ACTION_GLYPH)).on_click(emit(QueueIntent::Steer)))
                     .child(icon_button((id.clone(), "edit"), IconName::Edit).ghost().size(ButtonSize::Xs).icon_size(px(ACTION_GLYPH)).on_click(emit(QueueIntent::Edit)))
                     .child(icon_button((id, "remove"), IconName::X).ghost().size(ButtonSize::Xs).icon_size(px(ACTION_GLYPH)).on_click(emit(QueueIntent::Remove))),
             )
@@ -182,5 +198,93 @@ impl RenderOnce for SuggestionChips {
             row = row.child(chip);
         }
         row
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The strip
+// ---------------------------------------------------------------------------
+
+/// One row of a [`QueueStrip`]: the server's turn id and the text it queued.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QueueStripRow {
+    /// The turn id the queueing ack minted; handed back with every intent, and
+    /// what `turn/unqueue` needs verbatim.
+    pub id: SharedString,
+    /// The submission's text.
+    pub text: SharedString,
+    /// Whether this row is the one currently being edited — its text is in the
+    /// composer and the row is waiting for `turn/unqueued` to confirm it.
+    pub editing: bool,
+}
+
+impl QueueStripRow {
+    /// A queued row.
+    pub fn new(id: impl Into<SharedString>, text: impl Into<SharedString>) -> Self {
+        Self { id: id.into(), text: text.into(), editing: false }
+    }
+
+    /// Marks the row as the one being edited.
+    pub fn editing(mut self) -> Self {
+        self.editing = true;
+        self
+    }
+}
+
+type StripHandler = std::rc::Rc<dyn Fn(&SharedString, QueueIntent, &mut Window, &mut App)>;
+
+/// The queued submissions above the docked composer. Build with [`queue_strip`].
+///
+/// The strip renders **exactly what it is given, in the order it is given**: MSP
+/// moves a queued turn only on `turn/unqueued` or `turn/started`, so a client
+/// that reordered optimistically would show a queue the server does not have.
+#[derive(IntoElement)]
+pub struct QueueStrip {
+    id: ElementId,
+    rows: Vec<QueueStripRow>,
+    on_intent: Option<StripHandler>,
+}
+
+/// The strip for `rows`, newest last, in server order.
+pub fn queue_strip(id: impl Into<ElementId>, rows: Vec<QueueStripRow>) -> QueueStrip {
+    QueueStrip { id: id.into(), rows, on_intent: None }
+}
+
+impl QueueStrip {
+    /// Intent handler; the first argument is the row's [`QueueStripRow::id`].
+    pub fn on_intent(mut self, f: impl Fn(&SharedString, QueueIntent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_intent = Some(std::rc::Rc::new(f));
+        self
+    }
+}
+
+impl RenderOnce for QueueStrip {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let p = cx.aui().colors;
+        let id = self.id.clone();
+        let count = self.rows.len();
+        let mut column = v_flex().w_full().gap(px(STRIP_GAP)).child(
+            div()
+                .w_full()
+                .pb(px(STRIP_HEAD_GAP))
+                .text_role(TextRole::Caps)
+                .text_color(p.ink_3)
+                .child(format!("Queued \u{b7} {count}")),
+        );
+        for row in self.rows {
+            let row_id: ElementId = (id.clone(), SharedString::from(format!("q-{}", row.id))).into();
+            let handler = self.on_intent.clone();
+            let key = row.id.clone();
+            let mut element = queue_row(row_id, row.text.clone()).on_intent(move |intent, w, cx| {
+                if let Some(h) = &handler {
+                    h(&key, intent, w, cx)
+                }
+            });
+            if row.editing {
+                element = element.editing();
+            }
+            column = column.child(element);
+        }
+        column
     }
 }

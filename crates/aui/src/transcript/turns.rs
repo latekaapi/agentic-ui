@@ -264,7 +264,12 @@ fn footer_items(meta: &TurnMeta) -> Vec<String> {
     if meta.reasoning_tokens > 0 {
         items.push(format!("{} reasoning", meta.reasoning_tokens));
     }
-    items.push(format!("${:.2}", meta.cost_usd));
+    // A catalog that reports no price (MSP's `cost` is `null` on every row of
+    // a subscription catalog) leaves the cost at zero; `$0.00` under every turn
+    // is a number the app cannot stand behind, so it is not drawn at all.
+    if meta.cost_usd > 0.0 {
+        items.push(format!("${:.2}", meta.cost_usd));
+    }
     items
 }
 

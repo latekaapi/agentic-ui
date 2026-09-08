@@ -10,7 +10,7 @@ use gpui_kit::base::input::TextareaState;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{chip, icon_button};
+use crate::data::{chip, context_meter, icon_button, ContextMeterState};
 use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.cp{border-radius:14px}`.
@@ -76,6 +76,17 @@ pub enum ComposerChipKind {
     Skill,
 }
 
+/// Which toolbar control a [`Composer::chip_menu`] hangs off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ComposerChipAnchor {
+    /// The model chip.
+    Model,
+    /// The approval-mode chip.
+    Mode,
+    /// The reasoning-effort chip.
+    Effort,
+}
+
 /// A chip above the text.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComposerChip {
@@ -119,6 +130,15 @@ pub enum ComposerIntent {
     Effort,
     /// Remove a chip.
     RemoveChip(SharedString),
+    /// Interject into the turn that is already running instead of queueing
+    /// behind it (MSP `turn/steer`; the app binds it to Cmd-Enter).
+    Steer,
+    /// Leave plan mode (the "Plan" pill in the toolbar).
+    ExitPlan,
+    /// Attach a file or an image.
+    Attach,
+    /// Compact the context window now, from the context meter.
+    Compact,
 }
 
 type IntentHandler = std::rc::Rc<dyn Fn(ComposerIntent, &mut Window, &mut App)>;
@@ -144,7 +164,9 @@ pub struct Composer {
     model: SharedString,
     mode: SharedString,
     effort: Option<SharedString>,
-    context_percent: Option<u8>,
+    context: Option<ContextMeterState>,
+    context_open: Option<bool>,
+    plan: bool,
     streaming: bool,
     can_send: bool,
     focused: bool,
@@ -153,6 +175,7 @@ pub struct Composer {
     plus_open: bool,
     meta: Option<ComposerMeta>,
     plus_menu: Option<gpui::AnyElement>,
+    chip_menus: Vec<(ComposerChipAnchor, gpui::AnyElement)>,
     on_intent: Option<IntentHandler>,
 }
 
@@ -166,7 +189,9 @@ pub fn composer(id: impl Into<ElementId>, state: &Entity<TextareaState>, provide
         model: model.into(),
         mode: "Plan".into(),
         effort: None,
-        context_percent: None,
+        context: None,
+        context_open: None,
+        plan: false,
         streaming: false,
         can_send: true,
         focused: false,
@@ -175,6 +200,7 @@ pub fn composer(id: impl Into<ElementId>, state: &Entity<TextareaState>, provide
         plus_open: false,
         meta: None,
         plus_menu: None,
+        chip_menus: Vec::new(),
         on_intent: None,
     }
 }
@@ -198,9 +224,27 @@ impl Composer {
         self
     }
 
-    /// Shows `context N%` after the chips.
-    pub fn context_percent(mut self, percent: u8) -> Self {
-        self.context_percent = Some(percent);
+    /// The context meter in the toolbar: the ring, the percentage (or the raw
+    /// token count when the basis has no window) and the hover breakdown.
+    pub fn context(mut self, context: ContextMeterState) -> Self {
+        self.context = Some(context);
+        self
+    }
+
+    /// Pins the context meter's breakdown open (or shut) instead of letting it
+    /// follow the pointer — what the keyboard and a static capture both need.
+    pub fn context_open(mut self, open: bool) -> Self {
+        self.context_open = Some(open);
+        self
+    }
+
+    /// Draws the "Plan" pill in the toolbar; clicking it emits
+    /// [`ComposerIntent::ExitPlan`].
+    ///
+    /// Plan mode is a client-side overlay — MSP has no plan mode — so the pill
+    /// says what the app is doing, not what the session is.
+    pub fn plan(mut self, plan: bool) -> Self {
+        self.plan = plan;
         self
     }
 
@@ -241,6 +285,15 @@ impl Composer {
     pub fn plus_menu(mut self, open: bool, menu: Option<impl IntoElement>) -> Self {
         self.plus_open = open;
         self.plus_menu = menu.map(|m| m.into_any_element());
+        self
+    }
+
+    /// Hangs a picker off one of the toolbar chips. The menu renders inside
+    /// that chip's own positioning holder, so it stays anchored to the control
+    /// that opened it however wide the composer is; the menu itself is
+    /// responsible for lifting onto [`crate::overlay::popover_layer`].
+    pub fn chip_menu(mut self, anchor: ComposerChipAnchor, menu: impl IntoElement) -> Self {
+        self.chip_menus.push((anchor, menu.into_any_element()));
         self
     }
 
@@ -373,12 +426,53 @@ impl RenderOnce for Composer {
                 if self.docked { mode } else { mode.chevron() }
             }
         };
+        // Each chip sits in its own positioning holder so the picker that
+        // hangs off it is anchored to the control, not to the toolbar.
+        let mut menus = self.chip_menus;
+        let mut anchored = |anchor: ComposerChipAnchor, chip: gpui::AnyElement| {
+            let mut holder = div().relative().flex_none().child(chip);
+            let mut rest = Vec::new();
+            for (at, menu) in menus.drain(..) {
+                if at == anchor {
+                    holder = holder.child(menu);
+                } else {
+                    rest.push((at, menu));
+                }
+            }
+            menus = rest;
+            holder
+        };
+        let model_chip = anchored(ComposerChipAnchor::Model, model_chip.into_any_element());
+        let mode_chip = anchored(ComposerChipAnchor::Mode, mode_chip.into_any_element());
         bar = if self.knowledge_first { bar.child(mode_chip).child(model_chip) } else { bar.child(model_chip).child(mode_chip) };
         if let Some(effort) = &self.effort {
-            bar = bar.child(chip((id.clone(), "effort"), effort.clone()).composer().leading(icon(IconName::Brain).size(px(CHIP_GLYPH))).on_click(emit(ComposerIntent::Effort)));
+            let effort_chip =
+                chip((id.clone(), "effort"), effort.clone()).composer().leading(icon(IconName::Brain).size(px(CHIP_GLYPH))).on_click(emit(ComposerIntent::Effort));
+            bar = bar.child(anchored(ComposerChipAnchor::Effort, effort_chip.into_any_element()));
         }
-        if let Some(percent) = self.context_percent {
-            bar = bar.child(div().ml(px(CONTEXT_MARGIN)).ui(scale::FS_11).text_color(p.ink_3).whitespace_nowrap().child(format!("context {percent}%")));
+        if self.plan {
+            // Plan mode is the app's own overlay, so its pill is an active chip
+            // that turns itself off rather than a status pill.
+            bar = bar.child(
+                chip((id.clone(), "plan"), SharedString::from("Plan"))
+                    .composer()
+                    .active(true)
+                    .leading(icon(IconName::List).size(px(CHIP_GLYPH)))
+                    .trailing(icon(IconName::X).size(px(CHIP_X)).color(p.ink_4))
+                    .on_click(emit(ComposerIntent::ExitPlan)),
+            );
+        }
+        if let Some(context) = self.context {
+            let handler = self.on_intent.clone();
+            let mut meter = context_meter((id.clone(), "context"), context).on_compact(move |w, cx| {
+                if let Some(h) = &handler {
+                    h(ComposerIntent::Compact, w, cx)
+                }
+            });
+            if let Some(open) = self.context_open {
+                meter = meter.open(open);
+            }
+            bar = bar.child(div().ml(px(CONTEXT_MARGIN)).relative().flex_none().child(meter));
         }
         bar = bar.child(div().flex_1()).child(send);
 
