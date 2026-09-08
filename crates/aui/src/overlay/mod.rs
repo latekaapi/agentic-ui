@@ -1,10 +1,23 @@
-//! Overlays: the command palette (card 12), and later menus, popovers and
-//! dialogs. Overlays render inside the window; the app decides when they are
-//! present and positions them.
+//! Overlays: the command palette (card 12), the modal dialog, and later menus
+//! and popovers. Overlays render inside the window; the app decides when they
+//! are present and positions them.
 
 mod command_palette;
+mod dialog;
 
 pub use command_palette::*;
+pub use dialog::{dialog, Dialog, DialogKind};
+
+/// How far an overlay dims the window behind it.
+///
+/// `.scrim{background:linear-gradient(180deg,rgba(0,0,0,.25),rgba(0,0,0,.45))}`
+/// — [`palette_scrim`] runs the gradient between the two stops; the modal
+/// [`Dialog`] covers the whole window, where the heavier bottom stop turns a
+/// light theme into a grey slab, so it uses the flat top stop. Both live here
+/// rather than as a literal in each file.
+pub(crate) const SCRIM_TINT_TOP: f32 = 0.25;
+/// The bottom stop of the scrim gradient, and the modal scrim's flat tint.
+pub(crate) const SCRIM_TINT_BOTTOM: f32 = 0.45;
 
 /// The priority every popover in the library paints at. Deferred draws are
 /// painted in priority order, so a menu opened from inside another popover can

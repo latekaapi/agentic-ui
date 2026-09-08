@@ -6,7 +6,7 @@ use aui_icons::{icon, IconName, Provider};
 use aui_motion::{spring_phase, tint_fade, tween, SpringKind, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, radians, AnyElement, App, ElementId, Hsla, IntoElement, SharedString, Window};
-use gpui_kit::base::h_flex;
+use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{avatar, icon_button, tag, usage_meter, ButtonSize};
 use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
@@ -268,6 +268,7 @@ pub struct SidebarFooter {
     id: ElementId,
     initial: SharedString,
     name: SharedString,
+    detail: Option<SharedString>,
     meter: Option<(Provider, f32)>,
     trailing: Option<AnyElement>,
     pad_y: f32,
@@ -276,13 +277,23 @@ pub struct SidebarFooter {
 
 /// A footer for `name` with `initial` in the avatar.
 pub fn sidebar_footer(id: impl Into<ElementId>, initial: impl Into<SharedString>, name: impl Into<SharedString>) -> SidebarFooter {
-    SidebarFooter { id: id.into(), initial: initial.into(), name: name.into(), meter: None, trailing: None, pad_y: 10.0, on_click: None }
+    SidebarFooter { id: id.into(), initial: initial.into(), name: name.into(), detail: None, meter: None, trailing: None, pad_y: 10.0, on_click: None }
 }
 
 impl SidebarFooter {
     /// Shows the provider usage meter (`fraction` in 0..=1) and the chevron.
     pub fn meter(mut self, provider: Provider, fraction: f32) -> Self {
         self.meter = Some((provider, fraction));
+        self
+    }
+
+    /// A second, quieter line under the name: the account's email, the
+    /// identity a "signed in as" footer is really reporting.
+    ///
+    /// Off by default, because the shell's own footer is one line of name plus
+    /// a usage meter and the design card is that footer.
+    pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
+        self.detail = Some(detail.into());
         self
     }
 
@@ -321,7 +332,15 @@ impl RenderOnce for SidebarFooter {
             .ui(scale::FS_12)
             .text_color(p.ink_3)
             .child(avatar(self.initial))
-            .child(div().flex_1().min_w(px(0.0)).truncate().child(self.name));
+            .child(match self.detail {
+                // Two lines: the name in ink, the identity under it in ink-4.
+                Some(detail) => v_flex()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .child(div().w_full().truncate().text_color(p.ink_2).child(self.name))
+                    .child(div().w_full().truncate().ui(scale::FS_11).text_color(p.ink_4).child(detail)),
+                None => v_flex().flex_1().min_w(px(0.0)).child(div().w_full().truncate().child(self.name)),
+            });
         if let Some((provider, fraction)) = self.meter {
             row = row.child(usage_meter(provider, fraction)).child(
                 icon_button((id, "account"), IconName::ChevronDown).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)),

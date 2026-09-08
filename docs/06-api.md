@@ -434,6 +434,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - fields: `initial`, `name`, `provider`, `usage`
   - `pub fn new(initial: impl Into<SharedString>, name: impl Into<SharedString>, provider: Provider, usage: f32) -> Self` — A footer for `name`.
 - **struct** `SidebarFooter` — The account footer: avatar, name, provider usage meter, chevron. Build with `sidebar_footer`.
+  - `pub fn detail(self, detail: impl Into<SharedString>) -> Self` — A second, quieter line under the name: the account’s email, the identity a “signed in as” footer is really reporting.
   - `pub fn meter(self, provider: Provider, fraction: f32) -> Self` — Shows the provider usage meter (`fraction` in 0..=1) and the chevron.
   - `pub fn on_click(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Click on the footer (account menu).
   - `pub fn pad_y(self, pad: f32) -> Self` — Vertical padding: 10 in the shell, 8 in the sidebar cards.
@@ -451,7 +452,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn groups_label(self, label: impl Into<SharedString>) -> Self` — Overrides the caps label of the group row.
   - `pub fn item(self, item: SidebarNavItem) -> Self` — Adds a primary nav row.
   - `pub fn new(workspace: impl Into<SharedString>, footer: SidebarAccount) -> Self` — A sidebar for `workspace` with the given footer; add items and groups with the builder methods.
-  - `pub fn rail_items(&self) -> Vec<RailItem>` — The collapsed form of this data: the nav glyphs (the warning count becomes the badge), the separator, then one cell per active session — every session that is not [`AgentState::Idle`], in group order.
+  - `pub fn rail_items(&self) -> Vec<RailItem>` — The collapsed form of this data: the nav glyphs (the warning count becomes the badge), the separator, then one cell per active session — every session that is not `AgentState::Idle`, in group order.
   - `pub fn selected(self, id: impl Into<SharedString>) -> Self` — Selects a session.
 - **struct** `SidebarNavItem` — One primary nav row (`Tasks`, `Automations`, `Inbox`).
   - fields: `name`, `label`, `icon`, `count`, `warning`
@@ -511,10 +512,12 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
 
 ### `aui::overlay`
 
-Overlays: the command palette (card 12), and later menus, popovers and dialogs. Overlays render inside the window; the app decides when they are present and positions them.
+Overlays: the command palette (card 12), the modal dialog, and later menus and popovers. Overlays render inside the window; the app decides when they are present and positions them.
 
 - **fn** `command_palette` — The 560 px palette. `selected` indexes the rows of all sections in order, as the arrow keys walk them.
   - `pub fn command_palette(id: impl Into<ElementId>, query: impl Into<SharedString>, sections: Vec<PaletteSection>, selected: usize) -> CommandPalette`
+- **fn** `dialog` — A modal dialog headed `title`, with an `OK` primary until one is set.
+  - `pub fn dialog(id: impl Into<ElementId>, title: impl Into<SharedString>) -> Dialog`
 - **fn** `palette_scrim` — `.scrim`: 470 px tall, a black .25 → .45 gradient over the window ground, with `child` centred 56 px below the top edge.
   - `pub fn palette_scrim(child: impl IntoElement) -> PaletteScrim`
 - **fn** `popover_layer` — Lifts an anchored overlay — a menu, a popover, a hover card — out of the paint order of the surface it hangs off.
@@ -527,6 +530,19 @@ Overlays: the command palette (card 12), and later menus, popovers and dialogs. 
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A row was clicked; the argument is its `PaletteItem::id`.
   - `pub fn placeholder(self, placeholder: impl Into<SharedString>) -> Self` — The ink-4 text shown in the query row while the query is empty.
   - `pub fn present(self, present: bool) -> Self` — Whether the palette is open; `false` plays the exit.
+- **struct** `Dialog` — A modal dialog. Build with `dialog`.
+  - `pub fn at_rest(self) -> Self` — Skips the enter: the dialog is drawn at rest on its first frame, for a static capture.
+  - `pub fn body(self, text: impl Into<SharedString>) -> Self` — The body paragraph, in the muted body ink.
+  - `pub fn danger(self, danger: bool) -> Self` — Draws the primary as the outlined danger button instead of the accent fill, for an action that destroys something.
+  - `pub fn detail(self, text: impl Into<SharedString>) -> Self` — An optional mono detail line under the body (a path, an id, an error code).
+  - `pub fn kind(self, kind: DialogKind) -> Self` — What the dialog is about; picks the tile.
+  - `pub fn on_dismiss(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The scrim was clicked. A click on the card itself does not reach this.
+  - `pub fn on_primary(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The primary was pressed.
+  - `pub fn on_secondary(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The secondary was pressed.
+  - `pub fn present(self, present: bool) -> Self` — Whether the dialog is open; `false` plays the exit.
+  - `pub fn primary(self, label: impl Into<SharedString>) -> Self` — The label of the primary button at the far right.
+  - `pub fn secondary(self, label: impl Into<SharedString>) -> Self` — The label of the secondary button; without one only the primary is drawn.
+  - `pub fn width(self, width: f32) -> Self` — Overrides the card width.
 - **struct** `PaletteItem` — One row of the palette.
   - fields: `id`, `icon`, `label`, `matched`, `context`, `badge`, `keys`
   - `pub fn badge(self, badge: impl Into<SharedString>) -> Self` — Adds the status pill after the label.
@@ -540,11 +556,33 @@ Overlays: the command palette (card 12), and later menus, popovers and dialogs. 
   - fields: `title`, `items`
   - `pub fn new(title: impl Into<SharedString>, items: Vec<PaletteItem>) -> Self` — A section with its header and rows.
 
+- **enum** `DialogKind` — What a dialog is about. The kind picks the tile’s glyph and its tint; nothing else in the card is coloured.
+  - variants: `Info`, `Warning`, `Error`
 - **enum** `PaletteIcon` — The leading glyph of a palette row: an icon for actions and files, a status dot for worktrees.
   - variants: `Glyph`, `Dot`
 
 - **const** `POPOVER_LAYER` — The priority every popover in the library paints at. Deferred draws are painted in priority order, so a menu opened from inside another popover can ask for `POPOVER_LAYER` + 1 and land on top of it.
   - `pub const POPOVER_LAYER: usize = 1;`
+
+### `aui::screens`
+
+Full-window screens: the whole window is the component, not a card inside one.
+
+- **fn** `login` — The sign-in screen in `state`. It fills the window it is given and centres its card on the window ground.
+  - `pub fn login(id: impl Into<ElementId>, state: LoginState) -> Login`
+
+- **struct** `Login` — The device-code sign-in screen. Build with `login`.
+  - `pub fn at_rest(self) -> Self` — Skips the enter: the card is drawn at rest on its first frame, for a static capture.
+  - `pub fn headline(self, text: impl Into<SharedString>) -> Self` — Overrides the headline (`"Sign in to <product>"` by default).
+  - `pub fn on_intent(self, f: impl Fn(LoginIntent, &mut Window, &mut App) + 'static) -> Self` — A button was pressed.
+  - `pub fn product(self, name: impl Into<SharedString>) -> Self` — The product being signed in to; the default headline is built from it.
+  - `pub fn provider(self, provider: Provider) -> Self` — The product mark above the headline.
+  - `pub fn subtitle(self, text: impl Into<SharedString>) -> Self` — The muted line under the headline.
+
+- **enum** `LoginIntent` — What the person asked the app to do.
+  - variants: `Start`, `OpenBrowser`, `CopyCode`, `Retry`, `Cancel`
+- **enum** `LoginState` — What the sign-in screen is showing.
+  - variants: `Idle`, `Starting`, `Device`, `Success`, `Error`
 
 ### `aui::shell`
 
@@ -1569,7 +1607,7 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
   - `pub fn id(self) -> &'static str` — The `id` of this glyph’s `<symbol>` in the sprite sheet.
   - `pub fn path(self) -> &'static str` — The asset path this glyph is served at by `crate::Assets`.
 - **enum** `Provider` — The agent providers the harness shows a mark for.
-  - variants: `Claude`, `Codex`, `Grok`, `Gemini`, `Pi`, `Cursor`
+  - variants: `Claude`, `Codex`, `Grok`, `Gemini`, `Pi`, `Cursor`, `Muse`
   - `pub fn color(self) -> Rgba` — The mark’s background colour, from the `.mark.*` rules in `design/src/base.css`.
   - `pub fn letter(self) -> &'static str` — The glyph shown inside the mark, as used by `design/src/cards/foundations/05-icons.html`.
 - **enum** `RoleIcon` — The role icons used by the assistant sidebar’s role headers.

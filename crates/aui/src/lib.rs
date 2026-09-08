@@ -14,6 +14,7 @@
 //! | [`transcript`] | 30–38, 55 turns, thinking, activity, tool cards, approval, question/plan/todo, code/diff, summary/error/status, citations |
 //! | [`composer`] | 40–42 composer, slash/mention menus, attachments |
 //! | [`workbench`] | 50–54 terminal, browser, diff review, git, files and documents |
+//! | [`screens`] | full-window screens: sign-in |
 //! | [`data`] | shared data-display primitives: buttons, chips, pills, tags, dots, kbd |
 //!
 //! Every component takes data in (mostly [`aui_protocol`] types) and emits
@@ -37,6 +38,7 @@ pub mod feedback;
 pub mod keys;
 pub mod nav;
 pub mod overlay;
+pub mod screens;
 pub mod shell;
 pub mod transcript;
 pub mod util;

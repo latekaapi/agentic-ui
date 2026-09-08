@@ -24,9 +24,9 @@ use crate::util::{interaction_flags, Interaction};
 /// `.scrim{height:470px;border-radius:var(--r-lg);padding-top:56px}`.
 const SCRIM_H: f32 = 470.0;
 const SCRIM_PAD_TOP: f32 = 56.0;
-/// `.scrim{background:linear-gradient(180deg,rgba(0,0,0,.25),rgba(0,0,0,.45)),var(--bg)}`.
-const SCRIM_TINT_TOP: f32 = 0.25;
-const SCRIM_TINT_BOTTOM: f32 = 0.45;
+/// `.scrim{background:linear-gradient(180deg,…),var(--bg)}` — the two stops
+/// live in the module so the modal [`crate::overlay::Dialog`] shares them.
+use super::{SCRIM_TINT_BOTTOM, SCRIM_TINT_TOP};
 const SCRIM_ANGLE: f32 = 180.0;
 
 /// `.pal{width:560px;border-radius:var(--r-xl)}` on the overlay ground with a

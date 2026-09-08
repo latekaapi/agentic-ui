@@ -151,6 +151,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::toasts::build,
     },
     Entry {
+        id: "overlay/dialog",
+        group: "Shell",
+        title: "Modal dialog",
+        subtitle: "Scrim over the window, one card: kind tile, body, mono detail, secondary and primary",
+        width: 720.0,
+        height: 480.0,
+        theme: CardTheme::Both,
+        build: crate::cards::dialog::build,
+    },
+    Entry {
         id: "sidebar/rows",
         group: "Sidebar",
         title: "Worktree rows",
@@ -432,6 +442,16 @@ pub static ENTRIES: &[Entry] = &[
         height: 560.0,
         theme: CardTheme::Dark,
         build: crate::cards::terminal_live::build_tui_real,
+    },
+    Entry {
+        id: "screens/login",
+        group: "Screens",
+        title: "Sign in",
+        subtitle: "The device-code sign-in screen mid-flow: copyable URL, the code, the waiting row and the action row",
+        width: 1440.0,
+        height: 900.0,
+        theme: CardTheme::Both,
+        build: crate::cards::login::build,
     },
     Entry {
         id: "screens/assistant",

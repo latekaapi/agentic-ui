@@ -149,6 +149,8 @@ pub enum Provider {
     Pi,
     /// Cursor.
     Cursor,
+    /// Meta's Muse Code.
+    Muse,
 }
 
 impl Provider {
@@ -160,6 +162,7 @@ impl Provider {
         Provider::Gemini,
         Provider::Pi,
         Provider::Cursor,
+        Provider::Muse,
     ];
 
     /// The glyph shown inside the mark, as used by `design/src/cards/foundations/05-icons.html`.
@@ -171,6 +174,7 @@ impl Provider {
             Provider::Gemini => "G",
             Provider::Pi => "π",
             Provider::Cursor => "▮",
+            Provider::Muse => "M",
         }
     }
 
@@ -183,6 +187,9 @@ impl Provider {
             Provider::Gemini => rgb(0x4C86D9),
             Provider::Pi => rgb(0x7460D9),
             Provider::Cursor => rgb(0x3A3D44),
+            // Meta blue, the one mark that identifies the agent this harness
+            // drives; every other sidebar glyph stays muted line work.
+            Provider::Muse => rgb(0x0064E0),
         }
     }
 }
@@ -497,7 +504,7 @@ mod tests {
     fn providers_and_roles_map_to_the_design() {
         assert_eq!(Provider::Claude.letter(), "C");
         assert_eq!(Provider::Claude.color(), rgb(0xC9714F));
-        assert_eq!(Provider::ALL.len(), 6);
+        assert_eq!(Provider::ALL.len(), 7);
         assert_eq!(RoleIcon::Scale.icon(), IconName::Scale);
     }
 

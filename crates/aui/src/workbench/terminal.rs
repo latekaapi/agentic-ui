@@ -338,6 +338,7 @@ fn agent_label(provider: Provider) -> &'static str {
         Provider::Gemini => "gemini",
         Provider::Pi => "pi",
         Provider::Cursor => "cursor",
+        Provider::Muse => "muse",
     }
 }
 

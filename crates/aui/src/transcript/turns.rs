@@ -249,10 +249,23 @@ fn last_line_width(window: &Window, text: SharedString, font_size: Pixels, runs:
 }
 
 /// `2.4k tokens` / `$0.04` / `3.1 s` formatting for the footer.
+///
+/// Reasoning tokens get their own cell and only when there are any: a provider
+/// can bill a reasoning budget and emit no reasoning item at all, so the number
+/// is the one place a person can see that thinking happened, and a `0` on every
+/// turn that did none would be noise.
 fn footer_items(meta: &TurnMeta) -> Vec<String> {
     let tokens = meta.tokens_in + meta.tokens_out;
     let tokens = if tokens >= 1000 { format!("{:.1}k tokens", tokens as f64 / 1000.0) } else { format!("{tokens} tokens") };
-    vec![meta.model.clone(), format!("{:.1} s", meta.duration_ms as f64 / 1000.0), tokens, format!("${:.2}", meta.cost_usd)]
+    let mut items = vec![meta.model.clone(), format!("{:.1} s", meta.duration_ms as f64 / 1000.0), tokens];
+    // A provider that reports no model label leaves an empty cell, and an empty
+    // cell renders as a stray separator; drop it rather than draw it.
+    items.retain(|item| !item.is_empty());
+    if meta.reasoning_tokens > 0 {
+        items.push(format!("{} reasoning", meta.reasoning_tokens));
+    }
+    items.push(format!("${:.2}", meta.cost_usd));
+    items
 }
 
 impl RenderOnce for AssistantTurn {
