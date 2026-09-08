@@ -91,13 +91,13 @@ impl MinimalApp {
         // gpui-kit's textarea, with the composer card's auto-grow row limits.
         let composer = cx.new(|cx| composer_state("Ask, draft, or type / for commands", window, cx));
         let mut session = Session::new("demo", Provider::Claude, "Opus 4.6", "~/work/rfp");
-        (session.mode, session.branch) = (PermissionMode::Ask, Some("main".into()));
+        (session.mode, session.branch) = (PermissionMode::PromptUnmatched, Some("main".into()));
         // Seed one exchange so the window is not empty on open.
         session.turns.push(user_turn_data("t0", "Open the RFP draft and tell me what section 2 currently says."));
         session.turns.push(Turn::Assistant {
             id: "t1".into(),
             blocks: vec![Block::Text { text: SEED_REPLY.into(), streaming: false }],
-            meta: TurnMeta { model: "Opus 4.6".into(), duration_ms: 2_100, tokens_in: 1_840, tokens_out: 96, cost_usd: 0.014 },
+            meta: TurnMeta { model: "Opus 4.6".into(), duration_ms: 2_100, tokens_in: 1_840, tokens_out: 96, reasoning_tokens: 0, cost_usd: 0.014 },
         });
         let (focus_root, focus_approval) = (cx.focus_handle(), cx.focus_handle());
         Self { session, revealed: 0, composer, sidebar_open: true, right_open: false, run: 0, focus_root, focus_approval, focus_pending_approval: false, focus_composer: true, tasks: Vec::new() }
@@ -119,17 +119,17 @@ impl MinimalApp {
         self.session.apply(Delta::TurnStarted { turn: Turn::Assistant { id: format!("a{run}"), blocks: Vec::new(), meta: TurnMeta::default() } });
         self.session.apply(Delta::BlockAdded {
             turn_id: format!("a{run}"),
-            block: Block::Approval {
-                id: format!("ap{run}"),
-                tool: "Write file".into(),
-                command: "Write RFP-draft-v3.docx".into(),
-                reason: "Section 2 has to be rewritten against the current procurement rules.".into(),
-                cwd: "~/work/rfp".into(),
-                capabilities: vec!["write files".into()],
-                scope: ApprovalScope::ThisWorktree,
-                state: ApprovalState::Pending,
-                rule: Some(APPROVAL_RULE.into()),
-            },
+            block: Block::approval(
+                format!("ap{run}"),
+                "Write file",
+                "Write RFP-draft-v3.docx",
+                "Section 2 has to be rewritten against the current procurement rules.",
+                "~/work/rfp",
+                vec!["write files".into()],
+                ApprovalScope::ThisWorktree,
+                ApprovalState::Pending,
+                Some(APPROVAL_RULE.into()),
+            ),
         });
         self.focus_pending_approval = true;
         cx.notify();
@@ -143,17 +143,23 @@ impl MinimalApp {
         let Some(index) = self.pending_approval() else { return };
         let Some(mut block) = self.session.turn(&turn_id).and_then(|t| t.blocks().get(index)).cloned() else { return };
         if let Block::Approval { state, .. } = &mut block {
+            // The example only emits the built-in triad; `ApprovalDecision`
+            // carries the wider MSP set, so the rest fall through to a refusal.
             *state = match decision {
-                ApprovalDecision::Once => ApprovalState::AllowedOnce { exit_code: 0, duration_ms: 380 },
-                ApprovalDecision::Always => ApprovalState::AutoAllowed { rule: APPROVAL_RULE.into() },
-                ApprovalDecision::Deny => ApprovalState::Denied,
+                ApprovalDecision::Once | ApprovalDecision::ApprovedForSession => {
+                    ApprovalState::AllowedOnce { exit_code: 0, duration_ms: 380 }
+                }
+                ApprovalDecision::Always | ApprovalDecision::PolicyAmendment => {
+                    ApprovalState::AutoAllowed { rule: APPROVAL_RULE.into() }
+                }
+                _ => ApprovalState::Denied,
             };
         }
         // A decision is a `BlockUpdated` delta: the card is replaced in place,
         // which is what plays it from pending to resolved.
         self.session.apply(Delta::BlockUpdated { turn_id: turn_id.clone(), block_index: index, block });
         window.focus(&self.composer.focus_handle(cx), cx);
-        if decision == ApprovalDecision::Deny {
+        if matches!(decision, ApprovalDecision::Deny | ApprovalDecision::DeniedPolicyAmendment | ApprovalDecision::TimedOut | ApprovalDecision::Abort) {
             self.session.apply(Delta::BlockAdded { turn_id, block: Block::Text { text: "Left the draft alone.".into(), streaming: false } });
         } else {
             self.stream_reply(run, window, cx);
@@ -196,7 +202,7 @@ impl MinimalApp {
             let _ = this.update(cx, |this, cx| {
                 this.session.apply(Delta::TurnFinished {
                     turn_id,
-                    meta: TurnMeta { model: "Opus 4.6".into(), duration_ms: 4_800, tokens_in: 2_310, tokens_out: 214, cost_usd: 0.021 },
+                    meta: TurnMeta { model: "Opus 4.6".into(), duration_ms: 4_800, tokens_in: 2_310, tokens_out: 214, reasoning_tokens: 0, cost_usd: 0.021 },
                 });
                 cx.notify();
             });

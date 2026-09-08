@@ -961,6 +961,7 @@ Workbench: the block terminal and TUI pane, browser with annotator, diff review,
   - `pub fn marker(self, text: impl Into<SharedString>) -> Self` — The restored-scrollback marker at the top.
   - `pub fn on_action(self, f: impl Fn(TerminalAction, &mut Window, &mut App) + 'static) -> Self` — Action handler.
   - `pub fn prompt(self, prompt: TermPrompt) -> Self` — The prompt row at the bottom.
+  - `pub fn track_scroll(self, handle: ScrollHandle) -> Self` — Track the block list’s scroll position with `handle`, so a live session can follow its tail (`handle.scroll_to_bottom()`) and a caller can tell whether the user has scrolled away from it. [...]
 - **struct** `BrowserNav` — The 38 px nav row. Build with `browser_nav`.
   - `pub fn annotating(self, annotating: bool) -> Self` — Annotate mode: the toggle is ink-filled and shows the `esc` cap.
   - `pub fn can_go_back(self, can: bool) -> Self` — Enables the back control (default true).
@@ -1590,6 +1591,12 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
 
 - **struct** `Answer` — The person’s reply to a `Block::Question`.
   - fields: `selected`, `other`
+- **struct** `ApprovalBadges` — The badges an approval card shows beside its title.
+  - fields: `protected_write`, `judge_escalated`
+- **struct** `ApprovalChoice` — One server-minted choice on an approval card (MSP `ApprovalChoice`).
+  - fields: `id`, `label`, `decision`, `scope`, `rule_preview`, `accepts_feedback`
+- **struct** `ApprovalStage` — One stage of a staged approval subject (MSP `ApprovalStage`).
+  - fields: `position`, `total`, `argv`, `argv_complete`, `resolved`, `suggested_rule`
 - **struct** `Attachment` — A file or image sent with a user turn, shown as a chip above the bubble.
   - fields: `name`, `kind`, `size_bytes`, `meta`, `state`
 - **struct** `Check` — One verification in a `Block::Summary`, e.g. `"27 tests pass"`.
@@ -1607,11 +1614,13 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
 - **struct** `Note` — One review note anchored to a file and line.
   - fields: `path`, `line`, `text`
 - **struct** `QuestionOption` — One choice in a `Block::Question`.
-  - fields: `label`, `description`, `key`
+  - fields: `label`, `description`, `key`, `preview`
+- **struct** `QuestionPreview` — A rendered preview attached to a `QuestionOption` (MSP `UserInputOption.preview`).
+  - fields: `content`, `format`
 - **struct** `SearchHit` — One code-search hit.
   - fields: `path`, `line`, `snippet`
 - **struct** `Session` — One agent conversation, with everything the shell chrome needs to describe it (provider mark, worktree, branch, permission mode) plus the transcript.
-  - fields: `id`, `agent`, `model`, `mode`, `cwd`, `branch`, `environment`, `turns`
+  - fields: `id`, `agent`, `model`, `mode`, `plan`, `cwd`, `branch`, `environment`, `turns`
   - `pub fn apply(&mut self, delta: Delta) -> bool` — Fold a streaming update into the transcript.
   - `pub fn last_turn_id(&self) -> Option<&str>` — The id of the last turn, if any.
   - `pub fn new(id: impl Into<String>, agent: Provider, model: impl Into<String>, cwd: impl Into<String>) -> Self` — A session with no turns yet, running locally in `cwd`.
@@ -1622,47 +1631,60 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
 - **struct** `TodoItem` — One row in a `Block::Todo` list.
   - fields: `label`, `state`, `elapsed_ms`
 - **struct** `TurnMeta` — The mono footer under an assistant turn: `model · duration · tokens · cost`.
-  - fields: `model`, `duration_ms`, `tokens_in`, `tokens_out`, `cost_usd`
+  - fields: `model`, `duration_ms`, `tokens_in`, `tokens_out`, `reasoning_tokens`, `cost_usd`
 - **struct** `WebResult` — One web result row.
   - fields: `title`, `url`, `domain`
 
 - **enum** `ActivityState` — Whether an activity group is still running.
   - variants: `Working`, `Done`, `Failed`
 - **enum** `ApprovalDecision` — What the person chose on an approval card.
-  - variants: `Once`, `Always`, `Deny`
+  - variants: `Once`, `Always`, `Deny`, `ApprovedForSession`, `PolicyAmendment`,
+    `DeniedPolicyAmendment`, `TimedOut`, `Abort`
 - **enum** `ApprovalScope` — How far an “always allow” decision reaches.
   - variants: `ThisCommand`, `ThisWorktree`, `ThisSession`, `Global`
 - **enum** `ApprovalState` — Where an approval request is in its lifecycle.
-  - variants: `Pending`, `Approving`, `AllowedOnce`, `Denied`, `AutoAllowed`
+  - variants: `Pending`, `Approving`, `AllowedOnce`, `Denied`, `AutoAllowed`, `AutoDenied`
 - **enum** `AttachmentKind` — The three attachment shapes the composer accepts.
   - variants: `Image`, `File`, `Text`
 - **enum** `Block` — One renderable unit inside an assistant turn.
   - variants: `Text`, `Thinking`, `Activity`, `ToolCall`, `Approval`, `Question`, `Plan`,
-    `Todo`, `Summary`, `Error`, `Marker`
+    `Todo`, `Summary`, `Error`, `Goal`, `Generic`, `Marker`
+  - `pub fn approval(id: impl Into<String>, tool: impl Into<String>, command: impl Into<String>, reason: impl Into<String>, cwd: impl Into<String>, capabilities: Vec<String>, scope: ApprovalScope, state: ApprovalState, rule: Option<String>) -> Self` — A pending `Block::Approval` with the MSP-only fields left empty.
   - `pub fn complete_approval(&mut self, exit_code: i32, duration_ms: u64) -> bool` — Settle an approval that was `ApprovalState::Approving` once the command has exited. Returns `false` if the block was in any other state.
   - `pub fn decide_approval(&mut self, decision: ApprovalDecision, remembered_rule: Option<String>) -> bool` — Record a decision on an `Block::Approval` block.
   - `pub fn text(text: impl Into<String>) -> Self` — A finished, non-streaming text block.
 - **enum** `ChangeKind` — How a file changed.
   - variants: `Modified`, `Added`, `Deleted`
 - **enum** `Delta` — One incremental change to a session, as an adapter emits it while the agent runs.
-  - variants: `TurnStarted`, `TextDelta`, `BlockAdded`, `BlockUpdated`, `TurnFinished`
+  - variants: `TurnStarted`, `TextDelta`, `BlockAdded`, `BlockUpdated`, `ThinkingDelta`,
+    `ToolOutputDelta`, `TurnRemoved`, `BlockRemoved`, `TurnFinished`
 - **enum** `DiffKind` — The three diff row kinds.
   - variants: `Context`, `Add`, `Del`
 - **enum** `Environment` — Where the agent process runs.
   - variants: `Local`, `Ssh`, `Server`, `CloudVm`
 - **enum** `Intent` — Something the person did that the app must act on.
   - variants: `Send`, `Queue`, `Stop`, `Approve`, `Answer`, `AcceptPlan`, `RejectPlan`,
-    `EditPlan`, `OpenFile`, `OpenDiff`, `SendNotes`, `ChangeView`, `ToggleRightPane`
+    `EditPlan`, `OpenFile`, `OpenDiff`, `SendNotes`, `ChangeView`, `ToggleRightPane`, `Steer`,
+    `Unqueue`, `EditQueued`, `Compact`, `SetModel`, `SetEffort`, `SetMode`, `Fork`, `Clarify`,
+    `CancelQuestion`, `Login`, `Logout`
 - **enum** `MarkerKind` — What a `Block::Marker` row announces.
-  - variants: `SessionStarted`, `HandOff`, `ContextCompacted`, `PermissionModeChanged`
+  - variants: `SessionStarted`, `HandOff`, `ContextCompacted`, `PermissionModeChanged`,
+    `TurnCancelled`, `TurnRetracted`, `RetryScheduled`, `ViewGap`, `ForkedFrom`
 - **enum** `MentionKind` — The things the composer can mention.
   - variants: `File`, `Symbol`, `Worktree`, `Url`, `Skill`
 - **enum** `PermissionMode` — How the session gates tool calls that need permission.
-  - variants: `Ask`, `Plan`, `Auto`, `Bypass`
+  - variants: `AllowAll`, `OnRequest`, `PromptUnmatched`, `DenyUnmatched`
+  - `pub fn description(&self) -> &'static str` — The one-line description shown under the label in the mode picker.
+  - `pub fn label(&self) -> &'static str` — The picker label, from harness spec §3.6.
 - **enum** `PlanState` — Whether a proposed plan has been decided.
   - variants: `Proposed`, `Accepted`, `Rejected`, `Editing`
 - **enum** `Provider` — The agent CLIs the harness can drive.
-  - variants: `Claude`, `Codex`, `Grok`, `Gemini`, `Pi`, `Cursor`
+  - variants: `Claude`, `Codex`, `Grok`, `Gemini`, `Pi`, `Cursor`, `Muse`
+- **enum** `ReasoningEffort` — How much reasoning the provider should spend on a turn.
+  - variants: `None`, `Minimal`, `Low`, `Medium`, `High`, `Xhigh`, `Ultra`
+  - `pub fn label(&self) -> &'static str` — The picker label for this tier.
+- **enum** `ResolvedBy` — Who settled an approval request (MSP `ApprovalResolved.resolvedBy`).
+  - variants: `User`, `Policy`, `LlmJudge`
 - **enum** `StepState` — The state of one activity step.
   - variants: `Pending`, `Running`, `Done`, `Failed`
 - **enum** `ThinkingState` — Whether a reasoning trace is still growing.

@@ -33,7 +33,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         .child(
             assistant_turn("card31-assistant", ASSISTANT_TEXT)
                 .streaming(true)
-                .meta(TurnMeta { model: "opus 4.6".into(), duration_ms: 3100, tokens_in: 1800, tokens_out: 600, cost_usd: 0.04 }),
+                .meta(TurnMeta { model: "opus 4.6".into(), duration_ms: 3100, tokens_in: 1800, tokens_out: 600, reasoning_tokens: 0, cost_usd: 0.04 }),
         )
         .child(
             div()

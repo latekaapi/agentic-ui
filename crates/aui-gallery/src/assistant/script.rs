@@ -136,12 +136,22 @@ impl AssistantMock {
     pub fn decide(&mut self, decision: ApprovalDecision, window: &mut Window, cx: &mut Context<Self>) {
         let Some(index) = self.transcript.pending_approval() else { return };
         let run = self.run;
-        let approved = decision != ApprovalDecision::Deny;
+        // The script only ever emits the built-in triad, but `ApprovalDecision`
+        // carries the wider MSP set, so classify rather than compare.
+        let approved = !matches!(
+            decision,
+            ApprovalDecision::Deny
+                | ApprovalDecision::DeniedPolicyAmendment
+                | ApprovalDecision::TimedOut
+                | ApprovalDecision::Abort
+        );
         if let BlockKind::Approval { state, .. } = &mut self.transcript.blocks[index].kind {
             *state = match decision {
-                ApprovalDecision::Once => ApprovalState::AllowedOnce { exit_code: 0, duration_ms: 420 },
-                ApprovalDecision::Always => ApprovalState::AutoAllowed { rule: APPROVAL_RULE.to_string() },
-                ApprovalDecision::Deny => ApprovalState::Denied,
+                ApprovalDecision::Always | ApprovalDecision::PolicyAmendment => {
+                    ApprovalState::AutoAllowed { rule: APPROVAL_RULE.to_string() }
+                }
+                _ if approved => ApprovalState::AllowedOnce { exit_code: 0, duration_ms: 420 },
+                _ => ApprovalState::Denied,
             };
         }
         self.want_focus = Some(Focus::Composer);
@@ -164,6 +174,7 @@ impl AssistantMock {
             label: label.to_string(),
             description: description.to_string(),
             key: key.to_string(),
+            preview: None,
         };
         self.transcript.blocks.push(Block::new(
             format!("assistant-question-{run}"),

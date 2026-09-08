@@ -291,6 +291,18 @@ impl RenderOnce for ApprovalCard {
                     (". Claude will try another approach.".into(), SubFace::Ui),
                 ],
             ),
+            ApprovalState::AutoDenied { rule } => (
+                "Auto-denied".into(),
+                head_tile(p.danger_soft, p.danger, Some(IconName::X), (id.clone(), "tile").into()),
+                "Denied".into(),
+                PillVariant::Danger,
+                vec![
+                    ("Refused by rule ".into(), SubFace::Ui),
+                    (SharedString::from(rule.clone()), SubFace::Mono),
+                    (" · ".into(), SubFace::Ui),
+                    ("manage rules".into(), SubFace::Link),
+                ],
+            ),
             ApprovalState::AutoAllowed { rule } => (
                 "Auto-allowed".into(),
                 head_tile(p.accent_soft, p.accent_ink, Some(IconName::Shield), (id.clone(), "tile").into()),
@@ -403,10 +415,12 @@ impl RenderOnce for ApprovalCard {
         let rule = self.rule.clone();
         let mut buttons: Vec<gpui::AnyElement> = Vec::new();
         for (index, decision) in [ApprovalDecision::Deny, ApprovalDecision::Always, ApprovalDecision::Once].into_iter().enumerate() {
+            // The card still renders the built-in triad; the wider MSP
+            // decision set is carried by the protocol but not yet by this card.
             let key: SharedString = match decision {
                 ApprovalDecision::Deny => "deny".into(),
                 ApprovalDecision::Always => "always".into(),
-                ApprovalDecision::Once => "once".into(),
+                _ => "once".into(),
             };
             let mut b = match decision {
                 ApprovalDecision::Deny => button((id.clone(), key.clone()), "Deny").sm().danger(),
@@ -417,7 +431,7 @@ impl RenderOnce for ApprovalCard {
                     }
                     b
                 }
-                ApprovalDecision::Once => button((id.clone(), key.clone()), "Allow once").sm().primary(),
+                _ => button((id.clone(), key.clone()), "Allow once").sm().primary(),
             };
             if let Some(on_decide) = self.on_decide.clone() {
                 b = b.on_click(move |_, w, cx| on_decide(decision, w, cx));

@@ -80,11 +80,39 @@ pub enum Block {
         state: ApprovalState,
         /// The rule an "always allow" would remember, e.g. `"apt install"`.
         rule: Option<String>,
+        /// Server-minted choices (MSP `availableChoices`).
+        ///
+        /// The UI renders what it is given, not a fixed allow/always/deny
+        /// triad. Empty means the card falls back to the built-in triad.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        choices: Vec<ApprovalChoice>,
+        /// The pipeline's stages; a shell pipeline is decided one stage at a
+        /// time. Empty for a single-stage subject.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        stages: Vec<ApprovalStage>,
+        /// Index into `stages` of the stage awaiting a decision; `None` when
+        /// nothing is pending or the subject is not staged.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        current_stage: Option<usize>,
+        /// Badges the header shows beside the title.
+        #[serde(default)]
+        badges: ApprovalBadges,
+        /// Free text typed into a choice whose
+        /// [`ApprovalChoice::accepts_feedback`] is set.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        feedback: Option<String>,
+        /// Who settled the request, once it is settled.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        resolved_by: Option<ResolvedBy>,
     },
     /// A structured question with options (card 36).
     Question {
         /// Stable id, echoed back in [`crate::Intent::Answer`].
         id: String,
+        /// Short label rendered *above* the prompt (MSP
+        /// `UserInputQuestion.header`, e.g. `"File"`).
+        #[serde(default)]
+        header: String,
         /// The question itself.
         prompt: String,
         /// Supporting line under the prompt.
@@ -97,6 +125,10 @@ pub enum Block {
         allow_other: bool,
         /// The answer once given; `None` while pending.
         answer: Option<Answer>,
+        /// Auto-resolution deadline in milliseconds (MSP `autoResolutionMs`),
+        /// which the card shows as a countdown. `None` means no timeout.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
     },
     /// A proposed plan awaiting acceptance (card 36).
     Plan {
@@ -134,6 +166,39 @@ pub enum Block {
         /// Whether to offer a "Retry now" button.
         retryable: bool,
     },
+    /// The session's current objective, from MSP `session/goalChanged`.
+    ///
+    /// Replaced wholesale by every event; an explicit clear removes the block.
+    Goal {
+        /// What the agent is trying to achieve.
+        objective: String,
+        /// Free-form status string, verbatim from the provider.
+        status: String,
+        /// Percentage complete, **verbatim from the provider**: values above
+        /// 100 pass through unchanged and clamping for display is the
+        /// renderer's job.
+        percent_complete: Option<f32>,
+        /// What the agent is working on right now.
+        current_work: Option<String>,
+        /// What it intends to do next.
+        next_work: Option<String>,
+    },
+    /// The mandated fallback card for an item kind this client does not know.
+    ///
+    /// MSP's `ItemKind` is an **open** enum and clients MUST render an unknown
+    /// kind generically: the kind name, the item's `status`, and the server's
+    /// `fallbackText`. Never guess a richer card for a kind you do not model.
+    Generic {
+        /// The wire kind name, e.g. `"reminderChild"`.
+        ///
+        /// Serialized as `item_kind`: the enum's own tag already owns `kind`.
+        #[serde(rename = "item_kind")]
+        kind: String,
+        /// The item's `status`, e.g. `"inProgress"` or `"completed"`.
+        status: String,
+        /// The server's `fallbackText` one-liner.
+        text: String,
+    },
     /// A hairline marker row between turns (card 30).
     Marker {
         /// What happened.
@@ -152,11 +217,53 @@ impl Block {
         Block::Text { text: text.into(), streaming: false }
     }
 
+    /// A pending [`Block::Approval`] with the MSP-only fields left empty.
+    ///
+    /// The shape existing renderers already understand: identity, subject,
+    /// scope and rule. Set [`Block::Approval::choices`],
+    /// [`Block::Approval::stages`] and the rest afterwards when the provider
+    /// supplies them.
+    #[allow(clippy::too_many_arguments)]
+    pub fn approval(
+        id: impl Into<String>,
+        tool: impl Into<String>,
+        command: impl Into<String>,
+        reason: impl Into<String>,
+        cwd: impl Into<String>,
+        capabilities: Vec<String>,
+        scope: ApprovalScope,
+        state: ApprovalState,
+        rule: Option<String>,
+    ) -> Self {
+        Block::Approval {
+            id: id.into(),
+            tool: tool.into(),
+            command: command.into(),
+            reason: reason.into(),
+            cwd: cwd.into(),
+            capabilities,
+            scope,
+            state,
+            rule,
+            choices: Vec::new(),
+            stages: Vec::new(),
+            current_stage: None,
+            badges: ApprovalBadges::default(),
+            feedback: None,
+            resolved_by: None,
+        }
+    }
+
     /// Record a decision on an [`Block::Approval`] block.
     ///
-    /// [`ApprovalDecision::Once`] and [`ApprovalDecision::Always`] move a pending
-    /// card to [`ApprovalState::Approving`] (the command is now running);
-    /// `Always` also records `rule`. [`ApprovalDecision::Deny`] moves it to
+    /// Every approving decision ([`ApprovalDecision::Once`],
+    /// [`ApprovalDecision::Always`], [`ApprovalDecision::ApprovedForSession`],
+    /// [`ApprovalDecision::PolicyAmendment`]) moves a pending card to
+    /// [`ApprovalState::Approving`] (the command is now running); the two that
+    /// remember something — `Always` and `PolicyAmendment` — also record
+    /// `rule`. Every refusing decision ([`ApprovalDecision::Deny`],
+    /// [`ApprovalDecision::DeniedPolicyAmendment`],
+    /// [`ApprovalDecision::TimedOut`], [`ApprovalDecision::Abort`]) moves it to
     /// [`ApprovalState::Denied`]. Returns `false` — changing nothing — for a
     /// non-approval block or an approval that is no longer pending, so a
     /// double-press cannot re-run a command.
@@ -168,14 +275,19 @@ impl Block {
             return false;
         }
         match decision {
-            ApprovalDecision::Once => *state = ApprovalState::Approving,
-            ApprovalDecision::Always => {
+            ApprovalDecision::Once | ApprovalDecision::ApprovedForSession => {
+                *state = ApprovalState::Approving;
+            }
+            ApprovalDecision::Always | ApprovalDecision::PolicyAmendment => {
                 if remembered_rule.is_some() {
                     *rule = remembered_rule;
                 }
                 *state = ApprovalState::Approving;
             }
-            ApprovalDecision::Deny => *state = ApprovalState::Denied,
+            ApprovalDecision::Deny
+            | ApprovalDecision::DeniedPolicyAmendment
+            | ApprovalDecision::TimedOut
+            | ApprovalDecision::Abort => *state = ApprovalState::Denied,
         }
         true
     }
@@ -279,6 +391,81 @@ pub enum ApprovalState {
         /// The rule that matched, e.g. `"pnpm test *"`.
         rule: String,
     },
+    /// Policy or the approval judge refused it, so the card was never
+    /// actionable: it opened and resolved in the same breath.
+    AutoDenied {
+        /// The rule that refused it, e.g. `"deny_unmatched"`.
+        rule: String,
+    },
+}
+
+/// One server-minted choice on an approval card (MSP `ApprovalChoice`).
+///
+/// The UI renders the choices it is given, in order, and sends the chosen
+/// [`ApprovalChoice::id`] back — it never invents a choice.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ApprovalChoice {
+    /// Wire id, echoed back as MSP `choiceId`, e.g. `"allow_local_prefix"`.
+    pub id: String,
+    /// Button label, e.g. `"Always allow in this workspace: echo ..."`.
+    pub label: String,
+    /// What choosing it means.
+    pub decision: ApprovalDecision,
+    /// How far the choice reaches.
+    pub scope: ApprovalScope,
+    /// The rule this choice would write, shown under the button.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_preview: Option<String>,
+    /// Whether picking this choice reveals a free-text field whose contents go
+    /// to the model as [`Block::Approval::feedback`].
+    #[serde(default)]
+    pub accepts_feedback: bool,
+}
+
+/// One stage of a staged approval subject (MSP `ApprovalStage`).
+///
+/// A shell pipeline is decided one stage at a time: `echo hi && ls` is two
+/// stages, each with its own choices.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ApprovalStage {
+    /// 1-based position of this stage, the `n` in `n/N`.
+    pub position: u32,
+    /// How many stages the subject has, the `N` in `n/N`.
+    pub total: u32,
+    /// The stage's argv, already split by the server.
+    pub argv: Vec<String>,
+    /// `false` when the server could not fully parse the stage, in which case
+    /// `argv` is a best effort and must be shown as such.
+    pub argv_complete: bool,
+    /// Whether this stage already has a decision.
+    pub resolved: bool,
+    /// The rule the server suggests for this stage, e.g. `"echo ..."`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_rule: Option<String>,
+}
+
+/// The badges an approval card shows beside its title.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ApprovalBadges {
+    /// The action would write to a protected path (MSP `protectedWrite`).
+    #[serde(default)]
+    pub protected_write: bool,
+    /// The LLM approval judge escalated the request to a human (MSP
+    /// `judgeEscalated`).
+    #[serde(default)]
+    pub judge_escalated: bool,
+}
+
+/// Who settled an approval request (MSP `ApprovalResolved.resolvedBy`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolvedBy {
+    /// The person pressed a choice.
+    User,
+    /// A policy rule matched, with no user interaction at all.
+    Policy,
+    /// The LLM approval judge decided it.
+    LlmJudge,
 }
 
 /// One choice in a [`Block::Question`].
@@ -290,6 +477,19 @@ pub struct QuestionOption {
     pub description: String,
     /// Keyboard shortcut shown as a `kbd` on the right, e.g. `"2"`.
     pub key: String,
+    /// A rendered preview the card can expand, e.g. a diff or a snippet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<QuestionPreview>,
+}
+
+/// A rendered preview attached to a [`QuestionOption`] (MSP
+/// `UserInputOption.preview`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct QuestionPreview {
+    /// The preview body.
+    pub content: String,
+    /// How to render `content`, e.g. `"text"`, `"markdown"` or `"diff"`.
+    pub format: String,
 }
 
 /// The person's reply to a [`Block::Question`].
@@ -392,4 +592,16 @@ pub enum MarkerKind {
         /// The new mode.
         mode: crate::session::PermissionMode,
     },
+    /// A turn was interrupted before it finished.
+    TurnCancelled,
+    /// A turn was retracted before any output committed, so its prompt went
+    /// back to the composer.
+    TurnRetracted,
+    /// The provider is retrying after a failure ("attempt 2/5 · retrying in 4s").
+    RetryScheduled,
+    /// The client's view of the transcript has a hole in it, because it
+    /// reconnected past the server's retained window.
+    ViewGap,
+    /// This session was forked from another one.
+    ForkedFrom,
 }

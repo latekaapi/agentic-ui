@@ -69,6 +69,12 @@ pub struct TurnMeta {
     pub tokens_in: u64,
     /// Completion tokens billed.
     pub tokens_out: u64,
+    /// Reasoning tokens billed (MSP `TokenUsage.reasoningTokens`).
+    ///
+    /// Additive: [`TurnMeta`] derives `Default`, and the field defaults to `0`
+    /// when it is absent from serialized data.
+    #[serde(default)]
+    pub reasoning_tokens: u64,
     /// Cost of the turn in US dollars.
     pub cost_usd: f64,
 }

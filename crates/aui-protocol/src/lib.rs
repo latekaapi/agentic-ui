@@ -9,12 +9,16 @@
 //! # Layout
 //!
 //! - [`Session`] is the root: identity ([`Provider`], model, [`PermissionMode`],
-//!   cwd, branch, [`Environment`]) plus an ordered list of [`Turn`]s.
+//!   the client-side [`Session::plan`] overlay, cwd, branch, [`Environment`])
+//!   plus an ordered list of [`Turn`]s.
 //! - A [`Turn`] is either the person's message or an assistant reply made of
 //!   [`Block`]s. Every card in the transcript is one block variant.
 //! - Live updates arrive as [`Delta`]s and are folded into a session with
-//!   [`Session::apply`].
-//! - The UI never mutates the app's state directly; it emits [`Intent`]s.
+//!   [`Session::apply`]. A delta whose target is gone is ignored, and `apply`
+//!   reports whether anything changed.
+//! - The UI never mutates the app's state directly; it emits [`Intent`]s,
+//!   including the session controls [`Intent::SetModel`], [`Intent::SetEffort`]
+//!   ([`ReasoningEffort`]) and [`Intent::SetMode`].
 //! - [`sample`] builds the realistic session used by the gallery and the design
 //!   reference screens.
 //!
@@ -24,7 +28,26 @@
 //! internally tagged with `kind` and `snake_case` names, so a text block is
 //! `{"kind":"text","text":"…","streaming":false}`. Enums whose variants are all
 //! unit variants (statuses, states, modes) serialize as plain `snake_case`
-//! strings.
+//! strings — with two deliberate exceptions, [`PermissionMode`] and
+//! [`ReasoningEffort`], which serialize `camelCase` because those strings *are*
+//! the MSP wire values.
+//!
+//! # Muse (MSP) shapes
+//!
+//! Fields added for Meta's Muse Code all carry `#[serde(default)]`, so a
+//! session serialized before they existed still loads:
+//!
+//! - [`Block::Approval`] carries the server-minted [`ApprovalChoice`] list, the
+//!   [`ApprovalStage`] pipeline with its current stage, [`ApprovalBadges`],
+//!   feedback text and [`ResolvedBy`]; [`ApprovalState::AutoDenied`] is the
+//!   never-actionable policy refusal.
+//! - [`Block::Question`] gains a header, a countdown and per-option
+//!   [`QuestionPreview`]s.
+//! - [`Block::Goal`] mirrors `session/goalChanged`, and [`Block::Generic`] is
+//!   the mandated fallback card for an item kind this client does not model.
+//! - [`Delta::ThinkingDelta`], [`Delta::ToolOutputDelta`],
+//!   [`Delta::TurnRemoved`] and [`Delta::BlockRemoved`] cover streamed
+//!   reasoning, streamed tool output, and retraction/unqueue.
 
 #![deny(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
@@ -39,13 +62,13 @@ mod turn;
 pub mod sample;
 
 pub use block::{
-    ActivityState, Answer, ApprovalScope, ApprovalState, Block, Check, ChangeKind, FileChange,
-    MarkerKind, PlanState, QuestionOption, Step, StepState, ThinkingState, TodoItem,
-    TodoState,
+    ActivityState, Answer, ApprovalBadges, ApprovalChoice, ApprovalScope, ApprovalStage,
+    ApprovalState, Block, Check, ChangeKind, FileChange, MarkerKind, PlanState, QuestionOption,
+    QuestionPreview, ResolvedBy, Step, StepState, ThinkingState, TodoItem, TodoState,
 };
 pub use delta::Delta;
 pub use intent::{ApprovalDecision, Intent, Note, WorkbenchView};
-pub use session::{Environment, PermissionMode, Provider, Session};
+pub use session::{Environment, PermissionMode, Provider, ReasoningEffort, Session};
 pub use tool::{
     AnsiLine, Diff, DiffKind, DiffLine, Hunk, SearchHit, ToolBody, ToolKind, ToolStatus, WebResult,
 };

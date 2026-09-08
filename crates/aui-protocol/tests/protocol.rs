@@ -84,6 +84,7 @@ fn text_delta_appends_to_the_streaming_block() {
         duration_ms: 3_100,
         tokens_in: 1_900,
         tokens_out: 500,
+        reasoning_tokens: 120,
         cost_usd: 0.04,
     };
     assert!(session.apply(Delta::TurnFinished { turn_id: "t1".into(), meta: meta.clone() }));
@@ -173,4 +174,287 @@ fn approval_transitions_always_and_deny() {
     let mut text = Block::text("hello");
     assert!(!text.decide_approval(ApprovalDecision::Once, None));
     assert!(!text.complete_approval(0, 1));
+}
+
+#[test]
+fn thinking_delta_appends_to_the_trace() {
+    let mut session = Session::new("s1", aui_protocol::Provider::Muse, "muse-spark-1.3", "~/work");
+    session.turns.push(Turn::Assistant {
+        id: "t1".into(),
+        blocks: vec![Block::Thinking {
+            text: "Weighing ".into(),
+            elapsed_ms: 0,
+            summary: None,
+            state: aui_protocol::ThinkingState::Thinking,
+        }],
+        meta: TurnMeta::default(),
+    });
+
+    assert!(session.apply(Delta::ThinkingDelta {
+        turn_id: "t1".into(),
+        block_index: 0,
+        text: "the options.".into(),
+    }));
+    match &session.turn("t1").unwrap().blocks()[0] {
+        Block::Thinking { text, .. } => assert_eq!(text, "Weighing the options."),
+        other => panic!("expected a thinking block, got {other:?}"),
+    }
+
+    // Wrong turn, wrong index, wrong block kind: all ignored.
+    assert!(!session.apply(Delta::ThinkingDelta {
+        turn_id: "nope".into(),
+        block_index: 0,
+        text: "x".into(),
+    }));
+    assert!(!session.apply(Delta::ThinkingDelta {
+        turn_id: "t1".into(),
+        block_index: 9,
+        text: "x".into(),
+    }));
+    session.turns.push(Turn::Assistant {
+        id: "t2".into(),
+        blocks: vec![Block::text("prose")],
+        meta: TurnMeta::default(),
+    });
+    assert!(!session.apply(Delta::ThinkingDelta {
+        turn_id: "t2".into(),
+        block_index: 0,
+        text: "x".into(),
+    }));
+}
+
+fn shell_call(output: Vec<String>) -> Block {
+    Block::ToolCall {
+        id: "tc1".into(),
+        kind: aui_protocol::ToolKind::Shell,
+        verb: "Ran".into(),
+        target: "pnpm test".into(),
+        status: ToolStatus::Running,
+        duration_ms: None,
+        body: ToolBody::Shell { output_lines: output, exit_code: None, live: true },
+    }
+}
+
+fn output_lines(session: &Session) -> Vec<String> {
+    match &session.turn("t1").unwrap().blocks()[0] {
+        Block::ToolCall { body: ToolBody::Shell { output_lines, .. }, .. } => output_lines.clone(),
+        other => panic!("expected a shell tool call, got {other:?}"),
+    }
+}
+
+#[test]
+fn tool_output_delta_merges_partial_lines() {
+    let mut session = Session::new("s1", aui_protocol::Provider::Muse, "muse-spark-1.3", "~/work");
+    session.turns.push(Turn::Assistant {
+        id: "t1".into(),
+        blocks: vec![shell_call(Vec::new())],
+        meta: TurnMeta::default(),
+    });
+    let mut push = |text: &str| {
+        session.apply(Delta::ToolOutputDelta {
+            turn_id: "t1".into(),
+            block_index: 0,
+            text: text.into(),
+        })
+    };
+
+    assert!(push("PASS src/a"));
+    assert!(push(".test.ts\nPASS "));
+    assert!(push("src/b.test.ts\n"));
+    // An empty chunk changes nothing.
+    assert!(!push(""));
+
+    assert_eq!(
+        output_lines(&session),
+        vec!["PASS src/a.test.ts".to_string(), "PASS src/b.test.ts".to_string(), String::new()]
+    );
+}
+
+#[test]
+fn tool_output_delta_ignores_bodies_with_nowhere_to_put_it() {
+    let mut session = Session::new("s1", aui_protocol::Provider::Muse, "muse-spark-1.3", "~/work");
+    session.turns.push(Turn::Assistant {
+        id: "t1".into(),
+        blocks: vec![Block::text("not a tool call")],
+        meta: TurnMeta::default(),
+    });
+    assert!(!session.apply(Delta::ToolOutputDelta {
+        turn_id: "t1".into(),
+        block_index: 0,
+        text: "x".into(),
+    }));
+    // Missing turn and out-of-range index too.
+    assert!(!session.apply(Delta::ToolOutputDelta {
+        turn_id: "nope".into(),
+        block_index: 0,
+        text: "x".into(),
+    }));
+    assert!(!session.apply(Delta::ToolOutputDelta {
+        turn_id: "t1".into(),
+        block_index: 4,
+        text: "x".into(),
+    }));
+
+    // A non-shell tool body has nowhere to put the chunk either.
+    session.turns.push(Turn::Assistant {
+        id: "t2".into(),
+        blocks: vec![Block::ToolCall {
+            id: "tc2".into(),
+            kind: aui_protocol::ToolKind::Read,
+            verb: "Read".into(),
+            target: "src/main.rs".into(),
+            status: ToolStatus::Success,
+            duration_ms: Some(4),
+            body: ToolBody::Read { lines: 12 },
+        }],
+        meta: TurnMeta::default(),
+    });
+    assert!(!session.apply(Delta::ToolOutputDelta {
+        turn_id: "t2".into(),
+        block_index: 0,
+        text: "x".into(),
+    }));
+}
+
+#[test]
+fn removal_deltas_take_things_out_and_ignore_the_rest() {
+    let mut session = Session::new("s1", aui_protocol::Provider::Muse, "muse-spark-1.3", "~/work");
+    session.turns.push(Turn::Assistant {
+        id: "t1".into(),
+        blocks: vec![Block::text("one"), Block::text("two")],
+        meta: TurnMeta::default(),
+    });
+    session.turns.push(Turn::Assistant {
+        id: "t2".into(),
+        blocks: Vec::new(),
+        meta: TurnMeta::default(),
+    });
+
+    assert!(!session.apply(Delta::BlockRemoved { turn_id: "t1".into(), block_index: 5 }));
+    assert!(!session.apply(Delta::BlockRemoved { turn_id: "nope".into(), block_index: 0 }));
+    assert!(session.apply(Delta::BlockRemoved { turn_id: "t1".into(), block_index: 0 }));
+    assert_eq!(session.turn("t1").unwrap().blocks(), &[Block::text("two")]);
+
+    assert!(!session.apply(Delta::TurnRemoved { turn_id: "nope".into() }));
+    assert!(session.apply(Delta::TurnRemoved { turn_id: "t1".into() }));
+    assert_eq!(session.turns.len(), 1);
+    assert_eq!(session.last_turn_id(), Some("t2"));
+}
+
+#[test]
+fn permission_modes_use_the_msp_wire_strings() {
+    let pairs = [
+        (aui_protocol::PermissionMode::AllowAll, "allowAll", "Full access"),
+        (aui_protocol::PermissionMode::OnRequest, "onRequest", "Auto"),
+        (aui_protocol::PermissionMode::PromptUnmatched, "promptUnmatched", "Ask"),
+        (aui_protocol::PermissionMode::DenyUnmatched, "denyUnmatched", "Read-only"),
+    ];
+    for (mode, wire, label) in pairs {
+        assert_eq!(serde_json::to_value(mode).unwrap(), wire);
+        assert_eq!(
+            serde_json::from_str::<aui_protocol::PermissionMode>(&format!("\"{wire}\"")).unwrap(),
+            mode
+        );
+        assert_eq!(mode.label(), label);
+        assert!(!mode.description().is_empty());
+    }
+    assert_eq!(aui_protocol::PermissionMode::default(), aui_protocol::PermissionMode::OnRequest);
+    // Plan mode is a client-side overlay, never a wire mode.
+    assert!(aui_protocol::sample::session().plan);
+}
+
+#[test]
+fn reasoning_effort_uses_the_msp_wire_strings() {
+    use aui_protocol::ReasoningEffort as E;
+    let pairs = [
+        (E::None, "none"),
+        (E::Minimal, "minimal"),
+        (E::Low, "low"),
+        (E::Medium, "medium"),
+        (E::High, "high"),
+        (E::Xhigh, "xhigh"),
+        (E::Ultra, "ultra"),
+    ];
+    for (effort, wire) in pairs {
+        assert_eq!(serde_json::to_value(effort).unwrap(), wire);
+        assert_eq!(serde_json::from_str::<E>(&format!("\"{wire}\"")).unwrap(), effort);
+        assert!(!effort.label().is_empty());
+    }
+    // The CLI's `max` tier is not an MSP value and must not deserialize.
+    assert!(serde_json::from_str::<E>("\"max\"").is_err());
+}
+
+#[test]
+fn goal_and_generic_blocks_round_trip() {
+    let goal = Block::Goal {
+        objective: "Ship the checkout rewrite".into(),
+        status: "in_progress".into(),
+        percent_complete: Some(140.0),
+        current_work: Some("Rewriting the validator".into()),
+        next_work: None,
+    };
+    let json = serde_json::to_value(&goal).unwrap();
+    assert_eq!(json["kind"], "goal");
+    // Verbatim from the provider: over 100 passes straight through.
+    assert_eq!(json["percent_complete"], 140.0);
+    assert_eq!(serde_json::from_value::<Block>(json).unwrap(), goal);
+
+    let generic = Block::Generic {
+        kind: "reminderChild".into(),
+        status: "inProgress".into(),
+        text: "Reminder agent is running".into(),
+    };
+    let json = serde_json::to_value(&generic).unwrap();
+    assert_eq!(json["kind"], "generic");
+    assert_eq!(json["item_kind"], "reminderChild");
+    assert_eq!(serde_json::from_value::<Block>(json).unwrap(), generic);
+}
+
+#[test]
+fn muse_approval_fields_default_when_absent() {
+    // A session serialized before the MSP fields existed still loads.
+    let json = serde_json::json!({
+        "kind": "approval",
+        "id": "ap-1",
+        "tool": "Bash",
+        "command": "ls",
+        "reason": "",
+        "cwd": "~/work",
+        "capabilities": [],
+        "scope": "this_worktree",
+        "state": { "kind": "pending" },
+        "rule": null,
+    });
+    let block: Block = serde_json::from_value(json).unwrap();
+    match &block {
+        Block::Approval { choices, stages, current_stage, badges, feedback, resolved_by, .. } => {
+            assert!(choices.is_empty());
+            assert!(stages.is_empty());
+            assert_eq!(*current_stage, None);
+            assert_eq!(*badges, aui_protocol::ApprovalBadges::default());
+            assert_eq!(*feedback, None);
+            assert_eq!(*resolved_by, None);
+        }
+        other => panic!("expected an approval, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_wider_approval_decisions_settle_the_card() {
+    let approving = [ApprovalDecision::ApprovedForSession, ApprovalDecision::PolicyAmendment];
+    for decision in approving {
+        let mut approval = aui_protocol::sample::approvals().remove(0);
+        assert!(approval.decide_approval(decision, Some("ls *".into())));
+        assert!(matches!(approval, Block::Approval { state: ApprovalState::Approving, .. }));
+    }
+    let refusing = [
+        ApprovalDecision::DeniedPolicyAmendment,
+        ApprovalDecision::TimedOut,
+        ApprovalDecision::Abort,
+    ];
+    for decision in refusing {
+        let mut approval = aui_protocol::sample::approvals().remove(0);
+        assert!(approval.decide_approval(decision, None));
+        assert!(matches!(approval, Block::Approval { state: ApprovalState::Denied, .. }));
+    }
 }

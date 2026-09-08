@@ -16,6 +16,14 @@ pub struct Session {
     pub model: String,
     /// How tool calls are gated for this session.
     pub mode: PermissionMode,
+    /// Client-side plan-mode overlay; MSP has no plan mode — see harness spec §3.1.
+    ///
+    /// Plan mode is not a wire value: the client turns it on, remembers the
+    /// previous [`PermissionMode`], sets [`PermissionMode::DenyUnmatched`] for
+    /// the duration and prefixes the prompt. It rides here so the chrome can
+    /// show the "Plan" pill.
+    #[serde(default)]
+    pub plan: bool,
     /// Working directory the agent runs in, e.g. `"~/work/acme/checkout-flow-v2"`.
     pub cwd: String,
     /// Git branch checked out in [`Session::cwd`], if the directory is a repo.
@@ -33,7 +41,8 @@ impl Session {
             id: id.into(),
             agent,
             model: model.into(),
-            mode: PermissionMode::Ask,
+            mode: PermissionMode::default(),
+            plan: false,
             cwd: cwd.into(),
             branch: None,
             environment: Environment::Local,
@@ -86,20 +95,99 @@ pub enum Provider {
     Pi,
     /// Cursor's agent.
     Cursor,
+    /// Meta's Muse Code.
+    Muse,
 }
 
 /// How the session gates tool calls that need permission.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+///
+/// These are the four MSP approval modes (`ApprovalMode`, `msp.d.ts:79`), and
+/// the `camelCase` serde names below **are** the MSP wire values
+/// (`allowAll` / `onRequest` / `promptUnmatched` / `denyUnmatched`) — that is
+/// deliberate, so an adapter can hand the value straight to
+/// `session/setApprovalMode` without a translation table. The set is closed: a
+/// client selects a preconfigured mode and can never construct one.
+///
+/// Plan mode is **not** a member: it is a client-side overlay carried by
+/// [`Session::plan`]. See the harness spec §3.6.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum PermissionMode {
-    /// Every unapproved tool call raises an approval card.
-    Ask,
-    /// The agent proposes a plan and edits nothing until it is accepted.
-    Plan,
-    /// Tool calls matching the remembered rules run without asking.
-    Auto,
-    /// Nothing is gated; every tool call runs.
-    Bypass,
+    /// Nothing is gated; every action runs. Labelled "Full access".
+    AllowAll,
+    /// The default. Policy decides, and an action with no matching rule is only
+    /// raised when the agent itself asks. Labelled "Auto".
+    #[default]
+    OnRequest,
+    /// Anything without a matching rule raises an approval card. Labelled "Ask".
+    PromptUnmatched,
+    /// Anything without a matching rule is refused outright. Labelled
+    /// "Read-only".
+    DenyUnmatched,
+}
+
+impl PermissionMode {
+    /// The picker label, from harness spec §3.6.
+    pub fn label(&self) -> &'static str {
+        match self {
+            PermissionMode::AllowAll => "Full access",
+            PermissionMode::OnRequest => "Auto",
+            PermissionMode::PromptUnmatched => "Ask",
+            PermissionMode::DenyUnmatched => "Read-only",
+        }
+    }
+
+    /// The one-line description shown under the label in the mode picker.
+    pub fn description(&self) -> &'static str {
+        match self {
+            PermissionMode::AllowAll => "Nothing is gated; every action runs.",
+            PermissionMode::OnRequest => "Policy decides; unmatched actions ask only when the agent requests it.",
+            PermissionMode::PromptUnmatched => "Anything without a matching rule raises an approval card.",
+            PermissionMode::DenyUnmatched => "Anything without a matching rule is refused.",
+        }
+    }
+}
+
+/// How much reasoning the provider should spend on a turn.
+///
+/// Exactly the MSP `ReasoningEffort` enum (`msp.d.ts:812`), which is **closed**.
+/// The Muse CLI and the on-disk model catalog also advertise a `max` tier, but
+/// MSP rejects it (`unknown variant `max``, verified live — see
+/// `docs/10-muse-research.md` §1.5), so `max` is deliberately absent here and a
+/// client must drive its effort picker from this enum, never from the catalog.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReasoningEffort {
+    /// No reasoning at all.
+    None,
+    /// The smallest budget the provider offers.
+    Minimal,
+    /// A short budget.
+    Low,
+    /// The middle budget, and the usual default.
+    #[default]
+    Medium,
+    /// A long budget.
+    High,
+    /// Longer than [`ReasoningEffort::High`].
+    Xhigh,
+    /// The largest budget MSP accepts.
+    Ultra,
+}
+
+impl ReasoningEffort {
+    /// The picker label for this tier.
+    pub fn label(&self) -> &'static str {
+        match self {
+            ReasoningEffort::None => "None",
+            ReasoningEffort::Minimal => "Minimal",
+            ReasoningEffort::Low => "Low",
+            ReasoningEffort::Medium => "Medium",
+            ReasoningEffort::High => "High",
+            ReasoningEffort::Xhigh => "Extra high",
+            ReasoningEffort::Ultra => "Ultra",
+        }
+    }
 }
 
 /// Where the agent process runs.

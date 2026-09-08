@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::block::Answer;
+use crate::session::{PermissionMode, ReasoningEffort};
 use crate::turn::{Attachment, Mention};
 
 /// Something the person did that the app must act on.
@@ -87,18 +88,107 @@ pub enum Intent {
     },
     /// Show or hide the workbench pane entirely.
     ToggleRightPane,
+    /// Interject into the turn that is already running instead of queueing
+    /// behind it (MSP `turn/steer`).
+    Steer {
+        /// Message text.
+        text: String,
+        /// Files and images to send with it.
+        attachments: Vec<Attachment>,
+        /// Mentions parsed from the text.
+        mentions: Vec<Mention>,
+    },
+    /// Reclaim a queued submission that has not launched (MSP `turn/unqueue`).
+    Unqueue {
+        /// Id of the queued turn, exactly as the queueing ack minted it.
+        turn_id: String,
+    },
+    /// Unqueue a queued submission and restore its text to the composer.
+    EditQueued {
+        /// Id of the queued turn.
+        turn_id: String,
+    },
+    /// Compact the context window now (MSP `session/compact`).
+    Compact,
+    /// Switch the session's model (MSP `session/setModel`).
+    SetModel {
+        /// Model id from the provider catalog, e.g. `"muse-spark-1.3"`.
+        model_id: String,
+    },
+    /// Change how much reasoning the next turn should spend.
+    SetEffort {
+        /// The tier the person picked.
+        effort: ReasoningEffort,
+    },
+    /// Change the approval mode (MSP `session/setApprovalMode`).
+    SetMode {
+        /// The mode the person picked.
+        mode: PermissionMode,
+    },
+    /// Fork the session, optionally from a specific turn.
+    Fork {
+        /// Turn to fork from; `None` forks from the tip.
+        turn_id: Option<String>,
+    },
+    /// Answer a question card with free text instead of a choice, so the model
+    /// re-decides (MSP `userInput/clarify`).
+    Clarify {
+        /// Id of the [`crate::Block::Question`].
+        id: String,
+        /// The clarification text.
+        text: String,
+    },
+    /// Dismiss a question card without answering (MSP `userInput/cancel`).
+    CancelQuestion {
+        /// Id of the [`crate::Block::Question`].
+        id: String,
+    },
+    /// Start the provider's sign-in flow.
+    Login,
+    /// Sign out of the provider.
+    Logout,
 }
 
 /// What the person chose on an approval card.
+///
+/// The full MSP `ApprovalDecision` set (`msp.d.ts:62`), keeping the three
+/// original names so existing call sites still compile. MSP wire value → variant:
+///
+/// | MSP | variant |
+/// |---|---|
+/// | `approved` | [`ApprovalDecision::Once`] |
+/// | `approvedForSession` | [`ApprovalDecision::ApprovedForSession`] |
+/// | `approvedPolicyAmendment` | [`ApprovalDecision::PolicyAmendment`], or [`ApprovalDecision::Always`] where the UI still speaks the old triad |
+/// | `denied` | [`ApprovalDecision::Deny`] |
+/// | `deniedPolicyAmendment` | [`ApprovalDecision::DeniedPolicyAmendment`] |
+/// | `timedOut` | [`ApprovalDecision::TimedOut`] |
+/// | `abort` | [`ApprovalDecision::Abort`] |
+///
+/// Serialized `snake_case`, so this enum's own wire names are *not* the MSP
+/// ones; an adapter maps them at the boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalDecision {
-    /// Allow just this invocation.
+    /// Allow just this invocation (MSP `approved`).
     Once,
-    /// Allow it and remember the rule for the card's scope.
+    /// Allow it and remember the rule for the card's scope (MSP
+    /// `approvedPolicyAmendment`).
     Always,
-    /// Refuse; the agent must try another approach.
+    /// Refuse; the agent must try another approach (MSP `denied`).
     Deny,
+    /// Allow it for the rest of the session without writing a durable rule
+    /// (MSP `approvedForSession`).
+    ApprovedForSession,
+    /// Allow it and write the amendment into the policy (MSP
+    /// `approvedPolicyAmendment`).
+    PolicyAmendment,
+    /// Refuse it and write the refusal into the policy (MSP
+    /// `deniedPolicyAmendment`).
+    DeniedPolicyAmendment,
+    /// Nobody answered in time (MSP `timedOut`).
+    TimedOut,
+    /// Refuse and stop the turn (MSP `abort`).
+    Abort,
 }
 
 /// One review note anchored to a file and line.

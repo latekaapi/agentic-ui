@@ -26,7 +26,8 @@ pub fn session() -> Session {
         id: "checkout-flow-v2".into(),
         agent: Provider::Claude,
         model: "opus 4.6".into(),
-        mode: PermissionMode::Plan,
+        mode: PermissionMode::PromptUnmatched,
+        plan: true,
         cwd: "~/work/acme/checkout-flow-v2".into(),
         branch: Some("feature/checkout-flow-v2".into()),
         environment: Environment::Local,
@@ -44,16 +45,18 @@ pub fn session() -> Session {
 
 /// The five approval states from card 35, for the gallery's state matrix.
 pub fn approvals() -> Vec<Block> {
-    let base = |state: ApprovalState, command: &str| Block::Approval {
-        id: "ap-1".into(),
-        tool: "Bash".into(),
-        command: command.into(),
-        reason: "Claude says: needed to compile the pg native module before the test run.".into(),
-        cwd: "~/work/acme/checkout-flow-v2".into(),
-        capabilities: vec!["modify files".into(), "network".into()],
-        scope: ApprovalScope::ThisWorktree,
-        state,
-        rule: Some("apt install".into()),
+    let base = |state: ApprovalState, command: &str| {
+        Block::approval(
+            "ap-1",
+            "Bash",
+            command,
+            "Claude says: needed to compile the pg native module before the test run.",
+            "~/work/acme/checkout-flow-v2",
+            vec!["modify files".into(), "network".into()],
+            ApprovalScope::ThisWorktree,
+            state,
+            Some("apt install".into()),
+        )
     };
     vec![
         base(ApprovalState::Pending, "sudo apt install -y libpq-dev"),
@@ -155,6 +158,7 @@ fn work_turn() -> Turn {
             duration_ms: 3_100,
             tokens_in: 1_900,
             tokens_out: 500,
+            reasoning_tokens: 0,
             cost_usd: 0.04,
         },
     }
@@ -169,6 +173,7 @@ fn decision_turn() -> Turn {
             duration_ms: 1_400,
             tokens_in: 2_400,
             tokens_out: 320,
+            reasoning_tokens: 0,
             cost_usd: 0.02,
         },
     }
@@ -189,6 +194,7 @@ fn approval_turn() -> Turn {
             duration_ms: 900,
             tokens_in: 2_600,
             tokens_out: 120,
+            reasoning_tokens: 0,
             cost_usd: 0.01,
         },
     }
@@ -207,7 +213,7 @@ fn marker_turn() -> Turn {
                 text: "Claude Code handed off with full context to Codex".into(),
             },
             Block::Marker {
-                kind: MarkerKind::PermissionModeChanged { mode: PermissionMode::Bypass },
+                kind: MarkerKind::PermissionModeChanged { mode: PermissionMode::AllowAll },
                 text: "Permission mode changed to Bypass for this session".into(),
             },
         ],
@@ -260,6 +266,7 @@ fn wrap_up_turn() -> Turn {
             duration_ms: 252_000,
             tokens_in: 18_400,
             tokens_out: 3_100,
+            reasoning_tokens: 0,
             cost_usd: 0.31,
         },
     }
@@ -326,6 +333,7 @@ fn activity() -> Block {
 fn question() -> Block {
     Block::Question {
         id: "q-postcodes".into(),
+        header: "Postcodes".into(),
         prompt: "Which postcode formats should validate?".into(),
         subtitle: "Claude needs this before editing the validator · pick all that apply".into(),
         options: vec![
@@ -333,21 +341,25 @@ fn question() -> Block {
                 label: "US ZIP and ZIP+4".into(),
                 description: "12345 or 12345-6789".into(),
                 key: "1".into(),
+                preview: None,
             },
             QuestionOption {
                 label: "Canadian postal".into(),
                 description: "A1A 1A1, space optional".into(),
                 key: "2".into(),
+                preview: None,
             },
             QuestionOption {
                 label: "UK postcode".into(),
                 description: "Outward + inward, e.g. SW1A 1AA".into(),
                 key: "3".into(),
+                preview: None,
             },
         ],
         multi: true,
         allow_other: true,
         answer: Some(Answer { selected: vec![0, 1], other: None }),
+        timeout_ms: None,
     }
 }
 
@@ -603,6 +615,7 @@ fn sub_agent_call() -> Block {
                         duration_ms: 21_000,
                         tokens_in: 900,
                         tokens_out: 160,
+                        reasoning_tokens: 0,
                         cost_usd: 0.002,
                     },
                 },

@@ -14,7 +14,7 @@ const COLUMN_GAP: f32 = 14.0;
 const STACK_GAP: f32 = aui_tokens::scale::SP_3;
 
 fn option(label: &str, description: &str, key: &str) -> QuestionOption {
-    QuestionOption { label: label.into(), description: description.into(), key: key.into() }
+    QuestionOption { label: label.into(), description: description.into(), key: key.into(), preview: None }
 }
 
 fn task(label: &str, state: TodoState, elapsed_ms: Option<u64>) -> TodoItem {
