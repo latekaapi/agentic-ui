@@ -382,6 +382,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn sidebar(id: impl Into<ElementId>, nav: SidebarNav) -> Sidebar`
 - **fn** `sidebar_footer` — A footer for `name` with `initial` in the avatar.
   - `pub fn sidebar_footer(id: impl Into<ElementId>, initial: impl Into<SharedString>, name: impl Into<SharedString>) -> SidebarFooter`
+- **fn** `sidebar_search` — A search row wrapping `field`.
+  - `pub fn sidebar_search(id: impl Into<ElementId>, field: impl IntoElement) -> SidebarSearch`
 - **fn** `sidebar_view` — The sessions of a sidebar, grouped by `grouping`.
   - `pub fn sidebar_view(id: impl Into<ElementId>, grouping: Grouping) -> SidebarView`
 - **fn** `view_menu` — The 250 px menu reached from the sliders icon on a group row.
@@ -392,6 +394,9 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
 - **struct** `Activity` — The live third line of a row.
   - fields: `kind`, `text`
 - **struct** `CompactSessionRow` — The compact row (`.sr`). Build with `compact_session_row`.
+  - `pub fn actions(self, actions: Vec<RowAction>) -> Self` — The hover action tray, off by default on a compact row.
+  - `pub fn editor(self, editor: impl IntoElement) -> Self` — Replace the name with a field the caller owns: an inline rename.
+  - `pub fn on_action(self, f: impl Fn(&SharedString, RowAction, &mut Window, &mut App) + 'static) -> Self` — Hover-action click.
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — Row click.
   - `pub fn selected(self, selected: bool) -> Self` — Selected: surface-3 ground and ink text.
 - **struct** `DateGroup` — A date group: the `.dg` caps header with its hairline rule, and the flat rows under it.
@@ -451,6 +456,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn active(self, active: bool) -> Self` — Marks the row as the open session (`.sess.on`).
   - `pub fn on_select(self, f: impl Fn(&str, &mut Window, &mut App) + 'static) -> Self` — Selection intent, carrying the session id.
 - **struct** `SessionRow` — The full session row. Build with `session_row`.
+  - `pub fn actions(self, actions: Vec<RowAction>) -> Self` — Which actions the tray carries; `RowAction::ALL` when unset.
   - `pub fn activity_max(self, max: f32) -> Self` — Max width of the activity sentence (defaults to the branch max).
   - `pub fn branch_max(self, max: f32) -> Self` — Max width of the truncated branch tag.
   - `pub fn collapse_margins(self) -> Self` — For rows in block flow, where CSS collapses adjacent 2 px margins into one: keeps the top margin only.
@@ -487,6 +493,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn on_click(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Click on the footer (account menu).
   - `pub fn pad_y(self, pad: f32) -> Self` — Vertical padding: 10 in the shell, 8 in the sidebar cards.
   - `pub fn plan(self, plan: impl Into<SharedString>, warning: bool) -> Self` — A third line under the identity: what the account is entitled to, e.g. `"High Usage \u{b7} 2% this week"`.
+  - `pub fn plan_trailing(self, el: impl IntoElement) -> Self` — One quiet control at the right of the plan row.
   - `pub fn trailing(self, el: impl IntoElement) -> Self` — Replaces the meter + chevron with another element (the assistant’s pill).
 - **struct** `SidebarGroup` — A collapsible group of sessions.
   - fields: `id`, `label`, `count`, `open`, `trailing`, `sessions`
@@ -508,11 +515,17 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn count(self, count: impl Into<SharedString>) -> Self` — Sets the mono count.
   - `pub fn new(name: impl Into<SharedString>, label: impl Into<SharedString>, glyph: IconName) -> Self` — A nav row with no count.
   - `pub fn warning(self) -> Self` — Colours the count in warning.
+- **struct** `SidebarSearch` — The sidebar’s search row: a magnifier, a field the caller owns, and a clear button that only exists while there is something to clear. Build with `sidebar_search`.
+  - `pub fn clearable(self, clearable: bool) -> Self` — Whether the clear button is drawn: there is text to clear.
+  - `pub fn on_clear(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — The clear button was pressed.
 - **struct** `SidebarView` — The body of a sidebar panel in one grouping. Build with `sidebar_view`.
   - `pub fn caption(self, caption: impl Into<SharedString>) -> Self` — The caps group row above the groups (`Workspaces`, `Projects`, `Recent`). It carries the sliders icon when `Self::on_view_options` is set.
+  - `pub fn editing(self, session_id: impl Into<SharedString>, editor: impl IntoElement) -> Self` — One row is being renamed: draw `editor` in place of its name.
+  - `pub fn on_action(self, f: impl Fn(&SharedString, RowAction, &mut Window, &mut App) + 'static) -> Self` — A row’s hover action was clicked.
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A row was clicked; the argument is the session id.
   - `pub fn on_toggle(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A group header or project row was clicked; the argument is the group id.
   - `pub fn on_view_options(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The sliders icon on the caption row was clicked: open the view menu.
+  - `pub fn row_actions(self, actions: Vec<RowAction>) -> Self` — The hover actions every row carries; none by default.
   - `pub fn selected(self, id: impl Into<SharedString>) -> Self` — The id of the selected session.
 - **struct** `StatusGroup` — A status group: `Needs you 1`, `Running 3`, `Done 2`.
   - fields: `id`, `label`, `count`, `open`, `sessions`
@@ -546,7 +559,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn separator() -> Self` — The hairline separator.
   - `pub fn session(id: impl Into<SharedString>, state: AgentState) -> Self` — A session cell.
 - **enum** `RowAction` — The hover actions on a row.
-  - variants: `Terminal`, `Browser`, `Pin`, `More`
+  - variants: `Terminal`, `Browser`, `Pin`, `Rename`, `Hide`, `More`
 - **enum** `SessionKind` — What kind of work a session is, which fixes its glyph.
   - variants: `Chat`, `Document`, `Sheet`
   - `pub fn icon(self) -> IconName` — The glyph for this kind.

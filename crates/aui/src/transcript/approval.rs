@@ -391,12 +391,19 @@ fn resolution_title(by: ResolvedBy, allowed: bool) -> &'static str {
     }
 }
 
-/// The one-line subtitle under it: the rule, for a policy resolution that
-/// names one; the judge names none.
-fn resolution_segments(by: ResolvedBy, rule: Option<SharedString>) -> Vec<(SharedString, SubFace)> {
-    match (by, rule) {
-        (ResolvedBy::Policy, Some(rule)) => vec![("Rule ".into(), SubFace::Ui), (rule, SubFace::Mono)],
-        (ResolvedBy::LlmJudge, _) => vec![("The approval judge decided this without asking.".into(), SubFace::Ui)],
+/// The one-line subtitle under it: what the policy had to say; the judge says
+/// nothing beyond that it decided.
+///
+/// An **allowed** policy resolution names the rule that allowed it, in the mono
+/// face, because a rule is a thing you could go and edit. A **denied** one names
+/// the reason it was refused — "no policy rule allows this action" — in the UI
+/// face, because there was no rule; setting that sentence in mono and calling it
+/// a rule is how the card came to claim a rule the policy never had.
+fn resolution_segments(by: ResolvedBy, allowed: bool, detail: Option<SharedString>) -> Vec<(SharedString, SubFace)> {
+    match (by, allowed, detail) {
+        (ResolvedBy::Policy, true, Some(rule)) => vec![("Rule ".into(), SubFace::Ui), (rule, SubFace::Mono)],
+        (ResolvedBy::Policy, false, Some(reason)) => vec![(reason, SubFace::Ui)],
+        (ResolvedBy::LlmJudge, _, _) => vec![("The approval judge decided this without asking.".into(), SubFace::Ui)],
         _ => Vec::new(),
     }
 }
@@ -561,7 +568,7 @@ impl RenderOnce for ApprovalCard {
                     ApprovalState::AutoAllowed { rule } | ApprovalState::AutoDenied { rule } => Some(SharedString::from(rule.clone())),
                     _ => None,
                 };
-                (resolution_title(by, allowed).into(), resolution_segments(by, rule))
+                (resolution_title(by, allowed).into(), resolution_segments(by, allowed, rule))
             }
             // The person's own refusal keeps its sentence, and quotes the
             // feedback that went out with it.

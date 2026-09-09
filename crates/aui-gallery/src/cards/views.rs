@@ -4,7 +4,8 @@
 
 use aui::keys::{Cancel, Confirm, SelectNext, SelectPrev, MENU_CONTEXT};
 use aui::nav::{
-    nav_item, sidebar_view, view_menu, view_submenu, DateGroup, Grouping, MenuRow, ProjectGroup, SessionSummary, StatusGroup,
+    nav_item, sidebar_search, sidebar_view, view_menu, view_submenu, DateGroup, Grouping, MenuRow, ProjectGroup, RowAction,
+    SessionSummary, StatusGroup,
 };
 use aui::nav::{ActivityKind, MetaItem};
 use aui::overlay::popover_layer;
@@ -391,6 +392,27 @@ fn group_items() -> Vec<SharedString> {
 const TITLES: [&str; COLUMNS] = ["Group by status", "Group by project · sessions and children", "By date · flat"];
 /// The caps group row of each column — the column's own name, not its grouping.
 const CAPTIONS: [&str; COLUMNS] = ["Workspaces", "Projects", "Recent"];
+/// A stand-in for the field a caller would put in the search slot: the row
+/// owns the frame, the caller owns the text and the caret.
+fn search_field(p: &Palette) -> impl IntoElement {
+    div().ui(scale::FS_12).text_color(p.ink_2).child("checkout")
+}
+
+/// The same, for a row being renamed in place.
+fn rename_field(p: &Palette) -> impl IntoElement {
+    div()
+        .w_full()
+        .px(px(scale::SP_2))
+        .py(px(1.0))
+        .rounded(px(scale::R_SM))
+        .border_1()
+        .border_color(p.accent)
+        .bg(p.surface_1)
+        .ui(scale::FS_12)
+        .text_color(p.ink)
+        .child("Checkout flow")
+}
+
 /// The [`sidebar_view`] id of each column.
 const VIEW_IDS: [&str; COLUMNS] = ["view-status", "view-project", "view-date"];
 /// The `.nav` id of each column.
@@ -512,16 +534,23 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 }
             }
         };
-        let body = v_flex()
-            .w_full()
-            .child(nav(NAV_IDS[i]))
-            .child(
-                sidebar_view(VIEW_IDS[i], group_by[i].grouping())
-                    .caption(CAPTIONS[i])
-                    .selected("checkout")
-                    .on_view_options(on_view_options),
-            )
-            .into_any_element();
+        let mut view = sidebar_view(VIEW_IDS[i], group_by[i].grouping())
+            .caption(CAPTIONS[i])
+            .selected("checkout")
+            .on_view_options(on_view_options);
+        // The third column carries the two affordances the harness's sessions
+        // list needs: a search row above the groups, and a row that is being
+        // renamed in place through the editor slot.
+        if i == COLUMNS - 1 {
+            view = view
+                .row_actions(vec![RowAction::Rename, RowAction::Hide])
+                .editing("checkout", rename_field(&p));
+        }
+        let mut body = v_flex().w_full().child(nav(NAV_IDS[i]));
+        if i == COLUMNS - 1 {
+            body = body.child(sidebar_search("views-search", search_field(&p)).clearable(true).on_clear(|_, _, _| {}));
+        }
+        let body = body.child(view).into_any_element();
         let overlay = if open == Some(i) { Some(menu_overlay(&state, i, cx)) } else { None };
         columns.push(column(&p, TITLES[i], body, overlay));
     }

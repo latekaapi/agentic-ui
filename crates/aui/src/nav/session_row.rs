@@ -4,7 +4,7 @@
 use aui_icons::{icon, provider_mark, IconName};
 use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
-use gpui::{div, prelude::*, px, App, Div, ElementId, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, AnyElement, App, Div, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, spinner, status_dot, tag, ButtonSize};
@@ -72,18 +72,26 @@ pub enum RowAction {
     Browser,
     /// Pin the session.
     Pin,
+    /// Rename the session in place.
+    Rename,
+    /// Take the session out of the list.
+    Hide,
     /// More…
     More,
 }
 
 impl RowAction {
-    const ALL: [RowAction; 4] = [RowAction::Terminal, RowAction::Browser, RowAction::Pin, RowAction::More];
+    /// The full tray, which is what a row draws when the caller names no
+    /// subset.
+    pub const ALL: [RowAction; 4] = [RowAction::Terminal, RowAction::Browser, RowAction::Pin, RowAction::More];
 
     fn glyph(self) -> IconName {
         match self {
             RowAction::Terminal => IconName::Terminal,
             RowAction::Browser => IconName::Globe,
             RowAction::Pin => IconName::Pin,
+            RowAction::Rename => IconName::Edit,
+            RowAction::Hide => IconName::Eye,
             RowAction::More => IconName::Dots,
         }
     }
@@ -93,9 +101,56 @@ impl RowAction {
             RowAction::Terminal => "terminal",
             RowAction::Browser => "browser",
             RowAction::Pin => "pin",
+            RowAction::Rename => "rename",
+            RowAction::Hide => "hide",
             RowAction::More => "more",
         }
     }
+}
+
+/// The `.acts` hover tray: the actions, faded and slid in on hover.
+///
+/// Shared by both rows so a rename affordance looks the same wherever it is.
+fn action_tray(
+    id: &ElementId,
+    session_id: &SharedString,
+    actions: &[RowAction],
+    visible: bool,
+    on_action: &Option<ActionHandler>,
+    window: &mut Window,
+    cx: &mut App,
+) -> Div {
+    let p = cx.aui().colors;
+    let opacity = tween((id.clone(), "acts-opacity"), if visible { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
+    let slide = tween(
+        (id.clone(), "acts-slide"),
+        if visible { 0.0f32 } else { ACTS_SLIDE },
+        Tween::BASE.with_easing(aui_tokens::Easing::OUT),
+        window,
+        cx,
+    );
+    let mut tray = h_flex()
+        .absolute()
+        .right(px(ACTS_RIGHT) - px(slide))
+        .top(px(ACTS_TOP))
+        .gap(px(ACTS_GAP))
+        .p(px(ACTS_PAD))
+        .rounded(px(scale::R_SM))
+        .bg(p.surface_2)
+        .opacity(opacity);
+    for action in actions {
+        let action = *action;
+        let mut b = icon_button((id.clone(), action.name()), action.glyph()).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+        if let Some(on_action) = on_action.clone() {
+            let key = session_id.clone();
+            b = b.on_click(move |_, w, cx| on_action(&key, action, w, cx));
+        }
+        tray = tray.child(b);
+    }
+    if !visible && opacity <= 0.001 {
+        tray = tray.invisible();
+    }
+    tray
 }
 
 type SelectHandler = std::rc::Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
@@ -115,6 +170,7 @@ pub struct SessionRow {
     branch_max: f32,
     activity_max: Option<f32>,
     show_actions: bool,
+    actions: Option<Vec<RowAction>>,
     margin_bottom: f32,
     on_select: Option<SelectHandler>,
     on_action: Option<ActionHandler>,
@@ -134,6 +190,7 @@ pub fn session_row(id: impl Into<ElementId>, session: SessionSummary) -> Session
         branch_max: BRANCH_MAX,
         activity_max: None,
         show_actions: true,
+        actions: None,
         margin_bottom: MARGIN_Y,
         on_select: None,
         on_action: None,
@@ -181,6 +238,12 @@ impl SessionRow {
     /// Whether the hover action tray exists.
     pub fn show_actions(mut self, show: bool) -> Self {
         self.show_actions = show;
+        self
+    }
+
+    /// Which actions the tray carries; [`RowAction::ALL`] when unset.
+    pub fn actions(mut self, actions: Vec<RowAction>) -> Self {
+        self.actions = Some(actions);
         self
     }
 
@@ -268,7 +331,6 @@ impl RenderOnce for SessionRow {
         let bg = tint_fade((id.clone(), "bg"), self.selected || hovered, tint, Tween::FAST, window, cx);
         let acts_visible = hovered && self.show_actions;
         let acts_opacity = tween((id.clone(), "acts-opacity"), if acts_visible { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
-        let acts_slide = tween((id.clone(), "acts-slide"), if acts_visible { 0.0f32 } else { ACTS_SLIDE }, Tween::BASE.with_easing(aui_tokens::Easing::OUT), window, cx);
         let time_opacity = 1.0 - acts_opacity;
 
         let dot = div().flex_none().w(px(DOT_COL)).mt(px(DOT_TOP)).child(status_dot((id.clone(), "dot"), s.state).pulse(s.pulse));
@@ -329,27 +391,8 @@ impl RenderOnce for SessionRow {
         }
 
         if self.show_actions {
-            let mut tray = h_flex()
-                .absolute()
-                .right(px(ACTS_RIGHT) - px(acts_slide))
-                .top(px(ACTS_TOP))
-                .gap(px(ACTS_GAP))
-                .p(px(ACTS_PAD))
-                .rounded(px(scale::R_SM))
-                .bg(p.surface_2)
-                .opacity(acts_opacity);
-            for action in RowAction::ALL {
-                let mut b = icon_button((id.clone(), action.name()), action.glyph()).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
-                if let Some(on_action) = self.on_action.clone() {
-                    let key = s.id.clone();
-                    b = b.on_click(move |_, w, cx| on_action(&key, action, w, cx));
-                }
-                tray = tray.child(b);
-            }
-            if !acts_visible && acts_opacity <= 0.001 {
-                tray = tray.invisible();
-            }
-            row = row.child(tray);
+            let actions = self.actions.clone().unwrap_or_else(|| RowAction::ALL.to_vec());
+            row = row.child(action_tray(&id, &s.id, &actions, acts_visible, &self.on_action, window, cx));
         }
 
         if let Some(on_select) = self.on_select.clone() {
@@ -393,12 +436,24 @@ pub struct CompactSessionRow {
     session: SessionSummary,
     selected: bool,
     nested: bool,
+    actions: Vec<RowAction>,
+    editor: Option<AnyElement>,
     on_select: Option<SelectHandler>,
+    on_action: Option<ActionHandler>,
 }
 
 /// A compact row for `session`; children nest beneath with a hairline rail.
 pub fn compact_session_row(id: impl Into<ElementId>, session: SessionSummary) -> CompactSessionRow {
-    CompactSessionRow { id: id.into(), session, selected: false, nested: false, on_select: None }
+    CompactSessionRow {
+        id: id.into(),
+        session,
+        selected: false,
+        nested: false,
+        actions: Vec::new(),
+        editor: None,
+        on_select: None,
+        on_action: None,
+    }
 }
 
 impl CompactSessionRow {
@@ -408,9 +463,35 @@ impl CompactSessionRow {
         self
     }
 
+    /// The hover action tray, off by default on a compact row.
+    ///
+    /// The full row's tray is four fixed affordances; a compact row is used in
+    /// so many groupings that it takes the caller's list or draws nothing.
+    pub fn actions(mut self, actions: Vec<RowAction>) -> Self {
+        self.actions = actions;
+        self
+    }
+
+    /// Replace the name with a field the caller owns: an inline rename.
+    ///
+    /// The same slot pattern the composer uses. The row is stateless, so the
+    /// text, the focus and what Enter and Escape mean all live with whoever
+    /// passed the element in — and a row that is being renamed does not open
+    /// the session when it is clicked.
+    pub fn editor(mut self, editor: impl IntoElement) -> Self {
+        self.editor = Some(editor.into_any_element());
+        self
+    }
+
     /// Row click.
     pub fn on_select(mut self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self {
         self.on_select = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Hover-action click.
+    pub fn on_action(mut self, f: impl Fn(&SharedString, RowAction, &mut Window, &mut App) + 'static) -> Self {
+        self.on_action = Some(std::rc::Rc::new(f));
         self
     }
 }
@@ -425,12 +506,18 @@ impl RenderOnce for CompactSessionRow {
         let bg = tint_fade((id.clone(), "bg"), self.selected || flags.hovered, tint, Tween::FAST, window, cx);
         let text = if self.selected { p.ink } else { p.ink_2 };
 
+        let editing = self.editor.is_some();
+        let acts_visible = flags.hovered && !self.actions.is_empty() && !editing;
         let mut lines = v_flex().flex_1().min_w(px(0.0)).gap(px(ROW_GAP));
+        let title: AnyElement = match self.editor {
+            Some(editor) => div().flex_1().min_w(px(0.0)).child(editor).into_any_element(),
+            None => div().flex_1().min_w(px(0.0)).medium().truncate().child(s.name.clone()).into_any_element(),
+        };
         lines = lines.child(
             h_flex()
                 .w_full()
                 .gap(px(COL_GAP))
-                .child(div().flex_1().min_w(px(0.0)).medium().truncate().child(s.name.clone()))
+                .child(title)
                 .child(div().flex_none().text_role(TextRole::MonoSmall).font_weight(gpui::FontWeight::MEDIUM).text_color(p.ink_3).child(s.elapsed.clone())),
         );
         let mut items = Vec::new();
@@ -474,7 +561,12 @@ impl RenderOnce for CompactSessionRow {
         if self.nested {
             row = row.child(div().absolute().left(px(-1.0)).top(px(SR_RAIL_INSET)).bottom(px(SR_RAIL_INSET)).w(px(1.0)).bg(p.line));
         }
-        if let Some(on_select) = self.on_select.clone() {
+        if !self.actions.is_empty() {
+            row = row.child(action_tray(&id, &s.id, &self.actions, acts_visible, &self.on_action, window, cx));
+        }
+        // A row being renamed is not a row waiting to be opened: a click on the
+        // field it is holding would otherwise close the field it just opened.
+        if let (Some(on_select), false) = (self.on_select.clone(), editing) {
             let key = s.id.clone();
             row = row.on_click(move |_, w, cx| on_select(&key, w, cx));
         }
@@ -484,10 +576,13 @@ impl RenderOnce for CompactSessionRow {
         let mut col = v_flex().w_full().child(row);
         for (i, child) in s.children.into_iter().enumerate() {
             let child_id: ElementId = (id.clone(), SharedString::from(format!("child-{i}"))).into();
-            let mut r = compact_session_row(child_id, child);
+            let mut r = compact_session_row(child_id, child).actions(self.actions.clone());
             r.nested = true;
             if let Some(h) = self.on_select.clone() {
                 r = r.on_select(move |k, w, cx| h(k, w, cx));
+            }
+            if let Some(h) = self.on_action.clone() {
+                r = r.on_action(move |k, a, w, cx| h(k, a, w, cx));
             }
             col = col.child(r);
         }

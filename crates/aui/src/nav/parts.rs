@@ -270,6 +270,7 @@ pub struct SidebarFooter {
     name: SharedString,
     detail: Option<SharedString>,
     plan: Option<(SharedString, bool)>,
+    plan_trailing: Option<AnyElement>,
     meter: Option<(Provider, f32)>,
     trailing: Option<AnyElement>,
     pad_y: f32,
@@ -278,7 +279,7 @@ pub struct SidebarFooter {
 
 /// A footer for `name` with `initial` in the avatar.
 pub fn sidebar_footer(id: impl Into<ElementId>, initial: impl Into<SharedString>, name: impl Into<SharedString>) -> SidebarFooter {
-    SidebarFooter { id: id.into(), initial: initial.into(), name: name.into(), detail: None, plan: None, meter: None, trailing: None, pad_y: 10.0, on_click: None }
+    SidebarFooter { id: id.into(), initial: initial.into(), name: name.into(), detail: None, plan: None, plan_trailing: None, meter: None, trailing: None, pad_y: 10.0, on_click: None }
 }
 
 impl SidebarFooter {
@@ -312,6 +313,17 @@ impl SidebarFooter {
         self
     }
 
+    /// One quiet control at the right of the plan row.
+    ///
+    /// The identity row's width is already spoken for — the name, the account
+    /// and whatever `trailing` holds — so a second control goes on the second
+    /// line, where there is room for it and where it is next to the thing it
+    /// is about.
+    pub fn plan_trailing(mut self, el: impl IntoElement) -> Self {
+        self.plan_trailing = Some(el.into_any_element());
+        self
+    }
+
     /// Replaces the meter + chevron with another element (the assistant's pill).
     pub fn trailing(mut self, el: impl IntoElement) -> Self {
         self.trailing = Some(el.into_any_element());
@@ -335,6 +347,9 @@ impl RenderOnce for SidebarFooter {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
+        let plan = self.plan;
+        let plan_trailing = self.plan_trailing;
+        let pad_y = self.pad_y;
         let mut row = h_flex()
             .id(id.clone())
             .w_full()
@@ -351,7 +366,7 @@ impl RenderOnce for SidebarFooter {
                 // One line for the name; a second for the identity and a third
                 // for the entitlement when the caller gave them. A bare name
                 // keeps the quieter ink it always had.
-                let stacked = self.detail.is_some() || self.plan.is_some();
+                let stacked = self.detail.is_some();
                 let mut stack = v_flex().flex_1().min_w(px(0.0)).child(
                     div()
                         .w_full()
@@ -361,10 +376,6 @@ impl RenderOnce for SidebarFooter {
                 );
                 if let Some(detail) = self.detail {
                     stack = stack.child(div().w_full().truncate().ui(scale::FS_11).text_color(p.ink_4).child(detail));
-                }
-                if let Some((plan, warning)) = self.plan {
-                    let ink = if warning { p.warning } else { p.ink_4 };
-                    stack = stack.child(div().w_full().truncate().ui(scale::FS_11).text_color(ink).child(plan));
                 }
                 stack
             });
@@ -378,6 +389,112 @@ impl RenderOnce for SidebarFooter {
         }
         if let Some(on_click) = self.on_click {
             row = row.on_click(move |e, w, cx| on_click(e, w, cx));
+        }
+        let Some((plan, warning)) = plan else {
+            return row.into_any_element();
+        };
+        // The entitlement gets the footer's whole width, under the identity row
+        // rather than inside its text column: the trailing control takes the
+        // width the identity has to share, and a plan truncated where its
+        // number lives says nothing at all.
+        let ink = if warning { p.warning } else { p.ink_4 };
+        v_flex()
+            .w_full()
+            .flex_none()
+            .border_t_1()
+            .border_color(p.line)
+            .child(row.border_t_0().pb(px(0.0)))
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap(px(FOOTER_GAP))
+                    .px(px(FOOTER_PAD_X))
+                    .pb(px(pad_y))
+                    .child(div().flex_1().min_w(px(0.0)).truncate().ui(scale::FS_11).text_color(ink).child(plan))
+                    .children(plan_trailing.map(|el| div().flex_none().child(el))),
+            )
+            .into_any_element()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The sidebar's search field
+// ---------------------------------------------------------------------------
+
+/// `.sfld{height:28px;padding:0 8px;gap:6px;margin:6px 8px}`, the search box at
+/// the top of a sessions list.
+const SEARCH_H: f32 = 28.0;
+const SEARCH_PAD_X: f32 = 8.0;
+const SEARCH_GAP: f32 = 6.0;
+const SEARCH_MARGIN_X: f32 = 8.0;
+const SEARCH_MARGIN_Y: f32 = 6.0;
+/// The magnifier and the clear glyph.
+const SEARCH_GLYPH: f32 = 12.0;
+
+/// The sidebar's search row: a magnifier, a field the caller owns, and a clear
+/// button that only exists while there is something to clear. Build with
+/// [`sidebar_search`].
+///
+/// The field is a **slot**, the same pattern the composer's editor uses: text,
+/// focus and what Escape means all belong to whoever passed the element in.
+/// The library owns the frame and nothing else.
+#[derive(IntoElement)]
+pub struct SidebarSearch {
+    id: ElementId,
+    field: AnyElement,
+    clearable: bool,
+    on_clear: Option<ClickHandler>,
+}
+
+/// A search row wrapping `field`.
+pub fn sidebar_search(id: impl Into<ElementId>, field: impl IntoElement) -> SidebarSearch {
+    SidebarSearch { id: id.into(), field: field.into_any_element(), clearable: false, on_clear: None }
+}
+
+impl SidebarSearch {
+    /// Whether the clear button is drawn: there is text to clear.
+    pub fn clearable(mut self, clearable: bool) -> Self {
+        self.clearable = clearable;
+        self
+    }
+
+    /// The clear button was pressed.
+    pub fn on_clear(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_clear = Some(Box::new(f));
+        self
+    }
+}
+
+impl RenderOnce for SidebarSearch {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let p = cx.aui().colors;
+        let id = self.id.clone();
+        let mut row = h_flex()
+            .id(id.clone())
+            .w_full()
+            .flex_none()
+            .h(px(SEARCH_H))
+            .items_center()
+            .gap(px(SEARCH_GAP))
+            .px(px(SEARCH_PAD_X))
+            .mx(px(SEARCH_MARGIN_X))
+            .my(px(SEARCH_MARGIN_Y))
+            .rounded(px(scale::R_MD))
+            .border_1()
+            .border_color(p.line)
+            .bg(p.surface_2)
+            .ui(scale::FS_12)
+            .text_color(p.ink_2)
+            .child(div().flex_none().child(icon(IconName::Search).size(px(SEARCH_GLYPH)).color(p.ink_4)))
+            .child(div().flex_1().min_w(px(0.0)).overflow_hidden().child(self.field));
+        if self.clearable {
+            let mut clear =
+                icon_button((id, "clear"), IconName::X).ghost().size(ButtonSize::Xs).icon_size(px(SEARCH_GLYPH));
+            if let Some(on_clear) = self.on_clear {
+                clear = clear.on_click(move |e, w, cx| on_clear(e, w, cx));
+            }
+            row = row.child(div().flex_none().child(clear));
         }
         row
     }

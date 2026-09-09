@@ -16,7 +16,7 @@ use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedS
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::tag;
-use crate::nav::{compact_session_row, group_header, group_row, SessionSummary};
+use crate::nav::{compact_session_row, group_header, group_row, RowAction, SessionSummary};
 
 /// `.pj{gap:8px;height:30px;padding:0 10px;margin:4px 8px 0;font-weight:600;font-size:12.5px}`.
 /// The height is the shared row metric.
@@ -40,6 +40,7 @@ const DG_RULE: f32 = 1.0;
 type SelectHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 type ToggleHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 type PlainHandler = Rc<dyn Fn(&mut Window, &mut App)>;
+type RowActionHandler = Rc<dyn Fn(&SharedString, RowAction, &mut Window, &mut App)>;
 
 /// A status group: `Needs you 1`, `Running 3`, `Done 2`.
 #[derive(Debug, Clone, PartialEq)]
@@ -147,14 +148,28 @@ pub struct SidebarView {
     grouping: Grouping,
     caption: Option<SharedString>,
     selected: Option<SharedString>,
+    actions: Vec<RowAction>,
+    editing: Option<(SharedString, std::cell::RefCell<Option<AnyElement>>)>,
     on_select: Option<SelectHandler>,
     on_toggle: Option<ToggleHandler>,
     on_view_options: Option<PlainHandler>,
+    on_action: Option<RowActionHandler>,
 }
 
 /// The sessions of a sidebar, grouped by `grouping`.
 pub fn sidebar_view(id: impl Into<ElementId>, grouping: Grouping) -> SidebarView {
-    SidebarView { id: id.into(), grouping, caption: None, selected: None, on_select: None, on_toggle: None, on_view_options: None }
+    SidebarView {
+        id: id.into(),
+        grouping,
+        caption: None,
+        selected: None,
+        actions: Vec::new(),
+        editing: None,
+        on_select: None,
+        on_toggle: None,
+        on_view_options: None,
+        on_action: None,
+    }
 }
 
 impl SidebarView {
@@ -189,21 +204,60 @@ impl SidebarView {
         self.on_view_options = Some(Rc::new(f));
         self
     }
+
+    /// The hover actions every row carries; none by default.
+    pub fn row_actions(mut self, actions: Vec<RowAction>) -> Self {
+        self.actions = actions;
+        self
+    }
+
+    /// One row is being renamed: draw `editor` in place of its name.
+    ///
+    /// The element is the caller's, and so is everything about it — the text,
+    /// the focus, and what Enter and Escape mean.
+    pub fn editing(mut self, session_id: impl Into<SharedString>, editor: impl IntoElement) -> Self {
+        self.editing = Some((session_id.into(), std::cell::RefCell::new(Some(editor.into_any_element()))));
+        self
+    }
+
+    /// A row's hover action was clicked.
+    pub fn on_action(mut self, f: impl Fn(&SharedString, RowAction, &mut Window, &mut App) + 'static) -> Self {
+        self.on_action = Some(Rc::new(f));
+        self
+    }
 }
 
 /// The rows of one group, ready to be revealed.
+#[allow(clippy::too_many_arguments)]
 fn rows(
     id: &ElementId,
     sessions: Vec<SessionSummary>,
     selected: &Option<SharedString>,
+    actions: &[RowAction],
+    editing: &Option<(SharedString, std::cell::RefCell<Option<AnyElement>>)>,
     on_select: &Option<SelectHandler>,
+    on_action: &Option<RowActionHandler>,
 ) -> AnyElement {
     let mut col = v_flex().w_full();
     for session in sessions {
         let row_id: ElementId = (id.clone(), session.id.clone()).into();
-        let mut row = compact_session_row(row_id, session.clone()).selected(selected.as_ref() == Some(&session.id));
+        let mut row = compact_session_row(row_id, session.clone())
+            .selected(selected.as_ref() == Some(&session.id))
+            .actions(actions.to_vec());
+        // The editor is one element and elements are not `Clone`, so it goes to
+        // whichever row claims it and the rest see none.
+        if let Some((editing_id, slot)) = editing {
+            if editing_id == &session.id {
+                if let Some(editor) = slot.borrow_mut().take() {
+                    row = row.editor(editor);
+                }
+            }
+        }
         if let Some(h) = on_select.clone() {
             row = row.on_select(move |k, w, cx| h(k, w, cx));
+        }
+        if let Some(h) = on_action.clone() {
+            row = row.on_action(move |k, a, w, cx| h(k, a, w, cx));
         }
         col = col.child(row);
     }
@@ -212,7 +266,7 @@ fn rows(
 
 impl RenderOnce for SidebarView {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let SidebarView { id, grouping, caption, selected, on_select, on_toggle, on_view_options } = self;
+        let SidebarView { id, grouping, caption, selected, actions, editing, on_select, on_toggle, on_view_options, on_action } = self;
         let mut col = v_flex().w_full();
 
         if let Some(caption) = caption {
@@ -232,7 +286,7 @@ impl RenderOnce for SidebarView {
                         let group_id = group.id.clone();
                         header = header.on_toggle(move |_, w, cx| h(&group_id, w, cx));
                     }
-                    let body = rows(&key, group.sessions, &selected, &on_select);
+                    let body = rows(&key, group.sessions, &selected, &actions, &editing, &on_select, &on_action);
                     let (reveal, _) = collapse((key, "body"), group.open, body, window, cx);
                     col = col.child(header).child(reveal);
                 }
@@ -248,7 +302,7 @@ impl RenderOnce for SidebarView {
                         let group_id = group.id.clone();
                         row = row.on_toggle(move |_, w, cx| h(&group_id, w, cx));
                     }
-                    let body = rows(&key, group.sessions, &selected, &on_select);
+                    let body = rows(&key, group.sessions, &selected, &actions, &editing, &on_select, &on_action);
                     let (reveal, _) = collapse((key, "body"), group.open, body, window, cx);
                     col = col.child(row).child(reveal);
                 }
@@ -258,7 +312,7 @@ impl RenderOnce for SidebarView {
                     let key: ElementId = (id.clone(), SharedString::from(format!("date-{i}"))).into();
                     col = col
                         .child(date_group_header(group.label.clone()))
-                        .child(rows(&key, group.sessions, &selected, &on_select));
+                        .child(rows(&key, group.sessions, &selected, &actions, &editing, &on_select, &on_action));
                 }
             }
         }
