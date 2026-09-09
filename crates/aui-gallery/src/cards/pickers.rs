@@ -59,6 +59,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         PickerRow::new("none", "None", "No reasoning at all."),
         PickerRow::new("low", "Low", "A short budget."),
         PickerRow::new("medium", "Medium", "The middle budget, and the usual default."),
+        PickerRow::new("max", "Max", "Longer than extra high, below ultra."),
         PickerRow::new("ultra", "Ultra", "The largest budget MSP accepts."),
     ];
     let modes = vec![

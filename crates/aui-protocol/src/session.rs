@@ -151,10 +151,10 @@ impl PermissionMode {
 /// How much reasoning the provider should spend on a turn.
 ///
 /// Exactly the MSP `ReasoningEffort` enum (`msp.d.ts:812`), which is **closed**.
-/// The Muse CLI and the on-disk model catalog also advertise a `max` tier, but
-/// MSP rejects it (`unknown variant `max``, verified live — see
-/// `docs/10-muse-research.md` §1.5), so `max` is deliberately absent here and a
-/// client must drive its effort picker from this enum, never from the catalog.
+/// Muse 1.1.1 added a `max` tier between `xhigh` and `ultra` (under 1.0.3 the
+/// CLI and the on-disk catalog advertised `max` while MSP rejected it with
+/// `unknown variant `max`` — see `docs/10-muse-research.md` §1.5), so a client
+/// must drive its effort picker from this enum, never from the catalog.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ReasoningEffort {
@@ -171,6 +171,8 @@ pub enum ReasoningEffort {
     High,
     /// Longer than [`ReasoningEffort::High`].
     Xhigh,
+    /// Longer than extra high, below ultra (muse 1.1.1).
+    Max,
     /// The largest budget MSP accepts.
     Ultra,
 }
@@ -185,6 +187,7 @@ impl ReasoningEffort {
             ReasoningEffort::Medium => "Medium",
             ReasoningEffort::High => "High",
             ReasoningEffort::Xhigh => "Extra high",
+            ReasoningEffort::Max => "Max",
             ReasoningEffort::Ultra => "Ultra",
         }
     }

@@ -1817,7 +1817,7 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
 - **enum** `Provider` — The agent CLIs the harness can drive.
   - variants: `Claude`, `Codex`, `Grok`, `Gemini`, `Pi`, `Cursor`, `Muse`
 - **enum** `ReasoningEffort` — How much reasoning the provider should spend on a turn.
-  - variants: `None`, `Minimal`, `Low`, `Medium`, `High`, `Xhigh`, `Ultra`
+  - variants: `None`, `Minimal`, `Low`, `Medium`, `High`, `Xhigh`, `Max`, `Ultra`
   - `pub fn label(&self) -> &'static str` — The picker label for this tier.
 - **enum** `ResolvedBy` — Who settled an approval request (MSP `ApprovalResolved.resolvedBy`).
   - variants: `User`, `Policy`, `LlmJudge`

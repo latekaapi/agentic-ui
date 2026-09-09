@@ -373,6 +373,7 @@ fn reasoning_effort_uses_the_msp_wire_strings() {
         (E::Medium, "medium"),
         (E::High, "high"),
         (E::Xhigh, "xhigh"),
+        (E::Max, "max"),
         (E::Ultra, "ultra"),
     ];
     for (effort, wire) in pairs {
@@ -380,8 +381,7 @@ fn reasoning_effort_uses_the_msp_wire_strings() {
         assert_eq!(serde_json::from_str::<E>(&format!("\"{wire}\"")).unwrap(), effort);
         assert!(!effort.label().is_empty());
     }
-    // The CLI's `max` tier is not an MSP value and must not deserialize.
-    assert!(serde_json::from_str::<E>("\"max\"").is_err());
+    // `max` joined the closed MSP vocabulary in muse 1.1.1, between `xhigh` and `ultra`.
 }
 
 #[test]
