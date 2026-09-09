@@ -1,12 +1,30 @@
 //! Card 35 · Approval card: the pending request, then the four resolved
 //! states in a two-column grid. Reproduces
 //! `design/src/cards/transcript/35-approval.html` at 760×640.
+//!
+//! Below the design grid, the shapes a provider-minted request adds: the
+//! server's own choices on a staged shell subject (stage 1 of 2, then stage 2
+//! with the first resolved), the feedback field a choice opens, the header
+//! badges, and the three resolutions nobody was asked for.
 
 use aui::protocol::{sample, Block};
 use aui::transcript::{approval_card, ApprovalCard};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::*;
+use gpui_kit::base::input::TextareaState;
 use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::component::input::Textarea;
+
+/// The caps rule that separates the design grid from the provider shapes.
+fn section(label: &'static str, p: &Palette) -> impl IntoElement {
+    div()
+        .w_full()
+        .mt(px(scale::SP_3))
+        .text_role(aui_tokens::TextRole::Caps)
+        .line_height(relative(scale::LH_UI))
+        .text_color(p.ink_3)
+        .child(label)
+}
 
 /// `.ap{margin-bottom:14px}` between the pending card and the grid.
 const BLOCK_GAP: f32 = 14.0;
@@ -32,10 +50,40 @@ fn card(id: &'static str, block: &Block) -> ApprovalCard {
     el
 }
 
+/// Turns one sample [`Block::Approval`] from [`sample::muse_approvals`] into a
+/// card, choices, stages, badges and resolution included.
+fn muse_card(id: &'static str, block: &Block) -> ApprovalCard {
+    let Block::Approval { tool, command, reason, cwd, capabilities, scope, state, choices, stages, current_stage, badges, feedback, resolved_by, .. } = block
+    else {
+        unreachable!("sample::muse_approvals yields approval blocks only")
+    };
+    let mut el = approval_card(id, tool.clone(), command.clone(), state.clone())
+        .title("Allow Muse to run this command?")
+        .reason(reason.clone())
+        .cwd(cwd.clone())
+        .capabilities(capabilities.clone())
+        .scope(*scope)
+        .choices(choices.clone())
+        .stages(stages.clone(), *current_stage)
+        .badges(*badges)
+        .resolved_by(*resolved_by)
+        .at_rest();
+    if let Some(feedback) = feedback {
+        el = el.feedback(feedback.clone());
+    }
+    el
+}
+
 /// Builds the card content.
-pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
+pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
     let blocks = sample::approvals();
+    let muse = sample::muse_approvals();
+    // The feedback field is the host's, as it is in the harness: the card is
+    // handed an element and never a character of text.
+    let feedback = window.use_keyed_state("card35-feedback-input", cx, |window, cx| {
+        TextareaState::new(window, cx).placeholder("Why not? The agent will read this.").auto_grow(2, 4)
+    });
     // The denied sample runs `rm -rf node_modules`; the auto-allowed one
     // carries its own remembered rule.
     let quiet = |i: usize, id: &'static str| card(id, &blocks[i]).into_any_element();
@@ -59,6 +107,25 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                 .gap(px(GRID_GAP))
                 .child(row(quiet(1, "card35-approving"), quiet(2, "card35-allowed")))
                 .child(row(quiet(3, "card35-denied"), card("card35-rule", &blocks[4]).on_manage_rules(|_, _| {}).into_any_element())),
+        )
+        .child(
+            v_flex()
+                .w_full()
+                .gap(px(GRID_GAP))
+                .child(section("Server-minted choices", &p))
+                .child(muse_card("card35-stage-1", &muse[0]).on_choose(|_, _, _, _| {}).on_feedback_toggle(|_, _, _| {}))
+                .child(muse_card("card35-stage-2", &muse[1]).on_choose(|_, _, _, _| {}).on_feedback_toggle(|_, _, _| {}))
+                .child(
+                    muse_card("card35-feedback", &muse[0])
+                        .feedback_open(Some("deny".into()))
+                        .feedback_slot(Textarea::new(&feedback).text_size(aui_tokens::scaled(scale::FS_12)))
+                        .on_choose(|_, _, _, _| {})
+                        .on_feedback_toggle(|_, _, _| {}),
+                )
+                .child(muse_card("card35-badges", &muse[2]).on_choose(|_, _, _, _| {}).on_feedback_toggle(|_, _, _| {}))
+                .child(section("Resolved without asking", &p))
+                .child(row(muse_card("card35-policy-allowed", &muse[3]).into_any_element(), muse_card("card35-policy-denied", &muse[4]).into_any_element()))
+                .child(row(muse_card("card35-judge-denied", &muse[5]).into_any_element(), muse_card("card35-user-denied", &muse[6]).into_any_element())),
         )
         .child(
             div()

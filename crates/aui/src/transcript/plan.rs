@@ -1,7 +1,7 @@
 //! Card 36: the plan card — a proposed, numbered plan with a "Plan mode"
 //! pill and an action row that rejects, edits or accepts it.
 
-use aui_protocol::PlanState;
+use aui_protocol::{PlanSection, PlanState};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -28,6 +28,11 @@ const ITEM_TEXT: f32 = 12.5;
 const ITEM_LH: f32 = 1.6;
 /// `.plan ol li::marker{font-family:var(--font-mono);font-size:11px}`.
 const MARKER_TEXT: f32 = 11.0;
+/// A section label is a caps row that owns the whole list width, with a little
+/// air above it — and none above the first, which the header already gives.
+const SECTION_TEXT: f32 = 11.0;
+const SECTION_GAP_TOP: f32 = 10.0;
+const SECTION_GAP_BOTTOM: f32 = 2.0;
 /// `.actions{gap:8px;padding:10px 12px}` and `.actions .hint{gap:5px;font-size:11px}`.
 const ACTIONS_PAD_Y: f32 = 10.0;
 const ACTIONS_PAD_X: f32 = 12.0;
@@ -40,6 +45,7 @@ const HINT_TEXT: f32 = 11.0;
 pub struct PlanCard {
     id: ElementId,
     items: Vec<SharedString>,
+    sections: Vec<PlanSection>,
     state: PlanState,
     on_accept: Option<ClickHandler>,
     on_edit: Option<ClickHandler>,
@@ -52,6 +58,7 @@ pub fn plan_card(id: impl Into<ElementId>, items: Vec<String>) -> PlanCard {
     PlanCard {
         id: id.into(),
         items: items.into_iter().map(SharedString::from).collect(),
+        sections: Vec::new(),
         state: PlanState::Proposed,
         on_accept: None,
         on_edit: None,
@@ -60,6 +67,17 @@ pub fn plan_card(id: impl Into<ElementId>, items: Vec<String>) -> PlanCard {
 }
 
 impl PlanCard {
+    /// The unnumbered labels that group the steps.
+    ///
+    /// A plan written as markdown has headings over lists, and the two levels
+    /// do not share a numbering: the label is drawn before its
+    /// [`PlanSection::first_item`] and the numbers keep counting steps only, so
+    /// "3." is still the third thing to do however many headings precede it.
+    pub fn sections(mut self, sections: Vec<PlanSection>) -> Self {
+        self.sections = sections;
+        self
+    }
+
     /// Where the plan is in its lifecycle; the action row is only drawn while
     /// the plan is [`PlanState::Proposed`].
     pub fn state(mut self, state: PlanState) -> Self {
@@ -101,6 +119,21 @@ impl RenderOnce for PlanCard {
 
         let mut list = v_flex().w_full().pl(px(LIST_PAD_X)).pr(px(LIST_PAD_X)).pb(px(LIST_PAD_BOTTOM));
         for (index, item) in self.items.iter().enumerate() {
+            // Every label that starts here, in the order it was given: two
+            // headings in a row with nothing between them both belong above
+            // this step.
+            for section in self.sections.iter().filter(|s| s.first_item == index) {
+                list = list.child(
+                    div()
+                        .w_full()
+                        .when(index > 0, |d| d.mt(px(SECTION_GAP_TOP)))
+                        .mb(px(SECTION_GAP_BOTTOM))
+                        .text_role(aui_tokens::TextRole::Caps)
+                        .line_height(aui_tokens::scaled(SECTION_TEXT * scale::LH_UI))
+                        .text_color(p.ink_3)
+                        .child(SharedString::from(section.label.clone())),
+                );
+            }
             list = list.child(
                 h_flex().w_full().items_start().child(
                     div()

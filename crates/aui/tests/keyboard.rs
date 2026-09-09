@@ -13,9 +13,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use aui::composer::{command_menu, CommandItem, CommandSection};
-use aui::keys::{ApproveAlways, ApproveOnce, Cancel, Confirm, Deny, SelectNext, SelectPrev, APPROVAL_CONTEXT, MENU_CONTEXT};
+use aui::keys::{ApproveAlways, ApproveOnce, Cancel, ChooseNth, Confirm, Deny, SelectNext, SelectPrev, APPROVAL_CONTEXT, MENU_CONTEXT};
 use aui::overlay::{command_palette, PaletteIcon, PaletteItem, PaletteSection};
-use aui::protocol::{ApprovalDecision, ApprovalState};
+use aui::protocol::{ApprovalChoice, ApprovalDecision, ApprovalState};
 use aui::transcript::approval_card;
 use gpui::{div, point, prelude::*, px, App, Context, FocusHandle, IntoElement, Modifiers, MouseButton, SharedString, TestAppContext, Window};
 
@@ -203,6 +203,94 @@ fn approval_a_allows_always(cx: &mut TestAppContext) {
 #[gpui::test]
 fn approval_n_denies(cx: &mut TestAppContext) {
     assert_eq!(approval_keys(cx, "n"), vec!["Deny".to_string()]);
+}
+
+// ------------------------------------------- the approval's server choices
+
+/// The same card, but with the server's own choice list. There is no fixed
+/// `y`/`a`/`n` to bind against a list the provider mints at request time, so
+/// the digits carry a zero-based index and the host looks the choice up.
+struct ChoicesHost {
+    focus: FocusHandle,
+    choices: Vec<ApprovalChoice>,
+    log: Log,
+}
+
+impl ChoicesHost {
+    fn choose(&self, index: usize) {
+        match self.choices.get(index) {
+            Some(choice) => self.log.borrow_mut().push(format!("choose:{}", choice.id)),
+            // A digit with no choice behind it is not an error: the person
+            // pressed 4 on a three-choice card.
+            None => self.log.borrow_mut().push(format!("none:{index}")),
+        }
+    }
+}
+
+impl Render for ChoicesHost {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let log = self.log.clone();
+        div()
+            .key_context(APPROVAL_CONTEXT)
+            .track_focus(&self.focus)
+            .on_action(cx.listener(|this, nth: &ChooseNth, _, _| this.choose(nth.index)))
+            .child(
+                approval_card("test-choices", "Shell", "echo hi && ls", ApprovalState::Pending)
+                    .choices(self.choices.clone())
+                    .at_rest()
+                    .on_choose(move |id, feedback, _, _| log.borrow_mut().push(format!("click:{id}:{feedback:?}"))),
+            )
+    }
+}
+
+fn choice(id: &str, decision: ApprovalDecision) -> ApprovalChoice {
+    ApprovalChoice {
+        id: id.into(),
+        label: id.into(),
+        decision,
+        scope: aui::protocol::ApprovalScope::ThisWorktree,
+        rule_preview: None,
+        accepts_feedback: false,
+    }
+}
+
+fn choice_keys(cx: &mut TestAppContext, keys: &str) -> Vec<String> {
+    init(cx);
+    let log = log();
+    let (_host, cx) = cx.add_window_view({
+        let log = log.clone();
+        |window, cx: &mut Context<ChoicesHost>| {
+            let focus = cx.focus_handle();
+            window.focus(&focus, cx);
+            ChoicesHost {
+                focus,
+                choices: vec![
+                    choice("allow_once", ApprovalDecision::Once),
+                    choice("allow_local_prefix", ApprovalDecision::PolicyAmendment),
+                    choice("deny", ApprovalDecision::Deny),
+                ],
+                log,
+            }
+        }
+    });
+    cx.simulate_keystrokes(keys);
+    let out = log.borrow().clone();
+    out
+}
+
+#[gpui::test]
+fn digit_one_picks_the_first_server_choice(cx: &mut TestAppContext) {
+    assert_eq!(choice_keys(cx, "1"), vec!["choose:allow_once".to_string()]);
+}
+
+#[gpui::test]
+fn digit_three_picks_the_third_server_choice(cx: &mut TestAppContext) {
+    assert_eq!(choice_keys(cx, "3"), vec!["choose:deny".to_string()]);
+}
+
+#[gpui::test]
+fn a_digit_past_the_last_choice_chooses_nothing(cx: &mut TestAppContext) {
+    assert_eq!(choice_keys(cx, "9"), vec!["none:8".to_string()]);
 }
 
 // ------------------------------------------------------------- the `/` menu

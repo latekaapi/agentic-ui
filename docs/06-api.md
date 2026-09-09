@@ -325,6 +325,8 @@ The library’s keyboard actions and their default bindings.
 - **struct** `ApproveAlways` — Allow it and remember the rule.
 - **struct** `ApproveOnce` — Allow the pending request once.
 - **struct** `Cancel` — Close the overlay that has the keyboard.
+- **struct** `ChooseNth` — Pick the n-th choice of a card that carries a server-minted choice list.
+  - fields: `index`
 - **struct** `Confirm` — Run the highlighted row of a menu or the palette.
 - **struct** `Deny` — Refuse the pending request.
 - **struct** `FocusNext` — Move the keyboard to the next tab stop.
@@ -764,6 +766,10 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn error_card(id: impl Into<ElementId>, title: impl Into<SharedString>, detail: impl Into<SharedString>) -> ErrorCard`
 - **fn** `format_duration` — `12.4 s`, `1 m 12 s`, `0.3 s`.
   - `pub fn format_duration(ms: u64) -> String`
+- **fn** `generic_item_card` — The kind name, the item’s status and the server’s `fallbackText`.
+  - `pub fn generic_item_card(id: impl Into<ElementId>, kind: impl Into<SharedString>, status: impl Into<SharedString>, text: impl Into<SharedString>) -> GenericItemCard`
+- **fn** `goal_card` — The objective and the provider’s own status string.
+  - `pub fn goal_card(id: impl Into<ElementId>, objective: impl Into<SharedString>, status: impl Into<SharedString>) -> GoalCard`
 - **fn** `jump_pill` — A jump pill with `label` (`Jump to latest`); `JumpPill::count` adds the new-turn badge.
   - `pub fn jump_pill(id: impl Into<ElementId>, label: impl Into<SharedString>) -> JumpPill`
 - **fn** `last_paragraph_runs` — The text and text runs of the paragraph that closes `markdown`, built exactly as `prose` builds them, so a caller that has to measure where the prose ends (the streaming caret) shapes the same glyphs that are painted. [...]
@@ -780,6 +786,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn prose(id: impl Into<ElementId>, markdown: &str, style: ProseStyle) -> impl IntoElement`
 - **fn** `question_card` — A question with `prompt` and `options`, drawn as radios; call `QuestionCard::multi` for checkboxes.
   - `pub fn question_card(id: impl Into<ElementId>, prompt: impl Into<SharedString>, options: Vec<QuestionOption>) -> QuestionCard`
+- **fn** `retry_row` — The live row a scheduled retry draws while the provider waits out its backoff: `Attempt 2/5 · retrying in 4 s · rate limited`.
+  - `pub fn retry_row(id: impl Into<ElementId>, attempt: u32, max: u32, remaining_ms: u64, reason: impl Into<SharedString>) -> StatusRow`
 - **fn** `status_row` — A status row: `Working… · 12 s · esc to interrupt`.
   - `pub fn status_row(id: impl Into<ElementId>, label: impl Into<SharedString>) -> StatusRow`
 - **fn** `summary_card` — A summary headed by `title` (`Done · address validation tightened`) with `meta` on the right (`4 m 12 s · $0.31`).
@@ -815,16 +823,28 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - fields: `text`, `color`, `bold`, `dim`
 - **struct** `AnsweredRow` — The answered state of a question. Build with `answered_row`.
   - `pub fn on_change(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — “Change”: the person wants to answer again.
+  - `pub fn outcome(self, outcome: QuestionOutcome) -> Self` — How the question settled; the default is `QuestionOutcome::Answered`.
 - **struct** `ApprovalCard` — The approval card. Build with `approval_card`.
   - `pub fn at_rest(self) -> Self` — Skips the enter: the card and its buttons are drawn at rest on the first frame (parity captures, restored transcripts).
+  - `pub fn badges(self, badges: ApprovalBadges) -> Self` — The header badges: a protected write, an escalation from the judge.
   - `pub fn capabilities(self, capabilities: impl IntoIterator<Item = impl Into<SharedString>>) -> Self` — The capabilities being granted, e.g. `["modify files", "network"]`.
+  - `pub fn choices(self, choices: Vec<ApprovalChoice>) -> Self` — The server’s own choice list, in the server’s order.
   - `pub fn cwd(self, cwd: impl Into<SharedString>) -> Self` — The directory the command would run in.
+  - `pub fn feedback(self, feedback: impl Into<SharedString>) -> Self` — The feedback that went out with a refusal, quoted on the resolved card.
+  - `pub fn feedback_open(self, choice_id: Option<String>) -> Self` — Which choice’s feedback field is open, by `ApprovalChoice::id`.
+  - `pub fn feedback_slot(self, slot: impl IntoElement) -> Self` — The feedback field itself — the host’s element, because the card never owns text. The same division as the composer’s editor.
+  - `pub fn feedback_text(self, text: impl Into<String>) -> Self` — What the open field currently holds. Data in, so that “Send” can hand it straight back through `ApprovalCard::on_choose` without the card ever keeping a character of it.
+  - `pub fn on_choose(self, f: impl Fn(String, Option<String>, &mut Window, &mut App) + 'static) -> Self` — A server-minted choice was pressed: its id, and the feedback typed for it when the open field was confirmed.
   - `pub fn on_decide(self, f: impl Fn(ApprovalDecision, &mut Window, &mut App) + 'static) -> Self` — The person pressed `Deny`, `Always allow` or `Allow once`.
+  - `pub fn on_feedback_toggle(self, f: impl Fn(Option<String>, &mut Window, &mut App) + 'static) -> Self` — Open the feedback field for a choice (`Some(id)`) or close it (`None`).
   - `pub fn on_manage_rules(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The “manage rules” link on an auto-allowed card was clicked.
   - `pub fn present(self, present: bool) -> Self` — Whether the card is on screen; `false` plays the exit.
   - `pub fn reason(self, reason: impl Into<SharedString>) -> Self` — Why the agent wants it, in its own words.
+  - `pub fn resolved_by(self, resolved_by: Option<ResolvedBy>) -> Self` — Who settled the request, which is what makes a policy or judge resolution read as one and never actionable.
   - `pub fn rule(self, rule: impl Into<SharedString>) -> Self` — The rule an “always allow” would remember, spelled out on the button.
   - `pub fn scope(self, scope: ApprovalScope) -> Self` — How far an “always allow” would reach.
+  - `pub fn stages(self, stages: Vec<ApprovalStage>, current: Option<usize>) -> Self` — The subject’s stages and which one is awaiting a decision.
+  - `pub fn title(self, title: impl Into<SharedString>) -> Self` — The pending question, e.g. `"Allow Muse to run this command?"`.
 - **struct** `AssistantTurn` — The assistant’s turn. Build with `assistant_turn`.
   - `pub fn meta(self, meta: TurnMeta) -> Self` — The footer: model · duration · tokens · cost.
   - `pub fn on_action(self, f: impl Fn(AssistantTurnAction, &mut Window, &mut App) + 'static) -> Self` — Toolbar handler.
@@ -843,6 +863,11 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn link(self, label: impl Into<SharedString>, on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — A danger-coloured link at the end of the detail line (`details`).
   - `pub fn on_retry(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Shows the retry button and reports its press.
   - `pub fn retry_label(self, label: impl Into<SharedString>) -> Self` — Overrides the retry button’s label.
+- **struct** `GenericItemCard` — The fallback card for an unknown item kind. Build with `generic_item_card`.
+- **struct** `GoalCard` — The session goal. Build with `goal_card`.
+  - `pub fn current_work(self, work: impl Into<SharedString>) -> Self` — What the agent says it is doing now.
+  - `pub fn next_work(self, work: impl Into<SharedString>) -> Self` — What it says it will do next.
+  - `pub fn percent(self, percent: Option<f32>) -> Self` — How far along the provider says it is, verbatim.
 - **struct** `HandOff` — A hand-off between two agents, shown as a pill with both marks.
   - fields: `from`, `to`
 - **struct** `JumpPill` — The floating jump-to-latest pill. Build with `jump_pill`.
@@ -864,19 +889,28 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn on_accept(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — “Accept and run”.
   - `pub fn on_edit(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — “Edit”: the person wants to change the plan text first.
   - `pub fn on_reject(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — “Reject”: the agent should propose something else.
+  - `pub fn sections(self, sections: Vec<PlanSection>) -> Self` — The unnumbered labels that group the steps.
   - `pub fn state(self, state: PlanState) -> Self` — Where the plan is in its lifecycle; the action row is only drawn while the plan is `PlanState::Proposed`.
 - **struct** `ProseStyle` — Colours and sizes for a prose block.
   - fields: `ink`, `code_ink`, `code_bg`, `size`, `line_height`, `paragraph_gap`
 - **struct** `QuestionCard` — The pending question card. Build with `question_card`.
   - `pub fn allow_other(self, allow: bool) -> Self` — Whether the dashed “Other, type your own…” row is offered.
+  - `pub fn clarify_open(self, open: bool) -> Self` — Whether the “Explain instead” field is open.
+  - `pub fn clarify_slot(self, slot: impl IntoElement) -> Self` — The clarification field itself — the host’s element, as the approval card’s feedback field is.
+  - `pub fn header(self, header: impl Into<SharedString>) -> Self` — The short label above the prompt (MSP `UserInputQuestion.header`).
   - `pub fn hint(self, hint: impl Into<SharedString>) -> Self` — Overrides the action-row hint (the default counts the selection).
+  - `pub fn limits(self, min: Option<usize>, max: Option<usize>) -> Self` — How many options a multi-select must gather: `(min, max)`.
   - `pub fn multi(self, multi: bool) -> Self` — Checkboxes instead of radios (`Block::Question::multi`).
   - `pub fn on_answer(self, f: impl Fn(Answer, &mut Window, &mut App) + 'static) -> Self` — “Continue”: the current selection, as an `Answer`.
+  - `pub fn on_clarify(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — “Explain instead”: the person would rather write than pick (MSP `userInput/clarify`).
   - `pub fn on_other(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — The “Other” row was clicked; the host opens a free-text field.
   - `pub fn on_select(self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self` — An option row was clicked; the host toggles or replaces the selection.
   - `pub fn on_skip(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — “Skip”: the person declined to answer.
+  - `pub fn on_toggle_preview(self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self` — An option’s “Preview” chevron was clicked.
+  - `pub fn previews_open(self, open: Vec<usize>) -> Self` — Which options have their preview expanded, as indices into `options`.
   - `pub fn selected(self, selected: Vec<usize>) -> Self` — Which options are currently selected, as indices into `options`.
   - `pub fn subtitle(self, subtitle: impl Into<SharedString>) -> Self` — The supporting line under the prompt.
+  - `pub fn timeout(self, remaining_ms: u64, total_ms: u64) -> Self` — The auto-resolution countdown: how long is left, out of how long there was. The host ticks the clock; the card only draws the pill.
 - **struct** `StatusRow` — One live status line under the transcript. Build with `status_row`.
   - `pub fn elapsed(self, elapsed: impl Into<SharedString>) -> Self` — The mono elapsed time after the label.
   - `pub fn key_hint(self, key: impl Into<SharedString>, text: impl Into<SharedString>) -> Self` — A keycap and its trailing text after the separator (`esc to interrupt`).
@@ -917,6 +951,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - variants: `Wrap`, `Open`, `Copy`, `Unfold`
 - **enum** `DiffBlockAction` — Actions on a diff block.
   - variants: `Unified`, `Split`, `OpenInDiff`, `AddNote`, `SaveNote`, `CancelNote`
+- **enum** `QuestionOutcome` — How a question settled, which is what the collapsed row says it did.
+  - variants: `Answered`, `Skipped`, `Clarified`, `TimedOut`, `Interrupted`
 - **enum** `StatusLead` — The glyph that leads a `StatusRow`.
   - variants: `None`, `Spinner`, `Braille`
 - **enum** `SummaryAction` — What the summary card’s action row asks for.
@@ -1695,6 +1731,8 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
   - fields: `kind`, `label`
 - **struct** `Note` — One review note anchored to a file and line.
   - fields: `path`, `line`, `text`
+- **struct** `PlanSection` — One unnumbered section label inside a `Block::Plan`.
+  - fields: `label`, `first_item`
 - **struct** `QuestionOption` — One choice in a `Block::Question`.
   - fields: `label`, `description`, `key`, `preview`
 - **struct** `QuestionPreview` — A rendered preview attached to a `QuestionOption` (MSP `UserInputOption.preview`).
@@ -1798,6 +1836,16 @@ A realistic sample session, used by `aui-gallery` and the parity screenshots.
 
 - **fn** `approvals` — The five approval states from card 35, for the gallery’s state matrix.
   - `pub fn approvals() -> Vec<Block>`
+- **fn** `muse_approvals` — The approval shapes a provider-minted request adds to card 35: server choices, a staged subject, badges, and the resolutions nobody was asked for.
+  - `pub fn muse_approvals() -> Vec<Block>`
+- **fn** `muse_generic_item` — An item kind this build does not model, drawn the way MSP mandates.
+  - `pub fn muse_generic_item() -> Block`
+- **fn** `muse_goals` — The session goal, twice: an honest 40 % and a provider that reports 120 %.
+  - `pub fn muse_goals() -> Vec<Block>`
+- **fn** `muse_plan` — A plan with markdown headings over its steps, for the sections row.
+  - `pub fn muse_plan() -> Block`
+- **fn** `muse_question` — A question with everything MSP’s `userInput/request` can attach: a header, per-option previews in two formats, and an auto-resolution deadline.
+  - `pub fn muse_question() -> Block`
 - **fn** `session` — The full sample session: the checkout-flow-v2 worktree from the harness reference screen, with one block of every kind in the order the design cards present them.
   - `pub fn session() -> Session`
 - **fn** `tool_calls` — Every tool-call body from card 34, for the gallery’s tool-card entry.

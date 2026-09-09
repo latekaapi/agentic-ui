@@ -63,8 +63,9 @@ pub mod sample;
 
 pub use block::{
     ActivityState, Answer, ApprovalBadges, ApprovalChoice, ApprovalScope, ApprovalStage,
-    ApprovalState, Block, Check, ChangeKind, FileChange, MarkerKind, PlanState, QuestionOption,
-    QuestionPreview, ResolvedBy, Step, StepState, ThinkingState, TodoItem, TodoState,
+    ApprovalState, Block, Check, ChangeKind, FileChange, MarkerKind, PlanSection, PlanState,
+    QuestionOption, QuestionPreview, ResolvedBy, Step, StepState, ThinkingState, TodoItem,
+    TodoState,
 };
 pub use delta::Delta;
 pub use intent::{ApprovalDecision, Intent, Note, WorkbenchView};

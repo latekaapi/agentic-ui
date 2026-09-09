@@ -4,19 +4,36 @@
 //! colour at 70 % alpha, no halo (`docs/04-design-rules.md`). The card carries
 //! the command on a terminal ground, the agent's reason, a two-column
 //! definition list and the one action-row pattern: key hints on the left, a
-//! spacer, `Deny`, `Always allow <rule>`, and the primary `Allow once` on the
-//! right. Once resolved the card goes quiet and single-line.
+//! spacer, the secondary choices, and the primary one on the right. Once
+//! resolved the card goes quiet and single-line.
+//!
+//! # Server-minted choices, stages and feedback
+//!
+//! A provider may mint its own choice list rather than the built-in
+//! allow/always/deny triad, may stage one subject (a shell pipeline is decided
+//! one stage at a time), and may offer a choice that takes free-text feedback
+//! with the decision. All three are optional data in:
+//!
+//! * [`ApprovalCard::choices`] replaces the triad with the server's buttons, in
+//!   the server's order, and reports the chosen [`aui_protocol::ApprovalChoice::id`]
+//!   through [`ApprovalCard::on_choose`]. Digits 1–9 pick the n-th.
+//! * [`ApprovalCard::stages`] draws the stage strip under the command.
+//! * [`ApprovalCard::feedback_open`] plus [`ApprovalCard::feedback_slot`] reveal
+//!   a field the **host** owns — the card never holds text, exactly as the
+//!   composer's editor is the host's.
+//! * [`ApprovalCard::resolved_by`] draws the quiet, never-actionable line a
+//!   policy or judge resolution collapses to.
 
 use std::rc::Rc;
 use std::time::Duration;
 
 use aui_motion::{presence, stagger_delay, EnterExit, PresenceStyle};
-use aui_protocol::{ApprovalDecision, ApprovalScope, ApprovalState};
+use aui_protocol::{ApprovalBadges, ApprovalChoice, ApprovalDecision, ApprovalScope, ApprovalStage, ApprovalState, ResolvedBy};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
-use gpui::{div, font, prelude::*, px, relative, App, ElementId, Font, Hsla, InteractiveText, IntoElement, SharedString, StyledText, TextRun, Window};
+use gpui::{div, font, prelude::*, px, relative, AnyElement, App, ElementId, Font, Hsla, InteractiveText, IntoElement, SharedString, StyledText, TextRun, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{button, kbd, pill, spinner, PillVariant};
+use crate::data::{button, kbd, pill, spinner, Button, PillVariant};
 use crate::icons::{icon, IconName};
 
 /// `.ap .hd{padding:10px 12px;gap:10px}`.
@@ -49,6 +66,17 @@ const KEYS_GAP: f32 = 8.0;
 const KEY_GAP: f32 = 4.0;
 /// The mono rule on the `Always allow` button: `style="opacity:.7"`.
 const RULE_OPACITY: f32 = 0.7;
+/// The stage strip: the same inset as the command, its own row rhythm.
+const STAGE_GAP: f32 = 6.0;
+const STAGE_ROW_GAP: f32 = 8.0;
+const STAGE_TEXT: f32 = 12.0;
+const STAGE_GLYPH: f32 = 12.0;
+/// The badge pills in the header sit on the title's own line.
+const BADGE_GAP: f32 = 6.0;
+/// The host's feedback field, inset like the command block, with its own row.
+const FEEDBACK_GAP: f32 = 8.0;
+/// The quoted feedback line on a denied card.
+const QUOTE_TEXT: f32 = 12.0;
 /// `@keyframes in{from{transform:translateY(6px)}}` — the card enter.
 const CARD_RISE: f32 = 6.0;
 /// `@keyframes bin{from{transform:translateY(4px)}}` — the button enter.
@@ -58,11 +86,16 @@ const BUTTON_STAGGER: Duration = Duration::from_millis(40);
 /// The three footer buttons.
 const BUTTON_COUNT: usize = 3;
 
-/// The pending question, which is the same for every command.
-const PENDING_TITLE: &str = "Allow Claude Code to run this command?";
+/// The pending question when the host names none. Deliberately provider-free:
+/// the host says whose command it is.
+const PENDING_TITLE: &str = "Allow this command?";
 
 /// What the person chose, handed back to the caller.
 type DecideHandler = Rc<dyn Fn(ApprovalDecision, &mut Window, &mut App)>;
+/// A server-minted choice was picked: its id and any feedback typed for it.
+type ChooseHandler = Rc<dyn Fn(String, Option<String>, &mut Window, &mut App)>;
+/// Open the feedback field for a choice, or close it.
+type FeedbackToggleHandler = Rc<dyn Fn(Option<String>, &mut Window, &mut App)>;
 /// The "manage rules" link on an auto-allowed card.
 type ManageHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 
@@ -70,6 +103,7 @@ type ManageHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 #[derive(IntoElement)]
 pub struct ApprovalCard {
     id: ElementId,
+    title: SharedString,
     tool: SharedString,
     command: SharedString,
     reason: SharedString,
@@ -78,10 +112,21 @@ pub struct ApprovalCard {
     scope: ApprovalScope,
     state: ApprovalState,
     rule: Option<SharedString>,
+    choices: Vec<ApprovalChoice>,
+    stages: Vec<ApprovalStage>,
+    current_stage: Option<usize>,
+    badges: ApprovalBadges,
+    resolved_by: Option<ResolvedBy>,
+    feedback: Option<SharedString>,
+    feedback_open: Option<String>,
+    feedback_slot: Option<AnyElement>,
+    feedback_text: String,
     present: bool,
     timing: EnterExit,
     at_rest: bool,
     on_decide: Option<DecideHandler>,
+    on_choose: Option<ChooseHandler>,
+    on_feedback_toggle: Option<FeedbackToggleHandler>,
     on_manage_rules: Option<ManageHandler>,
 }
 
@@ -92,6 +137,7 @@ pub struct ApprovalCard {
 pub fn approval_card(id: impl Into<ElementId>, tool: impl Into<SharedString>, command: impl Into<SharedString>, state: ApprovalState) -> ApprovalCard {
     ApprovalCard {
         id: id.into(),
+        title: PENDING_TITLE.into(),
         tool: tool.into(),
         command: command.into(),
         reason: SharedString::default(),
@@ -100,15 +146,110 @@ pub fn approval_card(id: impl Into<ElementId>, tool: impl Into<SharedString>, co
         scope: ApprovalScope::ThisWorktree,
         state,
         rule: None,
+        choices: Vec::new(),
+        stages: Vec::new(),
+        current_stage: None,
+        badges: ApprovalBadges::default(),
+        resolved_by: None,
+        feedback: None,
+        feedback_open: None,
+        feedback_slot: None,
+        feedback_text: String::new(),
         present: true,
         timing: EnterExit::DEFAULT,
         at_rest: false,
         on_decide: None,
+        on_choose: None,
+        on_feedback_toggle: None,
         on_manage_rules: None,
     }
 }
 
 impl ApprovalCard {
+    /// The pending question, e.g. `"Allow Muse to run this command?"`.
+    pub fn title(mut self, title: impl Into<SharedString>) -> Self {
+        self.title = title.into();
+        self
+    }
+
+    /// The server's own choice list, in the server's order.
+    ///
+    /// A non-empty list replaces the built-in triad: the buttons are exactly
+    /// these, and [`ApprovalCard::on_choose`] reports which one was pressed.
+    pub fn choices(mut self, choices: Vec<ApprovalChoice>) -> Self {
+        self.choices = choices;
+        self
+    }
+
+    /// The subject's stages and which one is awaiting a decision.
+    ///
+    /// A single-stage subject draws no strip; pass an empty vector for one.
+    pub fn stages(mut self, stages: Vec<ApprovalStage>, current: Option<usize>) -> Self {
+        self.stages = stages;
+        self.current_stage = current;
+        self
+    }
+
+    /// The header badges: a protected write, an escalation from the judge.
+    pub fn badges(mut self, badges: ApprovalBadges) -> Self {
+        self.badges = badges;
+        self
+    }
+
+    /// Who settled the request, which is what makes a policy or judge
+    /// resolution read as one and never actionable.
+    pub fn resolved_by(mut self, resolved_by: Option<ResolvedBy>) -> Self {
+        self.resolved_by = resolved_by;
+        self
+    }
+
+    /// The feedback that went out with a refusal, quoted on the resolved card.
+    pub fn feedback(mut self, feedback: impl Into<SharedString>) -> Self {
+        self.feedback = Some(feedback.into());
+        self
+    }
+
+    /// Which choice's feedback field is open, by [`ApprovalChoice::id`].
+    ///
+    /// A choice whose [`ApprovalChoice::accepts_feedback`] is set does not fire
+    /// [`ApprovalCard::on_choose`] on its first press: the host opens the field
+    /// instead, and the confirming press carries the text.
+    pub fn feedback_open(mut self, choice_id: Option<String>) -> Self {
+        self.feedback_open = choice_id;
+        self
+    }
+
+    /// The feedback field itself — the host's element, because the card never
+    /// owns text. The same division as the composer's editor.
+    pub fn feedback_slot(mut self, slot: impl IntoElement) -> Self {
+        self.feedback_slot = Some(slot.into_any_element());
+        self
+    }
+
+    /// What the open field currently holds. Data in, so that "Send" can hand it
+    /// straight back through [`ApprovalCard::on_choose`] without the card ever
+    /// keeping a character of it.
+    pub fn feedback_text(mut self, text: impl Into<String>) -> Self {
+        self.feedback_text = text.into();
+        self
+    }
+
+    /// Open the feedback field for a choice (`Some(id)`) or close it (`None`).
+    ///
+    /// A choice that accepts feedback opens the field on its first press rather
+    /// than deciding; "Cancel" closes it again.
+    pub fn on_feedback_toggle(mut self, f: impl Fn(Option<String>, &mut Window, &mut App) + 'static) -> Self {
+        self.on_feedback_toggle = Some(Rc::new(f));
+        self
+    }
+
+    /// A server-minted choice was pressed: its id, and the feedback typed for
+    /// it when the open field was confirmed.
+    pub fn on_choose(mut self, f: impl Fn(String, Option<String>, &mut Window, &mut App) + 'static) -> Self {
+        self.on_choose = Some(Rc::new(f));
+        self
+    }
+
     /// Why the agent wants it, in its own words.
     pub fn reason(mut self, reason: impl Into<SharedString>) -> Self {
         self.reason = reason.into();
@@ -163,6 +304,100 @@ impl ApprovalCard {
     pub fn on_manage_rules(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_manage_rules = Some(Rc::new(f));
         self
+    }
+}
+
+impl ApprovalCard {
+    /// The action row for a server-minted choice list.
+    ///
+    /// The buttons are the server's, in the server's order: the row wraps rather
+    /// than truncating, because a label like "Always allow in this workspace:
+    /// echo ..." is the rule the person is being asked to install and a
+    /// half-shown rule is worse than a taller row.
+    fn choices_row(self, id: ElementId, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let p = cx.aui().colors;
+        let count = self.choices.len();
+        let hints = h_flex()
+            .flex_none()
+            .items_center()
+            .gap(px(KEYS_GAP))
+            .ui(scale::FS_11)
+            .text_color(p.ink_3)
+            .child(h_flex().items_center().gap(px(KEY_GAP)).child(kbd("1")).child(if count > 1 { "–" } else { "" }))
+            .child(h_flex().items_center().gap(px(KEY_GAP)).children((count > 1).then(|| kbd(count.min(9).to_string()))).child("to choose"));
+
+        let mut buttons: Vec<AnyElement> = Vec::new();
+        for (index, choice) in self.choices.iter().enumerate() {
+            let key: SharedString = SharedString::from(format!("choice-{index}"));
+            let mut b: Button = button((id.clone(), key.clone()), choice.label.clone()).sm();
+            b = match choice.decision {
+                ApprovalDecision::Once | ApprovalDecision::ApprovedForSession => b.primary(),
+                ApprovalDecision::Deny | ApprovalDecision::DeniedPolicyAmendment | ApprovalDecision::Abort => b.danger(),
+                _ => b,
+            };
+            // The rule a policy amendment would install, spelled out in the mono
+            // face — unless the label already is that rule, which is the usual
+            // case and does not want saying twice.
+            if let Some(rule) = choice.rule_preview.clone().filter(|r| *r != choice.label) {
+                b = b.trailing(div().font_family(scale::FONT_MONO).opacity(RULE_OPACITY).child(SharedString::from(rule)));
+            }
+            let choice_id = choice.id.clone();
+            let opens_field = choice.accepts_feedback && self.feedback_open.as_deref() != Some(choice.id.as_str());
+            if opens_field {
+                if let Some(on_toggle) = self.on_feedback_toggle.clone() {
+                    b = b.on_click(move |_, w, cx| on_toggle(Some(choice_id.clone()), w, cx));
+                }
+            } else if let Some(on_choose) = self.on_choose.clone() {
+                let feedback = self.feedback_text.clone();
+                let carries = choice.accepts_feedback;
+                b = b.on_click(move |_, w, cx| on_choose(choice_id.clone(), carries.then(|| feedback.clone()), w, cx));
+            }
+            // Each button enters after the one before it, as the triad does.
+            let mut timing = EnterExit::DEFAULT.with_delay(stagger_delay(index, count.max(1), BUTTON_STAGGER));
+            if self.at_rest {
+                timing.enter = Duration::ZERO;
+                timing.delay = Duration::ZERO;
+            }
+            let sample = presence((id.clone(), key), self.present, timing, window, cx);
+            let style = PresenceStyle::fade_rise(sample, BUTTON_RISE);
+            buttons.push(div().relative().flex_none().top(style.offset_y).opacity(style.opacity).child(b).into_any_element());
+        }
+
+        h_flex()
+            .w_full()
+            .flex_wrap()
+            .items_center()
+            .gap(px(FOOT_GAP))
+            .px(px(FOOT_PAD_X))
+            .py(px(FOOT_PAD_Y))
+            .border_t_1()
+            .border_color(p.line)
+            .bg(p.surface_2)
+            .child(hints)
+            .child(div().flex_1().min_w(px(0.0)))
+            .children(buttons)
+    }
+}
+
+/// The quiet headline a resolution nobody was asked for collapses to.
+fn resolution_title(by: ResolvedBy, allowed: bool) -> &'static str {
+    match (by, allowed) {
+        (ResolvedBy::Policy, true) => "Allowed by policy",
+        (ResolvedBy::Policy, false) => "Denied by policy",
+        (ResolvedBy::LlmJudge, true) => "Allowed by the approval judge",
+        (ResolvedBy::LlmJudge, false) => "Denied by the approval judge",
+        (ResolvedBy::User, true) => "Allowed",
+        (ResolvedBy::User, false) => "Denied",
+    }
+}
+
+/// The one-line subtitle under it: the rule, for a policy resolution that
+/// names one; the judge names none.
+fn resolution_segments(by: ResolvedBy, rule: Option<SharedString>) -> Vec<(SharedString, SubFace)> {
+    match (by, rule) {
+        (ResolvedBy::Policy, Some(rule)) => vec![("Rule ".into(), SubFace::Ui), (rule, SubFace::Mono)],
+        (ResolvedBy::LlmJudge, _) => vec![("The approval judge decided this without asking.".into(), SubFace::Ui)],
+        _ => Vec::new(),
     }
 }
 
@@ -243,7 +478,7 @@ fn head_tile(ground: Hsla, ink: Hsla, glyph: Option<IconName>, id: ElementId) ->
 }
 
 impl RenderOnce for ApprovalCard {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let pending = self.state == ApprovalState::Pending;
@@ -256,7 +491,7 @@ impl RenderOnce for ApprovalCard {
         // Header: tile, title + subtitle, status pill.
         let (title, tile, status, variant, segments): (SharedString, gpui::AnyElement, SharedString, PillVariant, Vec<(SharedString, SubFace)>) = match &self.state {
             ApprovalState::Pending => (
-                PENDING_TITLE.into(),
+                self.title.clone(),
                 head_tile(p.warning_soft, p.warning, Some(IconName::Shield), (id.clone(), "tile").into()),
                 "Waiting".into(),
                 PillVariant::Warning,
@@ -288,7 +523,7 @@ impl RenderOnce for ApprovalCard {
                 vec![
                     ("You denied ".into(), SubFace::Ui),
                     (self.command.clone(), SubFace::Mono),
-                    (". Claude will try another approach.".into(), SubFace::Ui),
+                    (". The agent will try another approach.".into(), SubFace::Ui),
                 ],
             ),
             ApprovalState::AutoDenied { rule } => (
@@ -317,6 +552,23 @@ impl RenderOnce for ApprovalCard {
             ),
         };
 
+        // A resolution nobody was asked for reads as one: policy and the
+        // approval judge get the quiet single line and no actions at all.
+        let (title, segments) = match (self.resolved_by, &self.state) {
+            (Some(by @ (ResolvedBy::Policy | ResolvedBy::LlmJudge)), state) if !pending => {
+                let allowed = matches!(state, ApprovalState::AutoAllowed { .. } | ApprovalState::AllowedOnce { .. } | ApprovalState::Approving);
+                let rule = match state {
+                    ApprovalState::AutoAllowed { rule } | ApprovalState::AutoDenied { rule } => Some(SharedString::from(rule.clone())),
+                    _ => None,
+                };
+                (resolution_title(by, allowed).into(), resolution_segments(by, rule))
+            }
+            // The person's own refusal keeps its sentence, and quotes the
+            // feedback that went out with it.
+            (Some(ResolvedBy::User), ApprovalState::Denied) => ("Denied".into(), segments),
+            _ => (title, segments),
+        };
+
         let (sub_text, runs, links) = sub_runs(&segments, &p);
         let styled = StyledText::new(sub_text).with_runs(runs);
         let sub: gpui::AnyElement = if links.is_empty() {
@@ -332,6 +584,19 @@ impl RenderOnce for ApprovalCard {
                 .into_any_element()
         };
 
+        // The badges sit beside the title, warning-tinted, and only when set.
+        let mut title_line = h_flex()
+            .w_full()
+            .items_center()
+            .gap(px(BADGE_GAP))
+            .child(div().flex_none().ui(scale::FS_13).semibold().text_color(p.ink).child(title));
+        if self.badges.protected_write {
+            title_line = title_line.child(pill("Protected write").variant(PillVariant::Warning));
+        }
+        if self.badges.judge_escalated {
+            title_line = title_line.child(pill("Judge escalated").variant(PillVariant::Warning));
+        }
+
         let header = h_flex()
             .w_full()
             .items_center()
@@ -343,7 +608,7 @@ impl RenderOnce for ApprovalCard {
                 v_flex()
                     .flex_1()
                     .min_w(px(0.0))
-                    .child(div().w_full().ui(scale::FS_13).semibold().text_color(p.ink).child(title))
+                    .child(title_line)
                     .child(div().w_full().ui(scale::FS_12).text_color(p.ink_2).child(sub)),
             )
             .child(pill(status).variant(variant));
@@ -361,6 +626,21 @@ impl RenderOnce for ApprovalCard {
             .child(header);
 
         if !pending {
+            // A refusal the person typed a reason into quotes it, so the card
+            // still says what the agent was told.
+            if let Some(feedback) = self.feedback.filter(|_| matches!(self.state, ApprovalState::Denied)) {
+                card = card.child(
+                    div()
+                        .mx(px(BODY_INSET_X))
+                        .mb(px(BODY_INSET_BOTTOM))
+                        .pl(px(CMD_PAD_X))
+                        .border_l_1()
+                        .border_color(p.line_strong)
+                        .ui(QUOTE_TEXT)
+                        .text_color(p.ink_2)
+                        .child(feedback),
+                );
+            }
             return card;
         }
 
@@ -382,6 +662,46 @@ impl RenderOnce for ApprovalCard {
                 .child(div().flex_1().min_w(px(0.0)).child(self.command.clone())),
         );
 
+        // The stage strip: a pipeline is decided one stage at a time, so the
+        // card says which stage this decision is for. One stage needs no strip.
+        if self.stages.len() > 1 {
+            let total = self.stages.first().map(|s| s.total).unwrap_or(self.stages.len() as u32);
+            let position = self.current_stage.and_then(|index| self.stages.get(index)).map(|s| s.position).unwrap_or(1);
+            let mut strip = v_flex()
+                .mx(px(BODY_INSET_X))
+                .mb(px(BODY_INSET_BOTTOM))
+                .gap(px(STAGE_GAP))
+                .child(div().flex_none().child(pill(format!("Stage {position}/{total}")).variant(PillVariant::Quiet)));
+            for (index, stage) in self.stages.iter().enumerate() {
+                let current = self.current_stage == Some(index);
+                let ink = if stage.resolved {
+                    p.ink_3
+                } else if current {
+                    p.ink
+                } else {
+                    p.ink_2
+                };
+                let mut row = h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap(px(STAGE_ROW_GAP))
+                    .mono(STAGE_TEXT)
+                    .text_color(ink)
+                    .child(
+                        div()
+                            .flex_none()
+                            .size(px(STAGE_GLYPH))
+                            .children(stage.resolved.then(|| icon(IconName::Check).size(px(STAGE_GLYPH)).color(p.success))),
+                    )
+                    .child(div().flex_1().min_w(px(0.0)).child(stage.argv.join(" ")));
+                if !stage.argv_complete {
+                    row = row.child(div().flex_none().ui(scale::FS_11).text_color(p.warning).child("(partial parse)"));
+                }
+                strip = strip.child(row);
+            }
+            card = card.child(strip);
+        }
+
         // The reason and the two-column definition list.
         let rows: [(SharedString, SharedString); 2] = [("Tool".into(), self.tool.clone()), ("Scope".into(), scope_label(self.scope).into())];
         let mut terms = v_flex().flex_none().gap(px(DL_ROW_GAP)).text_color(p.ink_3);
@@ -400,7 +720,35 @@ impl RenderOnce for ApprovalCard {
                 .child(h_flex().items_start().mt(px(DL_MARGIN_TOP)).gap(px(DL_COL_GAP)).child(terms).child(definitions)),
         );
 
-        // The action row: hints left, spacer, secondary, primary right.
+        // The feedback field the host owns, revealed by a choice that takes one.
+        let open_choice = self.feedback_open.clone().filter(|id| self.choices.iter().any(|c| &c.id == id && c.accepts_feedback));
+        if let (Some(choice_id), Some(slot)) = (open_choice.clone(), self.feedback_slot.take()) {
+            let mut send = button((id.clone(), "feedback-send"), "Send").sm().primary();
+            let mut cancel = button((id.clone(), "feedback-cancel"), "Cancel").sm().ghost();
+            if let Some(on_choose) = self.on_choose.clone() {
+                let confirm = choice_id.clone();
+                let text = self.feedback_text.clone();
+                send = send.on_click(move |_, w, cx| on_choose(confirm.clone(), Some(text.clone()), w, cx));
+            }
+            if let Some(on_toggle) = self.on_feedback_toggle.clone() {
+                cancel = cancel.on_click(move |_, w, cx| on_toggle(None, w, cx));
+            }
+            card = card.child(
+                v_flex()
+                    .mx(px(BODY_INSET_X))
+                    .mb(px(BODY_INSET_BOTTOM))
+                    .gap(px(FEEDBACK_GAP))
+                    .child(div().w_full().child(slot))
+                    .child(h_flex().w_full().items_center().gap(px(FOOT_GAP)).child(div().flex_1()).child(cancel).child(send)),
+            );
+        }
+
+        // The action row: hints left, spacer, then the choices in server order
+        // with the primary one on the right.
+        if !self.choices.is_empty() {
+            return card.child(self.choices_row(id, window, cx));
+        }
+
         let keys = h_flex()
             .flex_1()
             .min_w(px(0.0))

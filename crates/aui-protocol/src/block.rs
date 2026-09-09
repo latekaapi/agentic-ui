@@ -136,6 +136,13 @@ pub enum Block {
         id: String,
         /// Plan steps, in order.
         items: Vec<String>,
+        /// Unnumbered section labels drawn between the steps.
+        ///
+        /// A plan written as markdown headings over lists has two levels; the
+        /// numbering counts steps only, so a section is a label and the index
+        /// of the first item that falls under it.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        sections: Vec<PlanSection>,
         /// Whether the plan is still awaiting a decision.
         state: PlanState,
     },
@@ -499,6 +506,20 @@ pub struct Answer {
     pub selected: Vec<usize>,
     /// Free text typed into the "Other" row.
     pub other: Option<String>,
+}
+
+/// One unnumbered section label inside a [`Block::Plan`].
+///
+/// Plans arrive as markdown: headings group the steps, and the steps are the
+/// numbered list items under them. `first_item` is the index into
+/// [`Block::Plan::items`] of the first step the label covers, so a section with
+/// no steps under it can simply be left out.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PlanSection {
+    /// The heading text, e.g. `"Read the code"`.
+    pub label: String,
+    /// Index into [`Block::Plan::items`] of the first step under the label.
+    pub first_item: usize,
 }
 
 /// Whether a proposed plan has been decided.

@@ -228,6 +228,22 @@ impl RenderOnce for StatusRow {
     }
 }
 
+/// The live row a scheduled retry draws while the provider waits out its
+/// backoff: `Attempt 2/5 · retrying in 4 s · rate limited`.
+///
+/// Pure: `remaining_ms` is derived by the host from MSP's `retryDelayMs` and its
+/// own clock, because the wire sends a backoff and never a fire time. Built on
+/// [`status_row`]'s own primitives — spinner lead, no shimmer, the reason as the
+/// trailing note — so a retry reads like every other live row.
+pub fn retry_row(id: impl Into<ElementId>, attempt: u32, max: u32, remaining_ms: u64, reason: impl Into<SharedString>) -> StatusRow {
+    let seconds = remaining_ms.div_ceil(1000);
+    status_row(id, format!("Attempt {attempt}/{max}"))
+        .lead(StatusLead::Spinner)
+        .shimmer(false)
+        .elapsed(format!("retrying in {seconds} s"))
+        .note(reason)
+}
+
 /// The banner pinned above the composer when the agent is blocked on the
 /// person. Build with [`needs_you_banner`].
 #[derive(IntoElement)]

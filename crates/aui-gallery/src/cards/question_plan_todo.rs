@@ -3,10 +3,12 @@
 //! morphing marks. Reproduces
 //! `design/src/cards/transcript/36-question-plan-todo.html` at 800×760.
 
-use aui::protocol::{QuestionOption, TodoItem, TodoState};
-use aui::transcript::{answered_row, plan_card, question_card, todo_list};
+use aui::protocol::{sample, Block, QuestionOption, TodoItem, TodoState};
+use aui::transcript::{answered_row, plan_card, question_card, todo_list, QuestionOutcome};
 use gpui::*;
+use gpui_kit::base::input::TextareaState;
 use gpui_kit::base::v_flex;
+use gpui_kit::component::input::Textarea;
 
 /// `.grid{grid-template-columns:1fr 1fr;gap:14px}`.
 const COLUMN_GAP: f32 = 14.0;
@@ -53,9 +55,50 @@ fn tasks() -> Vec<TodoItem> {
     ]
 }
 
+/// The countdown pill's sample clock: two minutes granted, 12 seconds left.
+const TIMEOUT_TOTAL_MS: u64 = 120_000;
+const TIMEOUT_LEFT_MS: u64 = 12_000;
+
+/// The provider-driven question from the sample, as a card.
+fn muse_question(id: &'static str) -> aui::transcript::QuestionCard {
+    let Block::Question { header, prompt, subtitle, options, multi, allow_other, .. } = sample::muse_question() else {
+        unreachable!("sample::muse_question is a question block")
+    };
+    question_card(id, prompt, options).header(header).subtitle(subtitle).multi(multi).allow_other(allow_other)
+}
+
+/// The sectioned plan's steps.
+fn section_items() -> Vec<String> {
+    let Block::Plan { items, .. } = sample::muse_plan() else { unreachable!("sample::muse_plan is a plan block") };
+    items
+}
+
+/// Its heading labels.
+fn sections() -> Vec<aui::protocol::PlanSection> {
+    let Block::Plan { sections, .. } = sample::muse_plan() else { unreachable!("sample::muse_plan is a plan block") };
+    sections
+}
+
 /// Builds the card content.
 pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let selected = window.use_keyed_state("card36-selected", cx, |_, _| vec![0usize, 1]);
+    let previews = window.use_keyed_state("card36-previews", cx, |_, _| vec![0usize]);
+    let clarify = window.use_keyed_state("card36-clarify-input", cx, |window, cx| {
+        TextareaState::new(window, cx).placeholder("Say what you would rather I did").auto_grow(2, 4)
+    });
+    let toggle_preview = {
+        let previews = previews.clone();
+        move |index: usize, _: &mut Window, cx: &mut App| {
+            previews.update(cx, |open, cx| {
+                if let Some(at) = open.iter().position(|i| *i == index) {
+                    open.remove(at);
+                } else {
+                    open.push(index);
+                }
+                cx.notify();
+            })
+        }
+    };
     let open = window.use_keyed_state("card36-todo-open", cx, |_, _| true);
     let current = selected.read(cx).clone();
     let todo_open = *open.read(cx);
@@ -100,7 +143,33 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                         .selected(current)
                         .on_select(toggle_option),
                 )
-                .child(answered_row("card36-answered", vec!["US ZIP".into(), "Canadian".into()])),
+                .child(answered_row("card36-answered", vec!["US ZIP".into(), "Canadian".into()]))
+                // The settlements that are not answers: MSP settles a prompt
+                // six ways and only one of them fills the chips.
+                .child(answered_row("card36-skipped", Vec::new()).outcome(QuestionOutcome::Skipped))
+                .child(
+                    answered_row("card36-clarified", Vec::new())
+                        .outcome(QuestionOutcome::Clarified("Neither — describe whichever changed most recently.".into())),
+                )
+                .child(answered_row("card36-timed-out", Vec::new()).outcome(QuestionOutcome::TimedOut))
+                // The provider-driven question: a header, a preview open on the
+                // first option, the auto-resolution countdown, and the
+                // "Explain instead" field the host owns.
+                .child(
+                    muse_question("card36-muse")
+                        .previews_open(previews.read(cx).clone())
+                        .timeout(TIMEOUT_LEFT_MS, TIMEOUT_TOTAL_MS)
+                        .on_toggle_preview(toggle_preview)
+                        .on_clarify(|_, _, _| {})
+                        .on_skip(|_, _, _| {}),
+                )
+                .child(
+                    muse_question("card36-muse-clarify")
+                        .clarify_open(true)
+                        .clarify_slot(Textarea::new(&clarify).text_size(aui_tokens::scaled(aui_tokens::scale::FS_12)))
+                        .on_clarify(|_, _, _| {})
+                        .on_skip(|_, _, _| {}),
+                ),
         )
         .child(
             v_flex()
@@ -108,6 +177,9 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .min_w(px(0.0))
                 .gap(px(STACK_GAP))
                 .child(plan_card("card36-plan", plan_items()))
+                // The same plan under its markdown headings: the labels are
+                // unnumbered rows and the numbering still counts steps only.
+                .child(plan_card("card36-plan-sections", section_items()).sections(sections()))
                 .child(todo_list("card36-todo", tasks()).open(todo_open).on_toggle(toggle_todo)),
         )
         .into_any_element()

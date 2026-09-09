@@ -14,6 +14,7 @@
 //! | `enter` | [`Confirm`] | [`MENU_CONTEXT`] |
 //! | `escape` | [`Cancel`] | [`MENU_CONTEXT`], [`APPROVAL_CONTEXT`], [`ROOT_CONTEXT`] |
 //! | `y` / `a` / `n` | [`ApproveOnce`] / [`ApproveAlways`] / [`Deny`] | [`APPROVAL_CONTEXT`] |
+//! | `1`…`9` | [`ChooseNth`] | [`APPROVAL_CONTEXT`] |
 //! | `tab` / `shift-tab` | [`FocusNext`] / [`FocusPrev`] | [`ROOT_CONTEXT`] |
 //!
 //! [`key_context`]: gpui::InteractiveElement::key_context
@@ -50,6 +51,23 @@ actions!(
     ]
 );
 
+/// Pick the n-th choice of a card that carries a server-minted choice list.
+///
+/// A provider mints its own approval choices, so there is no fixed `y`/`a`/`n`
+/// to bind: the keys are the digits, and the payload is the **zero-based** index
+/// of the choice in the order the server sent them. [`bind`] binds `1`–`9` in
+/// [`APPROVAL_CONTEXT`]; a card with fewer choices than that simply ignores the
+/// indices it has no choice for.
+///
+/// Built in Rust rather than from JSON (`no_json`), because the payload is an
+/// index the library binds itself.
+#[derive(Clone, PartialEq, Eq, Debug, gpui::Action)]
+#[action(namespace = aui, no_json)]
+pub struct ChooseNth {
+    /// Zero-based index into the card's choice list.
+    pub index: usize,
+}
+
 /// The context a screen puts on its outermost element: it owns Tab and the
 /// escape that closes whatever is open.
 pub const ROOT_CONTEXT: &str = "AuiRoot";
@@ -78,6 +96,12 @@ pub fn bind(cx: &mut App) {
         KeyBinding::new("tab", FocusNext, Some(ROOT_CONTEXT)),
         KeyBinding::new("shift-tab", FocusPrev, Some(ROOT_CONTEXT)),
     ]);
+    // 1–9 pick the n-th server-minted choice, in the order the server sent it.
+    cx.bind_keys(
+        (0..9)
+            .map(|index| KeyBinding::new(&(index + 1).to_string(), ChooseNth { index }, Some(APPROVAL_CONTEXT)))
+            .collect::<Vec<_>>(),
+    );
 }
 
 /// The `:focus-visible` approximation. gpui has no notion of it, so the library

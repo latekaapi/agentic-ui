@@ -33,9 +33,24 @@ use crate::util::interaction_flags;
 const MENU_BOTTOM: f32 = 28.0;
 const MENU_PAD: f32 = 6.0;
 /// The model menu carries a context limit and two badges, so it is wider than
-/// the `+` menu's 200; effort and mode share the width so the three read as one
+/// the `+` menu's 200; effort and mode share the floor so the three read as one
 /// control.
-const MENU_W: f32 = 280.0;
+///
+/// It is a **floor**, not a width. A provider names its models what it likes and
+/// MSP's catalog is discovered at runtime, so a fixed width would have to cut a
+/// name off to fit — and half a model name is not a model name (finding F8).
+/// Nothing here ever ellipsises: the menu is at least this wide, grows with its
+/// content up to the ceiling, and past that the label wraps rather than being
+/// cut.
+///
+/// The floor is set to the widest name Muse's own catalog ships
+/// (`muse-spark-1.2-contributor` with its context limit and two badges) because
+/// gpui's absolute layout does not shrink-to-fit a column of stretched rows: a
+/// row that fills its parent and a parent that sizes to its rows is circular,
+/// and taffy resolves that circle at the floor. So the floor has to be a width
+/// that is actually right, not a token minimum nobody expects to see.
+const MENU_W_MIN: f32 = 360.0;
+const MENU_W_MAX: f32 = 520.0;
 /// The overlay's own shadow step.
 const MENU_SHADOW: u8 = 3;
 /// The morph starts at scale .85 from the bottom-left corner, like `plus_menu`.
@@ -211,7 +226,8 @@ impl RenderOnce for PickerMenu {
             .absolute()
             .bottom(px(MENU_BOTTOM))
             .left(px(0.0))
-            .w(px(MENU_W * scale_now))
+            .min_w(px(MENU_W_MIN * scale_now))
+            .max_w(px(MENU_W_MAX * scale_now))
             .p(px(MENU_PAD))
             .rounded(px(scale::R_LG))
             .border_1()
@@ -294,10 +310,17 @@ fn picker_row(
     let ground = tint_fade((id.clone(), "bg"), on, p.accent_soft, Tween::FAST, window, cx);
     let label_ink = tween((id.clone(), "label"), if on { p.ink } else { p.ink_2 }, Tween::FAST, window, cx);
 
+    // No `w_full` anywhere on a row: the menu's own width is `auto` between a
+    // floor and a ceiling, and a child that asks for "100 % of the parent"
+    // makes that circular — the parent collapses to its floor and the label
+    // wraps inside it. Stretch does the job instead: the container sizes to the
+    // widest row, and every row is stretched to match.
     let mut head = h_flex()
-        .w_full()
         .gap(px(ITEM_GAP))
-        .child(div().flex_1().min_w(px(0.0)).truncate().ui(LABEL_TEXT).medium().text_color(label_ink).child(row.label.clone()));
+        // No `truncate`: the menu grows to the label, and where it cannot the
+        // label wraps. A model you cannot read the name of is one you cannot
+        // choose.
+        .child(div().flex_1().min_w(px(0.0)).ui(LABEL_TEXT).medium().text_color(label_ink).child(row.label.clone()));
     if let Some(meta) = &row.meta {
         head = head.child(div().flex_none().mono(DETAIL_TEXT).text_color(p.ink_3).child(meta.clone()));
     }
@@ -307,7 +330,7 @@ fn picker_row(
 
     let mut body = v_flex().flex_1().min_w(px(0.0)).child(head);
     if !row.detail.is_empty() {
-        body = body.child(div().w_full().ui(DETAIL_TEXT).text_color(p.ink_3).child(row.detail.clone()));
+        body = body.child(div().ui(DETAIL_TEXT).text_color(p.ink_3).child(row.detail.clone()));
     }
 
     let check = div()
@@ -319,7 +342,6 @@ fn picker_row(
 
     let mut element = h_flex()
         .id(id)
-        .w_full()
         .items_start()
         .gap(px(ITEM_GAP))
         .px(px(ITEM_PAD_X))
