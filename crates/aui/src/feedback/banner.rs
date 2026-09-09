@@ -109,11 +109,13 @@ pub struct Banner {
     runs: Vec<BannerRun>,
     action: Option<(SharedString, BannerActionStyle)>,
     on_action: Option<ActionHandler>,
+    secondary: Option<(SharedString, BannerActionStyle)>,
+    on_secondary: Option<ActionHandler>,
 }
 
 /// A one-line banner in `kind`'s colours, carrying `runs` as its message.
 pub fn banner(id: impl Into<ElementId>, kind: BannerKind, runs: Vec<BannerRun>) -> Banner {
-    Banner { id: id.into(), kind, runs, action: None, on_action: None }
+    Banner { id: id.into(), kind, runs, action: None, on_action: None, secondary: None, on_secondary: None }
 }
 
 impl Banner {
@@ -126,6 +128,24 @@ impl Banner {
     /// The button was pressed.
     pub fn on_action(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_action = Some(Rc::new(f));
+        self
+    }
+
+    /// A second xs button, drawn to the **left** of [`Banner::action`].
+    ///
+    /// One button is the design card, and it stays the default. A banner that
+    /// stands between the person and something they were about to do — the
+    /// harness's pay-as-you-go guard, which offers "Sign out" beside "Send
+    /// anyway" — needs the way out and the way through on the same row, because
+    /// a person who is only offered the way through will take it.
+    pub fn secondary_action(mut self, label: impl Into<SharedString>, style: BannerActionStyle) -> Self {
+        self.secondary = Some((label.into(), style));
+        self
+    }
+
+    /// The second button was pressed.
+    pub fn on_secondary(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_secondary = Some(Rc::new(f));
         self
     }
 }
@@ -201,6 +221,13 @@ impl RenderOnce for Banner {
             .text_color(p.ink)
             .child(leading)
             .child(message(&self.runs, &p));
+        if let Some((label, style)) = self.secondary {
+            let mut b = action_button((id.clone(), "secondary").into(), label, style);
+            if let Some(h) = self.on_secondary.clone() {
+                b = b.on_click(move |_, w, cx| h(w, cx));
+            }
+            row = row.child(div().flex_none().child(b));
+        }
         if let Some((label, style)) = self.action {
             let mut b = action_button((id, "action").into(), label, style);
             if let Some(h) = self.on_action.clone() {

@@ -258,7 +258,15 @@ fn sidebar(_cx: &mut App) -> impl IntoElement {
     for (i, session) in in_progress.into_iter().enumerate() {
         col = col.child(row(("card10-progress-row", i), session, false));
     }
-    col.child(div().flex_1()).child(sidebar_footer("card10-footer", "B", "Bharani · Max").meter(Provider::Claude, 0.78))
+    col.child(div().flex_1()).child(
+        // Three rows: the name, the identity under it, and what the account is
+        // entitled to under that. The entitlement is the only line in a footer
+        // that ever carries colour, and only when it wants looking at.
+        sidebar_footer("card10-footer", "B", "Bharani · Max")
+            .detail("bharani@example.com")
+            .plan("High Usage · 2% this week", false)
+            .meter(Provider::Claude, 0.78),
+    )
 }
 
 fn centre(window: &mut Window, cx: &mut App) -> impl IntoElement {

@@ -96,11 +96,26 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                         .child(
                             banner("card13-ban-ok", BannerKind::Success, vec![BannerRun::Text("SSH reconnected to build-box · 12 agents resumed".into())])
                                 .action("Dismiss", BannerActionStyle::Ghost),
+                        )
+                        // The two-action variant: a banner that stands between
+                        // the person and something they were about to do has to
+                        // offer the way out beside the way through.
+                        .child(
+                            banner(
+                                "card13-ban-two",
+                                BannerKind::Waiting,
+                                vec![
+                                    BannerRun::Bold("This login is on pay-as-you-go.".into()),
+                                    BannerRun::Text(" Every turn bills API usage.".into()),
+                                ],
+                            )
+                            .secondary_action("Sign out", BannerActionStyle::Ghost)
+                            .action("Send anyway", BannerActionStyle::Secondary),
                         ),
                 )
                 .child(note(
                     p,
-                    "Banners are one line, icon left, one action right. Only waiting and error states carry a tint; everything else stays on the plain surface.",
+                    "Banners are one line, icon left, one action right. A banner that blocks something offers a second, quieter action to its left. Only waiting and error states carry a tint; everything else stays on the plain surface.",
                 )),
         )
         .into_any_element()

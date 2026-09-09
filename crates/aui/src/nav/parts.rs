@@ -269,6 +269,7 @@ pub struct SidebarFooter {
     initial: SharedString,
     name: SharedString,
     detail: Option<SharedString>,
+    plan: Option<(SharedString, bool)>,
     meter: Option<(Provider, f32)>,
     trailing: Option<AnyElement>,
     pad_y: f32,
@@ -277,7 +278,7 @@ pub struct SidebarFooter {
 
 /// A footer for `name` with `initial` in the avatar.
 pub fn sidebar_footer(id: impl Into<ElementId>, initial: impl Into<SharedString>, name: impl Into<SharedString>) -> SidebarFooter {
-    SidebarFooter { id: id.into(), initial: initial.into(), name: name.into(), detail: None, meter: None, trailing: None, pad_y: 10.0, on_click: None }
+    SidebarFooter { id: id.into(), initial: initial.into(), name: name.into(), detail: None, plan: None, meter: None, trailing: None, pad_y: 10.0, on_click: None }
 }
 
 impl SidebarFooter {
@@ -294,6 +295,20 @@ impl SidebarFooter {
     /// a usage meter and the design card is that footer.
     pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
         self.detail = Some(detail.into());
+        self
+    }
+
+    /// A third line under the identity: what the account is entitled to, e.g.
+    /// `"High Usage \u{b7} 2% this week"`.
+    ///
+    /// `warning` tints the row — an entitlement the person should look at
+    /// ("Pay-as-you-go", "Plan unknown") is the only thing in a footer that
+    /// earns colour, and a plan that is simply in force does not.
+    ///
+    /// Off by default, and independent of [`SidebarFooter::detail`]: either
+    /// line alone stacks under the name.
+    pub fn plan(mut self, plan: impl Into<SharedString>, warning: bool) -> Self {
+        self.plan = Some((plan.into(), warning));
         self
     }
 
@@ -332,14 +347,26 @@ impl RenderOnce for SidebarFooter {
             .ui(scale::FS_12)
             .text_color(p.ink_3)
             .child(avatar(self.initial))
-            .child(match self.detail {
-                // Two lines: the name in ink, the identity under it in ink-4.
-                Some(detail) => v_flex()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .child(div().w_full().truncate().text_color(p.ink_2).child(self.name))
-                    .child(div().w_full().truncate().ui(scale::FS_11).text_color(p.ink_4).child(detail)),
-                None => v_flex().flex_1().min_w(px(0.0)).child(div().w_full().truncate().child(self.name)),
+            .child({
+                // One line for the name; a second for the identity and a third
+                // for the entitlement when the caller gave them. A bare name
+                // keeps the quieter ink it always had.
+                let stacked = self.detail.is_some() || self.plan.is_some();
+                let mut stack = v_flex().flex_1().min_w(px(0.0)).child(
+                    div()
+                        .w_full()
+                        .truncate()
+                        .when(stacked, |d| d.text_color(p.ink_2))
+                        .child(self.name),
+                );
+                if let Some(detail) = self.detail {
+                    stack = stack.child(div().w_full().truncate().ui(scale::FS_11).text_color(p.ink_4).child(detail));
+                }
+                if let Some((plan, warning)) = self.plan {
+                    let ink = if warning { p.warning } else { p.ink_4 };
+                    stack = stack.child(div().w_full().truncate().ui(scale::FS_11).text_color(ink).child(plan));
+                }
+                stack
             });
         if let Some((provider, fraction)) = self.meter {
             row = row.child(usage_meter(provider, fraction)).child(

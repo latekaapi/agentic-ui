@@ -278,6 +278,8 @@ Feedback: toasts and banners (card 13).
 - **struct** `Banner` — An inline banner. Build with `banner`.
   - `pub fn action(self, label: impl Into<SharedString>, style: BannerActionStyle) -> Self` — The single xs button at the right end of the row.
   - `pub fn on_action(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The button was pressed.
+  - `pub fn on_secondary(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The second button was pressed.
+  - `pub fn secondary_action(self, label: impl Into<SharedString>, style: BannerActionStyle) -> Self` — A second xs button, drawn to the left of `Banner::action`.
 - **struct** `Toast` — A single toast. Build with `toast`.
   - `pub fn at_rest(self) -> Self` — Skips the enter: the toast is drawn at rest on its first frame, for a static composition (the design card, a restored stack) rather than one that just arrived.
   - `pub fn on_action(self, f: impl Fn(&str, &mut Window, &mut App) + 'static) -> Self` — An action button was pressed; the argument is `ToastAction::id`.
@@ -484,6 +486,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn meter(self, provider: Provider, fraction: f32) -> Self` — Shows the provider usage meter (`fraction` in 0..=1) and the chevron.
   - `pub fn on_click(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Click on the footer (account menu).
   - `pub fn pad_y(self, pad: f32) -> Self` — Vertical padding: 10 in the shell, 8 in the sidebar cards.
+  - `pub fn plan(self, plan: impl Into<SharedString>, warning: bool) -> Self` — A third line under the identity: what the account is entitled to, e.g. `"High Usage \u{b7} 2% this week"`.
   - `pub fn trailing(self, el: impl IntoElement) -> Self` — Replaces the meter + chevron with another element (the assistant’s pill).
 - **struct** `SidebarGroup` — A collapsible group of sessions.
   - fields: `id`, `label`, `count`, `open`, `trailing`, `sessions`
