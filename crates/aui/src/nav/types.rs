@@ -30,6 +30,9 @@ pub struct SessionSummary {
     pub activity: Option<Activity>,
     /// Unread: the 3 px accent bar at the left edge.
     pub unread: bool,
+    /// Pinned: date groupings lift the row into the leading `Pinned` group
+    /// instead of its date bucket (card 21's `Pinned 3`).
+    pub pinned: bool,
     /// Fan-out children, nested under the row.
     pub children: Vec<SessionSummary>,
 }
@@ -49,6 +52,7 @@ impl SessionSummary {
             meta: Vec::new(),
             activity: None,
             unread: false,
+            pinned: false,
             children: Vec::new(),
         }
     }
@@ -92,6 +96,13 @@ impl SessionSummary {
     /// Marks unread.
     pub fn unread(mut self) -> Self {
         self.unread = true;
+        self
+    }
+
+    /// Pins the session: date groupings render it in the leading `Pinned`
+    /// group, excluded from the date buckets.
+    pub fn pinned(mut self) -> Self {
+        self.pinned = true;
         self
     }
 

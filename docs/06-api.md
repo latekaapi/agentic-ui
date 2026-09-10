@@ -358,6 +358,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn compact_session_row(id: impl Into<ElementId>, session: SessionSummary) -> CompactSessionRow`
 - **fn** `date_group_header` — `TODAY`, `YESTERDAY`, `THIS WEEK` with the hairline rule after them.
   - `pub fn date_group_header(label: impl Into<SharedString>) -> DateGroupHeader`
+- **fn** `dense_field` — The dense single-line field for `CompactSessionRow::editor`: the row-title size, no appearance and no border, fixed to one line. [...]
+  - `pub fn dense_field(state: &Entity<TextareaState>) -> Textarea`
 - **fn** `group_header` — A group header (`Pinned 3`, `In progress 17`).
   - `pub fn group_header(id: impl Into<ElementId>, label: impl Into<SharedString>, open: bool) -> GroupHeader`
 - **fn** `group_row` — A caps group row.
@@ -469,12 +471,13 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn text_sizes(self, name: f32, meta: f32) -> Self` — Name and meta sizes (13 / 12 by default; the sidebar card uses 12.5 / 11.5).
 - **struct** `SessionSummary` — One session / worktree as the sidebar shows it.
   - fields: `id`, `name`, `state`, `pulse`, `elapsed`, `repo`, `branch`, `providers`, `meta`,
-    `activity`, `unread`, `children`
+    `activity`, `unread`, `pinned`, `children`
   - `pub fn activity(self, kind: ActivityKind, text: impl Into<SharedString>) -> Self` — Sets the activity line.
   - `pub fn branch(self, branch: impl Into<SharedString>) -> Self` — Sets the branch tag.
   - `pub fn child(self, child: SessionSummary) -> Self` — Adds a child session.
   - `pub fn meta(self, item: MetaItem) -> Self` — Adds a meta item.
   - `pub fn new(id: impl Into<SharedString>, name: impl Into<SharedString>, state: AgentState, elapsed: impl Into<SharedString>) -> Self` — A minimal summary; fill the rest with the builder methods.
+  - `pub fn pinned(self) -> Self` — Pins the session: date groupings render it in the leading `Pinned` group, excluded from the date buckets.
   - `pub fn provider(self, provider: Provider) -> Self` — Adds a provider mark.
   - `pub fn pulse(self) -> Self` — Pulses the dot.
   - `pub fn repo(self, repo: impl Into<SharedString>) -> Self` — Sets the repo tag.
@@ -559,11 +562,13 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn separator() -> Self` — The hairline separator.
   - `pub fn session(id: impl Into<SharedString>, state: AgentState) -> Self` — A session cell.
 - **enum** `RowAction` — The hover actions on a row.
-  - variants: `Terminal`, `Browser`, `Pin`, `Rename`, `Hide`, `More`
+  - variants: `Terminal`, `Browser`, `Pin`, `Rename`, `Hide`, `Archive`, `More`
 - **enum** `SessionKind` — What kind of work a session is, which fixes its glyph.
   - variants: `Chat`, `Document`, `Sheet`
   - `pub fn icon(self) -> IconName` — The glyph for this kind.
 
+- **const** `DENSE_FIELD_H` — Height of the dense rename field: the compact row is 30 px with 4 px of vertical padding, so the field gets 20 px inside a 22 px bordered wrapper.
+  - `pub const DENSE_FIELD_H: f32 = 20.0;`
 - **const** `RAIL_WIDTH` — `.rail{width:48px;padding:8px 0;gap:4px}`.
   - `pub const RAIL_WIDTH: f32 = 48.0;`
 - **const** `SIDEBAR_WIDTH` — `.side{width:256px}`.
@@ -654,14 +659,22 @@ App shell: the three-column layout with one 44 px header cell per column, contin
   - `pub fn app_shell(id: impl Into<ElementId>) -> AppShell`
 - **fn** `centre_header` — The centre header: provider mark + worktree name + branch tag, spacer, overflow menu, right-pane toggle. Nothing else lives here.
   - `pub fn centre_header(id: impl Into<ElementId>, title: impl Into<SharedString>) -> CentreHeader`
+- **fn** `clamp_sidebar_width` — Clamps a drag width into the resizable range. The shell clamps its own target the same way, but call this on every drag move before notifying so the stored width never leaves the range.
+  - `pub fn clamp_sidebar_width(width: f32) -> f32`
 - **fn** `docked_composer` — A composer for `provider` / `model`.
   - `pub fn docked_composer(id: impl Into<ElementId>, provider: Provider, model: impl Into<SharedString>) -> DockedComposer`
+- **fn** `drag_capture_overlay` — A transparent layer over the window that forwards every move and the release to the drag intents. [...]
+  - `pub fn drag_capture_overlay(id: impl Into<ElementId>) -> DragCaptureOverlay`
+- **fn** `drag_region` — Wraps a header row so press-drag moves the window and double-click zooms.
+  - `pub fn drag_region(id: impl Into<ElementId>) -> DragRegion`
 - **fn** `drop_zones` — An overlay to place inside a `relative` panel body.
   - `pub fn drop_zones(id: impl Into<ElementId>, visible: bool) -> DropZones`
 - **fn** `header_cell` — An empty header cell.
   - `pub fn header_cell(id: impl Into<ElementId>) -> HeaderCell`
 - **fn** `panel_header` — A header with a title.
   - `pub fn panel_header(id: impl Into<ElementId>, title: impl Into<SharedString>) -> PanelHeader`
+- **fn** `resize_handle` — A 6 px transparent strip, full height, with the horizontal-resize cursor.
+  - `pub fn resize_handle(id: impl Into<ElementId>) -> ResizeHandle`
 - **fn** `right_header` — The right header: the pane’s tab strip, `+`, spacer, close.
   - `pub fn right_header(id: impl Into<ElementId>) -> RightHeader`
 - **fn** `sidebar_header` — The sidebar header: lights, back, forward, spacer, search, sidebar toggle.
@@ -673,15 +686,19 @@ App shell: the three-column layout with one 44 px header cell per column, contin
 
 - **struct** `AppShell` — The shell. Build with `app_shell`.
   - `pub fn centre(self, el: impl IntoElement) -> Self` — The centre pane (transcript + composer).
+  - `pub fn draggable(self, draggable: bool) -> Self` — Wraps the header row in a window drag region: press-drag moves the window, double-click zooms (macOS titlebar behaviour, `zoom_window` elsewhere). [...]
   - `pub fn framed(self, framed: bool) -> Self` — Draws the window frame the design card shows: line-strong border, radius 12, elevation 3. Apps fill the window instead.
   - `pub fn header_centre(self, el: impl IntoElement) -> Self` — The centre header cell content.
   - `pub fn header_right(self, el: impl IntoElement) -> Self` — The right header cell content (the pane’s tab strip).
   - `pub fn header_sidebar(self, el: impl IntoElement) -> Self` — The sidebar header cell content.
   - `pub fn rail(self, el: impl IntoElement) -> Self` — The collapsed sidebar pane: the rail that replaces `AppShell::sidebar` while `sidebar_open` is false. [...]
+  - `pub fn resizing(self, resizing: bool) -> Self` — A resize drag is in flight: the column feeds the width straight through and skips the layout spring so the divider tracks the pointer. [...]
   - `pub fn right(self, el: impl IntoElement) -> Self` — The right pane (workbench).
   - `pub fn right_open(self, open: bool) -> Self` — Whether the right pane is open; the column animates on the layout spring.
   - `pub fn right_width(self, width: impl Into<Pixels>) -> Self` — Overrides the right column width.
   - `pub fn sidebar(self, el: impl IntoElement) -> Self` — The sidebar pane.
+  - `pub fn sidebar_max_width(self, max: impl Into<Pixels>) -> Self` — Maximum sidebar width; the render target never goes above it while the sidebar is open. Defaults to `SIDEBAR_MAX_WIDTH`.
+  - `pub fn sidebar_min_width(self, min: impl Into<Pixels>) -> Self` — Minimum sidebar width; the render target never goes below it while the sidebar is open. Defaults to `SIDEBAR_MIN_WIDTH`.
   - `pub fn sidebar_open(self, open: bool) -> Self` — Whether the sidebar is expanded (false = the rail).
   - `pub fn sidebar_width(self, width: impl Into<Pixels>) -> Self` — Overrides the sidebar column width.
   - `pub fn traffic_lights(self, on: bool) -> Self` — The window’s controls sit in the shell’s top-left corner (the gallery paints them; a real window’s are native). [...]
@@ -701,6 +718,12 @@ App shell: the three-column layout with one 44 px header cell per column, contin
   - `pub fn pad_x(self, pad: f32) -> Self` — Overrides the horizontal padding.
   - `pub fn placeholder(self, text: impl Into<SharedString>) -> Self` — The placeholder text.
   - `pub fn streaming(self, streaming: bool) -> Self` — A turn is running: the send button morphs to stop.
+- **struct** `DragCaptureOverlay` — The full-window capture layer for an in-flight resize drag. Build with `drag_capture_overlay`.
+  - `pub fn on_drag(self, f: impl Fn(f32, &mut Window, &mut App) + 'static) -> Self` — A move anywhere in the window; same update as the handle’s `on_drag`.
+  - `pub fn on_drag_end(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The button was released; same teardown as the handle’s `on_drag_end`.
+- **struct** `DragRegion` — A window drag region over its children. Build with `drag_region`.
+  - `pub fn child(self, el: impl IntoElement) -> Self` — Adds wrapped content (usually one header row).
+  - `pub fn enabled(self, enabled: bool) -> Self` — Whether press-drag and double-click are armed. On by default; pass false to keep the (layout-identical) wrapper without the behaviour.
 - **struct** `DropZones` — The overlay. Build with `drop_zones`.
   - `pub fn hot(self, zone: Option<DropZone>) -> Self` — The zone under the pointer (drawn solid at full opacity).
 - **struct** `HeaderCell` — A plain header cell: 44 px row, gap 6, padding 0 10. Build with `header_cell`.
@@ -710,6 +733,10 @@ App shell: the three-column layout with one 44 px header cell per column, contin
   - `pub fn grip(self, grip: bool) -> Self` — Whether to show the drag grip (floating panels).
   - `pub fn icon(self, glyph: IconName) -> Self` — The 14 px glyph before the title.
   - `pub fn subtitle(self, subtitle: impl Into<SharedString>) -> Self` — The ink-3 subtitle after the title.
+- **struct** `ResizeHandle` — The resize strip over the sidebar/centre divider. Build with `resize_handle`.
+  - `pub fn on_drag(self, f: impl Fn(f32, &mut Window, &mut App) + 'static) -> Self` — The pointer moved with the left button held; the argument is the current x in window pixels. Set `width = clamp(start_w + (x - grab_x))`.
+  - `pub fn on_drag_end(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The button was released (inside or outside the strip). Disarm the drag and persist the width.
+  - `pub fn on_drag_start(self, f: impl Fn(f32, &mut Window, &mut App) + 'static) -> Self` — The left button went down on the strip; the argument is the grab x in window pixels. Arm the drag and remember `grab_x` and `start_w`.
 - **struct** `RightHeader` — Right header cell. Build with `right_header`.
   - `pub fn on_add(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — `+` click (new tab).
   - `pub fn on_close(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Close click (collapses the pane).
@@ -747,8 +774,14 @@ App shell: the three-column layout with one 44 px header cell per column, contin
   - `pub const RAIL_WIDTH: f32 = 48.0;`
 - **const** `RAIL_WIDTH_WITH_LIGHTS` — The collapsed sidebar column when the window’s controls sit above it: the macOS traffic lights own the top-left of the window whether the shell paints them or the system does, so the rail column widen [...]
   - `pub const RAIL_WIDTH_WITH_LIGHTS: f32 = 72.0;`
+- **const** `RESIZE_HANDLE_W` — Width of the resize strip: wide enough to grab, transparent so the divider beneath it keeps its own paint.
+  - `pub const RESIZE_HANDLE_W: f32 = 6.0;`
 - **const** `RIGHT_WIDTH` — Right column width in the app (400; card 10 uses 392).
   - `pub const RIGHT_WIDTH: f32 = 400.0;`
+- **const** `SIDEBAR_MAX_WIDTH` — Maximum sidebar width while resizing: keeps the transcript usable.
+  - `pub const SIDEBAR_MAX_WIDTH: f32 = 420.0;`
+- **const** `SIDEBAR_MIN_WIDTH` — Minimum sidebar width while resizing: rows need ~200 px at 12.5 px text. Clamp every drag move with `clamp_sidebar_width`.
+  - `pub const SIDEBAR_MIN_WIDTH: f32 = 180.0;`
 - **const** `SIDEBAR_WIDTH` — Sidebar column width (`grid-template-columns: 252px …`).
   - `pub const SIDEBAR_WIDTH: f32 = 252.0;`
 
@@ -1698,7 +1731,7 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
     `Image`, `Play`, `Dots`, `Inbox`, `Zap`, `Book`, `Link`, `Sidebar`, `Clock`, `PanelRight`,
     `GradCap`, `Scale`, `Gear`, `FtFolder`, `FtFolderOpen`, `FtTs`, `FtTsx`, `FtJson`, `FtMd`,
     `FtTest`, `FtCss`, `FtLock`, `FtImage`, `FtFile`, `Sliders`, `SpinnerRing`, `SpinnerArc`,
-    `CheckBold`, `XBold`, `Chev`
+    `CheckBold`, `XBold`, `Chev`, `Archive`
   - `pub fn bytes(self) -> &'static [u8] ⓘ` — The standalone SVG bytes for this glyph.
   - `pub fn id(self) -> &'static str` — The `id` of this glyph’s `<symbol>` in the sprite sheet.
   - `pub fn path(self) -> &'static str` — The asset path this glyph is served at by `crate::Assets`.

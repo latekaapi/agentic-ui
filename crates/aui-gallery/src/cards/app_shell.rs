@@ -11,7 +11,8 @@ use std::time::Duration;
 use aui::data::{button, chip, glyph_ok, kbd, spinner, tag};
 use aui::nav::{group_header, group_row, nav_item, rail, session_row, sidebar_footer, ActivityKind, MetaItem, RailItem, SessionSummary};
 use aui::transcript::{diff_note_inset, DiffNote, NoteInsets};
-use aui::shell::{app_shell, centre_header, docked_composer, right_header, sidebar_header, tab_strip, TabItem};
+use aui::shell::{app_shell, centre_header, clamp_sidebar_width, docked_composer, drag_capture_overlay, resize_handle, right_header, sidebar_header, tab_strip, TabItem};
+use aui::shell::{SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_WIDTH};
 use aui_icons::{icon, FileType, IconName, Provider};
 use aui_motion::{looping, shimmer_text, Loop};
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette, TextRole};
@@ -94,17 +95,39 @@ const ACTIONS_GAP: f32 = 8.0;
 const ACTIONS_PAD_Y: f32 = 10.0;
 const ACTIONS_PAD_X: f32 = 12.0;
 
-/// Interactive state of the card: the shell toggles and the active tab.
+/// `AUI_GALLERY_SIDEBAR_WIDTH`: screenshot hook for the resize range —
+/// e.g. `180`, `252`, `420` capture the card at the min, default and max.
+const WIDTH_ENV: &str = "AUI_GALLERY_SIDEBAR_WIDTH";
+
+/// The width screenshots start from (the hook above, else the default).
+fn initial_width() -> f32 {
+    std::env::var(WIDTH_ENV).ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(SIDEBAR_WIDTH)
+}
+
+/// Interactive state of the card: the shell toggles, the active tab, and the
+/// live sidebar resize (`width` / `resizing` / `grab_x` / `start_w`).
 #[derive(Clone, Copy)]
 struct ShellState {
     right_open: bool,
     sidebar_open: bool,
     tab: usize,
+    sidebar_width: f32,
+    resizing: bool,
+    grab_x: f32,
+    start_w: f32,
 }
 
 /// Builds the card content.
 pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
-    let state = window.use_keyed_state("card10-state", cx, |_, _| ShellState { right_open: true, sidebar_open: !collapsed_by_default(), tab: 0 });
+    let state = window.use_keyed_state("card10-state", cx, |_, _| ShellState {
+        right_open: true,
+        sidebar_open: !collapsed_by_default(),
+        tab: 0,
+        sidebar_width: initial_width(),
+        resizing: false,
+        grab_x: 0.0,
+        start_w: 0.0,
+    });
     let current = *state.read(cx);
     let update = |f: fn(&mut ShellState)| {
         let state = state.clone();
@@ -130,7 +153,40 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             cx.notify();
         })
     });
-    div()
+    // The resize intents: press arms the drag and remembers the grab point
+    // and the resting width; moves clamp into the resizable range; release
+    // disarms. The same two closures feed the handle and the capture overlay.
+    let on_move = || {
+        let state = state.clone();
+        move |x: f32, _: &mut Window, cx: &mut App| {
+            state.update(cx, |s, cx| {
+                s.sidebar_width = clamp_sidebar_width(s.start_w + (x - s.grab_x));
+                cx.notify();
+            });
+        }
+    };
+    let on_end = || {
+        let state = state.clone();
+        move |_: &mut Window, cx: &mut App| {
+            state.update(cx, |s, cx| {
+                s.resizing = false;
+                cx.notify();
+            });
+        }
+    };
+    let on_start = {
+        let state = state.clone();
+        move |x: f32, _: &mut Window, cx: &mut App| {
+            state.update(cx, |s, cx| {
+                s.resizing = true;
+                s.grab_x = x;
+                s.start_w = s.sidebar_width;
+                cx.notify();
+            });
+        }
+    };
+    let mut frame = div()
+        .relative()
         .w(px(FRAME_W))
         .h(px(FRAME_H))
         .flex_none()
@@ -139,6 +195,10 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             app_shell("card10-shell")
                 .framed(true)
                 .traffic_lights(true)
+                .sidebar_width(px(current.sidebar_width))
+                .sidebar_min_width(px(SIDEBAR_MIN_WIDTH))
+                .sidebar_max_width(px(SIDEBAR_MAX_WIDTH))
+                .resizing(current.resizing)
                 .right_width(px(RIGHT_WIDTH))
                 .right_open(current.right_open)
                 .sidebar_open(current.sidebar_open)
@@ -163,8 +223,22 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .rail(shell_rail())
                 .centre(centre(window, cx))
                 .right(right_pane(cx)),
-        )
-        .into_any_element()
+        );
+    // The resize strip rides the divider, centred on the edge; hidden with
+    // the sidebar, since there is no divider to grab on the rail.
+    if current.sidebar_open {
+        frame = frame.child(
+            div().absolute().top(px(0.0)).bottom(px(0.0)).left(px(current.sidebar_width - 3.0)).child(
+                resize_handle("card10-resize").on_drag_start(on_start).on_drag(on_move()).on_drag_end(on_end()),
+            ),
+        );
+    }
+    // Mid-drag the capture overlay owns the window so the drag survives the
+    // pointer leaving the 6 px strip.
+    if current.resizing {
+        frame = frame.child(drag_capture_overlay("card10-resize-capture").on_drag(on_move()).on_drag_end(on_end()));
+    }
+    frame.into_any_element()
 }
 
 /// The gallery renders one static frame per screenshot, so the collapsed state

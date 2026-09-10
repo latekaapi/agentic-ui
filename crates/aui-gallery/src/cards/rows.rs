@@ -2,7 +2,7 @@
 //! legend. Reproduces `design/src/cards/sidebar/20-worktree-rows.html` at
 //! 720×560.
 
-use aui::nav::{session_row, ActivityKind, MetaItem, SessionSummary};
+use aui::nav::{compact_session_row, session_row, ActivityKind, MetaItem, RowAction, SessionSummary};
 use aui_icons::Provider;
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette};
 use gpui::*;
@@ -72,6 +72,23 @@ pub fn sample_sessions() -> Vec<(SessionSummary, bool)> {
     ]
 }
 
+/// The dense rename mock: the 22 px bordered wrapper at the row-title size,
+/// so the editing row keeps the 30 px row height (see `aui::nav::dense_field`).
+fn rename_mock(p: Palette) -> impl IntoElement {
+    h_flex()
+        .w_full()
+        .h(px(22.0))
+        .px(px(6.0))
+        .items_center()
+        .rounded(px(scale::R_SM))
+        .border_1()
+        .border_color(p.accent)
+        .bg(p.surface_1)
+        .ui(12.5)
+        .text_color(p.ink)
+        .child(div().flex_1().min_w(px(0.0)).truncate().child("Checkout flow"))
+}
+
 /// Builds the card content.
 pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
@@ -84,8 +101,24 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         .border_color(p.line)
         .bg(p.surface_1);
     for (i, (session, selected)) in sample_sessions().into_iter().enumerate() {
-        list = list.child(session_row(("card20-row", i), session).selected(selected).collapse_margins());
+        let mut row = session_row(("card20-row", i), session).selected(selected).collapse_margins();
+        // The idle row manages lifecycle, so its tray adds archive: terminal,
+        // browser, pin, archive, more. The tray opens on hover; the archive
+        // icon is the `archive` glyph.
+        if i == 4 {
+            row = row.actions(vec![RowAction::Terminal, RowAction::Browser, RowAction::Pin, RowAction::Archive, RowAction::More]);
+        }
+        list = list.child(row);
     }
+    // A compact row mid-rename: the dense field keeps the 30 px row height.
+    list = list.child(
+        compact_session_row(
+            ("card20-row", 96usize),
+            SessionSummary::new("rename-me", "Checkout flow", AgentState::Running, "now").pulse(),
+        )
+        .actions(vec![RowAction::Pin, RowAction::Archive])
+        .editor(rename_mock(p)),
+    );
     h_flex()
         .w_full()
         .items_start()
@@ -100,7 +133,8 @@ fn legend(p: Palette) -> impl IntoElement {
     let items = [
         ("Anatomy.", " Status dot, name, elapsed time; second line repo tag, branch, provider marks; optional third line is the live activity sentence, truncated, updated as the agent streams."),
         ("States.", " Running pulses in accent. Needs-you pulses in warning and shows what it is waiting for. Done shows the PR pill. Failed shows the failing count. Idle is grey and silent."),
-        ("Hover.", " The time slot yields to four quiet actions: terminal, browser, pin, more. Unread turns get a 3 px accent bar on the left edge."),
+        ("Hover.", " The time slot yields to quiet actions: terminal, browser, pin, more — rows that manage lifecycle add archive. Unread turns get a 3 px accent bar on the left edge."),
+        ("Rename.", " The dense field edits in place at the row-title size with no chrome; the focus border lives on its 22 px wrapper, so the row keeps its 30 px and siblings never move."),
         ("Children.", " Fan-out tasks nest under the parent with a hairline rail and a smaller name."),
     ];
     let mut col = v_flex().max_w(px(LEGEND_MEASURE)).pt(px(LEGEND_TOP)).gap(px(LEGEND_GAP)).ui(scale::FS_12).text_color(p.ink_2);

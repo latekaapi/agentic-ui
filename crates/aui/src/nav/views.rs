@@ -308,7 +308,25 @@ impl RenderOnce for SidebarView {
                 }
             }
             Grouping::Date(groups) => {
-                for (i, group) in groups.into_iter().enumerate() {
+                // Pinned sessions lift out of the date buckets into a leading
+                // group styled like the sidebar's `Pinned 3` (card 21).
+                let mut pinned: Vec<SessionSummary> = Vec::new();
+                let mut dated: Vec<DateGroup> = Vec::with_capacity(groups.len());
+                for group in groups.into_iter() {
+                    let (is_pinned, rest): (Vec<_>, Vec<_>) = group.sessions.into_iter().partition(|s| s.pinned);
+                    pinned.extend(is_pinned);
+                    if !rest.is_empty() {
+                        dated.push(DateGroup::new(group.label, rest));
+                    }
+                }
+                if !pinned.is_empty() {
+                    let key: ElementId = (id.clone(), "pinned").into();
+                    let count = SharedString::from(pinned.len().to_string());
+                    col = col
+                        .child(group_header((key.clone(), "header"), "Pinned", true).count(count))
+                        .child(rows(&key, pinned, &selected, &actions, &editing, &on_select, &on_action));
+                }
+                for (i, group) in dated.into_iter().enumerate() {
                     let key: ElementId = (id.clone(), SharedString::from(format!("date-{i}"))).into();
                     col = col
                         .child(date_group_header(group.label.clone()))
