@@ -68,6 +68,7 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
   - `pub fn on_remove(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — Drop the attachment (the `x` on a ready row).
   - `pub fn on_retry(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — Try the failed upload again (`Retry`).
   - `pub fn state(self, state: AttachmentRowState) -> Self` — Sets the row state.
+  - `pub fn thumbnail(self, thumbnail: Arc<RenderImage>) -> Self` — A decoded preview for `AttachmentKind::Image`: drawn as the tile in place of the glyph, like the composer image chip.
 - **struct** `CommandItem` — One row of the `/` menu.
   - fields: `id`, `command`, `description`, `key`, `source_tag`
   - `pub fn key(self, key: impl Into<SharedString>) -> Self` — Adds the keycap at the right edge.
@@ -98,7 +99,7 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
   - `pub fn plus_menu(self, open: bool, menu: Option<impl IntoElement>) -> Self` — Whether the `+` menu is open (rotates the button); pass the menu element too.
   - `pub fn streaming(self, streaming: bool) -> Self` — A turn is running: the send button shows stop.
 - **struct** `ComposerChip` — A chip above the text.
-  - fields: `id`, `kind`, `label`, `removable`
+  - fields: `id`, `kind`, `label`, `removable`, `thumbnail`, `detail`
 - **struct** `ComposerMeta` — The optional strip above the card.
   - fields: `branch`, `context`, `cost`, `hint`
 - **struct** `DropOverlay` — The drag-over overlay (`.ov`). Build with `drop_overlay`.
@@ -121,7 +122,7 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
   - fields: `title`, `items`
   - `pub fn new(title: impl Into<SharedString>, items: Vec<MentionItem>) -> Self` — A section with its header and rows.
 - **struct** `PickerMenu` — A composer chip menu. Build with `model_menu`, `effort_menu` or `mode_menu`.
-  - `pub fn at_rest(self) -> Self` — Skips the enter morph (static captures).
+  - `pub fn at_rest(self) -> Self` — Skips the enter (static captures).
   - `pub fn on_close(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — A click outside the menu.
   - `pub fn on_hover(self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self` — The pointer entered a row; the argument is its index, so the caller can move the selection to it and keep one highlight on screen.
   - `pub fn on_pick(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A row was activated; the argument is its `PickerRow::id`.
@@ -132,7 +133,7 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
   - `pub fn meta(self, meta: impl Into<SharedString>) -> Self` — The trailing mono fact.
   - `pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>, detail: impl Into<SharedString>) -> Self` — A row with a label and a description.
 - **struct** `PlusMenu` — The menu. Build with `plus_menu`.
-  - `pub fn at_rest(self) -> Self` — Skips the enter morph (static captures).
+  - `pub fn at_rest(self) -> Self` — Skips the enter (static captures).
   - `pub fn on_activate(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — Activation handler.
 - **struct** `PlusMenuItem` — One row of the menu.
   - fields: `id`, `icon`, `label`, `key`
@@ -222,6 +223,7 @@ Shared data-display primitives every card is built from (`base.css`): buttons, c
   - `pub fn active(self, active: bool) -> Self` — Selected: ink text and the line-strong border.
   - `pub fn chevron(self) -> Self` — A trailing chevron-down, for chips that open a menu.
   - `pub fn composer(self) -> Self` — The 28 px composer toolbar size.
+  - `pub fn detail(self, detail: impl Into<SharedString>) -> Self` — A muted suffix after the label (a file chip’s kind and size).
   - `pub fn icon(self, glyph: IconName) -> Self` — A leading 11 px glyph.
   - `pub fn leading(self, element: impl IntoElement) -> Self` — Any leading element (a provider mark, a file-type icon).
   - `pub fn on_click(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Click handler.
@@ -1424,6 +1426,10 @@ Motion durations from `motion.json`, mirrored for convenience.
   - `pub const EXIT: Duration;`
 - **const** `FAST`
   - `pub const FAST: Duration;`
+- **const** `QUICK_ENTER`
+  - `pub const QUICK_ENTER: Duration;`
+- **const** `QUICK_EXIT`
+  - `pub const QUICK_EXIT: Duration;`
 - **const** `SLOW`
   - `pub const SLOW: Duration;`
 
@@ -1608,6 +1614,10 @@ Motion durations from `motion.json`, mirrored for convenience.
   - `pub const EXIT: Duration;`
 - **const** `FAST`
   - `pub const FAST: Duration;`
+- **const** `QUICK_ENTER`
+  - `pub const QUICK_ENTER: Duration;`
+- **const** `QUICK_EXIT`
+  - `pub const QUICK_EXIT: Duration;`
 - **const** `SLOW`
   - `pub const SLOW: Duration;`
 

@@ -1,12 +1,12 @@
-//! `.menu`: the `+` popover — 200 wide, overlay ground, morphs out of the
-//! button's corner on the gentle spring.
+//! `.menu`: the `+` popover — 200 wide, overlay ground, rising 6 px with a
+//! fade on the quick presence tween every composer menu shares.
 //!
 //! It is anchored to the `+` button (absolute, from the button's holder) but
 //! painted on [`crate::overlay::popover_layer`], so the composer's focus ring,
 //! chips and toolbar cannot draw over it.
 
 use aui_icons::{icon, IconName};
-use aui_motion::{spring_phase, SpringKind};
+use aui_motion::{presence, EnterExit, PresenceStyle};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -27,8 +27,10 @@ const MENU_PAD: f32 = 6.0;
 const ITEM_GAP: f32 = 8.0;
 const ITEM_PAD: f32 = 8.0;
 const ITEM_TEXT: f32 = 12.5;
-/// The morph starts at scale .85 from the bottom-left corner.
-const MORPH_FROM: f32 = 0.85;
+/// The enter rises 6 px from the button's corner at scale .98 — the one
+/// presence tween every composer menu shares.
+const POP_RISE: f32 = 6.0;
+const POP_FROM_SCALE: f32 = 0.98;
 
 /// One row of the menu.
 #[derive(Debug, Clone, PartialEq)]
@@ -74,7 +76,7 @@ pub fn plus_menu(id: impl Into<ElementId>, items: Vec<PlusMenuItem>, open: bool)
 }
 
 impl PlusMenu {
-    /// Skips the enter morph (static captures).
+    /// Skips the enter (static captures).
     pub fn at_rest(mut self) -> Self {
         self.at_rest = true;
         self
@@ -93,32 +95,28 @@ impl RenderOnce for PlusMenu {
         let id = self.id.clone();
         // At rest the menu is either fully out or fully gone; `open` still
         // decides which, or a closed menu would draw itself in static captures.
-        let phase = if self.at_rest {
-            if self.open {
-                1.0
-            } else {
-                0.0
-            }
+        let style = if self.at_rest {
+            PresenceStyle { opacity: if self.open { 1.0 } else { 0.0 }, offset_y: px(0.0), scale: 1.0 }
         } else {
-            spring_phase((id.clone(), "morph"), self.open, SpringKind::Gentle, window, cx).clamp(0.0, 1.0)
+            let sample = presence((id.clone(), "enter"), self.open, EnterExit::QUICK, window, cx);
+            PresenceStyle::fade_rise_scale(sample, POP_RISE, POP_FROM_SCALE)
         };
-        if !self.open && phase <= 0.001 {
+        if !self.open && style.opacity <= 0.001 {
             return div().invisible().into_any_element();
         }
-        let scale_now = MORPH_FROM + (1.0 - MORPH_FROM) * phase;
         let mut menu = v_flex()
             .id(id.clone())
             .absolute()
-            .bottom(px(MENU_BOTTOM))
+            .bottom(px(MENU_BOTTOM) - style.offset_y)
             .left(px(MENU_LEFT))
-            .w(px(MENU_W * scale_now))
+            .w(px(MENU_W * style.scale))
             .p(px(MENU_PAD))
             .rounded(px(scale::R_LG))
             .border_1()
             .border_color(p.line_strong)
             .bg(p.overlay)
             .shadow(p.shadow(3))
-            .opacity(phase)
+            .opacity(style.opacity)
             .overflow_hidden();
         for item in self.items {
             let item_id: ElementId = (id.clone(), SharedString::from(format!("item-{}", item.id))).into();

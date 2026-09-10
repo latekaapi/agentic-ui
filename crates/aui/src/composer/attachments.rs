@@ -93,6 +93,7 @@ pub struct AttachmentRow {
     meta: SharedString,
     kind: AttachmentKind,
     glyph: Option<IconName>,
+    thumbnail: Option<std::sync::Arc<gpui::RenderImage>>,
     state: AttachmentRowState,
     on_remove: Option<Handler>,
     on_cancel: Option<Handler>,
@@ -111,6 +112,7 @@ pub fn attachment_row(id: impl Into<ElementId>, name: impl Into<SharedString>, m
         meta: meta.into(),
         kind: AttachmentKind::File,
         glyph: None,
+        thumbnail: None,
         state: AttachmentRowState::Ready,
         on_remove: None,
         on_cancel: None,
@@ -129,6 +131,13 @@ impl AttachmentRow {
     /// Overrides the tile glyph the kind would pick (a PDF is a file).
     pub fn glyph(mut self, glyph: IconName) -> Self {
         self.glyph = Some(glyph);
+        self
+    }
+
+    /// A decoded preview for [`AttachmentKind::Image`]: drawn as the tile in
+    /// place of the glyph, like the composer image chip.
+    pub fn thumbnail(mut self, thumbnail: std::sync::Arc<gpui::RenderImage>) -> Self {
+        self.thumbnail = Some(thumbnail);
         self
     }
 
@@ -173,30 +182,48 @@ impl RenderOnce for AttachmentRow {
             (_, AttachmentKind::Image) => IconName::Image,
             (_, AttachmentKind::File | AttachmentKind::Text) => IconName::File,
         });
-        let mut thumb = div()
-            .flex_none()
-            .size(px(THUMB))
-            .rounded(px(scale::R_SM))
-            .flex()
-            .items_center()
-            .justify_center();
-        thumb = if failed {
-            thumb.bg(p.danger_soft).text_color(p.danger)
-        } else if matches!(self.kind, AttachmentKind::Text) && !hint {
-            thumb.bg(p.info_soft).text_color(p.info)
-        } else {
-            thumb
-                .bg(linear_gradient(
-                    THUMB_GRADIENT_ANGLE,
-                    linear_color_stop(p.surface_3, 0.0),
-                    linear_color_stop(p.line_strong, 1.0),
-                ))
-                .text_color(p.ink_3)
+        let thumb: gpui::AnyElement = match (&self.kind, &self.thumbnail) {
+            // A decoded preview replaces the glyph tile, like the composer
+            // image chip.
+            (AttachmentKind::Image, Some(image)) => {
+                let mut preview = div()
+                    .flex_none()
+                    .size(px(THUMB))
+                    .rounded(px(scale::R_SM))
+                    .overflow_hidden()
+                    .child(gpui::img(image.clone()).object_fit(gpui::ObjectFit::Cover).w_full().h_full());
+                if uploading {
+                    preview = preview.opacity(THUMB_UPLOADING_OPACITY);
+                }
+                preview.into_any_element()
+            }
+            _ => {
+                let mut tile = div()
+                    .flex_none()
+                    .size(px(THUMB))
+                    .rounded(px(scale::R_SM))
+                    .flex()
+                    .items_center()
+                    .justify_center();
+                tile = if failed {
+                    tile.bg(p.danger_soft).text_color(p.danger)
+                } else if matches!(self.kind, AttachmentKind::Text) && !hint {
+                    tile.bg(p.info_soft).text_color(p.info)
+                } else {
+                    tile
+                        .bg(linear_gradient(
+                            THUMB_GRADIENT_ANGLE,
+                            linear_color_stop(p.surface_3, 0.0),
+                            linear_color_stop(p.line_strong, 1.0),
+                        ))
+                        .text_color(p.ink_3)
+                };
+                if uploading {
+                    tile = tile.opacity(THUMB_UPLOADING_OPACITY);
+                }
+                tile.child(icon(glyph)).into_any_element()
+            }
         };
-        if uploading {
-            thumb = thumb.opacity(THUMB_UPLOADING_OPACITY);
-        }
-        let thumb = thumb.child(icon(glyph));
 
         // The meta line follows the state.
         let (meta_text, meta_color) = match &self.state {

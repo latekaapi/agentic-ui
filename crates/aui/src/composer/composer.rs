@@ -38,6 +38,14 @@ const CHIP_MARK: f32 = 12.0;
 const CHIP_GLYPH: f32 = 11.0;
 /// The `x` in a context chip: 10 px at ink-4.
 const CHIP_X: f32 = 10.0;
+/// An image chip with a decoded thumbnail: a 30 px tile in a 32 px pill (the
+/// 1 px border on each side); the tile sits 1 px off the border while the gap
+/// and the right pad match the text chips.
+const CHIP_THUMB: f32 = 30.0;
+const IMAGE_CHIP_H: f32 = 32.0;
+const IMAGE_CHIP_PAD_L: f32 = 1.0;
+const IMAGE_CHIP_GAP: f32 = 5.0;
+const IMAGE_CHIP_PAD_R: f32 = 8.0;
 /// The send glyph (14) and the press scale (.92).
 const SEND_ICON: f32 = 14.0;
 const SEND_PRESS: f32 = 0.92;
@@ -88,7 +96,7 @@ pub enum ComposerChipAnchor {
 }
 
 /// A chip above the text.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct ComposerChip {
     /// Stable id, reported on removal.
     pub id: SharedString,
@@ -98,6 +106,26 @@ pub struct ComposerChip {
     pub label: SharedString,
     /// Whether it shows the remove `x`.
     pub removable: bool,
+    /// A decoded preview for [`ComposerChipKind::Image`], drawn as a rounded
+    /// tile in place of the glyph. The caller decodes it once at attach time
+    /// and drops it on remove/send, so full bytes never ride along.
+    pub thumbnail: Option<std::sync::Arc<gpui::RenderImage>>,
+    /// Muted suffix for [`ComposerChipKind::File`] (`PDF · 2.1 MB`).
+    pub detail: Option<SharedString>,
+}
+
+impl std::fmt::Debug for ComposerChip {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // `RenderImage` has no `Debug`, so the thumbnail reports presence only.
+        f.debug_struct("ComposerChip")
+            .field("id", &self.id)
+            .field("kind", &self.kind)
+            .field("label", &self.label)
+            .field("removable", &self.removable)
+            .field("thumbnail", &self.thumbnail.is_some())
+            .field("detail", &self.detail)
+            .finish()
+    }
 }
 
 /// The optional strip above the card.
@@ -151,7 +179,10 @@ pub fn composer_state(placeholder: impl Into<SharedString>, window: &mut Window,
 
 /// Like [`composer_state`] with explicit row bounds (the docked composer starts at one row).
 pub fn composer_state_rows(placeholder: impl Into<SharedString>, min_rows: usize, max_rows: usize, window: &mut Window, cx: &mut gpui::Context<TextareaState>) -> TextareaState {
-    TextareaState::new(window, cx).placeholder(placeholder).auto_grow(min_rows, max_rows)
+    // Enter submits (emits `PressEnter` + propagates, so the app sends) and
+    // Shift+Enter still inserts a newline; single-line states never insert,
+    // so the flag is a no-op for them.
+    TextareaState::new(window, cx).placeholder(placeholder).auto_grow(min_rows, max_rows).submit_on_enter(true)
 }
 
 /// The composer. Build with [`composer`].
@@ -328,6 +359,49 @@ impl RenderOnce for Composer {
         // Chips row.
         let mut chips_row = h_flex().w_full().flex_wrap().gap(px(CHIPS_GAP)).pt(px(CHIPS_PAD_TOP)).px(px(CHIPS_PAD_X));
         for c in &self.chips {
+            // An image with a decoded preview wears its thumbnail: a rounded
+            // tile in place of the glyph, in a pill sized to the tile.
+            if c.kind == ComposerChipKind::Image {
+                if let Some(thumb) = &c.thumbnail {
+                    let tile = div()
+                        .size(px(CHIP_THUMB))
+                        .rounded(px(scale::R_SM))
+                        .overflow_hidden()
+                        .child(gpui::img(thumb.clone()).object_fit(gpui::ObjectFit::Cover).w_full().h_full());
+                    let mut pill = div()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .h(px(IMAGE_CHIP_H))
+                        .pl(px(IMAGE_CHIP_PAD_L))
+                        .pr(px(IMAGE_CHIP_PAD_R))
+                        .gap(px(IMAGE_CHIP_GAP))
+                        .rounded(px(scale::R_SM))
+                        .border_1()
+                        .border_color(p.line)
+                        .bg(p.surface_1)
+                        .font_family(scale::FONT_UI)
+                        .text_px(scale::FS_12)
+                        .line_height(relative(1.0))
+                        .medium()
+                        .whitespace_nowrap()
+                        .text_color(p.ink_2)
+                        .child(tile)
+                        .child(c.label.clone());
+                    if c.removable {
+                        let remove = emit(ComposerIntent::RemoveChip(c.id.clone()));
+                        pill = pill.child(
+                            div()
+                                .id((id.clone(), SharedString::from(format!("chip-x-{}", c.id))))
+                                .cursor_pointer()
+                                .on_click(remove)
+                                .child(icon(IconName::X).size(px(CHIP_X)).color(p.ink_4)),
+                        );
+                    }
+                    chips_row = chips_row.child(pill);
+                    continue;
+                }
+            }
             let leading: gpui::AnyElement = match c.kind {
                 ComposerChipKind::Mention => div().mono(scale::FS_12).line_height(relative(1.0)).text_color(p.accent_ink).child("@").into_any_element(),
                 ComposerChipKind::Skill => div().mono(scale::FS_12).line_height(relative(1.0)).text_color(p.accent_ink).child("$").into_any_element(),
@@ -335,6 +409,12 @@ impl RenderOnce for Composer {
                 ComposerChipKind::File => icon(IconName::File).size(px(CHIP_GLYPH)).into_any_element(),
             };
             let mut el = chip((id.clone(), SharedString::from(format!("chip-{}", c.id))), c.label.clone()).leading(leading);
+            // A file names its kind and size after the glyph, muted.
+            if c.kind == ComposerChipKind::File {
+                if let Some(detail) = &c.detail {
+                    el = el.detail(detail.clone());
+                }
+            }
             if c.removable {
                 let remove = emit(ComposerIntent::RemoveChip(c.id.clone()));
                 el = el.trailing(div().id((id.clone(), SharedString::from(format!("chip-x-{}", c.id)))).cursor_pointer().on_click(remove).child(icon(IconName::X).size(px(CHIP_X)).color(p.ink_4)));

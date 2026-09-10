@@ -26,6 +26,9 @@ impl EnterExit {
     pub const DEFAULT: EnterExit = EnterExit { enter: durations::ENTER, exit: durations::EXIT, delay: Duration::ZERO };
     /// base 180 both ways — streamed chunks, list rows.
     pub const BASE: EnterExit = EnterExit { enter: durations::BASE, exit: durations::BASE, delay: Duration::ZERO };
+    /// quick 150 in / 120 out — composer menus (plus, pickers, caret
+    /// popovers), the one presence tween every composer menu shares.
+    pub const QUICK: EnterExit = EnterExit { enter: durations::QUICK_ENTER, exit: durations::QUICK_EXIT, delay: Duration::ZERO };
 
     /// Adds an enter delay.
     pub const fn with_delay(mut self, delay: Duration) -> Self {
@@ -92,5 +95,19 @@ impl PresenceStyle {
     /// Whether the element is fully at rest and visible.
     pub fn settled(sample: PresenceSample) -> bool {
         matches!(sample.phase, PresencePhase::Present)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quick_is_the_snappy_menu_timing() {
+        assert!(EnterExit::QUICK.enter.as_millis() <= 150, "enter {:?}", EnterExit::QUICK.enter);
+        assert!(EnterExit::QUICK.exit.as_millis() <= 120, "exit {:?}", EnterExit::QUICK.exit);
+        assert_eq!(EnterExit::QUICK.enter, durations::QUICK_ENTER);
+        assert_eq!(EnterExit::QUICK.exit, durations::QUICK_EXIT);
+        assert_eq!(EnterExit::QUICK.delay, Duration::ZERO);
     }
 }

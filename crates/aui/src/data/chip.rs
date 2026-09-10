@@ -27,6 +27,7 @@ const LEADING_ICON: f32 = 11.0;
 pub struct Chip {
     id: ElementId,
     label: SharedString,
+    detail: Option<SharedString>,
     leading: Option<AnyElement>,
     trailing: Option<AnyElement>,
     chevron: bool,
@@ -38,7 +39,7 @@ pub struct Chip {
 
 /// A chip with a label.
 pub fn chip(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Chip {
-    Chip { id: id.into(), label: label.into(), leading: None, trailing: None, chevron: false, composer: false, active: false, accent: false, on_click: None }
+    Chip { id: id.into(), label: label.into(), detail: None, leading: None, trailing: None, chevron: false, composer: false, active: false, accent: false, on_click: None }
 }
 
 impl Chip {
@@ -56,6 +57,12 @@ impl Chip {
     /// A trailing element (the remove `x` of a context chip).
     pub fn trailing(mut self, element: impl IntoElement) -> Self {
         self.trailing = Some(element.into_any_element());
+        self
+    }
+
+    /// A muted suffix after the label (a file chip's kind and size).
+    pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
+        self.detail = Some(detail.into());
         self
     }
 
@@ -129,6 +136,9 @@ impl RenderOnce for Chip {
             el = el.child(leading);
         }
         el = el.child(self.label);
+        if let Some(detail) = self.detail {
+            el = el.child(div().text_px(scale::FS_11).text_color(p.ink_3).child(detail));
+        }
         if self.chevron {
             el = el.child(icon(IconName::ChevronDown).size(px(CHEVRON)).color(text));
         }
