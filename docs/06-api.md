@@ -788,14 +788,22 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn goal_card(id: impl Into<ElementId>, objective: impl Into<SharedString>, status: impl Into<SharedString>) -> GoalCard`
 - **fn** `jump_pill` — A jump pill with `label` (`Jump to latest`); `JumpPill::count` adds the new-turn badge.
   - `pub fn jump_pill(id: impl Into<ElementId>, label: impl Into<SharedString>) -> JumpPill`
+- **fn** `last_block_runs` — The text and runs of the block that closes `source`, built exactly as `Markdown` builds them, so a caller that has to measure where the text ends (the streaming caret) shapes the same glyphs that are painted. [...]
+  - `pub fn last_block_runs(source: &str, style: &ProseStyle, link_ink: Hsla) -> Option<(String, Vec<TextRun>)>`
 - **fn** `last_paragraph_runs` — The text and text runs of the paragraph that closes `markdown`, built exactly as `prose` builds them, so a caller that has to measure where the prose ends (the streaming caret) shapes the same glyphs that are painted. [...]
   - `pub fn last_paragraph_runs(markdown: &str, style: &ProseStyle) -> Option<(String, Vec<TextRun>)>`
+- **fn** `markdown` — Renders `source` as markdown blocks in `style`.
+  - `pub fn markdown(id: impl Into<ElementId>, source: impl Into<SharedString>, style: ProseStyle) -> Markdown`
 - **fn** `marker_row` — A marker with plain text; add emphasis, links or a hand-off with the builders.
   - `pub fn marker_row(id: impl Into<ElementId>) -> MarkerRow`
 - **fn** `needs_you_banner` — A needs-you banner: bold `headline` then plain `detail`, with a jump action.
   - `pub fn needs_you_banner(id: impl Into<ElementId>, headline: impl Into<SharedString>, detail: impl Into<SharedString>) -> NeedsYouBanner`
 - **fn** `parse_ansi` — Splits `line` into spans at its SGR escapes.
   - `pub fn parse_ansi(line: &str) -> Vec<AnsiSpan>`
+- **fn** `parse_markdown` — Parses `source` into blocks, uncached. Prefer `parsed_markdown`, which memoises this across frames.
+  - `pub fn parse_markdown(source: &str) -> Vec<Block>`
+- **fn** `parsed_markdown` — Parses `source` into shared blocks, memoised across frames: every render of the same turn hits the cache instead of re-running the parser, which is the per-delta re-parse the transcript diagnosis attributes the scroll jank to. [...]
+  - `pub fn parsed_markdown(source: &str, style: &ProseStyle) -> Arc<Vec<Block>> ⓘ`
 - **fn** `plan_card` — A proposed plan over `items`; each item is the small markdown subset, so `code` spans render in the mono face.
   - `pub fn plan_card(id: impl Into<ElementId>, items: Vec<String>) -> PlanCard`
 - **fn** `prose` — Renders `markdown` as prose blocks.
@@ -804,6 +812,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn question_card(id: impl Into<ElementId>, prompt: impl Into<SharedString>, options: Vec<QuestionOption>) -> QuestionCard`
 - **fn** `retry_row` — The live row a scheduled retry draws while the provider waits out its backoff: `Attempt 2/5 · retrying in 4 s · rate limited`.
   - `pub fn retry_row(id: impl Into<ElementId>, attempt: u32, max: u32, remaining_ms: u64, reason: impl Into<SharedString>) -> StatusRow`
+- **fn** `span_runs` — Builds the shaped text, runs and link ranges for `spans`. This is the one run builder for both `prose` and `Markdown`: `link_ink` colours link runs, and callers that never emit links pass a shaping-on [...]
+  - `pub fn span_runs(spans: &[Span], style: &ProseStyle, link_ink: Hsla) -> (String, Vec<TextRun>, Vec<LinkRange>)`
 - **fn** `status_row` — A status row: `Working… · 12 s · esc to interrupt`.
   - `pub fn status_row(id: impl Into<ElementId>, label: impl Into<SharedString>) -> StatusRow`
 - **fn** `summary_card` — A summary headed by `title` (`Done · address validation tightened`) with `meta` on the right (`4 m 12 s · $0.31`).
@@ -864,6 +874,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
 - **struct** `AssistantTurn` — The assistant’s turn. Build with `assistant_turn`.
   - `pub fn meta(self, meta: TurnMeta) -> Self` — The footer: model · duration · tokens · cost.
   - `pub fn on_action(self, f: impl Fn(AssistantTurnAction, &mut Window, &mut App) + 'static) -> Self` — Toolbar handler.
+  - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Link-click handler, passed through to the markdown body.
   - `pub fn streaming(self, streaming: bool) -> Self` — Shows the blinking caret after the text while chunks arrive.
 - **struct** `CodeBlock` — A code block. Build with `code_block`.
   - `pub fn hidden_lines(self, count: usize) -> Self` — How many more lines the fold row offers.
@@ -889,6 +900,10 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
 - **struct** `JumpPill` — The floating jump-to-latest pill. Build with `jump_pill`.
   - `pub fn count(self, count: u32) -> Self` — The number of new turns below the reader.
   - `pub fn on_jump(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — The pill was pressed.
+- **struct** `LinkRange` — A link’s byte range inside its paragraph’s shaped text, with its target.
+  - fields: `range`, `target`
+- **struct** `Markdown` — A markdown block column. Build with `markdown`.
+  - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Click handler for links: the argument is the clicked range’s target.
 - **struct** `MarkerRow` — A marker row. Build with `marker_row`.
   - `pub fn glyph(self, name: IconName, color: Option<Hsla>) -> Self` — The 12 px leading glyph, optionally tinted (a warning shield).
   - `pub fn hand_off(self, hand_off: HandOff) -> Self` — The hand-off pill before the text.
@@ -960,19 +975,34 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
 - **struct** `UserTurn` — The person’s turn. Build with `user_turn`.
   - `pub fn attachments(self, attachments: Vec<Attachment>) -> Self` — Attachments shown above the bubble.
   - `pub fn on_action(self, f: impl Fn(UserTurnAction, &mut Window, &mut App) + 'static) -> Self` — Hover-action handler.
+  - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Link-click handler, passed through to the markdown body.
 
 - **enum** `AssistantTurnAction` — Actions on an assistant turn.
   - variants: `Copy`, `Retry`, `Fork`, `Pin`
+- **enum** `Block` — One block of a parsed transcript.
+  - variants: `Paragraph`, `Heading`, `BulletList`, `OrderedList`, `CodeBlock`, `Table`,
+    `Quote`, `Rule`, `Image`
 - **enum** `CodeBlockAction` — Actions on a code block header.
   - variants: `Wrap`, `Open`, `Copy`, `Unfold`
 - **enum** `DiffBlockAction` — Actions on a diff block.
   - variants: `Unified`, `Split`, `OpenInDiff`, `AddNote`, `SaveNote`, `CancelNote`
+- **enum** `LinkTarget` — Where a link points.
+  - variants: `Url`, `Path`
+- **enum** `MarkdownBlock` — One block of a parsed transcript.
+  - variants: `Paragraph`, `Heading`, `BulletList`, `OrderedList`, `CodeBlock`, `Table`,
+    `Quote`, `Rule`, `Image`
+- **enum** `MarkdownSpan` — One inline segment.
+  - variants: `Text`, `Code`, `Bold`, `Italic`, `Strikethrough`, `Link`
 - **enum** `QuestionOutcome` — How a question settled, which is what the collapsed row says it did.
   - variants: `Answered`, `Skipped`, `Clarified`, `TimedOut`, `Interrupted`
+- **enum** `Span` — One inline segment.
+  - variants: `Text`, `Code`, `Bold`, `Italic`, `Strikethrough`, `Link`
 - **enum** `StatusLead` — The glyph that leads a `StatusRow`.
   - variants: `None`, `Spinner`, `Braille`
 - **enum** `SummaryAction` — What the summary card’s action row asks for.
   - variants: `CreatePr`, `Commit`, `ReviewDiff`
+- **enum** `TableAlign` — Column alignment of a table, from the delimiter row.
+  - variants: `None`, `Left`, `Center`, `Right`
 - **enum** `TokenKind` — A token class.
   - variants: `Plain`, `Keyword`, `Function`, `String`, `Number`, `Comment`
 - **enum** `ToolCardIntent` — What the card’s fold rows and header ask for.
@@ -990,6 +1020,9 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub const CARET_W: f32 = 2.0;`
 - **const** `SHELL_FOLD` — Shell output folds after this many lines (the card shows six, then `14 more lines`).
   - `pub const SHELL_FOLD: usize = 6;`
+
+- **type** `LinkHandler` — What `Markdown::on_link` receives.
+  - `pub type LinkHandler = Rc<dyn Fn(LinkTarget, &mut Window, &mut App)>;`
 
 ### `aui::util`
 

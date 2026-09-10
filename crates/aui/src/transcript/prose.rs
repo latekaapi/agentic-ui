@@ -5,8 +5,10 @@
 
 use aui_motion::{looping, Loop};
 use aui_tokens::{scale, AuiStyled};
-use gpui::{div, font, prelude::*, px, relative, App, ElementId, Font, FontWeight, Hsla, IntoElement, StyledText, TextRun, Window};
+use gpui::{div, font, prelude::*, px, relative, App, ElementId, Font, FontStyle, FontWeight, Hsla, IntoElement, StrikethroughStyle, StyledText, TextRun, UnderlineStyle, Window};
 use gpui_kit::base::{h_flex, v_flex};
+
+use super::markdown::{Span, last_block_runs};
 
 /// `.a ul{padding-left:18px}`.
 const LIST_INDENT: f32 = 18.0;
@@ -59,13 +61,8 @@ pub struct ProseStyle {
     pub paragraph_gap: f32,
 }
 
-/// One inline segment.
-#[derive(Debug, Clone, PartialEq)]
-enum Span {
-    Text(String),
-    Code(String),
-    Bold(String),
-}
+// `Span` lives in `super::markdown` so both renderers shape the same runs;
+// this module's subset parser only ever emits Text, Code and Bold.
 
 /// One block.
 #[derive(Debug, Clone, PartialEq)]
@@ -148,6 +145,16 @@ fn runs(spans: &[Span], style: &ProseStyle) -> (String, Vec<TextRun>) {
                 f.weight = FontWeight::SEMIBOLD;
                 (s, TextRun { len: s.len(), font: f, color: style.ink, background_color: None, underline: None, strikethrough: None })
             }
+            Span::Italic(s) => {
+                let mut f = ui.clone();
+                f.style = FontStyle::Italic;
+                (s, TextRun { len: s.len(), font: f, color: style.ink, background_color: None, underline: None, strikethrough: None })
+            }
+            Span::Strikethrough(s) => (s, TextRun { len: s.len(), font: ui.clone(), color: style.ink, background_color: None, underline: None, strikethrough: Some(StrikethroughStyle { thickness: px(1.0), color: Some(style.ink) }) }),
+            // Unreachable from this module's parser, which never emits
+            // links: the body ink stands in for the accent the markdown
+            // renderer paints, and shaping is identical either way.
+            Span::Link { label, .. } => (label, TextRun { len: label.len(), font: ui.clone(), color: style.ink, background_color: None, underline: Some(UnderlineStyle { thickness: px(1.0), color: Some(style.ink), wavy: false }), strikethrough: None }),
         };
         text.push_str(s);
         runs.push(run);
@@ -160,10 +167,10 @@ fn runs(spans: &[Span], style: &ProseStyle) -> (String, Vec<TextRun>) {
 /// prose ends (the streaming caret) shapes the same glyphs that are painted.
 /// `None` when a list closes the prose: the caret does not follow a bullet.
 pub fn last_paragraph_runs(markdown: &str, style: &ProseStyle) -> Option<(String, Vec<TextRun>)> {
-    match parse(markdown).pop()? {
-        Block::Paragraph(spans) => Some(runs(&spans, style)),
-        Block::List(_) => None,
-    }
+    // Turns paint markdown blocks now, so the caret measures those; the
+    // body ink stands in for the link accent, which does not change shaping.
+    // Kept under this name for callers that measured prose paragraphs.
+    last_block_runs(markdown, style, style.ink)
 }
 
 /// Renders `markdown` as prose blocks.

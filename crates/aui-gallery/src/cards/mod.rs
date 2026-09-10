@@ -17,6 +17,7 @@ pub mod files_docs;
 pub mod git_pr;
 pub mod icons;
 pub mod login;
+pub mod markdown;
 pub mod markers;
 pub mod menus;
 pub mod motion;
