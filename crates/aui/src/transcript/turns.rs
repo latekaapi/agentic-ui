@@ -65,6 +65,12 @@ pub enum UserTurnAction {
     Resend,
 }
 
+impl UserTurnAction {
+    /// The full set, in draw order: edit, copy, resend.
+    pub const ALL: &'static [UserTurnAction] =
+        &[UserTurnAction::Edit, UserTurnAction::Copy, UserTurnAction::Resend];
+}
+
 /// Actions on an assistant turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssistantTurnAction {
@@ -78,6 +84,35 @@ pub enum AssistantTurnAction {
     Pin,
 }
 
+impl AssistantTurnAction {
+    /// The full set, in draw order: copy, retry, fork, pin.
+    pub const ALL: &'static [AssistantTurnAction] = &[
+        AssistantTurnAction::Copy,
+        AssistantTurnAction::Retry,
+        AssistantTurnAction::Fork,
+        AssistantTurnAction::Pin,
+    ];
+}
+
+/// Element id, glyph and action for one user-turn button, in draw order.
+fn user_action_spec(action: UserTurnAction) -> (&'static str, IconName, UserTurnAction) {
+    match action {
+        UserTurnAction::Edit => ("edit", IconName::Edit, action),
+        UserTurnAction::Copy => ("copy", IconName::Copy, action),
+        UserTurnAction::Resend => ("resend", IconName::Refresh, action),
+    }
+}
+
+/// Element id, glyph and action for one assistant-turn button, in draw order.
+fn assistant_action_spec(action: AssistantTurnAction) -> (&'static str, IconName, AssistantTurnAction) {
+    match action {
+        AssistantTurnAction::Copy => ("copy", IconName::Copy, action),
+        AssistantTurnAction::Retry => ("retry", IconName::Refresh, action),
+        AssistantTurnAction::Fork => ("fork", IconName::Git, action),
+        AssistantTurnAction::Pin => ("pin", IconName::Pin, action),
+    }
+}
+
 type UserHandler = std::rc::Rc<dyn Fn(UserTurnAction, &mut Window, &mut App)>;
 type AssistantHandler = std::rc::Rc<dyn Fn(AssistantTurnAction, &mut Window, &mut App)>;
 
@@ -87,6 +122,7 @@ pub struct UserTurn {
     id: ElementId,
     markdown: SharedString,
     attachments: Vec<Attachment>,
+    actions: Vec<UserTurnAction>,
     actions_bottom: bool,
     on_action: Option<UserHandler>,
     on_link: Option<LinkHandler>,
@@ -97,13 +133,23 @@ pub struct UserTurn {
 /// A user turn; `markdown` may carry mentions as inline code (`` `@src/checkout` ``),
 /// which render as mention chips.
 pub fn user_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> UserTurn {
-    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None }
+    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), actions: UserTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None }
 }
 
 impl UserTurn {
     /// Attachments shown above the bubble.
     pub fn attachments(mut self, attachments: Vec<Attachment>) -> Self {
         self.attachments = attachments;
+        self
+    }
+
+    /// The action buttons, in draw order. Defaults to [`UserTurnAction::ALL`];
+    /// pass a smaller slice (or an empty one) to hide actions that have no
+    /// meaning for the consumer. Both the hover rail and the
+    /// [`UserTurn::actions_bottom`] row honour it; an empty set draws no rail
+    /// and no row.
+    pub fn actions(mut self, actions: &[UserTurnAction]) -> Self {
+        self.actions = actions.to_vec();
         self
     }
 
@@ -209,13 +255,9 @@ impl RenderOnce for UserTurn {
             .items_end()
             .gap(px(USER_GAP))
             .track_interaction(&state);
-        if !bottom {
+        if !bottom && !self.actions.is_empty() {
             let mut acts = h_flex().absolute().left(px(USER_ACTS_LEFT)).top(px(USER_ACTS_TOP)).gap(px(ACTS_GAP)).opacity(acts_opacity);
-            for (name, glyph, action) in [
-                ("edit", IconName::Edit, UserTurnAction::Edit),
-                ("copy", IconName::Copy, UserTurnAction::Copy),
-                ("resend", IconName::Refresh, UserTurnAction::Resend),
-            ] {
+            for (name, glyph, action) in self.actions.iter().map(|a| user_action_spec(*a)) {
                 let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
                 if let Some(h) = self.on_action.clone() {
                     b = b.on_click(move |_, w, cx| h(action, w, cx));
@@ -255,14 +297,10 @@ impl RenderOnce for UserTurn {
                     body
                 }),
         );
-        if bottom {
+        if bottom && !self.actions.is_empty() {
             let row_opacity = tween((id.clone(), "acts-bottom"), if flags.hovered { 1.0f32 } else { BOTTOM_IDLE }, Tween::FAST, window, cx);
             let mut row = h_flex().gap(px(ACTS_GAP)).opacity(row_opacity);
-            for (name, glyph, action) in [
-                ("edit", IconName::Edit, UserTurnAction::Edit),
-                ("copy", IconName::Copy, UserTurnAction::Copy),
-                ("resend", IconName::Refresh, UserTurnAction::Resend),
-            ] {
+            for (name, glyph, action) in self.actions.iter().map(|a| user_action_spec(*a)) {
                 let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
                 if let Some(h) = self.on_action.clone() {
                     b = b.on_click(move |_, w, cx| h(action, w, cx));
@@ -282,6 +320,7 @@ pub struct AssistantTurn {
     markdown: SharedString,
     streaming: bool,
     meta: Option<TurnMeta>,
+    actions: Vec<AssistantTurnAction>,
     actions_bottom: bool,
     on_action: Option<AssistantHandler>,
     on_link: Option<LinkHandler>,
@@ -291,7 +330,7 @@ pub struct AssistantTurn {
 
 /// An assistant turn rendering `markdown`.
 pub fn assistant_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> AssistantTurn {
-    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, meta: None, actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None }
+    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, meta: None, actions: AssistantTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None }
 }
 
 impl AssistantTurn {
@@ -304,6 +343,17 @@ impl AssistantTurn {
     /// The footer: model · duration · tokens · cost.
     pub fn meta(mut self, meta: TurnMeta) -> Self {
         self.meta = Some(meta);
+        self
+    }
+
+    /// The toolbar buttons, in draw order. Defaults to
+    /// [`AssistantTurnAction::ALL`]; pass a smaller slice to hide actions
+    /// that have no meaning for the consumer (a turn without pinning keeps
+    /// `&[Copy, Retry, Fork]`). Both the hover toolbar and the
+    /// [`AssistantTurn::actions_bottom`] row honour it; an empty set draws no
+    /// toolbar and no row.
+    pub fn actions(mut self, actions: &[AssistantTurnAction]) -> Self {
+        self.actions = actions.to_vec();
         self
     }
 
@@ -407,12 +457,7 @@ impl RenderOnce for AssistantTurn {
             .border_color(p.line)
             .bg(p.surface_1)
             .opacity(tb_opacity);
-        for (name, glyph, action) in [
-            ("copy", IconName::Copy, AssistantTurnAction::Copy),
-            ("retry", IconName::Refresh, AssistantTurnAction::Retry),
-            ("fork", IconName::Git, AssistantTurnAction::Fork),
-            ("pin", IconName::Pin, AssistantTurnAction::Pin),
-        ] {
+        for (name, glyph, action) in self.actions.iter().map(|a| assistant_action_spec(*a)) {
             let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
             if let Some(h) = self.on_action.clone() {
                 b = b.on_click(move |_, w, cx| h(action, w, cx));
@@ -472,7 +517,7 @@ impl RenderOnce for AssistantTurn {
             .line_height(relative(scale::LH_BODY))
             .text_color(p.ink)
             .track_interaction(&state);
-        if !bottom {
+        if !bottom && !self.actions.is_empty() {
             turn = turn.child(toolbar);
         }
         turn = turn.child(
@@ -492,15 +537,10 @@ impl RenderOnce for AssistantTurn {
                 }))
                 .children(caret),
         );
-        if bottom {
+        if bottom && !self.actions.is_empty() {
             let row_opacity = tween((id.clone(), "tb-bottom"), if flags.hovered { 1.0f32 } else { BOTTOM_IDLE }, Tween::FAST, window, cx);
             let mut row = h_flex().mt(px(BOTTOM_TOP)).gap(px(ACTS_GAP)).opacity(row_opacity);
-            for (name, glyph, action) in [
-                ("copy", IconName::Copy, AssistantTurnAction::Copy),
-                ("retry", IconName::Refresh, AssistantTurnAction::Retry),
-                ("fork", IconName::Git, AssistantTurnAction::Fork),
-                ("pin", IconName::Pin, AssistantTurnAction::Pin),
-            ] {
+            for (name, glyph, action) in self.actions.iter().map(|a| assistant_action_spec(*a)) {
                 let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
                 if let Some(h) = self.on_action.clone() {
                     b = b.on_click(move |_, w, cx| h(action, w, cx));
@@ -526,8 +566,39 @@ impl RenderOnce for AssistantTurn {
 
 #[cfg(test)]
 mod tests {
-    use super::turn_selected_text;
+    use super::{assistant_turn, turn_selected_text, user_turn, AssistantTurnAction, UserTurnAction};
     use crate::transcript::{SelectionKey, TextSelection};
+
+    #[test]
+    fn user_actions_default_to_all() {
+        assert_eq!(user_turn("t", "hi").actions, UserTurnAction::ALL.to_vec());
+    }
+
+    #[test]
+    fn user_actions_keeps_a_reduced_set() {
+        let turn = user_turn("t", "hi").actions(&[UserTurnAction::Copy]);
+        assert_eq!(turn.actions, vec![UserTurnAction::Copy]);
+    }
+
+    #[test]
+    fn assistant_actions_default_to_all() {
+        assert_eq!(
+            assistant_turn("t", "hi").actions,
+            AssistantTurnAction::ALL.to_vec()
+        );
+        assert_eq!(AssistantTurnAction::ALL.len(), 4);
+    }
+
+    #[test]
+    fn assistant_actions_can_hide_pin() {
+        let turn = assistant_turn("t", "hi").actions(&[
+            AssistantTurnAction::Copy,
+            AssistantTurnAction::Retry,
+            AssistantTurnAction::Fork,
+        ]);
+        assert!(!turn.actions.contains(&AssistantTurnAction::Pin));
+        assert_eq!(turn.actions.len(), 3);
+    }
 
     #[test]
     fn turn_selected_text_reads_a_paragraph_slice() {

@@ -1,8 +1,8 @@
 //! Card 31 · User and assistant turns. Reproduces
-//! `design/src/cards/transcript/31-turns.html` at 760×560.
+//! `design/src/cards/transcript/31-turns.html` at 760×680.
 
 use aui::protocol::{Attachment, AttachmentKind, TurnMeta, UploadState};
-use aui::transcript::{assistant_turn, user_turn, TextSelection};
+use aui::transcript::{assistant_turn, user_turn, AssistantTurnAction, TextSelection};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::v_flex;
@@ -71,6 +71,19 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .actions_bottom(true)
                 .selection(current.clone())
                 .on_selection_change(track_selection(selection.clone())),
+        )
+        .child(
+            assistant_turn("card31-assistant-reduced", "Validator patched — running the focused tests now.")
+                .actions(&[AssistantTurnAction::Copy, AssistantTurnAction::Retry])
+                .actions_bottom(true)
+                .selection(current.clone())
+                .on_selection_change(track_selection(selection.clone())),
+        )
+        .child(
+            div()
+                .ui(scale::FS_12)
+                .text_color(p.ink_3)
+                .child("Reduced action set: this turn passes .actions(&[Copy, Retry]), so Fork and Pin stay hidden — the same filter drives the hover toolbar and the bottom row."),
         )
         .child(
             div()

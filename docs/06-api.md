@@ -921,6 +921,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn stages(self, stages: Vec<ApprovalStage>, current: Option<usize>) -> Self` — The subject’s stages and which one is awaiting a decision.
   - `pub fn title(self, title: impl Into<SharedString>) -> Self` — The pending question, e.g. `"Allow Muse to run this command?"`.
 - **struct** `AssistantTurn` — The assistant’s turn. Build with `assistant_turn`.
+  - `pub fn actions(self, actions: &[AssistantTurnAction]) -> Self` — The toolbar buttons, in draw order. Defaults to `AssistantTurnAction::ALL`; pass a smaller slice to hide actions that have no meaning for the consumer (a turn without pinning keeps `&[Copy, Retry, Fork]`). [...]
   - `pub fn actions_bottom(self, bottom: bool) -> Self` — In-flow action row under the prose instead of the hover toolbar.
   - `pub fn meta(self, meta: TurnMeta) -> Self` — The footer: model · duration · tokens · cost.
   - `pub fn on_action(self, f: impl Fn(AssistantTurnAction, &mut Window, &mut App) + 'static) -> Self` — Toolbar handler.
@@ -1056,6 +1057,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn hover_tint(self, tint: bool) -> Self` — Disables the header hover tint (non-interactive headers).
   - `pub fn on_toggle(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Header click.
 - **struct** `UserTurn` — The person’s turn. Build with `user_turn`.
+  - `pub fn actions(self, actions: &[UserTurnAction]) -> Self` — The action buttons, in draw order. Defaults to `UserTurnAction::ALL`; pass a smaller slice (or an empty one) to hide actions that have no meaning for the consumer. [...]
   - `pub fn actions_bottom(self, bottom: bool) -> Self` — In-flow action row under the bubble instead of the hover rail.
   - `pub fn attachments(self, attachments: Vec<Attachment>) -> Self` — Attachments shown above the bubble.
   - `pub fn on_action(self, f: impl Fn(UserTurnAction, &mut Window, &mut App) + 'static) -> Self` — Hover-action handler.
