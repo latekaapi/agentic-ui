@@ -853,6 +853,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn question_card(id: impl Into<ElementId>, prompt: impl Into<SharedString>, options: Vec<QuestionOption>) -> QuestionCard`
 - **fn** `retry_row` — The live row a scheduled retry draws while the provider waits out its backoff: `Attempt 2/5 · retrying in 4 s · rate limited`.
   - `pub fn retry_row(id: impl Into<ElementId>, attempt: u32, max: u32, remaining_ms: u64, reason: impl Into<SharedString>) -> StatusRow`
+- **fn** `selectable_text` — Builds a selectable text cell: `key` scopes the selection, `text` is the shaped string. [...]
+  - `pub fn selectable_text(id: impl Into<ElementId>, key: SelectionKey, text: impl Into<SharedString>) -> SelectableText`
 - **fn** `span_runs` — Builds the shaped text, runs and link ranges for `spans`. This is the one run builder for both `prose` and `Markdown`: `link_ink` colours link runs, and callers that never emit links pass a shaping-on [...]
   - `pub fn span_runs(spans: &[Span], style: &ProseStyle, link_ink: Hsla) -> (String, Vec<TextRun>, Vec<LinkRange>)`
 - **fn** `status_row` — A status row: `Working… · 12 s · esc to interrupt`.
@@ -924,6 +926,10 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn hidden_lines(self, count: usize) -> Self` — How many more lines the fold row offers.
   - `pub fn language(self, language: impl Into<SharedString>) -> Self` — The language label after the filename.
   - `pub fn on_action(self, f: impl Fn(CodeBlockAction, &mut Window, &mut App) + 'static) -> Self` — Action handler.
+  - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents from any line, translated to block-wide indices. Empty lines carry no bytes, so presses there clear instead.
+  - `pub fn selection(self, range: Option<Range<usize>>) -> Self` — The visible selection, in block-wide byte indices. Only the lines it overlaps highlight.
+  - `pub fn selection_color(self, color: Hsla) -> Self` — The highlight colour behind selected glyphs. Defaults to the theme’s `selection` token.
+  - `pub fn selection_key(self, key: SelectionKey) -> Self` — The selection cell key this block’s lines share. Ranges are byte offsets over the whole block text, newlines included.
   - `pub fn start_line(self, line: u32) -> Self` — The first line number.
 - **struct** `DiffBlock` — A diff block. Build with `diff_block`.
   - `pub fn notes(self, notes: Vec<DiffNote>) -> Self` — Notes shown under their lines.
@@ -948,6 +954,9 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - fields: `range`, `target`
 - **struct** `Markdown` — A markdown block column. Build with `markdown`.
   - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Click handler for links: the argument is the clicked range’s target.
+  - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents: drags and word / paragraph picks arrive as `Some`, plain clicks elsewhere in a cell arrive as `None` (clearing).
+  - `pub fn selected_text(&self, selection: &TextSelection) -> Option<String>` — Copies the selected text out of `selection`: the slice of the holding cell’s shaped text (code spans and link labels read as plain words), or `None` when the key addresses no cell or the range is empty. [...]
+  - `pub fn selection(self, selection: Option<&TextSelection>) -> Self` — The stored selection this render highlights: the app owns one `Option<TextSelection>` per markdown view and passes it back here.
 - **struct** `MarkerRow` — A marker row. Build with `marker_row`.
   - `pub fn glyph(self, name: IconName, color: Option<Hsla>) -> Self` — The 12 px leading glyph, optionally tinted (a warning shield).
   - `pub fn hand_off(self, hand_off: HandOff) -> Self` — The hand-off pill before the text.
@@ -986,6 +995,22 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn selected(self, selected: Vec<usize>) -> Self` — Which options are currently selected, as indices into `options`.
   - `pub fn subtitle(self, subtitle: impl Into<SharedString>) -> Self` — The supporting line under the prompt.
   - `pub fn timeout(self, remaining_ms: u64, total_ms: u64) -> Self` — The auto-resolution countdown: how long is left, out of how long there was. The host ticks the clock; the card only draws the pill.
+- **struct** `SelectableText` — One selectable run of shaped text. Build with `selectable_text`.
+  - `pub fn links(self, links: Vec<LinkRange>) -> Self` — Clickable link ranges with their targets, in local byte indices. A press-release without movement on one fires `SelectableText::on_link`; movement starts a selection instead.
+  - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Fires when a press-release without movement lands on a link range.
+  - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Fires on drags and word / paragraph picks (`Some`) and on plain clicks elsewhere in the cell (`None`, clearing the selection).
+  - `pub fn runs(self, runs: Vec<TextRun>) -> Self` — The text runs (same shape as `StyledText::with_runs`).
+  - `pub fn selection(self, range: Option<Range<usize>>) -> Self` — The visible selection, in local byte indices; `None` (the default) paints plain text. The range splits the runs around it at paint time.
+  - `pub fn selection_color(self, color: Hsla) -> Self` — The highlight colour behind selected glyphs — the theme’s `selection` token. Without it a selection range paints nothing.
+- **struct** `SelectionKey` — Identifies one selectable cell inside a `Markdown` render: a paragraph, heading, list item, table cell or fenced code block. [...]
+  - `pub fn as_str(&self) -> &str` — The encoded key.
+  - `pub fn code(prefix: &str, index: usize) -> Self` — Key of the `index`-th fenced code block under `prefix`. Every line of the block shares this key; ranges are byte offsets over the whole block text (newlines included).
+  - `pub fn heading(prefix: &str, index: usize) -> Self` — Key of the `index`-th heading under `prefix`.
+  - `pub fn list_item(prefix: &str, index: usize, ordered: bool, item: usize) -> Self` — Key of one list item: `index` is the block, `item` the row; `ordered` picks the `o` (numbered) or `b` (bullet) arm.
+  - `pub fn new(name: impl Into<String>) -> Self` — Builds a key from its encoded form (`p0`, `q2-p1`, …).
+  - `pub fn paragraph(prefix: &str, index: usize) -> Self` — Key of the `index`-th paragraph under `prefix`.
+  - `pub fn quote_prefix(prefix: &str, index: usize) -> String` — The key prefix for blocks nested inside the `index`-th quote: inner keys read `q{index}-…`, so quote cells never collide with siblings.
+  - `pub fn table_cell(prefix: &str, index: usize, row: Option<usize>, col: usize) -> Self` — Key of one table cell: `index` is the block, `row` is `None` for a header cell and `Some` for a body row, `col` the column.
 - **struct** `StatusRow` — One live status line under the transcript. Build with `status_row`.
   - `pub fn elapsed(self, elapsed: impl Into<SharedString>) -> Self` — The mono elapsed time after the label.
   - `pub fn key_hint(self, key: impl Into<SharedString>, text: impl Into<SharedString>) -> Self` — A keycap and its trailing text after the separator (`esc to interrupt`).
@@ -996,6 +1021,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn checks(self, checks: Vec<Check>) -> Self` — The verifications that ran.
   - `pub fn files(self, files: Vec<FileChange>) -> Self` — The changed files, in display order.
   - `pub fn on_action(self, f: impl Fn(SummaryAction, &mut Window, &mut App) + 'static) -> Self` — The action row’s intent.
+- **struct** `TextSelection` — A text selection inside one markdown cell: which cell, and the byte range over that cell’s shaped text. An empty range is never stored — clearing is `None`.
+  - fields: `cell`, `range`
 - **struct** `ThinkingBlock` — The thinking block. Build with `thinking_block`.
   - `pub fn expanded(self, expanded: bool) -> Self` — Whether a finished trace is expanded to its full text.
   - `pub fn on_toggle(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Header click.
@@ -1078,6 +1105,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
 
 - **type** `LinkHandler` — What `Markdown::on_link` receives.
   - `pub type LinkHandler = Rc<dyn Fn(LinkTarget, &mut Window, &mut App)>;`
+- **type** `SelectionHandler` — A selection intent: `Some` replaces the app’s stored selection, `None` clears it.
+  - `pub type SelectionHandler = Rc<dyn Fn(Option<TextSelection>, &mut Window, &mut App)>;`
 
 ### `aui::util`
 

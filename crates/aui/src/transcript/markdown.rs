@@ -41,14 +41,16 @@ use std::sync::{Arc, LazyLock, Mutex};
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{
-    div, font, prelude::*, px, relative, App, ElementId, FontStyle, FontWeight, Hsla,
-    InteractiveText, IntoElement, SharedString, StrikethroughStyle, StyledText, TextRun,
-    UnderlineStyle, Window,
+    div, font, prelude::*, px, relative, App, ElementId, FontStyle, FontWeight, Hsla, IntoElement,
+    SharedString, StrikethroughStyle, TextRun, UnderlineStyle, Window,
 };
 use gpui_kit::base::{h_flex, v_flex};
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd};
 
 use super::code::code_block;
+use super::selectable::{
+    clamp_range, selectable_text, SelectableText, SelectionHandler, SelectionKey, TextSelection,
+};
 use super::ProseStyle;
 use crate::data::tag;
 
@@ -1099,37 +1101,71 @@ pub fn last_block_runs(
     }
 }
 
-/// Renders `spans` as one text element: [`StyledText`] when nothing clicks,
-/// [`InteractiveText`] with click ranges when links are present. The pointer
-/// affordance needs no extra code — `InteractiveText` paints `PointingHand`
-/// over its ranges whenever an `on_click` listener is attached.
+/// Render state threaded through block rendering: the link ink, the app's
+/// stored selection, the intents, and the highlight colour. `prefix` scopes
+/// cell keys inside nested quotes; see [`SelectionKey::quote_prefix`].
+#[derive(Clone)]
+struct SelCtx {
+    link_ink: Hsla,
+    selection: Option<TextSelection>,
+    on_change: Option<SelectionHandler>,
+    on_link: Option<LinkHandler>,
+    color: Hsla,
+    prefix: String,
+}
+
+/// Applies the selection state to a freshly built cell element: the visible
+/// range when the app's selection sits on `key`, link ranges with their click
+/// intent, and the selection-change intent.
+fn finish_cell(
+    mut element: SelectableText,
+    key: &SelectionKey,
+    links: Vec<LinkRange>,
+    sel: &SelCtx,
+) -> SelectableText {
+    if let Some(range) = sel
+        .selection
+        .as_ref()
+        .filter(|current| current.cell == *key)
+        .map(|current| current.range.clone())
+    {
+        element = element.selection(Some(range));
+    }
+    if !links.is_empty() {
+        element = element.links(links);
+        if let Some(handler) = &sel.on_link {
+            let handler = handler.clone();
+            element = element.on_link(move |target, window, cx| handler(target, window, cx));
+        }
+    }
+    if let Some(handler) = &sel.on_change {
+        let handler = handler.clone();
+        element = element.on_selection_change(move |next, window, cx| handler(next, window, cx));
+    }
+    element
+}
+
+/// Renders `spans` as one selectable text cell: the selection paints behind
+/// the glyphs when the app's selection sits on `key`, and a press-release
+/// without movement on a link range still clicks through `on_link`.
 fn inline_element(
     id: ElementId,
+    key: SelectionKey,
     spans: &[Span],
     style: &ProseStyle,
-    link_ink: Hsla,
-    on_link: &Option<LinkHandler>,
+    sel: &SelCtx,
 ) -> gpui::AnyElement {
-    let (text, runs, links) = span_runs(spans, style, link_ink);
+    let (text, runs, links) = span_runs(spans, style, sel.link_ink);
     if text.is_empty() {
         return div().into_any_element();
     }
-    let styled = StyledText::new(text).with_runs(runs);
-    if links.is_empty() {
-        return div().w_full().child(styled).into_any_element();
-    }
-    let mut element = InteractiveText::new(id, styled);
-    if let Some(handler) = on_link {
-        let targets: Vec<LinkTarget> = links.iter().map(|link| link.target.clone()).collect();
-        let ranges: Vec<Range<usize>> = links.into_iter().map(|link| link.range).collect();
-        let handler = handler.clone();
-        element = element.on_click(ranges, move |ix, window, cx| {
-            if let Some(target) = targets.get(ix) {
-                handler(target.clone(), window, cx);
-            }
-        });
-    }
-    div().w_full().child(element).into_any_element()
+    let element = selectable_text(id, key.clone(), text)
+        .runs(runs)
+        .selection_color(sel.color);
+    div()
+        .w_full()
+        .child(finish_cell(element, &key, links, sel))
+        .into_any_element()
 }
 
 /// Renders one list item row: a fixed marker cell plus the item text.
@@ -1137,9 +1173,9 @@ fn list_item(
     marker: String,
     spans: &[Span],
     style: &ProseStyle,
-    link_ink: Hsla,
-    on_link: &Option<LinkHandler>,
     id: ElementId,
+    key: SelectionKey,
+    sel: &SelCtx,
 ) -> gpui::AnyElement {
     h_flex()
         .w_full()
@@ -1157,7 +1193,7 @@ fn list_item(
             div()
                 .flex_1()
                 .min_w(px(0.0))
-                .child(inline_element(id, spans, style, link_ink, on_link)),
+                .child(inline_element(id, key, spans, style, sel)),
         )
         .into_any_element()
 }
@@ -1168,9 +1204,9 @@ fn table_cell(
     align: TableAlign,
     header: bool,
     style: &ProseStyle,
-    link_ink: Hsla,
-    on_link: &Option<LinkHandler>,
     id: ElementId,
+    key: SelectionKey,
+    sel: &SelCtx,
 ) -> gpui::AnyElement {
     // Headers are uniformly semibold: map plain text onto the bold run
     // rather than threading a weight flag through the run builder.
@@ -1193,7 +1229,7 @@ fn table_cell(
         .min_w(px(TABLE_MIN_COL))
         .px(px(CELL_PAD_X))
         .py(px(CELL_PAD_Y))
-        .child(inline_element(id, spans, style, link_ink, on_link));
+        .child(inline_element(id, key, spans, style, sel));
     cell = match align {
         TableAlign::None | TableAlign::Left => cell.text_left(),
         TableAlign::Center => cell.text_center(),
@@ -1213,14 +1249,13 @@ fn render_blocks(
     id: &ElementId,
     blocks: &[Block],
     style: &ProseStyle,
-    link_ink: Hsla,
-    on_link: &Option<LinkHandler>,
     palette: &aui_tokens::Palette,
+    sel: &SelCtx,
 ) -> Vec<gpui::AnyElement> {
     let mut out = Vec::new();
     let count = blocks.len();
     for (index, block) in blocks.iter().enumerate() {
-        let child = render_block(id, index, block, style, link_ink, on_link, palette);
+        let child = render_block(id, index, block, style, palette, sel);
         if index + 1 == count {
             out.push(child);
         } else {
@@ -1234,24 +1269,28 @@ fn render_blocks(
     out
 }
 
-/// Renders one block. `index` keys element ids within the turn.
+/// Renders one block. `index` keys element ids within the turn; selection
+/// keys scope under `sel.prefix`, so quoted cells never collide.
 fn render_block(
     id: &ElementId,
     index: usize,
     block: &Block,
     style: &ProseStyle,
-    link_ink: Hsla,
-    on_link: &Option<LinkHandler>,
     palette: &aui_tokens::Palette,
+    sel: &SelCtx,
 ) -> gpui::AnyElement {
     match block {
-        Block::Paragraph(spans) => {
-            inline_element(block_id(id, index, "p"), spans, style, link_ink, on_link)
-        }
+        Block::Paragraph(spans) => inline_element(
+            block_id(id, index, "p"),
+            SelectionKey::paragraph(&sel.prefix, index),
+            spans,
+            style,
+            sel,
+        ),
         Block::Heading { level, spans } => {
             let size =
                 HEADING_SIZES[(level.saturating_sub(1) as usize).min(HEADING_SIZES.len() - 1)];
-            let (text, mut runs, links) = span_runs(spans, style, link_ink);
+            let (text, mut runs, links) = span_runs(spans, style, sel.link_ink);
             // Headings are uniformly semibold; code spans keep the mono
             // face at its own weight so code still reads as code.
             let mono = font(scale::FONT_MONO);
@@ -1260,25 +1299,17 @@ fn render_block(
                     run.font.weight = FontWeight::SEMIBOLD;
                 }
             }
-            let styled = StyledText::new(text).with_runs(runs);
-            let body = if links.is_empty() {
-                div().w_full().child(styled).into_any_element()
-            } else {
-                let mut element = InteractiveText::new(block_id(id, index, "h"), styled);
-                if let Some(handler) = on_link {
-                    let targets: Vec<LinkTarget> =
-                        links.iter().map(|link| link.target.clone()).collect();
-                    let ranges: Vec<Range<usize>> =
-                        links.into_iter().map(|link| link.range).collect();
-                    let handler = handler.clone();
-                    element = element.on_click(ranges, move |ix, window, cx| {
-                        if let Some(target) = targets.get(ix) {
-                            handler(target.clone(), window, cx);
-                        }
-                    });
-                }
-                div().w_full().child(element).into_any_element()
-            };
+            if text.is_empty() {
+                return div().into_any_element();
+            }
+            let key = SelectionKey::heading(&sel.prefix, index);
+            let element = selectable_text(block_id(id, index, "h"), key.clone(), text)
+                .runs(runs)
+                .selection_color(sel.color);
+            let body = div()
+                .w_full()
+                .child(finish_cell(element, &key, links, sel))
+                .into_any_element();
             div()
                 .w_full()
                 .ui(size)
@@ -1294,9 +1325,9 @@ fn render_block(
                     "•".to_string(),
                     item,
                     style,
-                    link_ink,
-                    on_link,
                     block_id(id, index, &format!("li{n}")),
+                    SelectionKey::list_item(&sel.prefix, index, false, n),
+                    sel,
                 ));
             }
             list.into_any_element()
@@ -1308,9 +1339,9 @@ fn render_block(
                     format!("{}.", start + n as u64),
                     item,
                     style,
-                    link_ink,
-                    on_link,
                     block_id(id, index, &format!("li{n}")),
+                    SelectionKey::list_item(&sel.prefix, index, true, n),
+                    sel,
                 ));
             }
             list.into_any_element()
@@ -1323,6 +1354,23 @@ fn render_block(
                 code_block(block_id(id, index, "code"), "code", text.clone());
             if let Some(lang) = lang {
                 fenced = fenced.language(lang.clone());
+            }
+            // Fences select like every other cell: the block's lines share
+            // one key with byte offsets over the whole block text.
+            let key = SelectionKey::code(&sel.prefix, index);
+            fenced = fenced.selection_key(key.clone()).selection_color(sel.color);
+            if let Some(range) = sel
+                .selection
+                .as_ref()
+                .filter(|current| current.cell == key)
+                .map(|current| current.range.clone())
+            {
+                fenced = fenced.selection(Some(range));
+            }
+            if let Some(handler) = &sel.on_change {
+                let handler = handler.clone();
+                fenced =
+                    fenced.on_selection_change(move |next, window, cx| handler(next, window, cx));
             }
             fenced.into_any_element()
         }
@@ -1339,9 +1387,9 @@ fn render_block(
                     align.get(n).copied().unwrap_or(TableAlign::None),
                     true,
                     style,
-                    link_ink,
-                    on_link,
                     block_id(id, index, &format!("h{n}")),
+                    SelectionKey::table_cell(&sel.prefix, index, None, n),
+                    sel,
                 ));
             }
             grid = grid.child(
@@ -1359,9 +1407,9 @@ fn render_block(
                         align.get(n).copied().unwrap_or(TableAlign::None),
                         false,
                         style,
-                        link_ink,
-                        on_link,
                         block_id(id, index, &format!("c{r}-{n}")),
+                        SelectionKey::table_cell(&sel.prefix, index, Some(r), n),
+                        sel,
                     ));
                 }
                 if r > 0 {
@@ -1383,19 +1431,23 @@ fn render_block(
         }
         Block::Quote(inner) => {
             // Quotes nest the same renderer one ink step dimmer, behind a
-            // hairline rail; no accent, per the calm-colour rule.
+            // hairline rail; no accent, per the calm-colour rule. Selection
+            // keys scope under the quote prefix so quoted cells never collide
+            // with top-level ones.
             let mut dimmed = *style;
             dimmed.ink = palette.ink_2;
             let nested: ElementId =
                 (id.clone(), SharedString::from(format!("md-{index}-q"))).into();
+            let quoted = SelCtx {
+                prefix: SelectionKey::quote_prefix(&sel.prefix, index),
+                ..sel.clone()
+            };
             div()
                 .w_full()
                 .border_l_1()
                 .border_color(palette.line)
                 .pl(px(QUOTE_INDENT))
-                .children(render_blocks(
-                    &nested, inner, &dimmed, link_ink, on_link, palette,
-                ))
+                .children(render_blocks(&nested, inner, &dimmed, palette, &quoted))
                 .into_any_element()
         }
         Block::Rule => div()
@@ -1446,6 +1498,8 @@ pub struct Markdown {
     source: SharedString,
     style: ProseStyle,
     on_link: Option<LinkHandler>,
+    selection: Option<TextSelection>,
+    on_selection_change: Option<SelectionHandler>,
 }
 
 /// Renders `source` as markdown blocks in `style`.
@@ -1459,6 +1513,8 @@ pub fn markdown(
         source: source.into(),
         style,
         on_link: None,
+        selection: None,
+        on_selection_change: None,
     }
 }
 
@@ -1468,26 +1524,152 @@ impl Markdown {
         self.on_link = Some(std::rc::Rc::new(f));
         self
     }
+
+    /// The stored selection this render highlights: the app owns one
+    /// [`Option<TextSelection>`] per markdown view and passes it back here.
+    pub fn selection(mut self, selection: Option<&TextSelection>) -> Self {
+        self.selection = selection.cloned();
+        self
+    }
+
+    /// Selection intents: drags and word / paragraph picks arrive as `Some`,
+    /// plain clicks elsewhere in a cell arrive as `None` (clearing).
+    pub fn on_selection_change(
+        mut self,
+        f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_selection_change = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Copies the selected text out of `selection`: the slice of the holding
+    /// cell's shaped text (code spans and link labels read as plain words),
+    /// or `None` when the key addresses no cell or the range is empty. The
+    /// app puts this on the clipboard on ⌘C; the keybinding stays with the
+    /// app.
+    pub fn selected_text(&self, selection: &TextSelection) -> Option<String> {
+        let blocks = parsed_markdown(&self.source, &self.style);
+        let mut found = None;
+        walk_units(&blocks, "", &mut |key, content| {
+            if found.is_none() && key == selection.cell {
+                found = Some(match content {
+                    CellContent::Spans(spans) => spans_text(spans),
+                    CellContent::Code(code) => code.to_string(),
+                });
+            }
+        });
+        let cell = found?;
+        clamp_range(selection.range.clone(), &cell).map(|range| cell[range].to_string())
+    }
+}
+
+/// Concatenates the shaped text of `spans`: what [`span_runs`] draws, minus
+/// styling. Keep the arms in sync with `span_runs` — a string added there
+/// must read here, or copies silently drop it.
+fn spans_text(spans: &[Span]) -> String {
+    spans
+        .iter()
+        .map(|span| match span {
+            Span::Text(s)
+            | Span::Code(s)
+            | Span::Bold(s)
+            | Span::Italic(s)
+            | Span::Strikethrough(s) => s.as_str(),
+            Span::Link { label, .. } => label.as_str(),
+        })
+        .collect()
+}
+
+/// One selectable cell's content for key lookup.
+enum CellContent<'a> {
+    Spans(&'a [Span]),
+    Code(&'a str),
+}
+
+/// Walks `blocks` in render order, calling `f` per selectable cell with its
+/// key. The traversal mirrors [`render_block`] (including quote prefixes), so
+/// the keys found here are the keys cells paint with.
+fn walk_units<'a>(
+    blocks: &'a [Block],
+    prefix: &str,
+    f: &mut impl FnMut(SelectionKey, CellContent<'a>),
+) {
+    for (index, block) in blocks.iter().enumerate() {
+        match block {
+            Block::Paragraph(spans) => {
+                f(
+                    SelectionKey::paragraph(prefix, index),
+                    CellContent::Spans(spans),
+                );
+            }
+            Block::Heading { spans, .. } => {
+                f(
+                    SelectionKey::heading(prefix, index),
+                    CellContent::Spans(spans),
+                );
+            }
+            Block::BulletList(items) => {
+                for (n, item) in items.iter().enumerate() {
+                    f(
+                        SelectionKey::list_item(prefix, index, false, n),
+                        CellContent::Spans(item),
+                    );
+                }
+            }
+            Block::OrderedList { items, .. } => {
+                for (n, item) in items.iter().enumerate() {
+                    f(
+                        SelectionKey::list_item(prefix, index, true, n),
+                        CellContent::Spans(item),
+                    );
+                }
+            }
+            Block::CodeBlock { text, .. } => {
+                f(SelectionKey::code(prefix, index), CellContent::Code(text));
+            }
+            Block::Table { header, rows, .. } => {
+                for (n, cell) in header.iter().enumerate() {
+                    f(
+                        SelectionKey::table_cell(prefix, index, None, n),
+                        CellContent::Spans(cell),
+                    );
+                }
+                for (r, row) in rows.iter().enumerate() {
+                    for (n, cell) in row.iter().enumerate() {
+                        f(
+                            SelectionKey::table_cell(prefix, index, Some(r), n),
+                            CellContent::Spans(cell),
+                        );
+                    }
+                }
+            }
+            Block::Quote(inner) => {
+                walk_units(inner, &SelectionKey::quote_prefix(prefix, index), f);
+            }
+            Block::Rule | Block::Image { .. } => {}
+        }
+    }
 }
 
 impl RenderOnce for Markdown {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let palette = cx.aui().colors;
         let blocks = parsed_markdown(&self.source, &self.style);
+        let sel = SelCtx {
+            link_ink: palette.accent,
+            selection: self.selection.clone(),
+            on_change: self.on_selection_change.clone(),
+            on_link: self.on_link.clone(),
+            color: palette.selection,
+            prefix: String::new(),
+        };
         v_flex()
             .id(self.id.clone())
             .w_full()
             .ui(self.style.size)
             .line_height(relative(self.style.line_height))
             .text_color(self.style.ink)
-            .children(render_blocks(
-                &self.id,
-                &blocks,
-                &self.style,
-                palette.accent,
-                &self.on_link,
-                &palette,
-            ))
+            .children(render_blocks(&self.id, &blocks, &self.style, &palette, &sel))
     }
 }
 
@@ -1643,6 +1825,89 @@ mod tests {
         let first = parsed_markdown("# Hi\n\nSome text.", &style);
         let second = parsed_markdown("# Hi\n\nSome text.", &style);
         assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn selected_text_reads_code_and_link_labels_as_plain_words() {
+        let doc = markdown(
+            "sel-test",
+            "Tightened `validateAddress` — see the [turns card](transcript/turns) for context.",
+            style(),
+        );
+        let cell = SelectionKey::paragraph("", 0);
+        let whole = doc
+            .selected_text(&TextSelection {
+                cell: cell.clone(),
+                range: 0..1000,
+            })
+            .expect("a paragraph range selects");
+        assert_eq!(
+            whole,
+            "Tightened validateAddress — see the turns card for context."
+        );
+        // Sub-ranges address the shaped text: the code span…
+        // ("Tightened " is 10 bytes, "validateAddress" 15).
+        let code = doc
+            .selected_text(&TextSelection {
+                cell: cell.clone(),
+                range: 10..25,
+            })
+            .expect("code span selects");
+        assert_eq!(code, "validateAddress");
+        // …and the link label, without its destination.
+        let label = whole.find("turns card").expect("label is drawn");
+        let link = doc
+            .selected_text(&TextSelection {
+                cell: cell.clone(),
+                range: label..label + "turns card".len(),
+            })
+            .expect("link label selects");
+        assert_eq!(link, "turns card");
+        // Unknown keys and empty ranges select nothing.
+        assert!(
+            doc.selected_text(&TextSelection {
+                cell: SelectionKey::paragraph("", 9),
+                range: 0..4,
+            })
+            .is_none()
+        );
+        assert!(
+            doc.selected_text(&TextSelection {
+                cell,
+                range: 4..4,
+            })
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn selected_text_covers_quotes_tables_and_code() {
+        let doc = markdown(
+            "sel-cells",
+            "> Quoted words\n\n| a | b |\n| -- | -- |\n| 1 | 2 |\n\n```rust\nlet x = 1;\n```\n",
+            style(),
+        );
+        let quote = doc
+            .selected_text(&TextSelection {
+                cell: SelectionKey::paragraph(&SelectionKey::quote_prefix("", 0), 0),
+                range: 0..6,
+            })
+            .expect("quoted cells scope under the quote prefix");
+        assert_eq!(quote, "Quoted");
+        let cell = doc
+            .selected_text(&TextSelection {
+                cell: SelectionKey::table_cell("", 1, Some(0), 1),
+                range: 0..8,
+            })
+            .expect("table body cells select");
+        assert_eq!(cell, "2");
+        let code = doc
+            .selected_text(&TextSelection {
+                cell: SelectionKey::code("", 2),
+                range: 0..10,
+            })
+            .expect("fenced blocks select over the whole block text");
+        assert_eq!(code, "let x = 1;");
     }
 
     #[test]

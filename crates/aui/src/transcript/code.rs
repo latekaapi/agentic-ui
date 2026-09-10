@@ -5,14 +5,19 @@
 
 use std::time::Duration;
 
+use std::ops::Range;
+
 use aui_motion::{icon_morph, spring_phase, tween, IconMorph, SpringKind, Tween};
 use aui_protocol::{Diff, DiffKind};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
-use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, StyledText, Window};
+use gpui::{div, prelude::*, px, relative, App, ElementId, Hsla, IntoElement, SharedString, StyledText, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, icon_button, pill, ButtonSize, PillVariant};
 use crate::icons::{icon, IconName};
+use crate::transcript::selectable::{
+    intersect_range, selectable_text, SelectionHandler, SelectionKey, TextSelection,
+};
 use crate::transcript::syntax::syntax_runs_in;
 use crate::util::{interaction_flags, TrackInteraction};
 
@@ -90,11 +95,15 @@ pub struct CodeBlock {
     start_line: u32,
     hidden_lines: usize,
     on_action: Option<CodeHandler>,
+    selection_key: Option<SelectionKey>,
+    selection: Option<Range<usize>>,
+    selection_color: Option<Hsla>,
+    on_selection_change: Option<SelectionHandler>,
 }
 
 /// A block showing `code` from `path`.
 pub fn code_block(id: impl Into<ElementId>, path: impl Into<SharedString>, code: impl Into<SharedString>) -> CodeBlock {
-    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, hidden_lines: 0, on_action: None }
+    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, hidden_lines: 0, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None }
 }
 
 impl CodeBlock {
@@ -119,6 +128,37 @@ impl CodeBlock {
     /// Action handler.
     pub fn on_action(mut self, f: impl Fn(CodeBlockAction, &mut Window, &mut App) + 'static) -> Self {
         self.on_action = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// The selection cell key this block's lines share. Ranges are byte
+    /// offsets over the whole block text, newlines included.
+    pub fn selection_key(mut self, key: SelectionKey) -> Self {
+        self.selection_key = Some(key);
+        self
+    }
+
+    /// The visible selection, in block-wide byte indices. Only the lines it
+    /// overlaps highlight.
+    pub fn selection(mut self, range: Option<Range<usize>>) -> Self {
+        self.selection = range;
+        self
+    }
+
+    /// The highlight colour behind selected glyphs. Defaults to the theme's
+    /// `selection` token.
+    pub fn selection_color(mut self, color: Hsla) -> Self {
+        self.selection_color = Some(color);
+        self
+    }
+
+    /// Selection intents from any line, translated to block-wide indices.
+    /// Empty lines carry no bytes, so presses there clear instead.
+    pub fn on_selection_change(
+        mut self,
+        f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_selection_change = Some(std::rc::Rc::new(f));
         self
     }
 }
@@ -228,18 +268,79 @@ impl RenderOnce for CodeBlock {
         let header = block_header(&p, &id, BlockHeaderArgs { glyph: IconName::File, name: self.path.clone(), after, actions, hovered: flags.hovered }, window, cx);
 
         let language = self.language.clone();
+        // Selection shares one cell key across lines: `base` is the line's
+        // byte offset over the whole block text (`lines()` strips the
+        // newline, hence `+ 1`). Without a key the lines keep their plain
+        // `StyledText`, pixel-identical to before.
+        let sel_key = self.selection_key.clone();
+        let sel_color = self.selection_color.unwrap_or(p.selection);
+        let sel_range = self.selection.clone();
+        let sel_emit = self.on_selection_change.clone();
         let mut body = v_flex().w_full().py(px(CODE_PAD_Y)).px(px(CODE_PAD_X)).mono(scale::FS_12).line_height(relative(CODE_LH)).text_color(p.term_fg).whitespace_nowrap();
+        let mut base = 0usize;
         for (i, line) in self.code.lines().enumerate() {
+            let line_start = base;
+            base += line.len() + 1;
             let runs = syntax_runs_in(line, language.as_deref(), &p, scale::FONT_MONO);
             let text = if line.is_empty() { " ".to_string() } else { line.to_string() };
             let runs = if line.is_empty() { Vec::new() } else { runs };
-            let styled = if runs.is_empty() { StyledText::new(text) } else { StyledText::new(text).with_runs(runs) };
+            let line_body: gpui::AnyElement = match &sel_key {
+                Some(key) => {
+                    let line_id: ElementId =
+                        (id.clone(), SharedString::from(format!("sel-{i}"))).into();
+                    let local = sel_range
+                        .as_ref()
+                        .and_then(|range| intersect_range(range, line_start, line.len()));
+                    let mut element = selectable_text(line_id, key.clone(), text)
+                        .runs(runs)
+                        .selection_color(sel_color)
+                        .selection(local);
+                    if let Some(emit) = &sel_emit {
+                        let emit = emit.clone();
+                        let key = key.clone();
+                        let empty = line.is_empty();
+                        element = element.on_selection_change(move |next, window, cx| {
+                            let next = next.and_then(|local| {
+                                if empty {
+                                    None
+                                } else {
+                                    Some(TextSelection {
+                                        cell: key.clone(),
+                                        range: local.range.start + line_start
+                                            ..local.range.end + line_start,
+                                    })
+                                }
+                            });
+                            emit(next, window, cx);
+                        });
+                    }
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .overflow_hidden()
+                        .child(element)
+                        .into_any_element()
+                }
+                None => {
+                    let styled = if runs.is_empty() {
+                        StyledText::new(text)
+                    } else {
+                        StyledText::new(text).with_runs(runs)
+                    };
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .overflow_hidden()
+                        .child(styled)
+                        .into_any_element()
+                }
+            };
             body = body.child(
                 h_flex()
                     .w_full()
                     .items_start()
                     .child(div().flex_none().w(px(GUTTER_W)).text_color(p.term_dim).child((self.start_line + i as u32).to_string()))
-                    .child(div().flex_1().min_w(px(0.0)).overflow_hidden().child(styled)),
+                    .child(line_body),
             );
         }
 
