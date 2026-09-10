@@ -40,6 +40,32 @@ pub enum ToolKind {
     },
 }
 
+/// One tool invocation: what ran, how it went, and the payload the card renders.
+///
+/// The fields are the [`crate::Block::ToolCall`] variant's fields, so a group
+/// ([`crate::Block::ToolGroup`]) reuses this struct instead of restating them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ToolCall {
+    /// Stable id, used to address the call in deltas and intents.
+    pub id: String,
+    /// Which tool ran, which picks the icon and the body shape.
+    ///
+    /// Serialized as `tool_kind`: the shape's own tag already owns `kind`
+    /// wherever it is embedded.
+    #[serde(rename = "tool_kind")]
+    pub kind: ToolKind,
+    /// Header verb, e.g. `"Ran"`, `"Edited"`, `"Searched"`.
+    pub verb: String,
+    /// Mono header target, e.g. a command or a path.
+    pub target: String,
+    /// Current status, which drives the glyph and the result pill.
+    pub status: ToolStatus,
+    /// Duration in milliseconds; `None` while still running.
+    pub duration_ms: Option<u64>,
+    /// Tool-specific payload.
+    pub body: ToolBody,
+}
+
 /// The lifecycle of a tool call, which picks the header glyph and result pill.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

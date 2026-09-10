@@ -251,6 +251,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::tool_cards::build,
     },
     Entry {
+        id: "transcript/tool-group",
+        group: "Transcript",
+        title: "Tool-call group",
+        subtitle: "Consecutive tool calls under one summary: collapsed preview rows, open full cards",
+        width: 800.0,
+        height: 760.0,
+        theme: CardTheme::Both,
+        build: crate::cards::tool_group::build,
+    },
+    Entry {
         id: "transcript/approval",
         group: "Transcript",
         title: "Approval card",

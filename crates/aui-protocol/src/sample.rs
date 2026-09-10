@@ -15,7 +15,7 @@ use crate::block::{
 use crate::intent::ApprovalDecision;
 use crate::session::{Environment, PermissionMode, Provider, Session};
 use crate::tool::{
-    Diff, DiffKind, DiffLine, Hunk, SearchHit, ToolBody, ToolKind, ToolStatus, WebResult,
+    Diff, DiffKind, DiffLine, Hunk, SearchHit, ToolBody, ToolCall, ToolKind, ToolStatus, WebResult,
 };
 use crate::turn::{
     Attachment, AttachmentKind, Mention, MentionKind, Turn, TurnMeta, UploadState,
@@ -761,6 +761,36 @@ fn web_call() -> Block {
             hidden: 3,
         },
     }
+}
+
+/// Consecutive tool calls folded into one card, for the gallery's tool-group
+/// entry: a finished group of five and a running group of two.
+pub fn tool_groups() -> Vec<Block> {
+    vec![tool_group(), running_tool_group()]
+}
+
+/// Five finished calls under one summary line: the collapsed preview shows
+/// the first two rows plus `+3 more`.
+fn tool_group() -> Block {
+    let calls = ["tc-search", "tc-read", "tc-web", "tc-lint", "tc-browser"]
+        .into_iter()
+        .map(|id| tool_calls().into_iter().find(|b| matches!(b, Block::ToolCall { id: got, .. } if got == id)).expect("sample call id").as_tool_call().expect("tool call"))
+        .collect();
+    Block::ToolGroup { calls, summary: "Checked the form flow".into(), state: ActivityState::Done }
+}
+
+/// Two shell calls with one still running, so the header spins.
+fn running_tool_group() -> Block {
+    let calls = ["tc-read", "tc-dev"]
+        .into_iter()
+        .map(|id| tool_calls().into_iter().find(|b| matches!(b, Block::ToolCall { id: got, .. } if got == id)).expect("sample call id").as_tool_call().expect("tool call"))
+        .collect();
+    Block::ToolGroup { calls, summary: "Running dev server".into(), state: ActivityState::Working }
+}
+
+/// One [`ToolCall`] struct for the gallery: the read call as data.
+pub fn tool_call_sample() -> ToolCall {
+    read_call().as_tool_call().expect("read call")
 }
 
 fn lint_call() -> Block {

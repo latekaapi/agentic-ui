@@ -30,6 +30,7 @@ pub mod terminal;
 pub mod terminal_live;
 pub mod thinking;
 pub mod tool_cards;
+pub mod tool_group;
 pub mod toasts;
 pub mod space;
 pub mod turns;

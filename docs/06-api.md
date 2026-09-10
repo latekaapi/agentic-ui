@@ -772,6 +772,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn caret_visible(id: impl Into<TransitionId>, window: &mut Window, cx: &mut App) -> bool`
 - **fn** `code_block` — A block showing `code` from `path`.
   - `pub fn code_block(id: impl Into<ElementId>, path: impl Into<SharedString>, code: impl Into<SharedString>) -> CodeBlock`
+- **fn** `count_label` — `1 call` / `N calls` for the muted header count.
+  - `pub fn count_label(calls: usize) -> String`
 - **fn** `diff_block` — A unified diff block for `diff`.
   - `pub fn diff_block(id: impl Into<ElementId>, diff: Diff) -> DiffBlock`
 - **fn** `diff_note` — `.note`: the note under a diff line, saved or pending.
@@ -792,12 +794,16 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn last_paragraph_runs(markdown: &str, style: &ProseStyle) -> Option<(String, Vec<TextRun>)>`
 - **fn** `marker_row` — A marker with plain text; add emphasis, links or a hand-off with the builders.
   - `pub fn marker_row(id: impl Into<ElementId>) -> MarkerRow`
+- **fn** `more_label` — `+3 more` for the collapsed preview’s overflow row.
+  - `pub fn more_label(hidden: usize) -> String`
 - **fn** `needs_you_banner` — A needs-you banner: bold `headline` then plain `detail`, with a jump action.
   - `pub fn needs_you_banner(id: impl Into<ElementId>, headline: impl Into<SharedString>, detail: impl Into<SharedString>) -> NeedsYouBanner`
 - **fn** `parse_ansi` — Splits `line` into spans at its SGR escapes.
   - `pub fn parse_ansi(line: &str) -> Vec<AnsiSpan>`
 - **fn** `plan_card` — A proposed plan over `items`; each item is the small markdown subset, so `code` spans render in the mono face.
   - `pub fn plan_card(id: impl Into<ElementId>, items: Vec<String>) -> PlanCard`
+- **fn** `preview_hidden` — Preview rows past the first `GROUP_PREVIEW` collapse into the more row.
+  - `pub fn preview_hidden(total: usize) -> usize`
 - **fn** `prose` — Renders `markdown` as prose blocks.
   - `pub fn prose(id: impl Into<ElementId>, markdown: &str, style: ProseStyle) -> impl IntoElement`
 - **fn** `question_card` — A question with `prompt` and `options`, drawn as radios; call `QuestionCard::multi` for checkboxes.
@@ -824,6 +830,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn tokenize_line_in(line: &str, language: Option<&str>) -> Vec<(Range<usize>, TokenKind)>`
 - **fn** `tool_card` — A card for one tool call.
   - `pub fn tool_card(id: impl Into<ElementId>, verb: impl Into<SharedString>, target: impl Into<SharedString>, status: ToolStatus, body: ToolBody) -> ToolCard`
+- **fn** `tool_group` — Consecutive `group` calls under one summary; `open` picks preview rows (`false`) or every call as a full `tool_card` (`true`).
+  - `pub fn tool_group(id: impl Into<ElementId>, group: ToolGroupData, open: bool) -> ToolGroup`
 - **fn** `transcript_card` — An empty card; add header parts with `TranscriptCard::header` and a body with `TranscriptCard::body`.
   - `pub fn transcript_card(id: impl Into<ElementId>, open: bool) -> TranscriptCard`
 - **fn** `ts_language` — The grammar name gpui-kit’s highlighter knows for `language`, for the six languages the `tree-sitter` feature ships grammars for. [...]
@@ -862,6 +870,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn stages(self, stages: Vec<ApprovalStage>, current: Option<usize>) -> Self` — The subject’s stages and which one is awaiting a decision.
   - `pub fn title(self, title: impl Into<SharedString>) -> Self` — The pending question, e.g. `"Allow Muse to run this command?"`.
 - **struct** `AssistantTurn` — The assistant’s turn. Build with `assistant_turn`.
+  - `pub fn actions_bottom(self, bottom: bool) -> Self` — In-flow action row under the prose instead of the hover toolbar.
   - `pub fn meta(self, meta: TurnMeta) -> Self` — The footer: model · duration · tokens · cost.
   - `pub fn on_action(self, f: impl Fn(AssistantTurnAction, &mut Window, &mut App) + 'static) -> Self` — Toolbar handler.
   - `pub fn streaming(self, streaming: bool) -> Self` — Shows the blinking caret after the text while chunks arrive.
@@ -949,6 +958,12 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn duration_ms(self, ms: Option<u64>) -> Self` — The duration shown in the header.
   - `pub fn on_intent(self, f: impl Fn(ToolCardIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler.
   - `pub fn open(self, open: bool) -> Self` — Whether the body is shown.
+- **struct** `ToolGroup` — A group of tool calls. Build with `tool_group`.
+  - `pub fn call_open(self, index: usize, open: bool) -> Self` — Whether one call’s full card is open (all are, by default).
+  - `pub fn on_intent(self, f: impl Fn(ToolGroupIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler: `ToolGroupIntent::Toggle` for the header, and one `ToolGroupIntent::Call` per call card.
+- **struct** `ToolGroupData` — The data a tool group renders.
+  - fields: `calls`, `summary`, `state`
+  - `pub fn from_block(block: &Block) -> Option<Self>` — The data of a `Block::ToolGroup`; `None` for any other variant.
 - **struct** `TranscriptCard` — A collapsible transcript card. Build with `transcript_card`.
   - `pub fn body(self, el: impl IntoElement) -> Self` — The body, drawn behind a 1 px top border and collapsed when closed.
   - `pub fn body_border(self, border: bool) -> Self` — Drops the 1 px line between header and body (the thinking block).
@@ -958,6 +973,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn hover_tint(self, tint: bool) -> Self` — Disables the header hover tint (non-interactive headers).
   - `pub fn on_toggle(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Header click.
 - **struct** `UserTurn` — The person’s turn. Build with `user_turn`.
+  - `pub fn actions_bottom(self, bottom: bool) -> Self` — In-flow action row under the bubble instead of the hover rail.
   - `pub fn attachments(self, attachments: Vec<Attachment>) -> Self` — Attachments shown above the bubble.
   - `pub fn on_action(self, f: impl Fn(UserTurnAction, &mut Window, &mut App) + 'static) -> Self` — Hover-action handler.
 
@@ -977,6 +993,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - variants: `Plain`, `Keyword`, `Function`, `String`, `Number`, `Comment`
 - **enum** `ToolCardIntent` — What the card’s fold rows and header ask for.
   - variants: `Toggle`, `Unfold`, `OpenInPane`
+- **enum** `ToolGroupIntent` — What a tool group asks for.
+  - variants: `Toggle`, `Call`
 - **enum** `UserTurnAction` — Actions on a user turn.
   - variants: `Edit`, `Copy`, `Resend`
 
@@ -988,6 +1006,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub const CARET_MARGIN_LEFT: f32 = 1.0;`
 - **const** `CARET_W` — `.caret{width:2px;height:15px;background:var(--accent);vertical-align:-3px; margin-left:1px;animation:blink 1s steps(2) infinite}` — the streaming caret’s geometry, shared by every turn that can strea [...]
   - `pub const CARET_W: f32 = 2.0;`
+- **const** `GROUP_PREVIEW` — Collapsed preview rows before the `+k more` row (the image3 idiom: two rows, then the overflow count).
+  - `pub const GROUP_PREVIEW: usize = 2;`
 - **const** `SHELL_FOLD` — Shell output folds after this many lines (the card shows six, then `14 more lines`).
   - `pub const SHELL_FOLD: usize = 6;`
 
@@ -1766,6 +1786,8 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
   - fields: `verb`, `target`, `state`, `result`
 - **struct** `TodoItem` — One row in a `Block::Todo` list.
   - fields: `label`, `state`, `elapsed_ms`
+- **struct** `ToolCall` — One tool invocation: what ran, how it went, and the payload the card renders.
+  - fields: `id`, `kind`, `verb`, `target`, `status`, `duration_ms`, `body`
 - **struct** `TurnMeta` — The mono footer under an assistant turn: `model · duration · tokens · cost`.
   - fields: `model`, `duration_ms`, `tokens_in`, `tokens_out`, `reasoning_tokens`, `cost_usd`
 - **struct** `WebResult` — One web result row.
@@ -1783,12 +1805,14 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
 - **enum** `AttachmentKind` — The three attachment shapes the composer accepts.
   - variants: `Image`, `File`, `Text`
 - **enum** `Block` — One renderable unit inside an assistant turn.
-  - variants: `Text`, `Thinking`, `Activity`, `ToolCall`, `Approval`, `Question`, `Plan`,
-    `Todo`, `Summary`, `Error`, `Goal`, `Generic`, `Marker`
+  - variants: `Text`, `Thinking`, `Activity`, `ToolCall`, `ToolGroup`, `Approval`, `Question`,
+    `Plan`, `Todo`, `Summary`, `Error`, `Goal`, `Generic`, `Marker`
   - `pub fn approval(id: impl Into<String>, tool: impl Into<String>, command: impl Into<String>, reason: impl Into<String>, cwd: impl Into<String>, capabilities: Vec<String>, scope: ApprovalScope, state: ApprovalState, rule: Option<String>) -> Self` — A pending `Block::Approval` with the MSP-only fields left empty.
+  - `pub fn as_tool_call(&self) -> Option<ToolCall>` — The `ToolCall` shape of a `Block::ToolCall`; `None` for any other variant, so a grouping pass can collect runs of tool calls without matching the variant itself.
   - `pub fn complete_approval(&mut self, exit_code: i32, duration_ms: u64) -> bool` — Settle an approval that was `ApprovalState::Approving` once the command has exited. Returns `false` if the block was in any other state.
   - `pub fn decide_approval(&mut self, decision: ApprovalDecision, remembered_rule: Option<String>) -> bool` — Record a decision on an `Block::Approval` block.
   - `pub fn text(text: impl Into<String>) -> Self` — A finished, non-streaming text block.
+  - `pub fn tool_call(call: ToolCall) -> Self` — A `Block::ToolCall` built from its struct shape.
 - **enum** `ChangeKind` — How a file changed.
   - variants: `Modified`, `Added`, `Deleted`
 - **enum** `Delta` — One incremental change to a session, as an adapter emits it while the agent runs.
@@ -1864,5 +1888,9 @@ A realistic sample session, used by `aui-gallery` and the parity screenshots.
   - `pub fn muse_question() -> Block`
 - **fn** `session` — The full sample session: the checkout-flow-v2 worktree from the harness reference screen, with one block of every kind in the order the design cards present them.
   - `pub fn session() -> Session`
+- **fn** `tool_call_sample` — One `ToolCall` struct for the gallery: the read call as data.
+  - `pub fn tool_call_sample() -> ToolCall`
 - **fn** `tool_calls` — Every tool-call body from card 34, for the gallery’s tool-card entry.
   - `pub fn tool_calls() -> Vec<Block>`
+- **fn** `tool_groups` — Consecutive tool calls folded into one card, for the gallery’s tool-group entry: a finished group of five and a running group of two.
+  - `pub fn tool_groups() -> Vec<Block>`
