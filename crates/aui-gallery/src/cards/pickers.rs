@@ -129,6 +129,10 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                         kind: ComposerChipKind::Image,
                         label: "checkout.png".into(),
                         removable: true,
+                        // No thumbnail: the glyph fallback, beside the tiled
+                        // variant on the composer card.
+                        thumbnail: None,
+                        detail: None,
                     }])
                     .context(ContextMeterState {
                         used_tokens: 19_328,

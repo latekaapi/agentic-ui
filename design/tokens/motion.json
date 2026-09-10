@@ -4,7 +4,9 @@
     "base": 180,
     "enter": 220,
     "exit": 160,
-    "slow": 280
+    "slow": 280,
+    "quick_enter": 150,
+    "quick_exit": 120
   },
   "easings": {
     "out": [

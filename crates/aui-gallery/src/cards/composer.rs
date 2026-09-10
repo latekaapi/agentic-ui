@@ -19,6 +19,17 @@ const CAPS_TOP: f32 = 6.0;
 const NOTE_MEASURE: f32 = 640.0;
 const DRAFT: &str = "Add GB postcode validation too, then run the focused tests and lint.";
 
+/// A 16 px procedural preview (diagonal gray gradient) standing in for a
+/// decoded upload, so the thumbnail variants render without image files.
+pub fn sample_thumbnail() -> std::sync::Arc<gpui::RenderImage> {
+    const SIDE: u32 = 16;
+    let buffer = image::ImageBuffer::from_fn(SIDE, SIDE, |x, y| {
+        let v = ((x + y) * 255 / (2 * (SIDE - 1))) as u8;
+        image::Rgba([v, v, v, 255])
+    });
+    std::sync::Arc::new(gpui::RenderImage::new(vec![image::Frame::new(buffer)]))
+}
+
 /// Builds the card content.
 pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
@@ -32,9 +43,24 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let (plus_open, streaming) = *ui.read(cx);
     let ui_for_intent = ui.clone();
     let chips = vec![
-        ComposerChip { id: "mention".into(), kind: ComposerChipKind::Mention, label: "src/checkout".into(), removable: true },
-        ComposerChip { id: "image".into(), kind: ComposerChipKind::Image, label: "form.png".into(), removable: true },
-        ComposerChip { id: "skill".into(), kind: ComposerChipKind::Skill, label: "test-writer".into(), removable: false },
+        ComposerChip { id: "mention".into(), kind: ComposerChipKind::Mention, label: "src/checkout".into(), removable: true, thumbnail: None, detail: None },
+        ComposerChip {
+            id: "image".into(),
+            kind: ComposerChipKind::Image,
+            label: "form.png".into(),
+            removable: true,
+            thumbnail: Some(sample_thumbnail()),
+            detail: None,
+        },
+        ComposerChip {
+            id: "file".into(),
+            kind: ComposerChipKind::File,
+            label: "design-spec.pdf".into(),
+            removable: true,
+            thumbnail: None,
+            detail: Some("PDF · 2.1 MB".into()),
+        },
+        ComposerChip { id: "skill".into(), kind: ComposerChipKind::Skill, label: "test-writer".into(), removable: false, thumbnail: None, detail: None },
     ];
     let menu = plus_menu(
         "card40-plus-menu",

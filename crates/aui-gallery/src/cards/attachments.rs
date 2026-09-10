@@ -8,6 +8,7 @@ use aui::protocol::AttachmentKind;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
+use super::composer::sample_thumbnail;
 
 /// `.grid{grid-template-columns:1fr 1fr;gap:16px}`.
 const COLUMN_GAP: f32 = scale::SP_5;
@@ -53,7 +54,12 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                         .flex_1()
                         .min_w(px(0.0))
                         .gap(px(ROW_STACK_GAP))
-                        .child(attachment_row("card42-image", "checkout-form.png", "PNG · 1.2 MB · 1440 × 900").kind(AttachmentKind::Image).on_remove(|_, _| {}))
+                        .child(
+                            attachment_row("card42-image", "checkout-form.png", "PNG · 1.2 MB · 1440 × 900")
+                                .kind(AttachmentKind::Image)
+                                .thumbnail(sample_thumbnail())
+                                .on_remove(|_, _| {}),
+                        )
                         .child(
                             attachment_row("card42-upload", "design-spec.pdf", "")
                                 .kind(AttachmentKind::File)

@@ -62,6 +62,15 @@ fn mention_sections() -> Vec<MentionSection> {
                     .matching(MENTION_QUERY)
                     .detail_mono(),
                 MentionItem::new("checkout", MentionIcon::Glyph(IconName::Folder), "src/checkout", "folder · 9 files"),
+                // A long row: under the dropdown ceiling the name wraps
+                // instead of pushing the detail off the menu.
+                MentionItem::new(
+                    "messages",
+                    MentionIcon::Glyph(IconName::File),
+                    "checkout-form-validation-messages.ts",
+                    "src/checkout/forms/validation/messages",
+                )
+                .detail_mono(),
             ],
         ),
         MentionSection::new(

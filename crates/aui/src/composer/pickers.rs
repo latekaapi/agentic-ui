@@ -5,8 +5,8 @@
 //! trailing meta (a model's context limit) and any number of badges
 //! (`default`, `active`), plus a check on the selected row.
 //!
-//! They are built on the `+` menu's primitives — the same gentle morph out of
-//! the corner, the same overlay ground, painted through
+//! They are built on the `+` menu's primitives — the same quick rise-and-fade
+//! enter, the same overlay ground, painted through
 //! [`crate::overlay::popover_layer`] — and are anchored by the composer to the
 //! chip that opened them ([`crate::composer::Composer::chip_menu`]).
 //!
@@ -19,7 +19,7 @@
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_motion::{spring_phase, tint_fade, tween, SpringKind, Tween};
+use aui_motion::{presence, tint_fade, tween, EnterExit, PresenceStyle, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -53,8 +53,10 @@ const MENU_W_MIN: f32 = 360.0;
 const MENU_W_MAX: f32 = 520.0;
 /// The overlay's own shadow step.
 const MENU_SHADOW: u8 = 3;
-/// The morph starts at scale .85 from the bottom-left corner, like `plus_menu`.
-const MORPH_FROM: f32 = 0.85;
+/// The enter rises 6 px at scale .98 — the one presence tween every composer
+/// menu shares, like `plus_menu`.
+const POP_RISE: f32 = 6.0;
+const POP_FROM_SCALE: f32 = 0.98;
 /// `.pick .it{padding:6px 8px;gap:8px;border-radius:var(--r-sm)}` — two lines,
 /// so the row is taller than a menu row and sizes to its content.
 const ITEM_PAD_X: f32 = 8.0;
@@ -167,7 +169,7 @@ impl PickerMenu {
         self
     }
 
-    /// Skips the enter morph (static captures).
+    /// Skips the enter (static captures).
     pub fn at_rest(mut self) -> Self {
         self.at_rest = true;
         self
@@ -199,19 +201,17 @@ impl RenderOnce for PickerMenu {
         let id = self.id.clone();
         // At rest the menu is either fully out or fully gone; `open` still
         // decides which, or a closed menu would draw itself in a static capture.
-        let phase = if self.at_rest {
-            if self.open {
-                1.0
-            } else {
-                0.0
-            }
+        let style = if self.at_rest {
+            PresenceStyle { opacity: if self.open { 1.0 } else { 0.0 }, offset_y: px(0.0), scale: 1.0 }
         } else {
-            spring_phase((id.clone(), "morph"), self.open, SpringKind::Gentle, window, cx).clamp(0.0, 1.0)
+            let sample = presence((id.clone(), "enter"), self.open, EnterExit::QUICK, window, cx);
+            PresenceStyle::fade_rise_scale(sample, POP_RISE, POP_FROM_SCALE)
         };
-        if !self.open && phase <= 0.001 {
+        if !self.open && style.opacity <= 0.001 {
             return div().invisible().into_any_element();
         }
-        let scale_now = MORPH_FROM + (1.0 - MORPH_FROM) * phase;
+        let scale_now = style.scale;
+        let rise = style.offset_y;
 
         // The pointer wins over the caller's `selected`, so the arrow keys and
         // the mouse never light two rows at once.
@@ -224,7 +224,7 @@ impl RenderOnce for PickerMenu {
         let mut menu = v_flex()
             .id(id.clone())
             .absolute()
-            .bottom(px(MENU_BOTTOM))
+            .bottom(px(MENU_BOTTOM) - rise)
             .left(px(0.0))
             .min_w(px(MENU_W_MIN * scale_now))
             .max_w(px(MENU_W_MAX * scale_now))
@@ -234,7 +234,7 @@ impl RenderOnce for PickerMenu {
             .border_color(p.line_strong)
             .bg(p.overlay)
             .shadow(p.shadow(MENU_SHADOW))
-            .opacity(phase)
+            .opacity(style.opacity)
             .occlude()
             .child(
                 div()

@@ -4,8 +4,8 @@
 //! Both are stateless lists in the shape of the command palette: the caller
 //! owns the query, the sections and the selected row, and receives intents
 //! (select, hover) back. Neither knows how it is anchored — each renders at the
-//! width of its container, above the composer, and enters with the 6 px rise
-//! and .98 scale of `.pop`.
+//! width of its container up to the 520 px dropdown ceiling, above the
+//! composer, and enters with the 6 px rise and .98 scale of `.pop`.
 
 use std::ops::Range;
 use std::rc::Rc;
@@ -32,6 +32,10 @@ const POP_GAP: f32 = 8.0;
 /// popover rises out of the composer's top edge.
 const POP_RISE: f32 = 6.0;
 const POP_FROM_SCALE: f32 = 0.98;
+/// The dropdown ceiling: the caret menus never grow past the picker ceiling
+/// (`pickers::MENU_W_MAX`), so both read as one control family. The popover
+/// keeps its left edge and rows wrap inside the cap.
+const MENU_W_MAX: f32 = 520.0;
 
 /// `.pop .caps{padding:6px 8px 4px}`.
 const CAPS_PAD_TOP: f32 = 6.0;
@@ -150,7 +154,7 @@ pub fn command_menu(id: impl Into<ElementId>, query: impl Into<SharedString>, se
         sections,
         selected,
         present: true,
-        timing: EnterExit::DEFAULT,
+        timing: EnterExit::QUICK,
         on_select: None,
         on_hover: None,
     }
@@ -312,7 +316,7 @@ pub fn mention_picker(id: impl Into<ElementId>, query: impl Into<SharedString>, 
         sections,
         selected,
         present: true,
-        timing: EnterExit::DEFAULT,
+        timing: EnterExit::QUICK,
         on_select: None,
         on_hover: None,
     }
@@ -370,7 +374,7 @@ impl RenderOnce for MentionPicker {
 }
 
 /// `.pop`: the popover ground both menus share, at the width of its container
-/// and lifted 8 px above the composer.
+/// up to the dropdown ceiling, and lifted 8 px above the composer.
 fn popover_frame(style: PresenceStyle, p: &Palette) -> Div {
     v_flex()
         .relative()
@@ -380,8 +384,10 @@ fn popover_frame(style: PresenceStyle, p: &Palette) -> Div {
         .opacity(style.opacity)
         // gpui has no element transform, so the .98 enter scale is a width
         // fraction of the container; the popover keeps its left edge, which is
-        // the CSS `transform-origin:bottom left`.
+        // the CSS `transform-origin:bottom left`, and never grows past
+        // `MENU_W_MAX` however wide the composer is.
         .w(relative(style.scale))
+        .max_w(px(MENU_W_MAX))
         .mb(px(POP_GAP))
         .p(px(POP_PAD))
         .rounded(px(scale::R_LG))
@@ -389,6 +395,11 @@ fn popover_frame(style: PresenceStyle, p: &Palette) -> Div {
         .border_color(p.line_strong)
         .bg(p.overlay)
         .shadow(p.shadow(POP_SHADOW))
+        // The open menu owns the wheel over it: it occludes the transcript
+        // behind (no hover/click/scroll-through, like the chip pickers) and
+        // stops the wheel so the transcript never scrolls with the menu.
+        .occlude()
+        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
 }
 
 /// `.pop .caps`: a section header.
@@ -556,10 +567,12 @@ fn mention_row(
         Some(item.matched.clone())
     };
     // `.c{width:auto}` here: the name takes its natural width and the detail
-    // line takes the rest of the row.
+    // line takes the rest of the row; under the dropdown ceiling a long name
+    // shrinks and wraps instead of pushing the detail off the row.
     row = row.child(
         div()
-            .flex_none()
+            .flex_shrink_1()
+            .min_w(px(0.0))
             .font_family(scale::FONT_MONO)
             .text_px(COMMAND_TEXT)
             .line_height(relative(COMMAND_LH))
