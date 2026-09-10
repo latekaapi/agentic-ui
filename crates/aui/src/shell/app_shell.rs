@@ -7,6 +7,7 @@
 //! width when [`AppShell::sidebar_open`] is false.
 
 use aui_motion::{spring_px, SpringKind};
+use super::drag_region::drag_region;
 use aui_tokens::{scale, ActiveAui};
 use gpui::{div, prelude::*, px, AnyElement, App, Div, ElementId, IntoElement, Pixels, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -21,12 +22,28 @@ pub const RAIL_WIDTH: f32 = 48.0;
 /// macOS traffic lights own the top-left of the window whether the shell paints
 /// them or the system does, so the rail column widens to clear them.
 pub const RAIL_WIDTH_WITH_LIGHTS: f32 = 72.0;
+/// Minimum sidebar width while resizing: rows need ~200 px at 12.5 px text.
+/// Clamp every drag move with [`clamp_sidebar_width`].
+pub const SIDEBAR_MIN_WIDTH: f32 = 180.0;
+/// Maximum sidebar width while resizing: keeps the transcript usable.
+pub const SIDEBAR_MAX_WIDTH: f32 = 420.0;
+
+/// Clamps a drag width into the resizable range. The shell clamps its own
+/// target the same way, but call this on every drag move before notifying so
+/// the stored width never leaves the range.
+pub fn clamp_sidebar_width(width: f32) -> f32 {
+    width.clamp(SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH)
+}
 
 /// The shell. Build with [`app_shell`].
 #[derive(IntoElement)]
 pub struct AppShell {
     id: ElementId,
     sidebar_width: Pixels,
+    sidebar_min: Pixels,
+    sidebar_max: Pixels,
+    resizing: bool,
+    draggable: bool,
     right_width: Pixels,
     right_open: bool,
     sidebar_open: bool,
@@ -46,6 +63,10 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
     AppShell {
         id: id.into(),
         sidebar_width: px(SIDEBAR_WIDTH),
+        sidebar_min: px(SIDEBAR_MIN_WIDTH),
+        sidebar_max: px(SIDEBAR_MAX_WIDTH),
+        resizing: false,
+        draggable: true,
         right_width: px(RIGHT_WIDTH),
         right_open: true,
         sidebar_open: true,
@@ -65,6 +86,38 @@ impl AppShell {
     /// Overrides the sidebar column width.
     pub fn sidebar_width(mut self, width: impl Into<Pixels>) -> Self {
         self.sidebar_width = width.into();
+        self
+    }
+
+    /// Minimum sidebar width; the render target never goes below it while the
+    /// sidebar is open. Defaults to [`SIDEBAR_MIN_WIDTH`].
+    pub fn sidebar_min_width(mut self, min: impl Into<Pixels>) -> Self {
+        self.sidebar_min = min.into();
+        self
+    }
+
+    /// Maximum sidebar width; the render target never goes above it while the
+    /// sidebar is open. Defaults to [`SIDEBAR_MAX_WIDTH`].
+    pub fn sidebar_max_width(mut self, max: impl Into<Pixels>) -> Self {
+        self.sidebar_max = max.into();
+        self
+    }
+
+    /// A resize drag is in flight: the column feeds the width straight through
+    /// and skips the layout spring so the divider tracks the pointer. When the
+    /// drag ends the spring re-arms from the current width, so the pane
+    /// settles with no jump. The app sets this from the resize handle's
+    /// drag intents (see [`crate::shell::resize_handle`]).
+    pub fn resizing(mut self, resizing: bool) -> Self {
+        self.resizing = resizing;
+        self
+    }
+
+    /// Wraps the header row in a window drag region: press-drag moves the
+    /// window, double-click zooms (macOS titlebar behaviour, `zoom_window`
+    /// elsewhere). On by default; interactive children keep their clicks.
+    pub fn draggable(mut self, draggable: bool) -> Self {
+        self.draggable = draggable;
         self
     }
 
@@ -154,8 +207,22 @@ impl RenderOnce for AppShell {
         let id = self.id.clone();
 
         let rail_width = if self.traffic_lights { px(RAIL_WIDTH_WITH_LIGHTS) } else { px(RAIL_WIDTH) };
-        let sidebar_target = if self.sidebar_open { self.sidebar_width } else { rail_width };
-        let sidebar_w = spring_px((id.clone(), "sidebar-width"), sidebar_target, SpringKind::Layout, window, cx).max(px(0.0));
+        // The app clamps every drag move (see `clamp_sidebar_width`); the
+        // shell clamps the target again so a stale or hand-set width can never
+        // push the rows under their minimum. The rail is exempt: it owns the
+        // collapsed column.
+        let lo = f32::from(self.sidebar_min);
+        let hi = f32::from(self.sidebar_max).max(lo);
+        let sidebar_rest = px(f32::from(self.sidebar_width).clamp(lo, hi));
+        let sidebar_target = if self.sidebar_open { sidebar_rest } else { rail_width };
+        // Mid-drag the width feeds straight through: `spring_px` would chase a
+        // moving target and the divider would lag the pointer. On mouse-up the
+        // spring re-arms from the current width, so there is no jump.
+        let sidebar_w = if self.resizing {
+            sidebar_target
+        } else {
+            spring_px((id.clone(), "sidebar-width"), sidebar_target, SpringKind::Layout, window, cx).max(px(0.0))
+        };
         let right_target = if self.right_open { self.right_width } else { px(0.0) };
         let right_w = spring_px((id.clone(), "right-width"), right_target, SpringKind::Layout, window, cx).max(px(0.0));
         let right_inner = self.right_width;
@@ -167,7 +234,7 @@ impl RenderOnce for AppShell {
         // never an empty surface mid-motion. Expanding shows the sidebar at its
         // resting width from the first frame.
         let collapsing = !self.sidebar_open && sidebar_w > rail_width + px(1.0);
-        let (pane, pane_width) = if self.sidebar_open || collapsing { (self.sidebar, self.sidebar_width) } else { (self.rail, rail_width) };
+        let (pane, pane_width) = if self.sidebar_open || collapsing { (self.sidebar, sidebar_rest) } else { (self.rail, rail_width) };
 
         // Header cells: surface-1, bottom hairline. The sidebar cell owns the
         // first divider (its right border) and the right cell the second (its
@@ -176,7 +243,7 @@ impl RenderOnce for AppShell {
         // indicator over the header's bottom hairline, the way `.tab.on::after`
         // does in the design, and a vertical clip would cut it in half.
         let cell = |d: Div| d.h_full().flex_none().flex().items_center().min_w(px(0.0)).overflow_x_hidden().bg(p.surface_1);
-        let header = h_flex()
+        let header_row = h_flex()
             .w_full()
             .h(header_h)
             .flex_none()
@@ -225,10 +292,36 @@ impl RenderOnce for AppShell {
 
         // The window-wide `:focus-visible` approximation: a mouse press anywhere
         // in the shell disarms the focus ring, the next key press re-arms it.
+        // The header drags the window by default (see `AppShell::draggable`);
+        // the wrapper is unstyled, so on/off screenshots are identical.
+        let header: AnyElement = if self.draggable {
+            drag_region((id.clone(), "header-drag")).child(header_row).into_any_element()
+        } else {
+            header_row.into_any_element()
+        };
         let mut root = crate::keys::track_pointer(v_flex().id(id).size_full().overflow_hidden().bg(p.bg).text_color(p.ink).child(header).child(panes));
         if self.framed {
             root = root.rounded(px(scale::R_LG)).border_1().border_color(p.line_strong).shadow(p.shadow(3));
         }
         root
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_keeps_drag_widths_in_range() {
+        assert_eq!(clamp_sidebar_width(252.0), 252.0);
+        assert_eq!(clamp_sidebar_width(0.0), SIDEBAR_MIN_WIDTH);
+        assert_eq!(clamp_sidebar_width(10_000.0), SIDEBAR_MAX_WIDTH);
+        assert_eq!(clamp_sidebar_width(SIDEBAR_MIN_WIDTH - 0.5), SIDEBAR_MIN_WIDTH);
+        assert_eq!(clamp_sidebar_width(SIDEBAR_MAX_WIDTH + 0.5), SIDEBAR_MAX_WIDTH);
+    }
+
+    const _: () = {
+        assert!(SIDEBAR_MIN_WIDTH < SIDEBAR_WIDTH);
+        assert!(SIDEBAR_WIDTH < SIDEBAR_MAX_WIDTH);
+    };
 }

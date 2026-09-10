@@ -107,13 +107,15 @@ fn project_groups() -> Vec<ProjectGroup> {
     ]
 }
 
-/// The date grouping of column three: rows carry only a repo tag.
+/// The date grouping of column three: rows carry only a repo tag. The
+/// first Today row is pinned, so the column opens with the leading `Pinned`
+/// group (the row leaves its date bucket).
 fn date_groups() -> Vec<DateGroup> {
     vec![
         DateGroup::new(
             "Today",
             vec![
-                checkout(false),
+                checkout(false).pinned(),
                 SessionSummary::new("auth-flow", "redesign auth flow", AgentState::Running, "8m").repo("acme-web"),
                 SessionSummary::new("notifier", "infra/notifier", AgentState::Waiting, "3h").pulse().repo("orca"),
                 SessionSummary::new("auth", "auth-session-refresh", AgentState::Done, "4h").repo("acme-web"),
@@ -398,19 +400,22 @@ fn search_field(p: &Palette) -> impl IntoElement {
     div().ui(scale::FS_12).text_color(p.ink_2).child("checkout")
 }
 
-/// The same, for a row being renamed in place.
+/// The same, for a row being renamed in place: the dense 22 px wrapper at
+/// the row-title size, so the editing row keeps the 30 px row height (the
+/// static mock of `aui::nav::dense_field` plus its focus border).
 fn rename_field(p: &Palette) -> impl IntoElement {
-    div()
+    h_flex()
         .w_full()
-        .px(px(scale::SP_2))
-        .py(px(1.0))
+        .h(px(22.0))
+        .px(px(6.0))
+        .items_center()
         .rounded(px(scale::R_SM))
         .border_1()
         .border_color(p.accent)
         .bg(p.surface_1)
-        .ui(scale::FS_12)
+        .ui(12.5)
         .text_color(p.ink)
-        .child("Checkout flow")
+        .child(div().flex_1().min_w(px(0.0)).truncate().child("Checkout flow"))
 }
 
 /// The [`sidebar_view`] id of each column.

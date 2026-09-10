@@ -1,10 +1,34 @@
 //! `.wt` — the worktree / session row in every state — and `.sr`, the
 //! compact one-line row used by the project and date groupings.
+//!
+//! Inline rename keeps the 30 px row: pass [`dense_field`] (or the same chain
+//! by hand) to [`CompactSessionRow::editor`]. The composer-grade field is what
+//! blows the row up — its 10 px / 8 px paddings and border need ~36 px in a
+//! 30 px row — so the rename field is borderless and chromeless at the
+//! row-title size with a fixed single-line height, and the 1 px focus border
+//! lives on the wrapper instead of the component:
+//!
+//! ```ignore
+//! div()
+//!     .w_full()
+//!     .h(px(22.0))
+//!     .px(px(6.0))
+//!     .rounded(px(scale::R_SM))
+//!     .border_1()
+//!     .border_color(if focused { p.accent } else { p.line })
+//!     .bg(p.surface_1)
+//!     .child(dense_field(&rename_state))
+//! ```
+//!
+//! 22 px of wrapper in 4 px of row padding is exactly the 30 px row, so
+//! siblings never move while a rename is open.
 
 use aui_icons::{icon, provider_mark, IconName};
 use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
-use gpui::{div, prelude::*, px, AnyElement, App, Div, ElementId, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, AnyElement, App, Div, ElementId, Entity, IntoElement, SharedString, Window};
+use gpui_kit::base::input::TextareaState;
+use gpui_kit::component::input::Textarea;
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, spinner, status_dot, tag, ButtonSize};
@@ -76,6 +100,8 @@ pub enum RowAction {
     Rename,
     /// Take the session out of the list.
     Hide,
+    /// Archive the session (confirm first; the app owns the flow).
+    Archive,
     /// More…
     More,
 }
@@ -92,6 +118,7 @@ impl RowAction {
             RowAction::Pin => IconName::Pin,
             RowAction::Rename => IconName::Edit,
             RowAction::Hide => IconName::Eye,
+            RowAction::Archive => IconName::Archive,
             RowAction::More => IconName::Dots,
         }
     }
@@ -103,9 +130,26 @@ impl RowAction {
             RowAction::Pin => "pin",
             RowAction::Rename => "rename",
             RowAction::Hide => "hide",
+            RowAction::Archive => "archive",
             RowAction::More => "more",
         }
     }
+}
+
+/// Height of the dense rename field: the compact row is 30 px with 4 px of
+/// vertical padding, so the field gets 20 px inside a 22 px bordered wrapper.
+pub const DENSE_FIELD_H: f32 = 20.0;
+
+/// The dense single-line field for [`CompactSessionRow::editor`]: the row-title
+/// size, no appearance and no border, fixed to one line. Wrap it in the 22 px
+/// bordered box from the module docs so the focus ring lives on the wrapper
+/// and the row keeps its 30 px while a rename is open.
+pub fn dense_field(state: &Entity<TextareaState>) -> Textarea {
+    Textarea::new(state)
+        .appearance(false)
+        .bordered(false)
+        .text_size(aui_tokens::scaled(SR_TEXT))
+        .h(px(DENSE_FIELD_H))
 }
 
 /// The `.acts` hover tray: the actions, faded and slid in on hover.
@@ -538,10 +582,14 @@ impl RenderOnce for CompactSessionRow {
             lines = lines.child(meta_line(&p, SR_META_TEXT, meta));
         }
 
+        // No `w_full`: at full width the 8 px margins overflow the column and
+        // the shell clips them, leaving ~0 px on the right. As a flex item the
+        // row stretches to the column minus its margins, so both gutters stay 8.
         let mut row = h_flex()
             .id(id.clone())
             .relative()
-            .w_full()
+            .flex_1()
+            .min_w(px(0.0))
             .min_h(cx.aui().metrics.row)
             .items_center()
             .gap(px(COL_GAP))
