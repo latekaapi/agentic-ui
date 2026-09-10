@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::intent::ApprovalDecision;
-use crate::tool::{ToolBody, ToolKind, ToolStatus};
+use crate::tool::{ToolBody, ToolCall, ToolKind, ToolStatus};
 
 /// One renderable unit inside an assistant turn.
 ///
@@ -59,6 +59,18 @@ pub enum Block {
         duration_ms: Option<u64>,
         /// Tool-specific payload.
         body: ToolBody,
+    },
+    /// A run of consecutive tool calls folded into one card.
+    ///
+    /// Each call keeps its [`ToolCall`] shape, so the open group renders every
+    /// call as the full card the lone [`Block::ToolCall`] would have shown.
+    ToolGroup {
+        /// The calls, in execution order.
+        calls: Vec<ToolCall>,
+        /// Collapsed header line, e.g. `"Searched web · 5 results"`.
+        summary: String,
+        /// Whether the group is still running, which picks the header glyph.
+        state: ActivityState,
     },
     /// A permission request the person must resolve (card 35).
     Approval {
@@ -219,6 +231,37 @@ pub enum Block {
 }
 
 impl Block {
+    /// A [`Block::ToolCall`] built from its struct shape.
+    pub fn tool_call(call: ToolCall) -> Self {
+        Block::ToolCall {
+            id: call.id,
+            kind: call.kind,
+            verb: call.verb,
+            target: call.target,
+            status: call.status,
+            duration_ms: call.duration_ms,
+            body: call.body,
+        }
+    }
+
+    /// The [`ToolCall`] shape of a [`Block::ToolCall`]; `None` for any other
+    /// variant, so a grouping pass can collect runs of tool calls without
+    /// matching the variant itself.
+    pub fn as_tool_call(&self) -> Option<ToolCall> {
+        match self {
+            Block::ToolCall { id, kind, verb, target, status, duration_ms, body } => Some(ToolCall {
+                id: id.clone(),
+                kind: kind.clone(),
+                verb: verb.clone(),
+                target: target.clone(),
+                status: *status,
+                duration_ms: *duration_ms,
+                body: body.clone(),
+            }),
+            _ => None,
+        }
+    }
+
     /// A finished, non-streaming text block.
     pub fn text(text: impl Into<String>) -> Self {
         Block::Text { text: text.into(), streaming: false }

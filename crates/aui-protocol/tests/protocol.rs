@@ -1,7 +1,8 @@
 //! Behavioural tests for the session model.
 
 use aui_protocol::{
-    ApprovalDecision, ApprovalState, Block, Delta, Session, ToolBody, ToolStatus, Turn, TurnMeta,
+    ActivityState, ApprovalDecision, ApprovalState, Block, Delta, Session, ToolBody, ToolCall,
+    ToolKind, ToolStatus, Turn, TurnMeta,
 };
 
 #[test]
@@ -456,5 +457,45 @@ fn the_wider_approval_decisions_settle_the_card() {
         let mut approval = aui_protocol::sample::approvals().remove(0);
         assert!(approval.decide_approval(decision, None));
         assert!(matches!(approval, Block::Approval { state: ApprovalState::Denied, .. }));
+    }
+}
+
+#[test]
+fn tool_group_reuses_the_tool_call_shape() {
+    let call = ToolCall {
+        id: "tc1".into(),
+        kind: ToolKind::Read,
+        verb: "Read".into(),
+        target: "src/main.rs".into(),
+        status: ToolStatus::Success,
+        duration_ms: Some(4),
+        body: ToolBody::Read { lines: 12 },
+    };
+    // The struct and the lone-call variant carry the same data both ways.
+    assert_eq!(Block::tool_call(call.clone()).as_tool_call(), Some(call.clone()));
+    assert!(Block::text("hi").as_tool_call().is_none());
+
+    let group = Block::ToolGroup {
+        calls: vec![call],
+        summary: "Checked the flow".into(),
+        state: ActivityState::Done,
+    };
+    let json = serde_json::to_value(&group).expect("serialize");
+    assert_eq!(json["kind"], "tool_group");
+    assert_eq!(json["calls"][0]["tool_kind"]["kind"], "read");
+    let back: Block = serde_json::from_value(json).expect("deserialize");
+    assert_eq!(group, back);
+}
+
+#[test]
+fn sample_tool_groups_fold_sample_calls() {
+    for block in aui_protocol::sample::tool_groups() {
+        match block {
+            Block::ToolGroup { calls, summary, .. } => {
+                assert!(!calls.is_empty(), "a group with no calls shows nothing");
+                assert!(!summary.is_empty());
+            }
+            other => panic!("expected a tool group, got {other:?}"),
+        }
     }
 }

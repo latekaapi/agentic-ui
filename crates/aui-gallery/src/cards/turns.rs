@@ -35,13 +35,19 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                 .streaming(true)
                 .meta(TurnMeta { model: "opus 4.6".into(), duration_ms: 3100, tokens_in: 1800, tokens_out: 600, reasoning_tokens: 0, cost_usd: 0.04 }),
         )
+        .child(div().w_full().flex().justify_end().child(user_turn("card31-user-bottom", USER_TEXT).actions_bottom(true)))
+        .child(
+            assistant_turn("card31-assistant-bottom", ASSISTANT_TEXT)
+                .meta(TurnMeta { model: "opus 4.6".into(), duration_ms: 3100, tokens_in: 1800, tokens_out: 600, reasoning_tokens: 0, cost_usd: 0.04 })
+                .actions_bottom(true),
+        )
         .child(
             div()
                 .mt(px(scale::SP_4) - px(TURN_GAP))
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
                 .text_color(p.ink_3)
-                .child("User turns sit right in a soft bubble; assistant turns are full-width text with no bubble, so the transcript reads like a document. Streamed chunks fade and rise 3 px; the caret blinks on the accent. The toolbar appears on hover above the turn and never shifts layout."),
+                .child("User turns sit right in a soft bubble; assistant turns are full-width text with no bubble, so the transcript reads like a document. Streamed chunks fade and rise 3 px; the caret blinks on the accent. The toolbar appears on hover above the turn and never shifts layout. The bottom-row variant pins the same actions in-flow under the prose, muted until hover."),
         )
         .into_any_element()
 }

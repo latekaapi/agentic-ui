@@ -48,6 +48,10 @@ const TOOLBAR_RISE: f32 = 4.0;
 /// `.a .ft{gap:10px;font:500 11px/1 mono;margin-top:10px}`.
 const FOOTER_GAP: f32 = 10.0;
 const FOOTER_TOP: f32 = 10.0;
+/// `.a .ab{margin-top:8px;gap:2px}`: the in-flow action row under the prose.
+/// Muted but visible at rest, full strength on turn hover.
+const BOTTOM_TOP: f32 = 8.0;
+const BOTTOM_IDLE: f32 = 0.55;
 
 
 /// Actions on a user turn.
@@ -83,6 +87,7 @@ pub struct UserTurn {
     id: ElementId,
     markdown: SharedString,
     attachments: Vec<Attachment>,
+    actions_bottom: bool,
     on_action: Option<UserHandler>,
     on_link: Option<LinkHandler>,
 }
@@ -90,13 +95,23 @@ pub struct UserTurn {
 /// A user turn; `markdown` may carry mentions as inline code (`` `@src/checkout` ``),
 /// which render as mention chips.
 pub fn user_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> UserTurn {
-    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), on_action: None, on_link: None }
+    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), actions_bottom: false, on_action: None, on_link: None }
 }
 
 impl UserTurn {
     /// Attachments shown above the bubble.
     pub fn attachments(mut self, attachments: Vec<Attachment>) -> Self {
         self.attachments = attachments;
+        self
+    }
+
+    /// In-flow action row under the bubble instead of the hover rail.
+    ///
+    /// The row stays visible at a muted opacity and goes full strength on
+    /// turn hover; the hover rail is off while it is on. Default `false`
+    /// keeps the hover rail.
+    pub fn actions_bottom(mut self, bottom: bool) -> Self {
+        self.actions_bottom = bottom;
         self
     }
 
@@ -157,24 +172,9 @@ impl RenderOnce for UserTurn {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
+        let bottom = self.actions_bottom;
         let (state, flags) = interaction_flags(id.clone(), window, cx);
         let acts_opacity = tween((id.clone(), "acts"), if flags.hovered { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
-
-        let mut acts = h_flex().absolute().left(px(USER_ACTS_LEFT)).top(px(USER_ACTS_TOP)).gap(px(ACTS_GAP)).opacity(acts_opacity);
-        for (name, glyph, action) in [
-            ("edit", IconName::Edit, UserTurnAction::Edit),
-            ("copy", IconName::Copy, UserTurnAction::Copy),
-            ("resend", IconName::Refresh, UserTurnAction::Resend),
-        ] {
-            let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
-            if let Some(h) = self.on_action.clone() {
-                b = b.on_click(move |_, w, cx| h(action, w, cx));
-            }
-            acts = acts.child(b);
-        }
-        if acts_opacity <= 0.001 {
-            acts = acts.invisible();
-        }
 
         let mut col = v_flex()
             .id(id.clone())
@@ -182,8 +182,25 @@ impl RenderOnce for UserTurn {
             .max_w(relative(USER_MAX))
             .items_end()
             .gap(px(USER_GAP))
-            .track_interaction(&state)
-            .child(acts);
+            .track_interaction(&state);
+        if !bottom {
+            let mut acts = h_flex().absolute().left(px(USER_ACTS_LEFT)).top(px(USER_ACTS_TOP)).gap(px(ACTS_GAP)).opacity(acts_opacity);
+            for (name, glyph, action) in [
+                ("edit", IconName::Edit, UserTurnAction::Edit),
+                ("copy", IconName::Copy, UserTurnAction::Copy),
+                ("resend", IconName::Refresh, UserTurnAction::Resend),
+            ] {
+                let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                if let Some(h) = self.on_action.clone() {
+                    b = b.on_click(move |_, w, cx| h(action, w, cx));
+                }
+                acts = acts.child(b);
+            }
+            if acts_opacity <= 0.001 {
+                acts = acts.invisible();
+            }
+            col = col.child(acts);
+        }
         if !self.attachments.is_empty() {
             let mut strip = h_flex().gap(px(USER_GAP));
             for (i, a) in self.attachments.iter().enumerate() {
@@ -191,7 +208,7 @@ impl RenderOnce for UserTurn {
             }
             col = col.child(strip);
         }
-        col.child(
+        col = col.child(
             div()
                 .py(px(BUBBLE_PAD_Y))
                 .px(px(BUBBLE_PAD_X))
@@ -207,7 +224,24 @@ impl RenderOnce for UserTurn {
                     }
                     body
                 }),
-        )
+        );
+        if bottom {
+            let row_opacity = tween((id.clone(), "acts-bottom"), if flags.hovered { 1.0f32 } else { BOTTOM_IDLE }, Tween::FAST, window, cx);
+            let mut row = h_flex().gap(px(ACTS_GAP)).opacity(row_opacity);
+            for (name, glyph, action) in [
+                ("edit", IconName::Edit, UserTurnAction::Edit),
+                ("copy", IconName::Copy, UserTurnAction::Copy),
+                ("resend", IconName::Refresh, UserTurnAction::Resend),
+            ] {
+                let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                if let Some(h) = self.on_action.clone() {
+                    b = b.on_click(move |_, w, cx| h(action, w, cx));
+                }
+                row = row.child(b);
+            }
+            col = col.child(row);
+        }
+        col
     }
 }
 
@@ -218,13 +252,14 @@ pub struct AssistantTurn {
     markdown: SharedString,
     streaming: bool,
     meta: Option<TurnMeta>,
+    actions_bottom: bool,
     on_action: Option<AssistantHandler>,
     on_link: Option<LinkHandler>,
 }
 
 /// An assistant turn rendering `markdown`.
 pub fn assistant_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> AssistantTurn {
-    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, meta: None, on_action: None, on_link: None }
+    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, meta: None, actions_bottom: false, on_action: None, on_link: None }
 }
 
 impl AssistantTurn {
@@ -237,6 +272,16 @@ impl AssistantTurn {
     /// The footer: model · duration · tokens · cost.
     pub fn meta(mut self, meta: TurnMeta) -> Self {
         self.meta = Some(meta);
+        self
+    }
+
+    /// In-flow action row under the prose instead of the hover toolbar.
+    ///
+    /// The row stays visible at a muted opacity and goes full strength on
+    /// turn hover; the hover toolbar is off while it is on. Default `false`
+    /// keeps the hover toolbar.
+    pub fn actions_bottom(mut self, bottom: bool) -> Self {
+        self.actions_bottom = bottom;
         self
     }
 
@@ -298,6 +343,7 @@ impl RenderOnce for AssistantTurn {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
+        let bottom = self.actions_bottom;
         let (state, flags) = interaction_flags(id.clone(), window, cx);
         let tb_opacity = tween((id.clone(), "tb-opacity"), if flags.hovered { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
         let tb_rise = tween((id.clone(), "tb-rise"), if flags.hovered { 0.0f32 } else { TOOLBAR_RISE }, Tween::BASE.with_easing(aui_tokens::Easing::OUT), window, cx);
@@ -377,21 +423,40 @@ impl RenderOnce for AssistantTurn {
             .ui(BODY_TEXT)
             .line_height(relative(scale::LH_BODY))
             .text_color(p.ink)
-            .track_interaction(&state)
-            .child(toolbar)
-            .child(
-                div()
-                    .relative()
-                    .w_full()
-                    .child(div().w_full().on_prepaint(move |b, _, _| *bounds.borrow_mut() = Some(b)).child({
-                        let mut body = markdown((id.clone(), "text"), self.markdown.clone(), style);
-                        if let Some(on_link) = self.on_link.clone() {
-                            body = body.on_link(move |target, window, cx| on_link(target, window, cx));
-                        }
-                        body
-                    }))
-                    .children(caret),
-            );
+            .track_interaction(&state);
+        if !bottom {
+            turn = turn.child(toolbar);
+        }
+        turn = turn.child(
+            div()
+                .relative()
+                .w_full()
+                .child(div().w_full().on_prepaint(move |b, _, _| *bounds.borrow_mut() = Some(b)).child({
+                    let mut body = markdown((id.clone(), "text"), self.markdown.clone(), style);
+                    if let Some(on_link) = self.on_link.clone() {
+                        body = body.on_link(move |target, window, cx| on_link(target, window, cx));
+                    }
+                    body
+                }))
+                .children(caret),
+        );
+        if bottom {
+            let row_opacity = tween((id.clone(), "tb-bottom"), if flags.hovered { 1.0f32 } else { BOTTOM_IDLE }, Tween::FAST, window, cx);
+            let mut row = h_flex().mt(px(BOTTOM_TOP)).gap(px(ACTS_GAP)).opacity(row_opacity);
+            for (name, glyph, action) in [
+                ("copy", IconName::Copy, AssistantTurnAction::Copy),
+                ("retry", IconName::Refresh, AssistantTurnAction::Retry),
+                ("fork", IconName::Git, AssistantTurnAction::Fork),
+                ("pin", IconName::Pin, AssistantTurnAction::Pin),
+            ] {
+                let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                if let Some(h) = self.on_action.clone() {
+                    b = b.on_click(move |_, w, cx| h(action, w, cx));
+                }
+                row = row.child(b);
+            }
+            turn = turn.child(row);
+        }
 
         if let Some(meta) = &self.meta {
             let mut footer = h_flex().mt(px(FOOTER_TOP)).gap(px(FOOTER_GAP)).font_family(scale::FONT_MONO).text_px(scale::FS_11).line_height(relative(1.0)).medium().text_color(p.ink_4);

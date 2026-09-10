@@ -19,6 +19,7 @@ mod syntax;
 mod thinking;
 mod todo;
 mod tool_card;
+mod tool_group;
 mod prose;
 mod turns;
 
@@ -31,6 +32,10 @@ pub use marker::{marker_row, HandOff, MarkerRow};
 pub use turns::{assistant_turn, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction};
 pub use ansi::{ansi_runs, parse_ansi, AnsiSpan};
 pub use tool_card::{format_duration, tool_card, ToolCard, ToolCardIntent, SHELL_FOLD};
+pub use tool_group::{
+    count_label, more_label, preview_hidden, tool_group, ToolGroup, ToolGroupData, ToolGroupIntent,
+    GROUP_PREVIEW,
+};
 pub use approval::{approval_card, ApprovalCard};
 pub use question::{answered_row, question_card, AnsweredRow, QuestionCard, QuestionOutcome};
 pub use item::{generic_item_card, goal_card, GenericItemCard, GoalCard};
