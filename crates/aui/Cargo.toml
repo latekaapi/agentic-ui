@@ -13,6 +13,7 @@ aui-icons.workspace = true
 aui-motion.workspace = true
 aui-protocol.workspace = true
 anyhow.workspace = true
+pulldown-cmark = { version = "0.13", default-features = false }
 
 [features]
 default = []

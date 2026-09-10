@@ -271,6 +271,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::question_plan_todo::build,
     },
     Entry {
+        id: "transcript/markdown",
+        group: "Transcript",
+        title: "Markdown blocks",
+        subtitle: "Headings, lists, fences, tables, quotes, rules and image placeholders with clickable links",
+        width: 760.0,
+        height: 820.0,
+        theme: CardTheme::Both,
+        build: crate::cards::markdown::build,
+    },
+    Entry {
         id: "transcript/code-diff",
         group: "Transcript",
         title: "Code and diff blocks",

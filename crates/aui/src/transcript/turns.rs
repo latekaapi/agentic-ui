@@ -11,7 +11,8 @@ use gpui_kit::base::ElementExt;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::transcript::{caret_top_in_line, caret_visible, last_paragraph_runs, prose, ProseStyle, CARET_H, CARET_MARGIN_LEFT, CARET_W};
+use crate::transcript::{caret_top_in_line, caret_visible, ProseStyle, CARET_H, CARET_MARGIN_LEFT, CARET_W};
+use crate::transcript::{LinkTarget, last_block_runs, markdown, LinkHandler};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, ButtonSize};
@@ -83,12 +84,13 @@ pub struct UserTurn {
     markdown: SharedString,
     attachments: Vec<Attachment>,
     on_action: Option<UserHandler>,
+    on_link: Option<LinkHandler>,
 }
 
 /// A user turn; `markdown` may carry mentions as inline code (`` `@src/checkout` ``),
 /// which render as mention chips.
 pub fn user_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> UserTurn {
-    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), on_action: None }
+    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), on_action: None, on_link: None }
 }
 
 impl UserTurn {
@@ -101,6 +103,12 @@ impl UserTurn {
     /// Hover-action handler.
     pub fn on_action(mut self, f: impl Fn(UserTurnAction, &mut Window, &mut App) + 'static) -> Self {
         self.on_action = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Link-click handler, passed through to the markdown body.
+    pub fn on_link(mut self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self {
+        self.on_link = Some(std::rc::Rc::new(f));
         self
     }
 }
@@ -192,7 +200,13 @@ impl RenderOnce for UserTurn {
                 .bg(p.surface_3)
                 .ui(BUBBLE_TEXT)
                 .text_color(p.ink)
-                .child(prose((id, "text"), &self.markdown, prose_style(&p, BUBBLE_TEXT, scale::LH_UI, p.surface_3, p.accent_ink))),
+                .child({
+                    let mut body = markdown((id.clone(), "text"), self.markdown.clone(), prose_style(&p, BUBBLE_TEXT, scale::LH_UI, p.surface_3, p.accent_ink));
+                    if let Some(on_link) = self.on_link.clone() {
+                        body = body.on_link(move |target, window, cx| on_link(target, window, cx));
+                    }
+                    body
+                }),
         )
     }
 }
@@ -205,11 +219,12 @@ pub struct AssistantTurn {
     streaming: bool,
     meta: Option<TurnMeta>,
     on_action: Option<AssistantHandler>,
+    on_link: Option<LinkHandler>,
 }
 
 /// An assistant turn rendering `markdown`.
 pub fn assistant_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> AssistantTurn {
-    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, meta: None, on_action: None }
+    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, meta: None, on_action: None, on_link: None }
 }
 
 impl AssistantTurn {
@@ -228,6 +243,12 @@ impl AssistantTurn {
     /// Toolbar handler.
     pub fn on_action(mut self, f: impl Fn(AssistantTurnAction, &mut Window, &mut App) + 'static) -> Self {
         self.on_action = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Link-click handler, passed through to the markdown body.
+    pub fn on_link(mut self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self {
+        self.on_link = Some(std::rc::Rc::new(f));
         self
     }
 }
@@ -323,7 +344,7 @@ impl RenderOnce for AssistantTurn {
                 Some(b) if b.size.width > px(0.0) => {
                     let font_size = window.rem_size() * (BODY_TEXT / scale::FS_13);
                     let line_height = font_size * scale::LH_BODY;
-                    last_paragraph_runs(&self.markdown, &style)
+                    last_block_runs(&self.markdown, &style, p.accent)
                         .and_then(|(text, runs)| last_line_width(window, text.into(), font_size, &runs, b.size.width))
                         .map(|x| {
                             let height = px(CARET_H * scale_factor);
@@ -362,7 +383,13 @@ impl RenderOnce for AssistantTurn {
                 div()
                     .relative()
                     .w_full()
-                    .child(div().w_full().on_prepaint(move |b, _, _| *bounds.borrow_mut() = Some(b)).child(prose((id.clone(), "text"), &self.markdown, style)))
+                    .child(div().w_full().on_prepaint(move |b, _, _| *bounds.borrow_mut() = Some(b)).child({
+                        let mut body = markdown((id.clone(), "text"), self.markdown.clone(), style);
+                        if let Some(on_link) = self.on_link.clone() {
+                            body = body.on_link(move |target, window, cx| on_link(target, window, cx));
+                        }
+                        body
+                    }))
                     .children(caret),
             );
 
