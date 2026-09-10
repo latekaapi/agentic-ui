@@ -12,7 +12,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::transcript::{caret_top_in_line, caret_visible, ProseStyle, CARET_H, CARET_MARGIN_LEFT, CARET_W};
-use crate::transcript::{LinkTarget, last_block_runs, markdown, LinkHandler};
+use crate::transcript::{LinkTarget, SelectionHandler, TextSelection, last_block_runs, markdown, markdown_selected_text, LinkHandler};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, ButtonSize};
@@ -90,12 +90,14 @@ pub struct UserTurn {
     actions_bottom: bool,
     on_action: Option<UserHandler>,
     on_link: Option<LinkHandler>,
+    selection: Option<TextSelection>,
+    on_selection_change: Option<SelectionHandler>,
 }
 
 /// A user turn; `markdown` may carry mentions as inline code (`` `@src/checkout` ``),
 /// which render as mention chips.
 pub fn user_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> UserTurn {
-    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), actions_bottom: false, on_action: None, on_link: None }
+    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None }
 }
 
 impl UserTurn {
@@ -126,6 +128,30 @@ impl UserTurn {
         self.on_link = Some(std::rc::Rc::new(f));
         self
     }
+
+    /// The stored selection the markdown body highlights: the app owns one
+    /// [`Option<TextSelection>`] per turn and passes it back here, passed
+    /// straight through to the inner `markdown(...)`.
+    pub fn selection(mut self, selection: Option<TextSelection>) -> Self {
+        self.selection = selection;
+        self
+    }
+
+    /// Selection intents, passed straight through to the inner
+    /// `markdown(...)`: drags and word / paragraph picks arrive as `Some`,
+    /// plain clicks elsewhere in a cell arrive as `None` (clearing).
+    pub fn on_selection_change(mut self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self {
+        self.on_selection_change = Some(std::rc::Rc::new(f));
+        self
+    }
+}
+
+/// Copies the selected text out of a turn's `markdown_source` without
+/// re-rendering: the slice of the holding cell's shaped text, or `None` when
+/// the key addresses no cell or the range is empty. The app puts this on the
+/// clipboard on ⌘C; the keybinding stays with the app.
+pub fn turn_selected_text(markdown_source: &str, selection: &TextSelection) -> Option<String> {
+    markdown_selected_text(markdown_source, selection)
 }
 
 /// Prose style shared by both turns: inline code on `code_bg` in the mono face.
@@ -222,6 +248,10 @@ impl RenderOnce for UserTurn {
                     if let Some(on_link) = self.on_link.clone() {
                         body = body.on_link(move |target, window, cx| on_link(target, window, cx));
                     }
+                    body = body.selection(self.selection.as_ref());
+                    if let Some(on_change) = self.on_selection_change.clone() {
+                        body = body.on_selection_change(move |next, window, cx| on_change(next, window, cx));
+                    }
                     body
                 }),
         );
@@ -255,11 +285,13 @@ pub struct AssistantTurn {
     actions_bottom: bool,
     on_action: Option<AssistantHandler>,
     on_link: Option<LinkHandler>,
+    selection: Option<TextSelection>,
+    on_selection_change: Option<SelectionHandler>,
 }
 
 /// An assistant turn rendering `markdown`.
 pub fn assistant_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> AssistantTurn {
-    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, meta: None, actions_bottom: false, on_action: None, on_link: None }
+    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, meta: None, actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None }
 }
 
 impl AssistantTurn {
@@ -294,6 +326,22 @@ impl AssistantTurn {
     /// Link-click handler, passed through to the markdown body.
     pub fn on_link(mut self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self {
         self.on_link = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// The stored selection the markdown body highlights: the app owns one
+    /// [`Option<TextSelection>`] per turn and passes it back here, passed
+    /// straight through to the inner `markdown(...)`.
+    pub fn selection(mut self, selection: Option<TextSelection>) -> Self {
+        self.selection = selection;
+        self
+    }
+
+    /// Selection intents, passed straight through to the inner
+    /// `markdown(...)`: drags and word / paragraph picks arrive as `Some`,
+    /// plain clicks elsewhere in a cell arrive as `None` (clearing).
+    pub fn on_selection_change(mut self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self {
+        self.on_selection_change = Some(std::rc::Rc::new(f));
         self
     }
 }
@@ -436,6 +484,10 @@ impl RenderOnce for AssistantTurn {
                     if let Some(on_link) = self.on_link.clone() {
                         body = body.on_link(move |target, window, cx| on_link(target, window, cx));
                     }
+                    body = body.selection(self.selection.as_ref());
+                    if let Some(on_change) = self.on_selection_change.clone() {
+                        body = body.on_selection_change(move |next, window, cx| on_change(next, window, cx));
+                    }
                     body
                 }))
                 .children(caret),
@@ -469,5 +521,33 @@ impl RenderOnce for AssistantTurn {
             turn = turn.child(footer);
         }
         turn
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::turn_selected_text;
+    use crate::transcript::{SelectionKey, TextSelection};
+
+    #[test]
+    fn turn_selected_text_reads_a_paragraph_slice() {
+        // Code spans read as plain words in the shaped text.
+        let selection = TextSelection {
+            cell: SelectionKey::paragraph("", 0),
+            range: 0..7,
+        };
+        assert_eq!(
+            turn_selected_text("Tighten `validateAddress` now", &selection).as_deref(),
+            Some("Tighten")
+        );
+    }
+
+    #[test]
+    fn turn_selected_text_rejects_unknown_cells() {
+        let selection = TextSelection {
+            cell: SelectionKey::paragraph("", 9),
+            range: 0..7,
+        };
+        assert_eq!(turn_selected_text("Hello", &selection), None);
     }
 }

@@ -831,6 +831,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn last_paragraph_runs(markdown: &str, style: &ProseStyle) -> Option<(String, Vec<TextRun>)>`
 - **fn** `markdown` — Renders `source` as markdown blocks in `style`.
   - `pub fn markdown(id: impl Into<ElementId>, source: impl Into<SharedString>, style: ProseStyle) -> Markdown`
+- **fn** `markdown_selected_text` — Copies the selected text out of `source` without building a view: the slice of the holding cell’s shaped text, or `None` when the key addresses no cell or the range is empty. [...]
+  - `pub fn markdown_selected_text(source: &str, selection: &TextSelection) -> Option<String>`
 - **fn** `marker_row` — A marker with plain text; add emphasis, links or a hand-off with the builders.
   - `pub fn marker_row(id: impl Into<ElementId>) -> MarkerRow`
 - **fn** `more_label` — `+3 more` for the collapsed preview’s overflow row.
@@ -883,6 +885,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn transcript_card(id: impl Into<ElementId>, open: bool) -> TranscriptCard`
 - **fn** `ts_language` — The grammar name gpui-kit’s highlighter knows for `language`, for the six languages the `tree-sitter` feature ships grammars for. [...]
   - `pub fn ts_language(language: &str) -> Option<&'static str>`
+- **fn** `turn_selected_text` — Copies the selected text out of a turn’s `markdown_source` without re-rendering: the slice of the holding cell’s shaped text, or `None` when the key addresses no cell or the range is empty. [...]
+  - `pub fn turn_selected_text(markdown_source: &str, selection: &TextSelection) -> Option<String>`
 - **fn** `user_turn` — A user turn; `markdown` may carry mentions as inline code (`@src/checkout`), which render as mention chips.
   - `pub fn user_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> UserTurn`
 
@@ -921,6 +925,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn meta(self, meta: TurnMeta) -> Self` — The footer: model · duration · tokens · cost.
   - `pub fn on_action(self, f: impl Fn(AssistantTurnAction, &mut Window, &mut App) + 'static) -> Self` — Toolbar handler.
   - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Link-click handler, passed through to the markdown body.
+  - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents, passed straight through to the inner `markdown(...)`: drags and word / paragraph picks arrive as `Some`, plain clicks elsewhere in a cell arrive as `None` (clearing).
+  - `pub fn selection(self, selection: Option<TextSelection>) -> Self` — The stored selection the markdown body highlights: the app owns one `Option<TextSelection>` per turn and passes it back here, passed straight through to the inner `markdown(...)`.
   - `pub fn streaming(self, streaming: bool) -> Self` — Shows the blinking caret after the text while chunks arrive.
 - **struct** `CodeBlock` — A code block. Build with `code_block`.
   - `pub fn hidden_lines(self, count: usize) -> Self` — How many more lines the fold row offers.
@@ -1054,6 +1060,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn attachments(self, attachments: Vec<Attachment>) -> Self` — Attachments shown above the bubble.
   - `pub fn on_action(self, f: impl Fn(UserTurnAction, &mut Window, &mut App) + 'static) -> Self` — Hover-action handler.
   - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Link-click handler, passed through to the markdown body.
+  - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents, passed straight through to the inner `markdown(...)`: drags and word / paragraph picks arrive as `Some`, plain clicks elsewhere in a cell arrive as `None` (clearing).
+  - `pub fn selection(self, selection: Option<TextSelection>) -> Self` — The stored selection the markdown body highlights: the app owns one `Option<TextSelection>` per turn and passes it back here, passed straight through to the inner `markdown(...)`.
 
 - **enum** `AssistantTurnAction` — Actions on an assistant turn.
   - variants: `Copy`, `Retry`, `Fork`, `Pin`

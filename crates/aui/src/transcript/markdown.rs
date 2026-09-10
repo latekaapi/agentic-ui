@@ -1549,17 +1549,7 @@ impl Markdown {
     /// app.
     pub fn selected_text(&self, selection: &TextSelection) -> Option<String> {
         let blocks = parsed_markdown(&self.source, &self.style);
-        let mut found = None;
-        walk_units(&blocks, "", &mut |key, content| {
-            if found.is_none() && key == selection.cell {
-                found = Some(match content {
-                    CellContent::Spans(spans) => spans_text(spans),
-                    CellContent::Code(code) => code.to_string(),
-                });
-            }
-        });
-        let cell = found?;
-        clamp_range(selection.range.clone(), &cell).map(|range| cell[range].to_string())
+        selected_text_in_blocks(&blocks, selection)
     }
 }
 
@@ -1578,6 +1568,34 @@ fn spans_text(spans: &[Span]) -> String {
             Span::Link { label, .. } => label.as_str(),
         })
         .collect()
+}
+
+/// Copies the selected text out of `source` without building a view: the
+/// slice of the holding cell's shaped text, or `None` when the key addresses
+/// no cell or the range is empty. Blocks do not depend on the render style,
+/// so this reads exactly what [`Markdown::selected_text`] would return for a
+/// view of the same source. Turn views ([`UserTurn`](super::UserTurn),
+/// [`AssistantTurn`](super::AssistantTurn)) have no `selected_text` method of
+/// their own — the app copies through this, or through
+/// [`turn_selected_text`](super::turn_selected_text).
+pub fn markdown_selected_text(source: &str, selection: &TextSelection) -> Option<String> {
+    selected_text_in_blocks(&parse_markdown(source), selection)
+}
+
+/// Slices `selection` out of already-parsed `blocks`: the shared lookup
+/// behind [`Markdown::selected_text`] and [`markdown_selected_text`].
+fn selected_text_in_blocks(blocks: &[Block], selection: &TextSelection) -> Option<String> {
+    let mut found = None;
+    walk_units(blocks, "", &mut |key, content| {
+        if found.is_none() && key == selection.cell {
+            found = Some(match content {
+                CellContent::Spans(spans) => spans_text(spans),
+                CellContent::Code(code) => code.to_string(),
+            });
+        }
+    });
+    let cell = found?;
+    clamp_range(selection.range.clone(), &cell).map(|range| cell[range].to_string())
 }
 
 /// One selectable cell's content for key lookup.
