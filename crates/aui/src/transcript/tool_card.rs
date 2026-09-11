@@ -206,7 +206,13 @@ impl RenderOnce for ToolCard {
             ToolBody::Edit { diff } => Some(diff_body(&p, diff, emit.clone()).into_any_element()),
             ToolBody::Search { hits } => Some(search_body(&p, hits).into_any_element()),
             ToolBody::Web { results, hidden } => Some(web_body(&p, results, *hidden).into_any_element()),
-            ToolBody::Browser { caption, .. } => Some(browser_body(&p, &id, caption.as_deref(), window, cx).into_any_element()),
+            ToolBody::Browser { caption, .. } => {
+                // The click ring pulses only while the call is still in
+                // flight; a finished capture is a settled placeholder and
+                // must not hold the frame loop open (see `browser_body`).
+                let live = matches!(self.status, ToolStatus::Pending | ToolStatus::Running);
+                Some(browser_body(&p, &id, caption.as_deref(), live, window, cx).into_any_element())
+            }
             ToolBody::SubAgent { turns } => Some(
                 div()
                     .p(px(SUB_PAD))
@@ -332,9 +338,22 @@ fn web_body(p: &Palette, results: &[aui_protocol::WebResult], hidden: usize) -> 
     body
 }
 
-fn browser_body(p: &Palette, id: &ElementId, caption: Option<&str>, window: &mut Window, cx: &mut App) -> impl IntoElement {
-    // `.shot i` pulses on the ease-out curve every 1.6 s.
-    let phase = looping((id.clone(), "click-ring"), Loop::eased(RING_PERIOD, Easing::OUT).resting(1.0), window, cx);
+/// The phase the click ring rests at once the capture is done, and the one
+/// reduced motion holds it at: the ring fully expanded and nearly faded out.
+const RING_REST: f32 = 1.0;
+
+fn browser_body(p: &Palette, id: &ElementId, caption: Option<&str>, live: bool, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    // `.shot i` pulses on the ease-out curve every 1.6 s — but only while the
+    // call is live. `looping` requests a frame on every render for as long as
+    // it is mounted, so a settled browser card left pulsing would keep the
+    // window redrawing for as long as it is on screen; a finished capture
+    // holds the resting phase instead, exactly as reduced motion does.
+    let phase = if live {
+        looping((id.clone(), "click-ring"), Loop::eased(RING_PERIOD, Easing::OUT).resting(RING_REST), window, cx)
+    } else {
+        let _ = (window, cx);
+        RING_REST
+    };
     let ring = RING * (0.6 + 0.9 * phase);
     div().w_full().bg(p.surface_1).child(
         div()

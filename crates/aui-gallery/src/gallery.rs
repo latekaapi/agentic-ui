@@ -211,6 +211,7 @@ fn chrome_button(
 
 impl Render for Gallery {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::idle::count_frame();
         let colors = cx.aui().colors;
         if self.bare {
             // Parity captures: an occluding overlay keeps the pointer from
