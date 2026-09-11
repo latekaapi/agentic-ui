@@ -1,8 +1,26 @@
 //! A small ANSI SGR parser for tool output lines: colours 30–37 / 90–97,
 //! bold, dim and reset. Everything else is dropped.
 
+use std::sync::{Arc, LazyLock};
+
 use aui_tokens::Palette;
 use gpui::{font, FontWeight, Hsla, TextRun};
+
+use super::memo::Memo;
+
+/// How many output lines the parse memo holds before evicting the least
+/// recently used batch. A tool card re-parses every shown line on every
+/// frame; the bound covers many cards' worth of folded output.
+const LINE_CACHE_CAP: usize = 2048;
+
+/// The memo behind [`ansi_spans`].
+static SPANS: LazyLock<Memo<Vec<AnsiSpan>>> = LazyLock::new(|| Memo::new(LINE_CACHE_CAP));
+
+/// [`parse_ansi`] memoised across frames. Spans depend only on the line —
+/// never on the palette — so one entry serves both themes.
+pub(super) fn ansi_spans(line: &str) -> Arc<Vec<AnsiSpan>> {
+    SPANS.get_or_insert("", line, parse_ansi)
+}
 
 /// One coloured run of a line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,16 +89,16 @@ pub fn ansi_runs(spans: &[AnsiSpan], p: &Palette, mono_family: &'static str) -> 
     let ansi = p.ansi16();
     let mut text = String::new();
     let mut runs = Vec::new();
+    let mono = font(mono_family);
+    let mut bold = mono.clone();
+    bold.weight = FontWeight::SEMIBOLD;
     for span in spans {
         let color: Hsla = match (span.color, span.dim) {
             (Some(i), _) => ansi[i as usize % 16],
             (None, true) => p.term_dim,
             (None, false) => p.term_fg,
         };
-        let mut f = font(mono_family);
-        if span.bold {
-            f.weight = FontWeight::SEMIBOLD;
-        }
+        let f = if span.bold { bold.clone() } else { mono.clone() };
         text.push_str(&span.text);
         runs.push(TextRun { len: span.text.len(), font: f, color, background_color: None, underline: None, strikethrough: None });
     }

@@ -11,6 +11,30 @@
 use aui_tokens::Palette;
 use gpui::{font, FontStyle, Hsla, TextRun};
 use std::ops::Range;
+use std::sync::{Arc, LazyLock};
+
+use super::memo::Memo;
+
+/// How many `(language, line)` tokenisations the memo holds before evicting
+/// the least recently used batch. A code block re-tokenises every visible
+/// line on every frame; the bound is several screens' worth of lines, so
+/// scrolling a long file re-tokenises only what has newly come into view.
+const LINE_CACHE_CAP: usize = 2048;
+
+/// One line's classified spans: `(byte range, class)` pairs covering it.
+pub type LineTokens = Vec<(Range<usize>, TokenKind)>;
+
+/// The memo behind [`tokens_in`], scoped by language so the same line
+/// highlighted as two languages keeps two entries.
+static TOKENS: LazyLock<Memo<LineTokens>> = LazyLock::new(|| Memo::new(LINE_CACHE_CAP));
+
+/// [`tokenize_line_in`] memoised across frames. Tokens depend only on the
+/// line and the language — never on the palette or the font — so one entry
+/// serves both themes.
+pub(super) fn tokens_in(line: &str, language: Option<&str>) -> Arc<LineTokens> {
+    let scope = language.unwrap_or("");
+    TOKENS.get_or_insert(scope, line, |line| tokenize_line_in(line, language))
+}
 
 /// A token class.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -266,14 +290,14 @@ pub fn syntax_runs(line: &str, p: &Palette, mono_family: &'static str) -> Vec<Te
 /// [`syntax_runs`] for a line whose `language` is known; see
 /// [`tokenize_line_in`].
 pub fn syntax_runs_in(line: &str, language: Option<&str>, p: &Palette, mono_family: &'static str) -> Vec<TextRun> {
-    tokenize_line_in(line, language)
-        .into_iter()
+    let mono = font(mono_family);
+    let mut italic = mono.clone();
+    italic.style = FontStyle::Italic;
+    tokens_in(line, language)
+        .iter()
         .map(|(range, kind)| {
-            let mut f = font(mono_family);
-            if kind == TokenKind::Comment {
-                f.style = FontStyle::Italic;
-            }
-            TextRun { len: range.len(), font: f, color: token_color(kind, p), background_color: None, underline: None, strikethrough: None }
+            let font = if *kind == TokenKind::Comment { italic.clone() } else { mono.clone() };
+            TextRun { len: range.len(), font, color: token_color(*kind, p), background_color: None, underline: None, strikethrough: None }
         })
         .collect()
 }

@@ -3,12 +3,17 @@
 //! runs so inline code can switch to the mono face (gpui-kit's markdown view
 //! keeps one font per paragraph).
 
+use std::sync::{Arc, LazyLock};
+
 use aui_motion::{looping, Loop};
 use aui_tokens::{scale, AuiStyled};
 use gpui::{div, font, prelude::*, px, relative, App, ElementId, Font, FontStyle, FontWeight, Hsla, IntoElement, StrikethroughStyle, StyledText, TextRun, UnderlineStyle, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use super::markdown::{Span, last_block_runs};
+use super::markdown::Span;
+#[cfg(test)]
+use super::markdown::last_block_runs;
+use super::memo::Memo;
 
 /// `.a ul{padding-left:18px}`.
 const LIST_INDENT: f32 = 18.0;
@@ -66,7 +71,7 @@ pub struct ProseStyle {
 
 /// One block.
 #[derive(Debug, Clone, PartialEq)]
-enum Block {
+pub(super) enum Block {
     Paragraph(Vec<Span>),
     List(Vec<Vec<Span>>),
 }
@@ -114,7 +119,23 @@ fn parse_inline(s: &str) -> Vec<Span> {
     out
 }
 
-fn parse(markdown: &str) -> Vec<Block> {
+/// How many prose sources the memo holds before evicting the least recently
+/// used one. Prose renders the small strings plan items and question previews
+/// carry, so the bound is generous next to how many can be on screen.
+const PROSE_CACHE_CAP: usize = 256;
+
+/// The memo behind [`prose_blocks`].
+static PROSE: LazyLock<Memo<Vec<Block>>> = LazyLock::new(|| Memo::new(PROSE_CACHE_CAP));
+
+/// [`parse`] memoised across frames, the way
+/// [`parsed_markdown`](super::parsed_markdown) memoises the full markdown
+/// parser: [`prose`] runs on every frame of every plan item and question
+/// preview, and its source only changes when the data does.
+pub(super) fn prose_blocks(markdown: &str) -> Arc<Vec<Block>> {
+    PROSE.get_or_insert("", markdown, parse)
+}
+
+pub(super) fn parse(markdown: &str) -> Vec<Block> {
     let mut blocks = Vec::new();
     for chunk in markdown.split("\n\n") {
         let chunk = chunk.trim();
@@ -162,34 +183,23 @@ fn runs(spans: &[Span], style: &ProseStyle) -> (String, Vec<TextRun>) {
     (text, runs)
 }
 
-/// The text and text runs of the paragraph that closes `markdown`, built
-/// exactly as [`prose`] builds them, so a caller that has to measure where the
-/// prose ends (the streaming caret) shapes the same glyphs that are painted.
-/// `None` when a list closes the prose: the caret does not follow a bullet.
-pub fn last_paragraph_runs(markdown: &str, style: &ProseStyle) -> Option<(String, Vec<TextRun>)> {
-    // Turns paint markdown blocks now, so the caret measures those; the
-    // body ink stands in for the link accent, which does not change shaping.
-    // Kept under this name for callers that measured prose paragraphs.
-    last_block_runs(markdown, style, style.ink)
-}
-
 /// Renders `markdown` as prose blocks.
 pub fn prose(id: impl Into<ElementId>, markdown: &str, style: ProseStyle) -> impl IntoElement {
     let id: ElementId = id.into();
-    let blocks = parse(markdown);
+    let blocks = prose_blocks(markdown);
     let count = blocks.len();
     let mut col = v_flex().w_full().ui(style.size).line_height(relative(style.line_height)).text_color(style.ink);
-    for (i, block) in blocks.into_iter().enumerate() {
+    for (i, block) in blocks.iter().enumerate() {
         let last = i + 1 == count;
         match block {
             Block::Paragraph(spans) => {
-                let (text, runs) = runs(&spans, &style);
+                let (text, runs) = runs(spans, &style);
                 col = col.child(div().w_full().when(!last, |d| d.mb(px(style.paragraph_gap))).child(StyledText::new(text).with_runs(runs)));
             }
             Block::List(items) => {
                 let mut list = v_flex().w_full().when(!last, |d| d.mb(px(LIST_MARGIN)));
                 for item in items {
-                    let (text, runs) = runs(&item, &style);
+                    let (text, runs) = runs(item, &style);
                     list = list.child(
                         h_flex()
                             .w_full()
@@ -204,10 +214,6 @@ pub fn prose(id: impl Into<ElementId>, markdown: &str, style: ProseStyle) -> imp
     }
     col.id(id)
 }
-
-/// Nothing to render (an empty turn) — kept for callers that need a stable type.
-#[allow(dead_code)]
-fn _unused(_: &mut Window, _: &mut App) {}
 
 #[cfg(test)]
 mod tests {
@@ -325,12 +331,20 @@ mod tests {
     }
 
     #[test]
-    fn last_paragraph_runs_ignores_a_closing_list() {
+    fn the_caret_measure_ignores_a_closing_list() {
         let style = style();
-        assert!(last_paragraph_runs("intro\n\n- one\n- two", &style).is_none());
-        assert!(last_paragraph_runs("", &style).is_none());
-        let (text, _) = last_paragraph_runs("- one\n\nDone `now`", &style).expect("a paragraph closes the prose");
+        assert!(last_block_runs("intro\n\n- one\n- two", &style, style.ink).is_none());
+        assert!(last_block_runs("", &style, style.ink).is_none());
+        let (text, _) = last_block_runs("- one\n\nDone `now`", &style, style.ink).expect("a paragraph closes the prose");
         assert_eq!(text, "Done now");
+    }
+
+    #[test]
+    fn memoised_prose_parses_share_one_allocation() {
+        let first = prose_blocks("One `two`.\n\n- bullet");
+        let second = prose_blocks("One `two`.\n\n- bullet");
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(*first, parse("One `two`.\n\n- bullet"));
     }
 
     #[test]

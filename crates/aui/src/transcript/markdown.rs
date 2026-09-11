@@ -23,20 +23,18 @@
 //! `InteractiveText::on_click`, which paints `PointingHand` over its ranges.
 //!
 //! Memoisation: [`parsed_markdown`] parses once per distinct source and
-//! shares the blocks across frames through an [`Arc`]. The cache key is the
-//! source hash plus a hash of the [`ProseStyle`](super::ProseStyle) the parse
-//! was requested with. The blocks themselves do not depend on the style —
-//! runs are built at render time — but keying on it keeps a theme switch
-//! (which swaps every colour in the style) from ever serving blocks requested
-//! under another theme's style, and the bound ([`PARSED_CACHE_CAP`], evicting
-//! everything past it) keeps streaming turns, which churn a new source per
-//! chunk, from growing memory without bound.
+//! shares the blocks across frames through an [`Arc`]. The key is the source
+//! alone — blocks do not depend on the style, because runs are built at
+//! render time, so one parse serves every style and both themes — and hits
+//! are verified against the stored source, so a hash collision cannot hand
+//! back another turn's blocks. The bound is [`PARSED_CACHE_CAP`] entries,
+//! evicted one at a time by least-recent use: a streaming turn churns a new
+//! source per chunk, and per-entry eviction is what keeps that churn from
+//! throwing out the settled turns above it, which are re-read every frame and
+//! so are always the most recently used. See [`super::memo`].
 
-use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::ops::Range;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
@@ -48,16 +46,18 @@ use gpui_kit::base::{h_flex, v_flex};
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd};
 
 use super::code::code_block;
+use super::memo::Memo;
 use super::selectable::{
     clamp_range, selectable_text, SelectableText, SelectionHandler, SelectionKey, TextSelection,
 };
 use super::ProseStyle;
 use crate::data::tag;
 
-/// How many parsed sources the memo cache holds before evicting everything.
-/// Streaming turns churn one source per chunk, so the bound is what keeps the
-/// cache from growing with the transcript; evict-all (rather than LRU) is the
-/// smallest correct policy for a single-threaded render cache.
+/// How many parsed sources the memo holds before evicting the least recently
+/// used one. Streaming turns churn one source per chunk, so the bound is what
+/// keeps the cache from growing with the transcript; 128 is comfortably more
+/// than the turns one virtualised viewport can show at once, so every visible
+/// turn stays resident while a streaming turn churns through the rest.
 const PARSED_CACHE_CAP: usize = 128;
 /// Maximum nesting of block quotes (and other recursive block parsing).
 /// Markdown from a model never nests this deep; the cap turns adversarial
@@ -913,59 +913,26 @@ pub fn parse_markdown(source: &str) -> Vec<Block> {
     blocks_until(&events, &mut pos, None, 0)
 }
 
-fn hash_source(source: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    source.hash(&mut hasher);
-    hasher.finish()
-}
-
-/// Hashes the style a parse was requested with, for the memo key. Only the
-/// bits are hashed — colours as their HSLA components — so equal styles key
-/// equally across themes only when every component matches.
-fn hash_style(style: &ProseStyle) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    style.size.to_bits().hash(&mut hasher);
-    style.line_height.to_bits().hash(&mut hasher);
-    style.paragraph_gap.to_bits().hash(&mut hasher);
-    style.ink.h.to_bits().hash(&mut hasher);
-    style.ink.s.to_bits().hash(&mut hasher);
-    style.ink.l.to_bits().hash(&mut hasher);
-    style.ink.a.to_bits().hash(&mut hasher);
-    style.code_ink.h.to_bits().hash(&mut hasher);
-    style.code_ink.s.to_bits().hash(&mut hasher);
-    style.code_ink.l.to_bits().hash(&mut hasher);
-    style.code_ink.a.to_bits().hash(&mut hasher);
-    style.code_bg.h.to_bits().hash(&mut hasher);
-    style.code_bg.s.to_bits().hash(&mut hasher);
-    style.code_bg.l.to_bits().hash(&mut hasher);
-    style.code_bg.a.to_bits().hash(&mut hasher);
-    hasher.finish()
-}
-
-/// The memo cache: `(source hash, style hash)` to shared blocks.
-type ParsedCache = Mutex<HashMap<(u64, u64), Arc<Vec<Block>>>>;
-
-static PARSED_CACHE: LazyLock<ParsedCache> = LazyLock::new(|| Mutex::new(HashMap::new()));
+/// The memo behind [`parsed_markdown`].
+static PARSED: LazyLock<Memo<Vec<Block>>> = LazyLock::new(|| Memo::new(PARSED_CACHE_CAP));
 
 /// Parses `source` into shared blocks, memoised across frames: every render
-/// of the same turn hits the cache instead of re-running the parser, which is
-/// the per-delta re-parse the transcript diagnosis attributes the scroll
-/// jank to. See the module docs for the key and the bound.
+/// of the same turn hits the memo instead of re-running the parser, which is
+/// the per-delta re-parse the transcript diagnosis attributes the scroll jank
+/// to. See the module docs for the key and the bound.
+///
+/// `style` is accepted for call-site symmetry with the renderers and is **not**
+/// part of the key: [`Block`]s carry no colours or sizes, so blocks parsed
+/// under one style are exactly the blocks another style would parse.
 pub fn parsed_markdown(source: &str, style: &ProseStyle) -> Arc<Vec<Block>> {
-    let key = (hash_source(source), hash_style(style));
-    if let Ok(cache) = PARSED_CACHE.lock() {
-        if let Some(hit) = cache.get(&key) {
-            return hit.clone();
-        }
-    }
-    let parsed = Arc::new(parse_markdown(source));
-    if let Ok(mut cache) = PARSED_CACHE.lock() {
-        if cache.len() >= PARSED_CACHE_CAP {
-            cache.clear();
-        }
-        cache.insert(key, parsed.clone());
-    }
-    parsed
+    let _ = style;
+    parsed_blocks(source)
+}
+
+/// [`parsed_markdown`] without the vestigial style argument: the one entry
+/// point every in-crate caller (renderers and the copy path alike) uses.
+pub(super) fn parsed_blocks(source: &str) -> Arc<Vec<Block>> {
+    PARSED.get_or_insert("", source, parse_markdown)
 }
 
 /// Builds the shaped text, runs and link ranges for `spans`. This is the one
@@ -1087,7 +1054,7 @@ pub fn last_block_runs(
     style: &ProseStyle,
     link_ink: Hsla,
 ) -> Option<(String, Vec<TextRun>)> {
-    let blocks = parsed_markdown(source, style);
+    let blocks = parsed_blocks(source);
     let spans = match blocks.last()? {
         Block::Paragraph(spans) => spans,
         Block::Heading { spans, .. } => spans,
@@ -1240,7 +1207,7 @@ fn table_cell(
 
 /// Element ids nest one `(parent, name)` level at a time, so block children
 /// key off a formatted name under the turn id.
-fn block_id(id: &ElementId, index: usize, name: &str) -> ElementId {
+pub(super) fn block_id(id: &ElementId, index: usize, name: &str) -> ElementId {
     (id.clone(), SharedString::from(format!("md-{index}-{name}"))).into()
 }
 
@@ -1548,8 +1515,7 @@ impl Markdown {
     /// app puts this on the clipboard on ⌘C; the keybinding stays with the
     /// app.
     pub fn selected_text(&self, selection: &TextSelection) -> Option<String> {
-        let blocks = parsed_markdown(&self.source, &self.style);
-        selected_text_in_blocks(&blocks, selection)
+        selected_text_in_blocks(&parsed_blocks(&self.source), selection)
     }
 }
 
@@ -1579,7 +1545,7 @@ fn spans_text(spans: &[Span]) -> String {
 /// their own — the app copies through this, or through
 /// [`turn_selected_text`](super::turn_selected_text).
 pub fn markdown_selected_text(source: &str, selection: &TextSelection) -> Option<String> {
-    selected_text_in_blocks(&parse_markdown(source), selection)
+    selected_text_in_blocks(&parsed_blocks(source), selection)
 }
 
 /// Slices `selection` out of already-parsed `blocks`: the shared lookup
@@ -1672,7 +1638,7 @@ fn walk_units<'a>(
 impl RenderOnce for Markdown {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let palette = cx.aui().colors;
-        let blocks = parsed_markdown(&self.source, &self.style);
+        let blocks = parsed_blocks(&self.source);
         let sel = SelCtx {
             link_ink: palette.accent,
             selection: self.selection.clone(),
@@ -1843,6 +1809,30 @@ mod tests {
         let first = parsed_markdown("# Hi\n\nSome text.", &style);
         let second = parsed_markdown("# Hi\n\nSome text.", &style);
         assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn the_style_is_not_part_of_the_memo_key() {
+        // Blocks carry no colours, so a theme switch must not re-parse.
+        let mut other = style();
+        other.ink = gpui::white();
+        other.size += 1.0;
+        let first = parsed_markdown("# Theme\n\nSwitch.", &style());
+        let second = parsed_markdown("# Theme\n\nSwitch.", &other);
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn the_copy_path_reads_the_same_blocks_as_a_view() {
+        let source = "One `two` three.\n\n- bullet";
+        let selection = TextSelection {
+            cell: SelectionKey::paragraph("", 0),
+            range: 0..7,
+        };
+        assert_eq!(
+            markdown_selected_text(source, &selection),
+            markdown("copy-path", source, style()).selected_text(&selection),
+        );
     }
 
     #[test]

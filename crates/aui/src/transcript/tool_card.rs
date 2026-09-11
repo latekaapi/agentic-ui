@@ -12,7 +12,7 @@ use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{glyph_err, glyph_ok, pill, spinner, tag, PillVariant};
 use crate::icons::{icon, IconName};
-use crate::transcript::ansi::{ansi_runs, parse_ansi};
+use crate::transcript::ansi::{ansi_runs, ansi_spans};
 use crate::transcript::transcript_card;
 
 /// `.out{padding:10px 12px;font:11.5px/1.65 mono}`.
@@ -254,7 +254,7 @@ fn shell_body(p: &Palette, _id: &ElementId, lines: &[String], emit: impl Fn(Tool
     let shown = lines.iter().take(SHELL_FOLD);
     let mut out = v_flex().w_full().py(px(OUT_PAD_Y)).px(px(OUT_PAD_X)).mono(OUT_TEXT).line_height(relative(OUT_LH)).text_color(p.term_fg).whitespace_nowrap();
     for line in shown {
-        let (text, runs) = ansi_runs(&parse_ansi(line), p, scale::FONT_MONO);
+        let (text, runs) = ansi_runs(&ansi_spans(line), p, scale::FONT_MONO);
         // An empty line still takes a line box.
         let text = if text.is_empty() { " ".to_string() } else { text };
         let runs = if runs.is_empty() || runs.iter().map(|r| r.len).sum::<usize>() != text.len() {

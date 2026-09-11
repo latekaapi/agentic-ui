@@ -837,8 +837,6 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn jump_pill(id: impl Into<ElementId>, label: impl Into<SharedString>) -> JumpPill`
 - **fn** `last_block_runs` — The text and runs of the block that closes `source`, built exactly as `Markdown` builds them, so a caller that has to measure where the text ends (the streaming caret) shapes the same glyphs that are painted. [...]
   - `pub fn last_block_runs(source: &str, style: &ProseStyle, link_ink: Hsla) -> Option<(String, Vec<TextRun>)>`
-- **fn** `last_paragraph_runs` — The text and text runs of the paragraph that closes `markdown`, built exactly as `prose` builds them, so a caller that has to measure where the prose ends (the streaming caret) shapes the same glyphs that are painted. [...]
-  - `pub fn last_paragraph_runs(markdown: &str, style: &ProseStyle) -> Option<(String, Vec<TextRun>)>`
 - **fn** `markdown` — Renders `source` as markdown blocks in `style`.
   - `pub fn markdown(id: impl Into<ElementId>, source: impl Into<SharedString>, style: ProseStyle) -> Markdown`
 - **fn** `markdown_selected_text` — Copies the selected text out of `source` without building a view: the slice of the holding cell’s shaped text, or `None` when the key addresses no cell or the range is empty. [...]
@@ -853,7 +851,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn parse_ansi(line: &str) -> Vec<AnsiSpan>`
 - **fn** `parse_markdown` — Parses `source` into blocks, uncached. Prefer `parsed_markdown`, which memoises this across frames.
   - `pub fn parse_markdown(source: &str) -> Vec<Block>`
-- **fn** `parsed_markdown` — Parses `source` into shared blocks, memoised across frames: every render of the same turn hits the cache instead of re-running the parser, which is the per-delta re-parse the transcript diagnosis attributes the scroll jank to. [...]
+- **fn** `parsed_markdown` — Parses `source` into shared blocks, memoised across frames: every render of the same turn hits the memo instead of re-running the parser, which is the per-delta re-parse the transcript diagnosis attributes the scroll jank to. [...]
   - `pub fn parsed_markdown(source: &str, style: &ProseStyle) -> Arc<Vec<Block>> ⓘ`
 - **fn** `plan_card` — A proposed plan over `items`; each item is the small markdown subset, so `code` spans render in the mono face.
   - `pub fn plan_card(id: impl Into<ElementId>, items: Vec<String>) -> PlanCard`
