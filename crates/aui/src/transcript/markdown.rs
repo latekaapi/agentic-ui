@@ -1248,6 +1248,19 @@ fn block_cell_id(id: &ElementId, index: usize, row: Option<usize>, col: usize) -
     (id.clone(), SharedString::from(name)).into()
 }
 
+/// [`block_item_id`] under a name the measurement module can reach.
+#[cfg(test)]
+pub(super) fn block_item_id_for_bench(id: &ElementId, index: usize, name: &str, item: usize) -> ElementId {
+    block_item_id(id, index, name, item)
+}
+
+/// [`markdown_selected_text`] as it was before it went through the memo: a
+/// full uncached parse per copy. Kept for the measurement module.
+#[cfg(test)]
+pub(super) fn selected_text_uncached_for_bench(source: &str, selection: &TextSelection) -> Option<String> {
+    selected_text_in_blocks(&parse_markdown(source), selection)
+}
+
 /// `md-{index}-{name}{first}{-second}` in one allocation.
 fn block_name(index: usize, name: &str, first: Option<usize>, second: Option<usize>) -> String {
     let mut out = String::with_capacity(8 + name.len() + 8);

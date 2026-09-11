@@ -4,6 +4,8 @@
 //! rows, citations and sources (cards 30–38, 55).
 
 mod activity;
+#[cfg(test)]
+mod hotpath_bench;
 mod ansi;
 mod approval;
 mod card;
