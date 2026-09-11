@@ -6,11 +6,13 @@
 use std::sync::{Arc, LazyLock};
 
 use aui_motion::{looping, Loop};
-use aui_tokens::{scale, AuiStyled};
-use gpui::{div, font, prelude::*, px, relative, App, ElementId, Font, FontStyle, FontWeight, Hsla, IntoElement, StrikethroughStyle, StyledText, TextRun, UnderlineStyle, Window};
+use aui_tokens::AuiStyled;
+#[cfg(test)]
+use aui_tokens::scale;
+use gpui::{div, prelude::*, px, relative, App, ElementId, Font, FontStyle, FontWeight, Hsla, IntoElement, StrikethroughStyle, StyledText, TextRun, UnderlineStyle, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use super::markdown::Span;
+use super::markdown::{mono_font, ui_font, Span};
 #[cfg(test)]
 use super::markdown::last_block_runs;
 use super::memo::Memo;
@@ -153,8 +155,8 @@ pub(super) fn parse(markdown: &str) -> Vec<Block> {
 }
 
 fn runs(spans: &[Span], style: &ProseStyle) -> (String, Vec<TextRun>) {
-    let ui: Font = font(scale::FONT_UI);
-    let mono: Font = font(scale::FONT_MONO);
+    let ui: Font = ui_font();
+    let mono: Font = mono_font();
     let mut text = String::new();
     let mut runs = Vec::new();
     for span in spans {

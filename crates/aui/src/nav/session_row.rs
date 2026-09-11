@@ -33,7 +33,7 @@ use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, spinner, status_dot, tag, ButtonSize};
 use crate::nav::{ActivityKind, MetaItem, SessionSummary};
-use crate::util::{interaction_flags, TrackInteraction};
+use crate::util::{indexed_child, interaction_flags, TrackInteraction};
 
 /// `.wt{grid-template-columns:14px 1fr auto;gap:2px 8px;padding:9px 10px;margin:2px 8px}`.
 /// Inside a flex column (the sidebar) CSS keeps both margins, 4 px apart;
@@ -453,7 +453,7 @@ impl RenderOnce for SessionRow {
             .border_l_1()
             .border_color(p.line);
         for (i, child) in s.children.into_iter().enumerate() {
-            let child_id: ElementId = (id.clone(), SharedString::from(format!("child-{i}"))).into();
+            let child_id: ElementId = indexed_child(&id, "child-", i);
             let mut r = session_row(child_id, child)
                 .nested()
                 .row_gap(self.row_gap)
@@ -623,7 +623,7 @@ impl RenderOnce for CompactSessionRow {
         }
         let mut col = v_flex().w_full().child(row);
         for (i, child) in s.children.into_iter().enumerate() {
-            let child_id: ElementId = (id.clone(), SharedString::from(format!("child-{i}"))).into();
+            let child_id: ElementId = indexed_child(&id, "child-", i);
             let mut r = compact_session_row(child_id, child).actions(self.actions.clone());
             r.nested = true;
             if let Some(h) = self.on_select.clone() {

@@ -9,7 +9,9 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, relative, App, Bounds, ElementId, IntoElement, Pixels, SharedString, TextRun, Window};
 use gpui_kit::base::ElementExt;
 use std::cell::RefCell;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::rc::Rc;
+use std::sync::{LazyLock, Mutex};
 
 use crate::transcript::{caret_top_in_line, caret_visible, ProseStyle, CARET_H, CARET_MARGIN_LEFT, CARET_W};
 use crate::transcript::{LinkTarget, SelectionHandler, TextSelection, last_block_runs, markdown, markdown_selected_text, LinkHandler};
@@ -396,10 +398,63 @@ impl AssistantTurn {
     }
 }
 
+/// How many measured trailing widths [`last_line_width`] keeps. One entry per
+/// streaming turn is the realistic load (only the closing block of a turn
+/// that is still streaming is measured); the bound leaves room for a
+/// transcript that has several in flight and for the last few shapes of each.
+const CARET_MEASURE_CAP: usize = 16;
+
+/// Measured trailing widths, keyed by what the shape depends on: the text,
+/// the font size, the wrap width and the shaping-relevant parts of the runs.
+/// Colour is deliberately not in the key — it does not move a glyph.
+static CARET_WIDTHS: LazyLock<Mutex<Vec<CaretMeasure>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+
+/// One cached measurement: the key and the trailing width it shaped to.
+type CaretMeasure = (u64, Option<Pixels>);
+
+/// The key for one measurement. Fonts are compared by family, weight and
+/// style; a run's colour, underline and strikethrough do not affect shaping.
+fn caret_key(text: &str, font_size: Pixels, runs: &[TextRun], wrap_width: Pixels) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    f32::from(font_size).to_bits().hash(&mut hasher);
+    f32::from(wrap_width).to_bits().hash(&mut hasher);
+    for run in runs {
+        run.len.hash(&mut hasher);
+        run.font.family.hash(&mut hasher);
+        run.font.weight.0.to_bits().hash(&mut hasher);
+        matches!(run.font.style, gpui::FontStyle::Italic).hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
 /// The width of the last *visual* line of `text` once it is wrapped at
 /// `wrap_width`: the whole line when it never wrapped, otherwise the shaped
 /// width from the last wrap boundary to the end.
+///
+/// Memoised: a streaming turn re-renders at frame rate but only grows its
+/// text when a chunk lands, so without a cache this shapes the closing block
+/// again for every frame in between. The cache holds
+/// [`CARET_MEASURE_CAP`] entries, most recent last.
 fn last_line_width(window: &Window, text: SharedString, font_size: Pixels, runs: &[TextRun], wrap_width: Pixels) -> Option<Pixels> {
+    let key = caret_key(&text, font_size, runs, wrap_width);
+    if let Ok(cache) = CARET_WIDTHS.lock() {
+        if let Some((_, width)) = cache.iter().rev().find(|(cached, _)| *cached == key) {
+            return *width;
+        }
+    }
+    let width = shape_last_line_width(window, text, font_size, runs, wrap_width);
+    if let Ok(mut cache) = CARET_WIDTHS.lock() {
+        if cache.len() >= CARET_MEASURE_CAP {
+            cache.remove(0);
+        }
+        cache.push((key, width));
+    }
+    width
+}
+
+/// [`last_line_width`] without the memo: the shaping pass itself.
+fn shape_last_line_width(window: &Window, text: SharedString, font_size: Pixels, runs: &[TextRun], wrap_width: Pixels) -> Option<Pixels> {
     let lines = window.text_system().shape_text(text, font_size, runs, Some(wrap_width), None).ok()?;
     let line = lines.last()?;
     let layout = &line.unwrapped_layout;
@@ -418,7 +473,7 @@ fn last_line_width(window: &Window, text: SharedString, font_size: Pixels, runs:
 /// can bill a reasoning budget and emit no reasoning item at all, so the number
 /// is the one place a person can see that thinking happened, and a `0` on every
 /// turn that did none would be noise.
-fn footer_items(meta: &TurnMeta) -> Vec<String> {
+pub(super) fn footer_items(meta: &TurnMeta) -> Vec<String> {
     let tokens = meta.tokens_in + meta.tokens_out;
     let tokens = if tokens >= 1000 { format!("{:.1}k tokens", tokens as f64 / 1000.0) } else { format!("{tokens} tokens") };
     let mut items = vec![meta.model.clone(), format!("{:.1} s", meta.duration_ms as f64 / 1000.0), tokens];

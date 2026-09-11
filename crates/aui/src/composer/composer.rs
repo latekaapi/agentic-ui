@@ -11,7 +11,7 @@ use gpui_kit::component::input::Textarea;
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{chip, context_meter, icon_button, ContextMeterState};
-use crate::util::{interaction_flags, TrackInteraction};
+use crate::util::{interaction_flags, named_child, TrackInteraction};
 
 /// `.cp{border-radius:14px}`.
 const CARD_RADIUS: f32 = 14.0;
@@ -392,7 +392,7 @@ impl RenderOnce for Composer {
                         let remove = emit(ComposerIntent::RemoveChip(c.id.clone()));
                         pill = pill.child(
                             div()
-                                .id((id.clone(), SharedString::from(format!("chip-x-{}", c.id))))
+                                .id(named_child(&id, "chip-x-", &c.id))
                                 .cursor_pointer()
                                 .on_click(remove)
                                 .child(icon(IconName::X).size(px(CHIP_X)).color(p.ink_4)),
@@ -408,7 +408,7 @@ impl RenderOnce for Composer {
                 ComposerChipKind::Image => icon(IconName::Image).size(px(CHIP_GLYPH)).into_any_element(),
                 ComposerChipKind::File => icon(IconName::File).size(px(CHIP_GLYPH)).into_any_element(),
             };
-            let mut el = chip((id.clone(), SharedString::from(format!("chip-{}", c.id))), c.label.clone()).leading(leading);
+            let mut el = chip(named_child(&id, "chip-", &c.id), c.label.clone()).leading(leading);
             // A file names its kind and size after the glyph, muted.
             if c.kind == ComposerChipKind::File {
                 if let Some(detail) = &c.detail {
@@ -417,7 +417,7 @@ impl RenderOnce for Composer {
             }
             if c.removable {
                 let remove = emit(ComposerIntent::RemoveChip(c.id.clone()));
-                el = el.trailing(div().id((id.clone(), SharedString::from(format!("chip-x-{}", c.id)))).cursor_pointer().on_click(remove).child(icon(IconName::X).size(px(CHIP_X)).color(p.ink_4)));
+                el = el.trailing(div().id(named_child(&id, "chip-x-", &c.id)).cursor_pointer().on_click(remove).child(icon(IconName::X).size(px(CHIP_X)).color(p.ink_4)));
             }
             chips_row = chips_row.child(el);
         }

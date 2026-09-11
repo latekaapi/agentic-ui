@@ -26,7 +26,7 @@ use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::tag;
 use crate::overlay::popover_layer;
-use crate::util::interaction_flags;
+use crate::util::{indexed_child, interaction_flags};
 
 /// `.pick{bottom:28px;left:0;padding:6px}` — measured from the chip it hangs
 /// off, which is 28 px tall like every composer toolbar control.
@@ -216,7 +216,7 @@ impl RenderOnce for PickerMenu {
         // The pointer wins over the caller's `selected`, so the arrow keys and
         // the mouse never light two rows at once.
         let hovered = (0..self.rows.len()).find(|index| {
-            let key: ElementId = (id.clone(), SharedString::from(format!("row-{index}"))).into();
+            let key: ElementId = indexed_child(&id, "row-", *index);
             interaction_flags(key, window, cx).1.hovered
         });
         let active = hovered.unwrap_or(self.selected);
@@ -249,7 +249,7 @@ impl RenderOnce for PickerMenu {
             );
         for (index, row) in self.rows.into_iter().enumerate() {
             menu = menu.child(picker_row(
-                (id.clone(), SharedString::from(format!("row-{index}"))).into(),
+                indexed_child(&id, "row-", index),
                 &p,
                 row,
                 index,

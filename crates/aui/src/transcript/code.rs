@@ -19,7 +19,7 @@ use crate::transcript::selectable::{
     intersect_range, selectable_text, SelectionHandler, SelectionKey, TextSelection,
 };
 use crate::transcript::syntax::syntax_runs_in;
-use crate::util::{interaction_flags, TrackInteraction};
+use crate::util::{indexed_child, interaction_flags, TrackInteraction};
 
 /// `.cb .hd{height:30px;gap:8px;padding:0 6px 0 12px;font:500 11.5px mono}`.
 const HEADER_H: f32 = 30.0;
@@ -286,8 +286,7 @@ impl RenderOnce for CodeBlock {
             let runs = if line.is_empty() { Vec::new() } else { runs };
             let line_body: gpui::AnyElement = match &sel_key {
                 Some(key) => {
-                    let line_id: ElementId =
-                        (id.clone(), SharedString::from(format!("sel-{i}"))).into();
+                    let line_id: ElementId = indexed_child(&id, "sel-", i);
                     let local = sel_range
                         .as_ref()
                         .and_then(|range| intersect_range(range, line_start, line.len()));

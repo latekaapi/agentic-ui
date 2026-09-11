@@ -52,6 +52,7 @@ use super::selectable::{
 };
 use super::ProseStyle;
 use crate::data::tag;
+use crate::util::push_usize;
 
 /// How many parsed sources the memo holds before evicting the least recently
 /// used one. Streaming turns churn one source per chunk, so the bound is what
@@ -935,6 +936,24 @@ pub(super) fn parsed_blocks(source: &str) -> Arc<Vec<Block>> {
     PARSED.get_or_insert("", source, parse_markdown)
 }
 
+/// The UI face, built once. `font(name)` is cheap but not free, and the run
+/// builders below call it twice per text block per frame; a `Font` is a
+/// handle (`SharedString` family plus feature and fallback lists), so cloning
+/// the shared one is an atomic bump instead of a rebuild.
+static UI_FONT: LazyLock<gpui::Font> = LazyLock::new(|| font(scale::FONT_UI));
+/// The mono face, built once. See [`UI_FONT`].
+static MONO_FONT: LazyLock<gpui::Font> = LazyLock::new(|| font(scale::FONT_MONO));
+
+/// A clone of the shared UI face.
+pub(super) fn ui_font() -> gpui::Font {
+    UI_FONT.clone()
+}
+
+/// A clone of the shared mono face.
+pub(super) fn mono_font() -> gpui::Font {
+    MONO_FONT.clone()
+}
+
 /// Builds the shaped text, runs and link ranges for `spans`. This is the one
 /// run builder for both [`prose`](super::prose) and [`Markdown`]: `link_ink`
 /// colours link runs, and callers that never emit links pass a shaping-only
@@ -945,8 +964,8 @@ pub fn span_runs(
     style: &ProseStyle,
     link_ink: Hsla,
 ) -> (String, Vec<TextRun>, Vec<LinkRange>) {
-    let ui: gpui::Font = font(scale::FONT_UI);
-    let mono: gpui::Font = font(scale::FONT_MONO);
+    let ui: gpui::Font = ui_font();
+    let mono: gpui::Font = mono_font();
     let mut text = String::new();
     let mut runs = Vec::new();
     let mut links = Vec::new();
@@ -1206,9 +1225,44 @@ fn table_cell(
 }
 
 /// Element ids nest one `(parent, name)` level at a time, so block children
-/// key off a formatted name under the turn id.
+/// key off a name under the turn id. The name is built into one `String` of
+/// known capacity rather than through `format!`: this runs for every block of
+/// every visible turn on every frame.
 pub(super) fn block_id(id: &ElementId, index: usize, name: &str) -> ElementId {
-    (id.clone(), SharedString::from(format!("md-{index}-{name}"))).into()
+    (id.clone(), SharedString::from(block_name(index, name, None, None))).into()
+}
+
+/// `block_id` for a block's `item`-th row (a list item), without the
+/// intermediate `format!("li{item}")` the name used to be built with.
+fn block_item_id(id: &ElementId, index: usize, name: &str, item: usize) -> ElementId {
+    (id.clone(), SharedString::from(block_name(index, name, Some(item), None))).into()
+}
+
+/// `block_id` for a table cell: `md-{index}-h{col}` for a header cell,
+/// `md-{index}-c{row}-{col}` for a body cell.
+fn block_cell_id(id: &ElementId, index: usize, row: Option<usize>, col: usize) -> ElementId {
+    let name = match row {
+        None => block_name(index, "h", Some(col), None),
+        Some(row) => block_name(index, "c", Some(row), Some(col)),
+    };
+    (id.clone(), SharedString::from(name)).into()
+}
+
+/// `md-{index}-{name}{first}{-second}` in one allocation.
+fn block_name(index: usize, name: &str, first: Option<usize>, second: Option<usize>) -> String {
+    let mut out = String::with_capacity(8 + name.len() + 8);
+    out.push_str("md-");
+    push_usize(&mut out, index);
+    out.push('-');
+    out.push_str(name);
+    if let Some(first) = first {
+        push_usize(&mut out, first);
+    }
+    if let Some(second) = second {
+        out.push('-');
+        push_usize(&mut out, second);
+    }
+    out
 }
 
 /// Rendered blocks with the gap applied between (never after) them.
@@ -1292,7 +1346,7 @@ fn render_block(
                     "•".to_string(),
                     item,
                     style,
-                    block_id(id, index, &format!("li{n}")),
+                    block_item_id(id, index, "li", n),
                     SelectionKey::list_item(&sel.prefix, index, false, n),
                     sel,
                 ));
@@ -1306,7 +1360,7 @@ fn render_block(
                     format!("{}.", start + n as u64),
                     item,
                     style,
-                    block_id(id, index, &format!("li{n}")),
+                    block_item_id(id, index, "li", n),
                     SelectionKey::list_item(&sel.prefix, index, true, n),
                     sel,
                 ));
@@ -1354,7 +1408,7 @@ fn render_block(
                     align.get(n).copied().unwrap_or(TableAlign::None),
                     true,
                     style,
-                    block_id(id, index, &format!("h{n}")),
+                    block_cell_id(id, index, None, n),
                     SelectionKey::table_cell(&sel.prefix, index, None, n),
                     sel,
                 ));
@@ -1374,7 +1428,7 @@ fn render_block(
                         align.get(n).copied().unwrap_or(TableAlign::None),
                         false,
                         style,
-                        block_id(id, index, &format!("c{r}-{n}")),
+                        block_cell_id(id, index, Some(r), n),
                         SelectionKey::table_cell(&sel.prefix, index, Some(r), n),
                         sel,
                     ));

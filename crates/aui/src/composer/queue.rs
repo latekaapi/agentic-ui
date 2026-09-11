@@ -10,7 +10,7 @@ use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedStr
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, ButtonSize};
-use crate::util::{interaction_flags, TrackInteraction};
+use crate::util::{indexed_child, interaction_flags, named_child, TrackInteraction};
 
 /// `.qi{gap:8px;height:30px;padding:0 10px;font-size:12.5px}` with a dashed line-strong border.
 const ROW_GAP: f32 = 8.0;
@@ -164,7 +164,7 @@ impl RenderOnce for SuggestionChips {
         let count = self.items.len();
         let mut row = h_flex().w_full().flex_wrap().gap(px(SUGG_GAP));
         for (i, label) in self.items.into_iter().enumerate() {
-            let chip_id: ElementId = (id.clone(), SharedString::from(format!("sugg-{i}"))).into();
+            let chip_id: ElementId = indexed_child(&id, "sugg-", i);
             let style = if self.at_rest {
                 PresenceStyle { opacity: 1.0, offset_y: px(0.0), scale: 1.0 }
             } else {
@@ -272,7 +272,7 @@ impl RenderOnce for QueueStrip {
                 .child(format!("Queued \u{b7} {count}")),
         );
         for row in self.rows {
-            let row_id: ElementId = (id.clone(), SharedString::from(format!("q-{}", row.id))).into();
+            let row_id: ElementId = named_child(&id, "q-", &row.id);
             let handler = self.on_intent.clone();
             let key = row.id.clone();
             let mut element = queue_row(row_id, row.text.clone()).on_intent(move |intent, w, cx| {

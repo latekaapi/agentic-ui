@@ -402,26 +402,32 @@ impl SelectableText {
     /// Builds the painted text, baking the selection into the runs. Runs once
     /// per frame in `request_layout`, mirroring how `StyledText` is otherwise
     /// constructed fresh in `render`.
-    fn build_styled(&self) -> StyledText {
+    ///
+    /// The runs move into the `StyledText` rather than being cloned: a cell
+    /// is consumed by one layout pass, and nothing reads `self.runs` after
+    /// this. Text is a `SharedString`, so its clone is a refcount bump.
+    fn build_styled(&mut self) -> StyledText {
         let text_len = self.text.len();
+        let given = std::mem::take(&mut self.runs);
+        let had_runs = !given.is_empty();
         // Without caller runs the whole text is one implicit run; with runs
         // the selection splits them. Either way an unhighlighted cell keeps
         // exactly the runs it was given.
-        let base = if self.runs.is_empty() {
+        let base = if had_runs {
+            given
+        } else {
             vec![TextRun {
                 len: text_len,
                 ..TextRun::default()
             }]
-        } else {
-            self.runs.clone()
         };
         let styled = StyledText::new(self.text.clone());
         match (&self.selection, self.color) {
             (Some(range), Some(color)) => {
                 styled.with_runs(apply_selection(base, text_len, range, color))
             }
-            _ if self.runs.is_empty() => styled,
-            _ => styled.with_runs(self.runs.clone()),
+            _ if !had_runs => styled,
+            _ => styled.with_runs(base),
         }
     }
 }
