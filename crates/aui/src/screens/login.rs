@@ -1,9 +1,12 @@
-//! The device-code sign-in screen.
+//! The sign-in screen: a Meta account (device-code flow) or an API key.
 //!
 //! The screen is stateless like every other component: the caller owns the
-//! [`LoginState`] — it is the one that runs the login command, polls, and
-//! counts the expiry down — and receives [`LoginIntent`]s back. Nothing here
-//! opens a browser, copies a string or writes a log line.
+//! [`LoginState`] — it is the one that runs the login command, polls, counts
+//! the expiry down, and validates the API key — and receives [`LoginIntent`]s
+//! back. Nothing here opens a browser, copies a string or writes a log line.
+//!
+//! The API-key form draws the caller's own field (see
+//! [`Login::api_key_field`]): the screen never sees the key itself.
 //!
 //! Colour stays calm: the card is the plain surface with the hairline border,
 //! the only status colour is the ink on the success and error lines, and a
@@ -16,10 +19,10 @@ use std::time::Duration;
 use aui_icons::{provider_mark, IconName, Provider};
 use aui_motion::{presence, EnterExit, PresenceStyle};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
-use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, relative, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{button, glyph_ok, icon_button, spinner, ButtonSize};
+use crate::data::{button, glyph_ok, icon_button, spinner, Button, ButtonSize};
 
 /// The sign-in card: wide enough for a device URL on one line, no wider.
 const CARD_W: f32 = 420.0;
@@ -49,18 +52,29 @@ const ERROR_PAD_X: f32 = scale::SP_4;
 /// The action row: hint on the left, spacer, secondary, primary at the right.
 const ACTION_GAP: f32 = scale::SP_3;
 const HINT_TEXT: f32 = scale::FS_11;
+/// The API-key field label, one step below the hint: 11 px in ink-3.
+const FIELD_LABEL_TEXT: f32 = scale::FS_11;
 /// `@keyframes in{from{transform:translateY(8px)}}` — the card rises into place.
 const CARD_RISE: f32 = 8.0;
 
 /// The default product name, and the headline built from it.
 const DEFAULT_PRODUCT: &str = "Muse";
 
+/// Which way in the person chose.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoginMethod {
+    /// The Meta-account device-code flow (the subscription lane).
+    Account,
+    /// An API key (pay-as-you-go).
+    ApiKey,
+}
+
 /// What the sign-in screen is showing.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LoginState {
-    /// Nothing started; the primary reads "Sign in".
-    Idle,
-    /// The login command is starting; a spinner row, no code yet.
+    /// Nothing started: choose a method.
+    Choose,
+    /// The device flow is starting; a spinner row, no code yet.
     Starting,
     /// The device code is on screen.
     Device {
@@ -75,43 +89,77 @@ pub enum LoginState {
         /// to finish in the browser…".
         waiting: bool,
     },
+    /// The API-key form. The field itself is the caller's (see
+    /// [`Login::api_key_field`]).
+    ApiKey {
+        /// Whether the form may be submitted; the primary is disabled until it
+        /// is set.
+        can_submit: bool,
+        /// A validation problem, shown in the attention border.
+        error: Option<SharedString>,
+    },
+    /// `account/loginStart {apiKey}` in flight.
+    Validating,
     /// Signed in; a success row before the app enters.
     Success,
-    /// Failed; `message` is shown in the danger ink with a Retry primary.
+    /// Failed; `message` is shown in the danger ink.
     Error {
         /// What went wrong, in the caller's words.
         message: SharedString,
+        /// Which method failed, so "Try again" restarts that one; "Choose
+        /// another way" always returns to the method choice.
+        method: Option<LoginMethod>,
     },
 }
 
 /// What the person asked the app to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoginIntent {
-    /// Begin the device-code flow ("Sign in").
-    Start,
+    /// Choose → the device flow.
+    StartAccount,
+    /// Choose → the API-key form.
+    UseApiKey,
+    /// The API-key form → validating.
+    SubmitApiKey,
+    /// The eye button in the API-key form; the caller flips the field's
+    /// masked flag.
+    ToggleReveal,
+    /// The API-key form → the method choice.
+    Back,
     /// Open the verification URL in the browser.
     OpenBrowser,
     /// Put the device code on the clipboard.
     CopyCode,
-    /// Try again after a failure.
+    /// Try again after a failure: the method in `method`, or the choice when
+    /// there is none.
     Retry,
-    /// Abandon a flow that is already running.
+    /// A failure → the method choice.
+    ChooseAnother,
+    /// Abandon a flow that is already running; back to the method choice.
     Cancel,
 }
 
 type IntentHandler = Rc<dyn Fn(LoginIntent, &mut Window, &mut App)>;
 
-/// The device-code sign-in screen. Build with [`login`].
+/// The sign-in screen. Build with [`login`].
 ///
 /// ```ignore
+/// use aui::data::secret_field;
 /// use aui::screens::{login, LoginIntent, LoginState};
 ///
-/// login("sign-in", state.clone()).product("Muse").on_intent(|intent, _, cx| match intent {
-///     LoginIntent::OpenBrowser => cx.open_url(&url),
-///     LoginIntent::CopyCode => cx.write_to_clipboard(gpui::ClipboardItem::new_string(code.to_string())),
-///     _ => {}
-/// })
+/// login("sign-in", state.clone())
+///     .product("Muse")
+///     .api_key_field(secret_field("key", &key_state))
+///     .on_intent(|intent, _, cx| match intent {
+///         LoginIntent::OpenBrowser => cx.open_url(&url),
+///         LoginIntent::CopyCode => cx.write_to_clipboard(gpui::ClipboardItem::new_string(code.to_string())),
+///         _ => {}
+///     })
 /// ```
+///
+/// Enter inside the API-key field and Escape are the caller's business: the
+/// field is the caller's element (gpui-base `set_submit_on_enter` and its
+/// event for Enter), and the screen never binds keys itself.
 #[derive(IntoElement)]
 pub struct Login {
     id: ElementId,
@@ -120,6 +168,7 @@ pub struct Login {
     headline: Option<SharedString>,
     subtitle: Option<SharedString>,
     provider: Provider,
+    api_key_field: Option<AnyElement>,
     timing: EnterExit,
     on_intent: Option<IntentHandler>,
 }
@@ -134,6 +183,7 @@ pub fn login(id: impl Into<ElementId>, state: LoginState) -> Login {
         headline: None,
         subtitle: None,
         provider: Provider::Claude,
+        api_key_field: None,
         timing: EnterExit::DEFAULT,
         on_intent: None,
     }
@@ -164,6 +214,15 @@ impl Login {
         self
     }
 
+    /// The element drawn in the API-key form's field slot — the harness
+    /// passes a [`secret_field`](crate::data::secret_field). The screen owns
+    /// no text: Enter inside the field and the reveal toggle stay the
+    /// caller's business.
+    pub fn api_key_field(mut self, field: impl IntoElement) -> Self {
+        self.api_key_field = Some(field.into_any_element());
+        self
+    }
+
     /// A button was pressed.
     pub fn on_intent(mut self, f: impl Fn(LoginIntent, &mut Window, &mut App) + 'static) -> Self {
         self.on_intent = Some(Rc::new(f));
@@ -184,17 +243,6 @@ impl Login {
         self.headline.clone().unwrap_or_else(|| format!("Sign in to {}", self.product).into())
     }
 
-    /// One button, wired to `intent`.
-    fn action(&self, key: &'static str, label: impl Into<SharedString>, intent: LoginIntent, primary: bool) -> impl IntoElement {
-        let mut b = button((self.id.clone(), key), label).size(ButtonSize::Md);
-        if primary {
-            b = b.primary();
-        }
-        if let Some(handler) = self.on_intent.clone() {
-            b = b.on_click(move |_, w, cx| handler(intent, w, cx));
-        }
-        b
-    }
 }
 
 /// The one action-row pattern: the hint on the left, a spacer, then the
@@ -216,6 +264,36 @@ fn action_row(p: &Palette, hint: Option<SharedString>, buttons: Vec<gpui::AnyEle
         .children(buttons)
 }
 
+/// The caller's field in the API-key form's slot; an empty line when the
+/// caller passed none, so the form keeps its shape in a static capture.
+fn api_key_slot(field: Option<AnyElement>) -> AnyElement {
+    match field {
+        Some(field) => field,
+        None => div().w_full().into_any_element(),
+    }
+}
+
+/// One button, wired to `intent`.
+fn action(id: &ElementId, on_intent: &Option<IntentHandler>, key: &'static str, label: impl Into<SharedString>, intent: LoginIntent, primary: bool) -> impl IntoElement {
+    let mut b = button((id.clone(), key), label).size(ButtonSize::Md);
+    if primary {
+        b = b.primary();
+    }
+    if let Some(handler) = on_intent.clone() {
+        b = b.on_click(move |_, w, cx| handler(intent, w, cx));
+    }
+    b
+}
+
+/// The API-key form's primary: "Sign in", disabled until `can_submit`.
+fn submit_action(id: &ElementId, on_intent: &Option<IntentHandler>, can_submit: bool) -> Button {
+    let mut submit = button((id.clone(), "submit"), "Sign in").size(ButtonSize::Md).primary().disabled(!can_submit);
+    if let Some(handler) = on_intent.clone() {
+        submit = submit.on_click(move |_, w, cx| handler(LoginIntent::SubmitApiKey, w, cx));
+    }
+    submit
+}
+
 /// A spinner and one muted line: "Starting sign-in…", "Waiting for you…".
 fn status_row(id: ElementId, p: &Palette, text: impl Into<SharedString>) -> impl IntoElement {
     h_flex()
@@ -231,8 +309,11 @@ fn status_row(id: ElementId, p: &Palette, text: impl Into<SharedString>) -> impl
 impl RenderOnce for Login {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let id = self.id.clone();
-        let sample = presence((id.clone(), "presence"), true, self.timing, window, cx);
+        let headline = self.headline_text();
+        // Destructured up front: the API-key slot moves the caller's field
+        // out, and the buttons borrow the id and the intent handler.
+        let Login { id, state, subtitle, provider, api_key_field, timing, on_intent, .. } = self;
+        let sample = presence((id.clone(), "presence"), true, timing, window, cx);
         let style = PresenceStyle::fade_rise(sample, CARD_RISE);
 
         let mut card = v_flex()
@@ -249,30 +330,74 @@ impl RenderOnce for Login {
             .bg(p.surface_1)
             .shadow(p.shadow(2))
             .text_color(p.ink)
-            .child(masthead(&p, self.provider, self.headline_text(), self.subtitle.clone()));
+            .child(masthead(&p, provider, headline, subtitle));
 
-        match self.state.clone() {
-            LoginState::Idle => {
-                card = card.child(action_row(&p, None, vec![self.action("start", "Sign in", LoginIntent::Start, true).into_any_element()]));
+        match state {
+            LoginState::Choose => {
+                card = card
+                    .child(
+                        div()
+                            .w_full()
+                            .ui(STATUS_TEXT)
+                            .line_height(relative(scale::LH_UI))
+                            .text_center()
+                            .text_color(p.ink_3)
+                            .child("A Meta account draws on your Muse subscription. An API key bills usage to that key."),
+                    )
+                    .child(action_row(
+                        &p,
+                        None,
+                        vec![
+                            action(&id, &on_intent, "api-key", "Use an API key", LoginIntent::UseApiKey, false).into_any_element(),
+                            action(&id, &on_intent, "account", "Continue with Meta account", LoginIntent::StartAccount, true).into_any_element(),
+                        ],
+                    ));
             }
             LoginState::Starting => {
                 card = card
                     .child(status_row((id.clone(), "starting").into(), &p, "Starting sign-in…"))
-                    .child(action_row(&p, None, vec![self.action("cancel", "Cancel", LoginIntent::Cancel, false).into_any_element()]));
+                    .child(action_row(&p, None, vec![action(&id, &on_intent, "cancel", "Cancel", LoginIntent::Cancel, false).into_any_element()]));
             }
             LoginState::Device { url, code, expires, waiting } => {
-                card = card.child(url_row(&id, &p, url, self.on_intent.clone())).child(code_line(&p, code));
+                card = card.child(url_row(&id, &p, url, on_intent.clone())).child(code_line(&p, code));
                 if waiting {
                     card = card.child(status_row((id.clone(), "waiting").into(), &p, "Waiting for you to finish in the browser…"));
                 }
                 card = card.child(action_row(
                     &p,
-                    expires,
+                    expires.or_else(|| Some("Approve the request in your browser, then come back here.".into())),
                     vec![
-                        self.action("copy-code", "Copy code", LoginIntent::CopyCode, false).into_any_element(),
-                        self.action("open", "Open in browser", LoginIntent::OpenBrowser, true).into_any_element(),
+                        action(&id, &on_intent, "cancel", "Cancel", LoginIntent::Cancel, false).into_any_element(),
+                        action(&id, &on_intent, "copy-code", "Copy code", LoginIntent::CopyCode, false).into_any_element(),
+                        action(&id, &on_intent, "open", "Open in browser", LoginIntent::OpenBrowser, true).into_any_element(),
                     ],
                 ));
+            }
+            LoginState::ApiKey { can_submit, error } => {
+                card = card
+                    .child(div().w_full().ui(FIELD_LABEL_TEXT).text_color(p.ink_3).child("Meta API key"))
+                    .child(api_key_slot(api_key_field))
+                    .child(
+                        div()
+                            .w_full()
+                            .ui(HINT_TEXT)
+                            .text_color(p.ink_3)
+                            .child("Saved by the muse CLI to ~/.config/muse/auth.json. Never logged."),
+                    );
+                if let Some(error) = error {
+                    card = card.child(error_box(&p, error));
+                }
+                card = card.child(action_row(
+                    &p,
+                    None,
+                    vec![
+                        action(&id, &on_intent, "back", "Back", LoginIntent::Back, false).into_any_element(),
+                        submit_action(&id, &on_intent, can_submit).into_any_element(),
+                    ],
+                ));
+            }
+            LoginState::Validating => {
+                card = card.child(status_row((id.clone(), "validating").into(), &p, "Checking the key…"));
             }
             LoginState::Success => {
                 card = card.child(
@@ -286,11 +411,14 @@ impl RenderOnce for Login {
                         .child(div().flex_1().min_w(px(0.0)).child("Signed in.")),
                 );
             }
-            LoginState::Error { message } => {
+            LoginState::Error { message, method: _ } => {
                 card = card.child(error_box(&p, message)).child(action_row(
                     &p,
                     None,
-                    vec![self.action("retry", "Try again", LoginIntent::Retry, true).into_any_element()],
+                    vec![
+                        action(&id, &on_intent, "choose", "Choose another way", LoginIntent::ChooseAnother, false).into_any_element(),
+                        action(&id, &on_intent, "retry", "Try again", LoginIntent::Retry, true).into_any_element(),
+                    ],
                 ));
             }
         }
@@ -388,8 +516,8 @@ mod tests {
 
     #[test]
     fn headline_defaults_to_the_product() {
-        assert_eq!(login("l", LoginState::Idle).headline_text(), SharedString::from("Sign in to Muse"));
-        assert_eq!(login("l", LoginState::Idle).product("Orca").headline_text(), SharedString::from("Sign in to Orca"));
-        assert_eq!(login("l", LoginState::Idle).headline("Welcome back").headline_text(), SharedString::from("Welcome back"));
+        assert_eq!(login("l", LoginState::Choose).headline_text(), SharedString::from("Sign in to Muse"));
+        assert_eq!(login("l", LoginState::Choose).product("Orca").headline_text(), SharedString::from("Sign in to Orca"));
+        assert_eq!(login("l", LoginState::Choose).headline("Welcome back").headline_text(), SharedString::from("Welcome back"));
     }
 }

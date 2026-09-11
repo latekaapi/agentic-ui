@@ -16,6 +16,7 @@ mod glyph;
 mod kbd;
 mod meter;
 mod pill;
+mod secret_field;
 mod tag;
 
 pub use avatar::{avatar, Avatar};
@@ -27,4 +28,5 @@ pub use glyph::{glyph_err, glyph_ok, spinner, Glyph, GlyphKind, Spinner};
 pub use kbd::{kbd, Kbd};
 pub use meter::{usage_meter, UsageMeter};
 pub use pill::{pill, Pill, PillVariant};
+pub use secret_field::{secret_field, SecretField};
 pub use tag::{tag, Tag};

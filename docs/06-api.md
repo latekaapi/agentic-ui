@@ -192,6 +192,8 @@ Shared data-display primitives every card is built from (`base.css`): buttons, c
   - `pub fn kbd(keys: impl Into<SharedString>) -> Kbd`
 - **fn** `pill` — A quiet pill.
   - `pub fn pill(label: impl Into<SharedString>) -> Pill`
+- **fn** `secret_field` — The caller’s `state` in the library’s bordered control box, with a trailing ghost eye button that reports back through `.on_toggle_reveal`.
+  - `pub fn secret_field(id: impl Into<ElementId>, state: &Entity<InputState>) -> SecretField`
 - **fn** `spinner` — A spinning ring; `id` keys its rotation.
   - `pub fn spinner(id: impl Into<ElementId>) -> Spinner`
 - **fn** `status_dot` — A dot in the state’s colour.
@@ -245,6 +247,10 @@ Shared data-display primitives every card is built from (`base.css`): buttons, c
   - `pub fn leading(self, element: impl IntoElement) -> Self` — A leading element (dot, glyph).
   - `pub fn padding_x(self, pad: f32) -> Self` — Overrides the 7 px horizontal padding.
   - `pub fn variant(self, variant: PillVariant) -> Self` — Sets the status variant.
+- **struct** `SecretField` — A masked single-line field for `state`. Build with `secret_field`.
+  - `pub fn disabled(self, disabled: bool) -> Self` — Non-interactive at 45 % opacity; passed through to the caller’s state when drawn.
+  - `pub fn on_toggle_reveal(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The eye button was pressed. The component never flips the masked flag itself: read the presentation snapshot and call `set_masked` on the caller’s state.
+  - `pub fn placeholder(self, text: impl Into<SharedString>) -> Self` — The greyed hint shown while the field is empty; passed through to the caller’s state when drawn.
 - **struct** `Spinner` — The spinner. Build with `spinner`.
   - `pub fn size(self, size: impl Into<Pixels>) -> Self` — Overrides the diameter (rows use 10 and 11).
 - **struct** `StatusDot` — A status dot. Build with `status_dot`.
@@ -640,7 +646,8 @@ Full-window screens: the whole window is the component, not a card inside one.
 - **fn** `login` — The sign-in screen in `state`. It fills the window it is given and centres its card on the window ground.
   - `pub fn login(id: impl Into<ElementId>, state: LoginState) -> Login`
 
-- **struct** `Login` — The device-code sign-in screen. Build with `login`.
+- **struct** `Login` — The sign-in screen. Build with `login`.
+  - `pub fn api_key_field(self, field: impl IntoElement) -> Self` — The element drawn in the API-key form’s field slot — the harness passes a `secret_field`. The screen owns no text: Enter inside the field and the reveal toggle stay the caller’s business.
   - `pub fn at_rest(self) -> Self` — Skips the enter: the card is drawn at rest on its first frame, for a static capture.
   - `pub fn headline(self, text: impl Into<SharedString>) -> Self` — Overrides the headline (`"Sign in to <product>"` by default).
   - `pub fn on_intent(self, f: impl Fn(LoginIntent, &mut Window, &mut App) + 'static) -> Self` — A button was pressed.
@@ -649,9 +656,12 @@ Full-window screens: the whole window is the component, not a card inside one.
   - `pub fn subtitle(self, text: impl Into<SharedString>) -> Self` — The muted line under the headline.
 
 - **enum** `LoginIntent` — What the person asked the app to do.
-  - variants: `Start`, `OpenBrowser`, `CopyCode`, `Retry`, `Cancel`
+  - variants: `StartAccount`, `UseApiKey`, `SubmitApiKey`, `ToggleReveal`, `Back`,
+    `OpenBrowser`, `CopyCode`, `Retry`, `ChooseAnother`, `Cancel`
+- **enum** `LoginMethod` — Which way in the person chose.
+  - variants: `Account`, `ApiKey`
 - **enum** `LoginState` — What the sign-in screen is showing.
-  - variants: `Idle`, `Starting`, `Device`, `Success`, `Error`
+  - variants: `Choose`, `Starting`, `Device`, `ApiKey`, `Validating`, `Success`, `Error`
 
 ### `aui::shell`
 
@@ -1827,8 +1837,8 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
   - `pub fn icon(self) -> IconName` — The `ft-*` glyph for this file type.
 - **enum** `IconName` — Every glyph in the Agentic UI sprite sheet.
   - variants: `Chevron`, `ChevronDown`, `Terminal`, `File`, `Folder`, `Search`, `Globe`,
-    `Check`, `X`, `Plus`, `ArrowUp`, `Stop`, `Sparkle`, `Edit`, `Eye`, `Git`, `Copy`, `Pin`,
-    `Bell`, `Layout`, `Split`, `Refresh`, `ArrowLeft`, `ArrowRight`, `Cursor`, `Camera`,
+    `Check`, `X`, `Plus`, `ArrowUp`, `Stop`, `Sparkle`, `Edit`, `Eye`, `EyeOff`, `Git`, `Copy`,
+    `Pin`, `Bell`, `Layout`, `Split`, `Refresh`, `ArrowLeft`, `ArrowRight`, `Cursor`, `Camera`,
     `Paperclip`, `Slash`, `At`, `Brain`, `List`, `Shield`, `Question`, `Doc`, `Sheet`, `Pdf`,
     `Image`, `Play`, `Dots`, `Inbox`, `Zap`, `Book`, `Link`, `Sidebar`, `Clock`, `PanelRight`,
     `GradCap`, `Scale`, `Gear`, `FtFolder`, `FtFolderOpen`, `FtTs`, `FtTsx`, `FtJson`, `FtMd`,

@@ -25,6 +25,7 @@ pub mod panel_chrome;
 pub mod pickers;
 pub mod question_plan_todo;
 pub mod rows;
+pub mod secret_field;
 pub mod sidebar;
 pub mod summary_status;
 pub mod terminal;
