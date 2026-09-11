@@ -83,7 +83,7 @@ pub enum LoginState {
         /// The code they type into it.
         code: SharedString,
         /// How long the code is good for, e.g. `"expires in 14:32"`; shown as
-        /// the action row's hint.
+        /// its own full-width line above the action row.
         expires: Option<SharedString>,
         /// Whether the app is polling: adds the spinner row "Waiting for you
         /// to finish in the browser…".
@@ -363,15 +363,18 @@ impl RenderOnce for Login {
                 if waiting {
                     card = card.child(status_row((id.clone(), "waiting").into(), &p, "Waiting for you to finish in the browser…"));
                 }
-                card = card.child(action_row(
-                    &p,
-                    expires.or_else(|| Some("Approve the request in your browser, then come back here.".into())),
-                    vec![
-                        action(&id, &on_intent, "cancel", "Cancel", LoginIntent::Cancel, false).into_any_element(),
-                        action(&id, &on_intent, "copy-code", "Copy code", LoginIntent::CopyCode, false).into_any_element(),
-                        action(&id, &on_intent, "open", "Open in browser", LoginIntent::OpenBrowser, true).into_any_element(),
-                    ],
-                ));
+                let hint: SharedString = expires.unwrap_or_else(|| "Approve the request in your browser, then come back here.".into());
+                card = card
+                    .child(div().w_full().ui(STATUS_TEXT).text_color(p.ink_3).child(hint))
+                    .child(action_row(
+                        &p,
+                        None,
+                        vec![
+                            action(&id, &on_intent, "cancel", "Cancel", LoginIntent::Cancel, false).into_any_element(),
+                            action(&id, &on_intent, "copy-code", "Copy code", LoginIntent::CopyCode, false).into_any_element(),
+                            action(&id, &on_intent, "open", "Open in browser", LoginIntent::OpenBrowser, true).into_any_element(),
+                        ],
+                    ));
             }
             LoginState::ApiKey { can_submit, error } => {
                 card = card
