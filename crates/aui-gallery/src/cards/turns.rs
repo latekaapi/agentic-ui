@@ -49,34 +49,34 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(div().w_full().flex().justify_end().child(
             user_turn("card31-user", USER_TEXT)
                 .attachments(attachments)
-                .selection(current.clone())
+                .selection(current.as_ref())
                 .on_selection_change(track_selection(selection.clone())),
         ))
         .child(
             assistant_turn("card31-assistant", ASSISTANT_TEXT)
                 .streaming(true)
                 .meta(TurnMeta { model: "opus 4.6".into(), duration_ms: 3100, tokens_in: 1800, tokens_out: 600, reasoning_tokens: 0, cost_usd: 0.04 })
-                .selection(current.clone())
+                .selection(current.as_ref())
                 .on_selection_change(track_selection(selection.clone())),
         )
         .child(div().w_full().flex().justify_end().child(
             user_turn("card31-user-bottom", USER_TEXT)
                 .actions_bottom(true)
-                .selection(current.clone())
+                .selection(current.as_ref())
                 .on_selection_change(track_selection(selection.clone())),
         ))
         .child(
             assistant_turn("card31-assistant-bottom", ASSISTANT_TEXT)
                 .meta(TurnMeta { model: "opus 4.6".into(), duration_ms: 3100, tokens_in: 1800, tokens_out: 600, reasoning_tokens: 0, cost_usd: 0.04 })
                 .actions_bottom(true)
-                .selection(current.clone())
+                .selection(current.as_ref())
                 .on_selection_change(track_selection(selection.clone())),
         )
         .child(
             assistant_turn("card31-assistant-reduced", "Validator patched — running the focused tests now.")
                 .actions(&[AssistantTurnAction::Copy, AssistantTurnAction::Retry])
                 .actions_bottom(true)
-                .selection(current.clone())
+                .selection(current.as_ref())
                 .on_selection_change(track_selection(selection.clone())),
         )
         .child(

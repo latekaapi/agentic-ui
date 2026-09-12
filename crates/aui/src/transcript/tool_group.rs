@@ -78,9 +78,13 @@ pub struct ToolGroup {
 
 /// Consecutive `group` calls under one summary; `open` picks preview rows
 /// (`false`) or every call as a full [`tool_card`] (`true`).
-pub fn tool_group(id: impl Into<ElementId>, group: ToolGroupData, open: bool) -> ToolGroup {
+///
+/// Borrowed, not owned: a caller that keeps the group in its own state used to
+/// have to clone the whole payload to hand it over, once per frame, on top of
+/// the clone the card itself needs (finding `library-hotpaths-8`).
+pub fn tool_group(id: impl Into<ElementId>, group: &ToolGroupData, open: bool) -> ToolGroup {
     let calls_open = vec![true; group.calls.len()];
-    ToolGroup { id: id.into(), group, open, calls_open, on_intent: None }
+    ToolGroup { id: id.into(), group: group.clone(), open, calls_open, on_intent: None }
 }
 
 impl ToolGroup {

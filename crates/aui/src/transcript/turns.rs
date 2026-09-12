@@ -180,8 +180,8 @@ impl UserTurn {
     /// The stored selection the markdown body highlights: the app owns one
     /// [`Option<TextSelection>`] per turn and passes it back here, passed
     /// straight through to the inner `markdown(...)`.
-    pub fn selection(mut self, selection: Option<TextSelection>) -> Self {
-        self.selection = selection;
+    pub fn selection(mut self, selection: Option<&TextSelection>) -> Self {
+        self.selection = selection.cloned();
         self
     }
 
@@ -321,7 +321,7 @@ pub struct AssistantTurn {
     id: ElementId,
     markdown: SharedString,
     streaming: bool,
-    meta: Option<TurnMeta>,
+    footer: Vec<SharedString>,
     actions: Vec<AssistantTurnAction>,
     actions_bottom: bool,
     on_action: Option<AssistantHandler>,
@@ -332,7 +332,7 @@ pub struct AssistantTurn {
 
 /// An assistant turn rendering `markdown`.
 pub fn assistant_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> AssistantTurn {
-    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, meta: None, actions: AssistantTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None }
+    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, footer: Vec::new(), actions: AssistantTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None }
 }
 
 impl AssistantTurn {
@@ -344,7 +344,19 @@ impl AssistantTurn {
 
     /// The footer: model · duration · tokens · cost.
     pub fn meta(mut self, meta: TurnMeta) -> Self {
-        self.meta = Some(meta);
+        self.footer = footer_items(&meta);
+        self
+    }
+
+    /// The footer cells, already formatted, for a caller that keeps them.
+    ///
+    /// [`Self::meta`] is [`footer_items`] plus this, and it runs the formats
+    /// once per card rather than once per frame (finding `library-hotpaths-12`).
+    /// A caller that formats on state change — or that needs a cell the
+    /// library's own row does not draw — passes the cells here instead. An
+    /// empty list draws no footer at all, which is what a running turn wants.
+    pub fn footer(mut self, cells: Vec<SharedString>) -> Self {
+        self.footer = cells;
         self
     }
 
@@ -384,8 +396,8 @@ impl AssistantTurn {
     /// The stored selection the markdown body highlights: the app owns one
     /// [`Option<TextSelection>`] per turn and passes it back here, passed
     /// straight through to the inner `markdown(...)`.
-    pub fn selection(mut self, selection: Option<TextSelection>) -> Self {
-        self.selection = selection;
+    pub fn selection(mut self, selection: Option<&TextSelection>) -> Self {
+        self.selection = selection.cloned();
         self
     }
 
@@ -473,21 +485,22 @@ fn shape_last_line_width(window: &Window, text: SharedString, font_size: Pixels,
 /// can bill a reasoning budget and emit no reasoning item at all, so the number
 /// is the one place a person can see that thinking happened, and a `0` on every
 /// turn that did none would be noise.
-pub(super) fn footer_items(meta: &TurnMeta) -> Vec<String> {
+pub fn footer_items(meta: &TurnMeta) -> Vec<SharedString> {
     let tokens = meta.tokens_in + meta.tokens_out;
     let tokens = if tokens >= 1000 { format!("{:.1}k tokens", tokens as f64 / 1000.0) } else { format!("{tokens} tokens") };
-    let mut items = vec![meta.model.clone(), format!("{:.1} s", meta.duration_ms as f64 / 1000.0), tokens];
+    let mut items: Vec<SharedString> =
+        vec![meta.model.clone().into(), format!("{:.1} s", meta.duration_ms as f64 / 1000.0).into(), tokens.into()];
     // A provider that reports no model label leaves an empty cell, and an empty
     // cell renders as a stray separator; drop it rather than draw it.
     items.retain(|item| !item.is_empty());
     if meta.reasoning_tokens > 0 {
-        items.push(format!("{} reasoning", meta.reasoning_tokens));
+        items.push(format!("{} reasoning", meta.reasoning_tokens).into());
     }
     // A catalog that reports no price (MSP's `cost` is `null` on every row of
     // a subscription catalog) leaves the cost at zero; `$0.00` under every turn
     // is a number the app cannot stand behind, so it is not drawn at all.
     if meta.cost_usd > 0.0 {
-        items.push(format!("${:.2}", meta.cost_usd));
+        items.push(format!("${:.2}", meta.cost_usd).into());
     }
     items
 }
@@ -605,13 +618,13 @@ impl RenderOnce for AssistantTurn {
             turn = turn.child(row);
         }
 
-        if let Some(meta) = &self.meta {
+        if !self.footer.is_empty() {
             let mut footer = h_flex().mt(px(FOOTER_TOP)).gap(px(FOOTER_GAP)).font_family(scale::FONT_MONO).text_px(scale::FS_11).line_height(relative(1.0)).medium().text_color(p.ink_4);
-            for (i, item) in footer_items(meta).into_iter().enumerate() {
+            for (i, item) in self.footer.iter().enumerate() {
                 if i > 0 {
                     footer = footer.child("·");
                 }
-                footer = footer.child(item);
+                footer = footer.child(item.clone());
             }
             turn = turn.child(footer);
         }

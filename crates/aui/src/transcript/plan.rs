@@ -54,10 +54,15 @@ pub struct PlanCard {
 
 /// A proposed plan over `items`; each item is the small markdown subset, so
 /// `` `code` `` spans render in the mono face.
-pub fn plan_card(id: impl Into<ElementId>, items: Vec<String>) -> PlanCard {
+///
+/// [`SharedString`] slice, not `Vec<String>`: the card used to allocate a fresh
+/// string per step per construction, where a caller that stores the steps as
+/// `SharedString` hands them over for a refcount bump (finding
+/// `library-hotpaths-8`).
+pub fn plan_card(id: impl Into<ElementId>, items: &[SharedString]) -> PlanCard {
     PlanCard {
         id: id.into(),
-        items: items.into_iter().map(SharedString::from).collect(),
+        items: items.to_vec(),
         sections: Vec::new(),
         state: PlanState::Proposed,
         on_accept: None,

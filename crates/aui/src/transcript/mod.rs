@@ -34,7 +34,7 @@ pub use prose::{caret_top_in_line, caret_visible, prose, ProseStyle, CARET_BASEL
 pub use markdown::{last_block_runs, markdown, markdown_selected_text, parse_markdown, parsed_markdown, span_runs, Block, Block as MarkdownBlock, LinkHandler, LinkRange, LinkTarget, Markdown, Span, Span as MarkdownSpan, TableAlign};
 pub use selectable::{selectable_text, SelectableText, SelectionHandler, SelectionKey, TextSelection};
 pub use marker::{marker_row, HandOff, MarkerRow};
-pub use turns::{assistant_turn, turn_selected_text, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction};
+pub use turns::{assistant_turn, footer_items, turn_selected_text, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction};
 pub use ansi::{ansi_runs, parse_ansi, AnsiSpan};
 pub use tool_card::{format_duration, tool_card, ToolCard, ToolCardIntent, SHELL_FOLD};
 pub use tool_group::{

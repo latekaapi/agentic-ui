@@ -827,8 +827,10 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn diff_note_inset(p: &Palette, id: ElementId, note: &DiffNote, insets: NoteInsets, on_action: Option<Rc<dyn Fn(DiffBlockAction, &mut Window, &mut App)>>) -> impl IntoElement`
 - **fn** `error_card` — An error card: `title` in 600 over the 12 px `detail` line, framed by the attention border (danger at 70 %, no halo).
   - `pub fn error_card(id: impl Into<ElementId>, title: impl Into<SharedString>, detail: impl Into<SharedString>) -> ErrorCard`
+- **fn** `footer_items` — `2.4k tokens` / `$0.04` / `3.1 s` formatting for the footer.
+  - `pub fn footer_items(meta: &TurnMeta) -> Vec<SharedString>`
 - **fn** `format_duration` — `12.4 s`, `1 m 12 s`, `0.3 s`.
-  - `pub fn format_duration(ms: u64) -> String`
+  - `pub fn format_duration(ms: u64) -> SharedString`
 - **fn** `generic_item_card` — The kind name, the item’s status and the server’s `fallbackText`.
   - `pub fn generic_item_card(id: impl Into<ElementId>, kind: impl Into<SharedString>, status: impl Into<SharedString>, text: impl Into<SharedString>) -> GenericItemCard`
 - **fn** `goal_card` — The objective and the provider’s own status string.
@@ -854,13 +856,13 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
 - **fn** `parsed_markdown` — Parses `source` into shared blocks, memoised across frames: every render of the same turn hits the memo instead of re-running the parser, which is the per-delta re-parse the transcript diagnosis attributes the scroll jank to. [...]
   - `pub fn parsed_markdown(source: &str, style: &ProseStyle) -> Arc<Vec<Block>> ⓘ`
 - **fn** `plan_card` — A proposed plan over `items`; each item is the small markdown subset, so `code` spans render in the mono face.
-  - `pub fn plan_card(id: impl Into<ElementId>, items: Vec<String>) -> PlanCard`
+  - `pub fn plan_card(id: impl Into<ElementId>, items: &[SharedString]) -> PlanCard`
 - **fn** `preview_hidden` — Preview rows past the first `GROUP_PREVIEW` collapse into the more row.
   - `pub fn preview_hidden(total: usize) -> usize`
 - **fn** `prose` — Renders `markdown` as prose blocks.
   - `pub fn prose(id: impl Into<ElementId>, markdown: &str, style: ProseStyle) -> impl IntoElement`
 - **fn** `question_card` — A question with `prompt` and `options`, drawn as radios; call `QuestionCard::multi` for checkboxes.
-  - `pub fn question_card(id: impl Into<ElementId>, prompt: impl Into<SharedString>, options: Vec<QuestionOption>) -> QuestionCard`
+  - `pub fn question_card(id: impl Into<ElementId>, prompt: impl Into<SharedString>, options: &[QuestionOption]) -> QuestionCard`
 - **fn** `retry_row` — The live row a scheduled retry draws while the provider waits out its backoff: `Attempt 2/5 · retrying in 4 s · rate limited`.
   - `pub fn retry_row(id: impl Into<ElementId>, attempt: u32, max: u32, remaining_ms: u64, reason: impl Into<SharedString>) -> StatusRow`
 - **fn** `selectable_text` — Builds a selectable text cell: `key` scopes the selection, `text` is the shaped string. [...]
@@ -888,7 +890,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
 - **fn** `tool_card` — A card for one tool call.
   - `pub fn tool_card(id: impl Into<ElementId>, verb: impl Into<SharedString>, target: impl Into<SharedString>, status: ToolStatus, body: ToolBody) -> ToolCard`
 - **fn** `tool_group` — Consecutive `group` calls under one summary; `open` picks preview rows (`false`) or every call as a full `tool_card` (`true`).
-  - `pub fn tool_group(id: impl Into<ElementId>, group: ToolGroupData, open: bool) -> ToolGroup`
+  - `pub fn tool_group(id: impl Into<ElementId>, group: &ToolGroupData, open: bool) -> ToolGroup`
 - **fn** `transcript_card` — An empty card; add header parts with `TranscriptCard::header` and a body with `TranscriptCard::body`.
   - `pub fn transcript_card(id: impl Into<ElementId>, open: bool) -> TranscriptCard`
 - **fn** `ts_language` — The grammar name gpui-kit’s highlighter knows for `language`, for the six languages the `tree-sitter` feature ships grammars for. [...]
@@ -931,11 +933,12 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
 - **struct** `AssistantTurn` — The assistant’s turn. Build with `assistant_turn`.
   - `pub fn actions(self, actions: &[AssistantTurnAction]) -> Self` — The toolbar buttons, in draw order. Defaults to `AssistantTurnAction::ALL`; pass a smaller slice to hide actions that have no meaning for the consumer (a turn without pinning keeps `&[Copy, Retry, Fork]`). [...]
   - `pub fn actions_bottom(self, bottom: bool) -> Self` — In-flow action row under the prose instead of the hover toolbar.
+  - `pub fn footer(self, cells: Vec<SharedString>) -> Self` — The footer cells, already formatted, for a caller that keeps them.
   - `pub fn meta(self, meta: TurnMeta) -> Self` — The footer: model · duration · tokens · cost.
   - `pub fn on_action(self, f: impl Fn(AssistantTurnAction, &mut Window, &mut App) + 'static) -> Self` — Toolbar handler.
   - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Link-click handler, passed through to the markdown body.
   - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents, passed straight through to the inner `markdown(...)`: drags and word / paragraph picks arrive as `Some`, plain clicks elsewhere in a cell arrive as `None` (clearing).
-  - `pub fn selection(self, selection: Option<TextSelection>) -> Self` — The stored selection the markdown body highlights: the app owns one `Option<TextSelection>` per turn and passes it back here, passed straight through to the inner `markdown(...)`.
+  - `pub fn selection(self, selection: Option<&TextSelection>) -> Self` — The stored selection the markdown body highlights: the app owns one `Option<TextSelection>` per turn and passes it back here, passed straight through to the inner `markdown(...)`.
   - `pub fn streaming(self, streaming: bool) -> Self` — Shows the blinking caret after the text while chunks arrive.
 - **struct** `CodeBlock` — A code block. Build with `code_block`.
   - `pub fn hidden_lines(self, count: usize) -> Self` — How many more lines the fold row offers.
@@ -1047,7 +1050,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn open(self, open: bool) -> Self` — Whether the rows are shown.
   - `pub fn title(self, title: impl Into<SharedString>) -> Self` — Overrides the header label (`Tasks`).
 - **struct** `ToolCard` — A tool call card. Build with `tool_card`.
-  - `pub fn duration_ms(self, ms: Option<u64>) -> Self` — The duration shown in the header.
+  - `pub fn duration_ms(self, ms: Option<u64>) -> Self` — The duration shown in the header, formatted by `format_duration` once per card rather than once per frame.
   - `pub fn on_intent(self, f: impl Fn(ToolCardIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler.
   - `pub fn open(self, open: bool) -> Self` — Whether the body is shown.
 - **struct** `ToolGroup` — A group of tool calls. Build with `tool_group`.
@@ -1071,7 +1074,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn on_action(self, f: impl Fn(UserTurnAction, &mut Window, &mut App) + 'static) -> Self` — Hover-action handler.
   - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Link-click handler, passed through to the markdown body.
   - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents, passed straight through to the inner `markdown(...)`: drags and word / paragraph picks arrive as `Some`, plain clicks elsewhere in a cell arrive as `None` (clearing).
-  - `pub fn selection(self, selection: Option<TextSelection>) -> Self` — The stored selection the markdown body highlights: the app owns one `Option<TextSelection>` per turn and passes it back here, passed straight through to the inner `markdown(...)`.
+  - `pub fn selection(self, selection: Option<&TextSelection>) -> Self` — The stored selection the markdown body highlights: the app owns one `Option<TextSelection>` per turn and passes it back here, passed straight through to the inner `markdown(...)`.
 
 - **enum** `AssistantTurnAction` — Actions on an assistant turn.
   - variants: `Copy`, `Retry`, `Fork`, `Pin`

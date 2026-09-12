@@ -116,13 +116,17 @@ pub struct QuestionCard {
 
 /// A question with `prompt` and `options`, drawn as radios; call
 /// [`QuestionCard::multi`] for checkboxes.
-pub fn question_card(id: impl Into<ElementId>, prompt: impl Into<SharedString>, options: Vec<QuestionOption>) -> QuestionCard {
+///
+/// The options are borrowed: a caller that owns them in its own state passes a
+/// slice rather than cloning the list to hand it over (finding
+/// `library-hotpaths-8`).
+pub fn question_card(id: impl Into<ElementId>, prompt: impl Into<SharedString>, options: &[QuestionOption]) -> QuestionCard {
     QuestionCard {
         id: id.into(),
         header: SharedString::default(),
         prompt: prompt.into(),
         subtitle: SharedString::default(),
-        options,
+        options: options.to_vec(),
         multi: false,
         allow_other: false,
         selected: Vec::new(),

@@ -27,7 +27,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         let data = ToolGroupData { calls, summary: summary.into(), state };
         let group_open = open.clone();
         let group_calls = calls_open.clone();
-        let mut group = tool_group(SharedString::from(format!("tg-{i}")), data, current[i])
+        let mut group = tool_group(SharedString::from(format!("tg-{i}")), &data, current[i])
             .on_intent(move |intent, _, cx| match intent {
                 ToolGroupIntent::Toggle => {
                     group_open.update(cx, |o, cx| {

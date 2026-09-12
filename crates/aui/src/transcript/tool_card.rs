@@ -86,7 +86,7 @@ pub struct ToolCard {
     verb: SharedString,
     target: SharedString,
     status: ToolStatus,
-    duration_ms: Option<u64>,
+    duration: Option<SharedString>,
     body: ToolBody,
     open: bool,
     on_intent: Option<IntentHandler>,
@@ -94,13 +94,14 @@ pub struct ToolCard {
 
 /// A card for one tool call.
 pub fn tool_card(id: impl Into<ElementId>, verb: impl Into<SharedString>, target: impl Into<SharedString>, status: ToolStatus, body: ToolBody) -> ToolCard {
-    ToolCard { id: id.into(), verb: verb.into(), target: target.into(), status, duration_ms: None, body, open: true, on_intent: None }
+    ToolCard { id: id.into(), verb: verb.into(), target: target.into(), status, duration: None, body, open: true, on_intent: None }
 }
 
 impl ToolCard {
-    /// The duration shown in the header.
+    /// The duration shown in the header, formatted by [`format_duration`]
+    /// once per card rather than once per frame.
     pub fn duration_ms(mut self, ms: Option<u64>) -> Self {
-        self.duration_ms = ms;
+        self.duration = ms.map(format_duration);
         self
     }
 
@@ -121,13 +122,13 @@ impl ToolCard {
 ///
 /// Rounded to tenths *before* the branch: 59 999 ms reads `1 m 00 s`, not the
 /// `60.0 s` a raw comparison would print.
-pub fn format_duration(ms: u64) -> String {
+pub fn format_duration(ms: u64) -> SharedString {
     let tenths = (ms + 50) / 100;
     if tenths >= 600 {
         let s = tenths / 10;
-        format!("{} m {:02} s", s / 60, s % 60)
+        format!("{} m {:02} s", s / 60, s % 60).into()
     } else {
-        format!("{}.{} s", tenths / 10, tenths % 10)
+        format!("{}.{} s", tenths / 10, tenths % 10).into()
     }
 }
 
@@ -194,8 +195,8 @@ impl RenderOnce for ToolCard {
             ToolBody::SubAgent { .. } | ToolBody::Mcp { .. } | ToolBody::None => {}
         }
         if show_duration {
-            if let Some(ms) = self.duration_ms {
-                right = right.child(format_duration(ms));
+            if let Some(text) = self.duration.clone() {
+                right = right.child(text);
             }
         }
         card = card.header(right);

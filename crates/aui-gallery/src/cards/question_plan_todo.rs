@@ -33,7 +33,7 @@ fn options() -> Vec<QuestionOption> {
 }
 
 /// The plan's steps.
-fn plan_items() -> Vec<String> {
+fn plan_items() -> Vec<SharedString> {
     vec![
         "Branch `validateAddress` per country; keep regexes small.".into(),
         "Return a structured `{ ok, field }` instead of boolean.".into(),
@@ -64,13 +64,13 @@ fn muse_question(id: &'static str) -> aui::transcript::QuestionCard {
     let Block::Question { header, prompt, subtitle, options, multi, allow_other, .. } = sample::muse_question() else {
         unreachable!("sample::muse_question is a question block")
     };
-    question_card(id, prompt, options).header(header).subtitle(subtitle).multi(multi).allow_other(allow_other)
+    question_card(id, prompt, &options).header(header).subtitle(subtitle).multi(multi).allow_other(allow_other)
 }
 
 /// The sectioned plan's steps.
-fn section_items() -> Vec<String> {
+fn section_items() -> Vec<SharedString> {
     let Block::Plan { items, .. } = sample::muse_plan() else { unreachable!("sample::muse_plan is a plan block") };
-    items
+    items.into_iter().map(SharedString::from).collect()
 }
 
 /// Its heading labels.
@@ -136,7 +136,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .min_w(px(0.0))
                 .gap(px(STACK_GAP))
                 .child(
-                    question_card("card36-question", "Which postcode formats should validate?", options())
+                    question_card("card36-question", "Which postcode formats should validate?", &options())
                         .subtitle("Claude needs this before editing the validator · pick all that apply")
                         .multi(true)
                         .allow_other(true)
@@ -176,10 +176,10 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .flex_1()
                 .min_w(px(0.0))
                 .gap(px(STACK_GAP))
-                .child(plan_card("card36-plan", plan_items()))
+                .child(plan_card("card36-plan", &plan_items()))
                 // The same plan under its markdown headings: the labels are
                 // unnumbered rows and the numbering still counts steps only.
-                .child(plan_card("card36-plan-sections", section_items()).sections(sections()))
+                .child(plan_card("card36-plan-sections", &section_items()).sections(sections()))
                 .child(todo_list("card36-todo", tasks()).open(todo_open).on_toggle(toggle_todo)),
         )
         .into_any_element()

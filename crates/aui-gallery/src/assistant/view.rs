@@ -368,7 +368,7 @@ impl AssistantMock {
                     return answered_row(id, vec![chip.clone()]).into_any_element();
                 }
                 let pick = cx.listener(move |this, choice: &usize, window, cx| this.answer_question(*choice, window, cx));
-                let card = question_card(id, prompt.clone(), options.clone())
+                let card = question_card(id, prompt.clone(), options)
                     .subtitle(subtitle.clone())
                     .selected(selected.map(|s| vec![s]).unwrap_or_default())
                     .allow_other(true)
