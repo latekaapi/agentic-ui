@@ -10,6 +10,8 @@
 //! expressed as a relative width with a matching left inset (the CSS
 //! `transform-origin: top center`), and `translateY()` as a `top` offset.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
@@ -369,13 +371,23 @@ impl RenderOnce for ToastStack {
 
         // Depth 0 is the newest toast, in front; the fanned position of a
         // deeper toast is the sum of the heights of the toasts in front of it,
-        // so the fanned tops are accumulated front to back.
+        // so the fanned tops are accumulated front to back. The heights are
+        // measured cards (a wrapped body is taller than one line); the
+        // estimate is only the first-frame fallback before a card paints.
+        // The fan travels on the spring over several frames, so a one-frame
+        // estimate error self-corrects once the cards report in.
+        let heights: Rc<RefCell<HashMap<SharedString, f32>>> =
+            window.use_keyed_state((id.clone(), "heights"), cx, |_, _| Rc::new(RefCell::new(HashMap::new()))).read(cx).clone();
         let count = self.toasts.len();
         let mut fanned = vec![0.0f32; count];
         let mut offset = 0.0;
-        for index in (0..count).rev() {
-            fanned[index] = offset;
-            offset += self.toasts[index].height(text_scale) + FAN_GAP;
+        {
+            let measured = heights.borrow();
+            for index in (0..count).rev() {
+                fanned[index] = offset;
+                let card = measured.get(&self.toasts[index].id).copied().unwrap_or_else(|| self.toasts[index].height(text_scale));
+                offset += card + FAN_GAP;
+            }
         }
         // How far the fanned list reaches below the stack's own box. The
         // pointer must keep the stack hovered while it travels over a toast
@@ -421,13 +433,31 @@ impl RenderOnce for ToastStack {
             if self.at_rest {
                 card = card.at_rest();
             }
+            // The wrapper reports the painted card height (window pixels)
+            // back to the stack; the tucked geometry above never reads it.
+            let toast_id = data.id.clone();
+            let recorded = heights.clone();
+            let measured_card = div()
+                .on_children_prepainted(move |bounds, window, _| {
+                    if let Some(card) = bounds.first() {
+                        let height = f32::from(card.size.height);
+                        let mut stored = recorded.borrow_mut();
+                        if stored.get(&toast_id).copied() != Some(height) {
+                            stored.insert(toast_id.clone(), height);
+                            // The fan reads these heights while rendering;
+                            // ask for the frame that picks them up.
+                            window.request_animation_frame();
+                        }
+                    }
+                })
+                .child(card);
             let placed = div()
                 .absolute()
                 .top(px(top))
                 .left(relative((1.0 - scale) / 2.0))
                 .w(relative(scale))
                 .opacity(opacity)
-                .child(card);
+                .child(measured_card);
             stack = if overlay {
                 // Priority rises with the index so the newest toast still lands
                 // on top of the older ones among the deferred draws.

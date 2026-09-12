@@ -187,7 +187,15 @@ fn action_tray(
         let mut b = icon_button((id.clone(), action.name()), action.glyph()).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
         if let Some(on_action) = on_action.clone() {
             let key = session_id.clone();
-            b = b.on_click(move |_, w, cx| on_action(&key, action, w, cx));
+            // The tray sits inside the row, and gpui fires every `on_click`
+            // up the tree in the bubble phase: without this the pin (or the
+            // pencil, or the archive box) also selected the row, and a
+            // select is a full re-open of the session. The action is the
+            // whole click.
+            b = b.on_click(move |_, w, cx| {
+                cx.stop_propagation();
+                on_action(&key, action, w, cx)
+            });
         }
         tray = tray.child(b);
     }

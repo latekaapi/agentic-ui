@@ -5,7 +5,7 @@
 
 use aui::composer::{command_menu, mention_picker, CommandItem, CommandSection, MentionIcon, MentionItem, MentionSection};
 use aui_icons::IconName;
-use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled};
+use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, TextRole};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -28,6 +28,9 @@ const COMMAND_QUERY: &str = "/re";
 const MENTION_QUERY: &str = "ators";
 /// The row each menu shows highlighted (`.it.on`): the first one.
 const SELECTED: usize = 0;
+/// The row the long menu shows highlighted: past the visible band, so the
+/// capture proves the container scrolled it into view.
+const LONG_SELECTED: usize = 25;
 
 /// The three sections of the `/` menu.
 fn command_sections() -> Vec<CommandSection> {
@@ -87,6 +90,34 @@ fn mention_sections() -> Vec<MentionSection> {
     ]
 }
 
+/// The thirty rows of the scrolling menu: ten built-ins, ten skills, ten
+/// custom commands.
+fn long_command_sections() -> Vec<CommandSection> {
+    let builtin = ["review", "resume", "rewind", "report", "compact", "init", "doctor", "login", "logout", "help"];
+    let skills = ["release-notes", "commit-msg", "pr-review", "changelog", "onboard", "migrate", "perf", "a11y", "i18n", "docs"];
+    let custom = ["deploy", "staging", "rollback", "seed", "bench", "smoke", "e2e", "lint", "format", "clean"];
+    vec![
+        CommandSection::new(
+            "Built-in",
+            builtin
+                .iter()
+                .map(|name| CommandItem::new(*name, format!("/{}", name), format!("Built-in {} command", name)).key("↩"))
+                .collect(),
+        ),
+        CommandSection::new(
+            "Skills",
+            skills.iter().map(|name| CommandItem::new(*name, format!("/{}", name), format!("{} skill", name)).source_tag("skill")).collect(),
+        ),
+        CommandSection::new(
+            "Custom",
+            custom
+                .iter()
+                .map(|name| CommandItem::new(*name, format!("/{}", name), format!(".claude/commands/{}.md", name)).source_tag("project"))
+                .collect(),
+        ),
+    ]
+}
+
 /// `.cp`: the composer the popover anchors to, drawn as a focused stand-in so
 /// the card can show the caret's text without the whole composer.
 fn composer_stand_in(children: Vec<AnyElement>, cx: &App) -> impl IntoElement {
@@ -116,10 +147,13 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     // agree on what `↩` would insert.
     let command_selected = window.use_keyed_state("card41-command-selected", cx, |_, _| SELECTED);
     let mention_selected = window.use_keyed_state("card41-mention-selected", cx, |_, _| SELECTED);
+    let long_selected = window.use_keyed_state("card41-long-selected", cx, |_, _| LONG_SELECTED);
     let command_index = *command_selected.read(cx);
     let mention_index = *mention_selected.read(cx);
+    let long_index = *long_selected.read(cx);
     let command_hover = command_selected.clone();
     let mention_hover = mention_selected.clone();
+    let long_hover = long_selected.clone();
 
     v_flex()
         .w_full()
@@ -189,6 +223,37 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .ui(scale::FS_12)
                 .text_color(p.ink_3)
                 .child("Both menus anchor to the caret, open upward from the composer and are fully keyboard-driven. Typed characters highlight in accent inside matches. Selecting a mention inserts a chip; selecting a command either runs it or expands into its arguments inline."),
+        )
+        .child(
+            v_flex()
+                .w_full()
+                .mt(px(NOTE_TOP))
+                .child(div().text_role(TextRole::Caps).text_color(p.ink_3).child("Long menu · scrolls inside its own frame · selection 25 of 30".to_uppercase()))
+                .child(
+                    command_menu("card41-commands-long", "", long_command_sections(), long_index)
+                        .at_rest()
+                        .on_hover(move |index, _, cx| {
+                            long_hover.update(cx, |current, cx| {
+                                if *current != index {
+                                    *current = index;
+                                    cx.notify();
+                                }
+                            })
+                        })
+                        .on_select(|_, _, _| {}),
+                )
+                .child(composer_stand_in(
+                    vec![div().flex_none().mono(CP_TEXT).text_color(p.accent_ink).child("/").into_any_element()],
+                    cx,
+                ))
+                .child(
+                    div()
+                        .mt(px(NOTE_TOP))
+                        .max_w(px(NOTE_MEASURE))
+                        .ui(scale::FS_12)
+                        .text_color(p.ink_3)
+                        .child("Thirty rows in a 560 px frame: the wheel scrolls the menu, never the page behind, and the arrow keys keep the selection visible — row 25 sits in view on this capture."),
+                ),
         )
         .into_any_element()
 }

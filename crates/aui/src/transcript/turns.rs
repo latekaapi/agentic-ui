@@ -250,9 +250,14 @@ impl RenderOnce for UserTurn {
         let (state, flags) = interaction_flags(id.clone(), window, cx);
         let acts_opacity = tween((id.clone(), "acts"), if flags.hovered { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
 
+        // The column is definite (`w_full` capped at `USER_MAX`) so the
+        // percentage resolves; `items_end` keeps a short bubble hugging the
+        // right. The bubble below is capped at the column, so long markdown
+        // wraps inside it instead of sizing it to its longest line.
         let mut col = v_flex()
             .id(id.clone())
             .relative()
+            .w_full()
             .max_w(relative(USER_MAX))
             .items_end()
             .gap(px(USER_GAP))
@@ -280,6 +285,13 @@ impl RenderOnce for UserTurn {
         }
         col = col.child(
             div()
+                // Never wider than the column: `min_w(0)` lets the bubble
+                // shrink past its longest unwrapped line so the markdown
+                // wraps; what cannot wrap (a fenced block keeps its own
+                // frame, an unbroken span) clips instead of widening it.
+                .max_w(relative(1.0))
+                .min_w(px(0.0))
+                .overflow_hidden()
                 .py(px(BUBBLE_PAD_Y))
                 .px(px(BUBBLE_PAD_X))
                 .rounded(px(BUBBLE_RADIUS))

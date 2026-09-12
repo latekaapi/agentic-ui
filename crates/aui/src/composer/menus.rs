@@ -7,6 +7,7 @@
 //! width of its container up to the 520 px dropdown ceiling, above the
 //! composer, and enters with the 6 px rise and .98 scale of `.pop`.
 
+use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -14,8 +15,8 @@ use aui_icons::{icon, IconName};
 use aui_motion::{presence, tint_fade, tween, EnterExit, PresenceStyle, Tween};
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette, TextRole};
 use gpui::{
-    div, prelude::*, px, relative, App, Div, ElementId, FontWeight, HighlightStyle, IntoElement, SharedString, Stateful, StyledText,
-    Window,
+    div, prelude::*, px, relative, App, Div, ElementId, FontWeight, HighlightStyle, IntoElement, ScrollHandle, SharedString, Stateful,
+    StyledText, Window,
 };
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -36,6 +37,9 @@ const POP_FROM_SCALE: f32 = 0.98;
 /// (`pickers::MENU_W_MAX`), so both read as one control family. The popover
 /// keeps its left edge and rows wrap inside the cap.
 const MENU_W_MAX: f32 = 520.0;
+/// The popover's own scroll ceiling: a long menu scrolls inside its own
+/// frame instead of growing past the transcript it occludes.
+const MENU_MAX_H: f32 = 560.0;
 
 /// `.pop .caps{padding:6px 8px 4px}`.
 const CAPS_PAD_TOP: f32 = 6.0;
@@ -194,10 +198,11 @@ impl RenderOnce for CommandMenu {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let sample = presence((id.clone(), "presence"), self.present, self.timing, window, cx);
-        let mut pop = popover_frame(PresenceStyle::fade_rise_scale(sample, POP_RISE, POP_FROM_SCALE), &p);
 
         let counts: Vec<usize> = self.sections.iter().map(|s| s.items.len()).collect();
         let active = active_row(&id, "command", &counts, self.selected, window, cx);
+        let scroll = menu_scroll(&id, &counts, active, window, cx);
+        let mut pop = popover_frame(id.clone(), PresenceStyle::fade_rise_scale(sample, POP_RISE, POP_FROM_SCALE), &p, &scroll);
 
         let mut index = 0usize;
         for (s, section) in self.sections.into_iter().enumerate() {
@@ -355,10 +360,11 @@ impl RenderOnce for MentionPicker {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let sample = presence((id.clone(), "presence"), self.present, self.timing, window, cx);
-        let mut pop = popover_frame(PresenceStyle::fade_rise_scale(sample, POP_RISE, POP_FROM_SCALE), &p);
 
         let counts: Vec<usize> = self.sections.iter().map(|s| s.items.len()).collect();
         let active = active_row(&id, "mention", &counts, self.selected, window, cx);
+        let scroll = menu_scroll(&id, &counts, active, window, cx);
+        let mut pop = popover_frame(id.clone(), PresenceStyle::fade_rise_scale(sample, POP_RISE, POP_FROM_SCALE), &p, &scroll);
 
         let mut index = 0usize;
         for (s, section) in self.sections.into_iter().enumerate() {
@@ -375,8 +381,9 @@ impl RenderOnce for MentionPicker {
 
 /// `.pop`: the popover ground both menus share, at the width of its container
 /// up to the dropdown ceiling, and lifted 8 px above the composer.
-fn popover_frame(style: PresenceStyle, p: &Palette) -> Div {
+fn popover_frame(id: ElementId, style: PresenceStyle, p: &Palette, scroll: &ScrollHandle) -> Stateful<Div> {
     v_flex()
+        .id(id)
         .relative()
         // The CSS enters from `translateY(6px)`: the popover rises out of the
         // composer's top edge onto its resting place.
@@ -388,6 +395,11 @@ fn popover_frame(style: PresenceStyle, p: &Palette) -> Div {
         // `MENU_W_MAX` however wide the composer is.
         .w(relative(style.scale))
         .max_w(px(MENU_W_MAX))
+        // The menu is its own scroll container: past `MENU_MAX_H` the rows
+        // scroll inside this frame instead of growing over the transcript.
+        .max_h(px(MENU_MAX_H))
+        .overflow_y_scroll()
+        .track_scroll(scroll)
         .mb(px(POP_GAP))
         .p(px(POP_PAD))
         .rounded(px(scale::R_LG))
@@ -397,9 +409,80 @@ fn popover_frame(style: PresenceStyle, p: &Palette) -> Div {
         .shadow(p.shadow(POP_SHADOW))
         // The open menu owns the wheel over it: it occludes the transcript
         // behind (no hover/click/scroll-through, like the chip pickers) and
-        // stops the wheel so the transcript never scrolls with the menu.
+        // stops the wheel on this same element — after the element's own
+        // scroll handler, which is registered later and so runs first in the
+        // bubble phase — so the menu scrolls and the transcript never does.
         .occlude()
         .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+}
+
+/// What the menu asked the scroll container for: the child index and whether
+/// it has been seen in view since. The handle only learns the overflow from
+/// paint, so a first-frame `scroll_to_item` lands before it knows it scrolls
+/// and is dropped; the flag below re-fires until the row arrives instead of
+/// trusting the first request.
+#[derive(Clone, Copy)]
+struct MenuScroll {
+    target: usize,
+    settled: bool,
+}
+
+/// The scroll handle for one menu, scrolled so the active row is visible.
+///
+/// The request re-fires until the row is seen in view, then stops: a wheel
+/// gesture that scrolls the selection out of view afterwards is never
+/// snapped back on the next frame.
+fn menu_scroll(id: &ElementId, counts: &[usize], active: usize, window: &mut Window, cx: &mut App) -> ScrollHandle {
+    let scroll: ScrollHandle =
+        window.use_keyed_state((id.clone(), "scroll"), cx, |_, _| ScrollHandle::new()).read(cx).clone();
+    let state: Rc<RefCell<MenuScroll>> = window
+        .use_keyed_state((id.clone(), "scrolled"), cx, |_, _| Rc::new(RefCell::new(MenuScroll { target: usize::MAX, settled: false })))
+        .read(cx)
+        .clone();
+    let target = row_child_index(counts, active);
+    let mut kept = state.borrow_mut();
+    if kept.target != target {
+        kept.target = target;
+        kept.settled = false;
+    }
+    if !kept.settled {
+        if row_visible(&scroll, target) {
+            kept.settled = true;
+        } else {
+            scroll.scroll_to_item(target);
+            // The re-fire above may itself be dropped (see [`MenuScroll`]);
+            // ask for the frame that retries it.
+            window.request_animation_frame();
+        }
+    }
+    scroll
+}
+
+/// Whether the `target`th direct child is inside the scrolled viewport.
+/// `false` while the container never painted (no bounds, no children yet),
+/// which is exactly when the request needs (re-)firing.
+fn row_visible(scroll: &ScrollHandle, target: usize) -> bool {
+    if scroll.bounds_for_item(target).is_none() {
+        return false;
+    }
+    target >= scroll.top_item() && target <= scroll.bottom_item()
+}
+
+/// The direct-child index of the `active`th row inside the popover: rows are
+/// interrupted by one caps header per section (and the `/` menu ends in the
+/// key-hint footer), so the child index leads the row index by the headers
+/// before it.
+fn row_child_index(counts: &[usize], active: usize) -> usize {
+    let mut child = active + 1;
+    let mut remaining = active;
+    for count in counts {
+        if remaining < *count {
+            break;
+        }
+        remaining -= *count;
+        child += 1;
+    }
+    child
 }
 
 /// `.pop .caps`: a section header.
@@ -626,4 +709,26 @@ fn footer(p: &Palette) -> impl IntoElement {
 /// One `<span class="kbd">…</span> word` footer hint.
 fn footer_hint(key: &'static str, word: &'static str) -> impl IntoElement {
     h_flex().flex_none().gap(px(FT_KEY_GAP)).child(kbd(key)).child(word)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::row_child_index;
+
+    #[test]
+    fn row_child_index_skips_section_headers() {
+        // [caps, r0, r1, caps, r2, caps, r3, r4, footer]: the `/` menu shape.
+        let counts = [2, 1, 2];
+        assert_eq!(row_child_index(&counts, 0), 1);
+        assert_eq!(row_child_index(&counts, 1), 2);
+        assert_eq!(row_child_index(&counts, 2), 4);
+        assert_eq!(row_child_index(&counts, 3), 6);
+        assert_eq!(row_child_index(&counts, 4), 7);
+    }
+
+    #[test]
+    fn row_child_index_handles_a_single_section() {
+        assert_eq!(row_child_index(&[3], 0), 1);
+        assert_eq!(row_child_index(&[3], 2), 3);
+    }
 }
