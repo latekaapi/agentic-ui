@@ -260,7 +260,9 @@ pub(crate) fn shell_rail() -> impl IntoElement {
         if session.state == AgentState::Idle {
             continue;
         }
-        let mut cell = RailItem::session(session.id.clone(), session.state).selected(*selected);
+        // Pinned sessions are titled tiles: the initial, the state dot in
+        // the corner, the title as the tooltip.
+        let mut cell = RailItem::session(session.id.clone(), session.state).label(session.name.clone()).selected(*selected);
         if session.pulse {
             cell = cell.pulse();
         }

@@ -41,6 +41,9 @@ const PAL_FROM_SCALE: f32 = 0.985;
 /// `.q{gap:10px;padding:0 14px;height:46px;font-size:14px}` with a 16 px
 /// (`.i.lg`) search icon.
 const Q_H: f32 = 46.0;
+/// How tall the list between the query row and the footer may grow before
+/// it scrolls: a palette that ran to the window's bottom edge read as broken.
+const BODY_MAX_H: f32 = 320.0;
 const Q_GAP: f32 = 10.0;
 const Q_PAD_X: f32 = 14.0;
 const Q_TEXT: f32 = scale::FS_14;
@@ -168,6 +171,9 @@ impl PaletteSection {
 pub struct CommandPalette {
     id: ElementId,
     query: SharedString,
+    /// A caller-owned editor drawn in the query row instead of the
+    /// display-only query text, so typing happens inside the card.
+    query_slot: Option<gpui::AnyElement>,
     placeholder: SharedString,
     sections: Vec<PaletteSection>,
     selected: usize,
@@ -184,6 +190,7 @@ pub fn command_palette(id: impl Into<ElementId>, query: impl Into<SharedString>,
     CommandPalette {
         id: id.into(),
         query: query.into(),
+        query_slot: None,
         placeholder: SharedString::default(),
         sections,
         selected,
@@ -196,6 +203,14 @@ pub fn command_palette(id: impl Into<ElementId>, query: impl Into<SharedString>,
 }
 
 impl CommandPalette {
+    /// A real editor for the query row: the caller's own field, drawn
+    /// chromeless where the query text would be, so the palette is one
+    /// surface with the field inside it rather than a field floating above.
+    pub fn query_slot(mut self, editor: impl IntoElement) -> Self {
+        self.query_slot = Some(editor.into_any_element());
+        self
+    }
+
     /// The ink-4 text shown in the query row while the query is empty.
     pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
         self.placeholder = placeholder.into();
@@ -243,7 +258,7 @@ impl RenderOnce for CommandPalette {
         let sample = presence((id.clone(), "presence"), self.present, self.timing, window, cx);
         let style = PresenceStyle::fade_rise_scale(sample, PAL_DROP, PAL_FROM_SCALE);
 
-        let mut pal = v_flex()
+        let pal = v_flex()
             .flex_none()
             .relative()
             // The CSS enters from `translateY(-6px)`: the palette drops onto
@@ -258,7 +273,10 @@ impl RenderOnce for CommandPalette {
             .shadow(p.shadow(PAL_SHADOW))
             .overflow_hidden()
             .text_color(p.ink)
-            .child(query_row(&id, &p, &self.query, &self.placeholder, self.on_dismiss.clone()));
+            .child(query_row(&id, &p, &self.query, &self.placeholder, self.query_slot, self.on_dismiss.clone()));
+        // The list scrolls inside a bounded body; the query row and the
+        // footer stay put.
+        let mut body = v_flex().id((id.clone(), "body")).flex_none().w_full().max_h(px(BODY_MAX_H)).overflow_y_scroll();
 
         // One highlight, not one per row. The pointer and the arrow keys drive
         // the same row: while the pointer is over a row it owns the highlight,
@@ -303,20 +321,37 @@ impl RenderOnce for CommandPalette {
                 block = block.child(palette_row(key, state, &p, item, index, index == active, &self.on_select, &self.on_hover, window, cx));
                 index += 1;
             }
-            pal = pal.child(block);
+            body = body.child(block);
         }
 
-        pal.child(footer(&p))
+        pal.child(body).child(footer(&p))
     }
 }
 
 /// `.q`: the search icon, the query (or its placeholder) and the `esc` keycap.
-fn query_row(id: &ElementId, p: &Palette, query: &SharedString, placeholder: &SharedString, on_dismiss: Option<DismissHandler>) -> impl IntoElement {
+fn query_row(
+    id: &ElementId,
+    p: &Palette,
+    query: &SharedString,
+    placeholder: &SharedString,
+    slot: Option<gpui::AnyElement>,
+    on_dismiss: Option<DismissHandler>,
+) -> impl IntoElement {
     let empty = query.is_empty();
     let mut esc = div().id((id.clone(), "esc")).flex_none().ml_auto().child(kbd("esc"));
     if let Some(handler) = on_dismiss {
         esc = esc.cursor_pointer().on_click(move |_, w, cx| handler(w, cx));
     }
+    let text: gpui::AnyElement = match slot {
+        Some(editor) => div().flex_1().min_w(px(0.0)).child(editor).into_any_element(),
+        None => div()
+            .flex_1()
+            .min_w(px(0.0))
+            .truncate()
+            .text_color(if empty { p.ink_4 } else { p.ink })
+            .child(if empty { placeholder.clone() } else { query.clone() })
+            .into_any_element(),
+    };
     h_flex()
         .flex_none()
         .w_full()
@@ -327,14 +362,7 @@ fn query_row(id: &ElementId, p: &Palette, query: &SharedString, placeholder: &Sh
         .border_color(p.line)
         .ui(Q_TEXT)
         .child(icon(IconName::Search).size(px(Q_ICON)).color(p.ink_3))
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.0))
-                .truncate()
-                .text_color(if empty { p.ink_4 } else { p.ink })
-                .child(if empty { placeholder.clone() } else { query.clone() }),
-        )
+        .child(text)
         .child(esc)
 }
 
@@ -402,7 +430,9 @@ fn palette_row(
     row = row.child(label(p, &item.label, &item.matched));
 
     if let Some(context) = item.context {
-        row = row.child(div().flex_none().mono(CONTEXT_TEXT).text_color(p.ink_3).child(context));
+        // The context yields after the label: a long snippet truncates
+        // inside the row instead of running past the card's right edge.
+        row = row.child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().mono(CONTEXT_TEXT).text_color(p.ink_3).child(context));
     }
     if let Some(badge) = item.badge {
         row = row.child(pill(badge).variant(PillVariant::Warning).height(BADGE_H));

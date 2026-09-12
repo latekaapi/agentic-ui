@@ -564,6 +564,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - variants: `Nav`, `Separator`, `Session`
   - `pub fn badge(self) -> Self` — Adds the warning badge to a `RailItem::Nav`; ignored by other kinds.
   - `pub fn current(self, is_current: bool) -> Self` — Marks a `RailItem::Nav` as the cell the screen is showing; ignored by other kinds (`RailItem::selected` does the same for a session).
+  - `pub fn label(self, title: impl Into<SharedString>) -> Self` — Titles a `RailItem::Session`: the tile shows its initial and the tooltip the whole title; ignored by other kinds.
   - `pub fn nav(name: impl Into<SharedString>, glyph: IconName) -> Self` — A nav glyph named `name` (the name `on_action` reports).
   - `pub fn pulse(self) -> Self` — Pulses a `RailItem::Session` dot; ignored by other kinds.
   - `pub fn selected(self, is_selected: bool) -> Self` — Marks a `RailItem::Session` as the current one; ignored by other kinds.
@@ -605,6 +606,7 @@ Overlays: the command palette (card 12), the modal dialog, and later menus and p
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A row was clicked; the argument is its `PaletteItem::id`.
   - `pub fn placeholder(self, placeholder: impl Into<SharedString>) -> Self` — The ink-4 text shown in the query row while the query is empty.
   - `pub fn present(self, present: bool) -> Self` — Whether the palette is open; `false` plays the exit.
+  - `pub fn query_slot(self, editor: impl IntoElement) -> Self` — A real editor for the query row: the caller’s own field, drawn chromeless where the query text would be, so the palette is one surface with the field inside it rather than a field floating above.
 - **struct** `Dialog` — A modal dialog. Build with `dialog`.
   - `pub fn at_rest(self) -> Self` — Skips the enter: the dialog is drawn at rest on its first frame, for a static capture.
   - `pub fn body(self, text: impl Into<SharedString>) -> Self` — The body paragraph, in the muted body ink.

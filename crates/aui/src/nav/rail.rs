@@ -3,7 +3,7 @@
 
 use aui_icons::{icon, IconName};
 use aui_motion::{tint_fade, tween, Tween};
-use aui_tokens::{scale, ActiveAui, AgentState};
+use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::v_flex;
 
@@ -29,6 +29,34 @@ const SEP_MARGIN: f32 = 6.0;
 const AVATAR: f32 = 24.0;
 /// The session dot in a rail cell: `.dot{width:8px;height:8px}`.
 const SESSION_DOT: f32 = 8.0;
+/// A titled session tile: its initial, and the state dot tucked in the
+/// corner so the letter stays the cell's content.
+const TILE_TEXT: f32 = scale::FS_13;
+const TILE_DOT: f32 = 6.0;
+const TILE_DOT_INSET: f32 = 3.0;
+/// The tooltip's width cap: a long title truncates rather than spanning the pane.
+const TIP_MAX_W: f32 = 280.0;
+
+/// The tooltip a titled session cell shows: the title on a small surface.
+struct RailTip(SharedString);
+
+impl gpui::Render for RailTip {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let p = cx.aui().colors;
+        div()
+            .px(px(scale::SP_3))
+            .py(px(scale::SP_2))
+            .rounded(px(scale::R_SM))
+            .border_1()
+            .border_color(p.line_strong)
+            .bg(p.overlay)
+            .text_color(p.ink)
+            .ui(scale::FS_12)
+            .max_w(px(TIP_MAX_W))
+            .truncate()
+            .child(self.0.clone())
+    }
+}
 
 /// One cell of the rail. Build with [`RailItem::nav`], [`RailItem::separator`]
 /// or [`RailItem::session`].
@@ -57,6 +85,10 @@ pub enum RailItem {
         pulse: bool,
         /// The current session: accent-soft ground.
         selected: bool,
+        /// The session's title. With one, the cell is a tile bearing its
+        /// initial with the state dot as a corner badge, and the title is
+        /// the cell's tooltip; without one, the cell is the bare dot.
+        label: Option<SharedString>,
     },
 }
 
@@ -73,7 +105,16 @@ impl RailItem {
 
     /// A session cell.
     pub fn session(id: impl Into<SharedString>, state: AgentState) -> Self {
-        RailItem::Session { id: id.into(), state, pulse: false, selected: false }
+        RailItem::Session { id: id.into(), state, pulse: false, selected: false, label: None }
+    }
+
+    /// Titles a [`RailItem::Session`]: the tile shows its initial and the
+    /// tooltip the whole title; ignored by other kinds.
+    pub fn label(mut self, title: impl Into<SharedString>) -> Self {
+        if let RailItem::Session { label, .. } = &mut self {
+            *label = Some(title.into());
+        }
+        self
     }
 
     /// Adds the warning badge to a [`RailItem::Nav`]; ignored by other kinds.
@@ -212,24 +253,52 @@ impl RenderOnce for Rail {
                     }
                     col = col.child(cell);
                 }
-                RailItem::Session { id: session_id, state: agent_state, pulse, selected } => {
+                RailItem::Session { id: session_id, state: agent_state, pulse, selected, label } => {
                     let cell_id: ElementId = (id.clone(), SharedString::from(format!("session-{i}"))).into();
                     let (state, flags) = interaction_flags(cell_id.clone(), window, cx);
                     let tint = if selected { p.accent_soft } else { p.surface_2 };
-                    let bg = tint_fade((cell_id.clone(), "bg"), selected || flags.hovered, tint, Tween::FAST, window, cx);
+                    // A titled cell is a tile that reads even when it is not
+                    // selected: the ground is always there, only its tint
+                    // moves with hover and selection.
+                    let lit = selected || flags.hovered || label.is_some();
+                    let bg = tint_fade((cell_id.clone(), "bg"), lit, tint, Tween::FAST, window, cx);
                     let mut cell = div()
                         .id(cell_id.clone())
                         .flex_none()
+                        .relative()
                         .flex()
                         .items_center()
                         .justify_center()
                         .size(px(CELL))
                         .rounded(px(scale::R_SM))
                         .bg(bg)
-                        .text_color(if selected { p.accent_ink } else { p.ink_3 })
+                        .text_color(if selected { p.accent_ink } else { p.ink_2 })
                         .cursor_pointer()
-                        .track_interaction(&state)
-                        .child(status_dot((cell_id, "dot"), agent_state).size(px(SESSION_DOT)).pulse(pulse));
+                        .track_interaction(&state);
+                    match label {
+                        Some(title) => {
+                            let initial: String = title
+                                .chars()
+                                .find(|c| c.is_alphanumeric())
+                                .map(|c| c.to_uppercase().to_string())
+                                .unwrap_or_else(|| "\u{b7}".to_owned());
+                            cell = cell
+                                .ui(TILE_TEXT)
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .child(initial)
+                                .child(
+                                    div()
+                                        .absolute()
+                                        .top(px(TILE_DOT_INSET))
+                                        .right(px(TILE_DOT_INSET))
+                                        .child(status_dot((cell_id.clone(), "dot"), agent_state).size(px(TILE_DOT)).pulse(pulse)),
+                                )
+                                .tooltip(move |_, cx| cx.new(|_| RailTip(title.clone())).into());
+                        }
+                        None => {
+                            cell = cell.child(status_dot((cell_id, "dot"), agent_state).size(px(SESSION_DOT)).pulse(pulse));
+                        }
+                    }
                     if let Some(h) = self.on_select.clone() {
                         cell = cell.on_click(move |_, w, cx| h(&session_id, w, cx));
                     }

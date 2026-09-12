@@ -201,7 +201,10 @@ impl RenderOnce for CommandMenu {
 
         let counts: Vec<usize> = self.sections.iter().map(|s| s.items.len()).collect();
         let active = active_row(&id, "command", &counts, self.selected, window, cx);
-        let scroll = menu_scroll(&id, &counts, active, window, cx);
+        // The keyboard's selection drives the scroll, never the pointer's
+        // hover: scrolling the row under the pointer into view on every
+        // frame fought the wheel and read as jank.
+        let scroll = menu_scroll(&id, &counts, self.selected, window, cx);
         let mut pop = popover_frame(id.clone(), PresenceStyle::fade_rise_scale(sample, POP_RISE, POP_FROM_SCALE), &p, &scroll);
 
         let mut index = 0usize;
@@ -363,7 +366,7 @@ impl RenderOnce for MentionPicker {
 
         let counts: Vec<usize> = self.sections.iter().map(|s| s.items.len()).collect();
         let active = active_row(&id, "mention", &counts, self.selected, window, cx);
-        let scroll = menu_scroll(&id, &counts, active, window, cx);
+        let scroll = menu_scroll(&id, &counts, self.selected, window, cx);
         let mut pop = popover_frame(id.clone(), PresenceStyle::fade_rise_scale(sample, POP_RISE, POP_FROM_SCALE), &p, &scroll);
 
         let mut index = 0usize;
@@ -590,9 +593,14 @@ fn command_row(
     };
     row = row
         .child(
+            // The name never wraps: a long skill name (`/browser-app-delivery`)
+            // widens its own row's name column past `COMMAND_W` instead of
+            // folding onto a second line inside a fixed-height row, which
+            // is what drew rows over one another.
             div()
                 .flex_none()
-                .w(px(COMMAND_W))
+                .min_w(px(COMMAND_W))
+                .whitespace_nowrap()
                 .font_family(scale::FONT_MONO)
                 .text_px(COMMAND_TEXT)
                 .line_height(relative(COMMAND_LH))
@@ -600,9 +608,10 @@ fn command_row(
                 .text_color(if on { p.accent_ink } else { p.ink })
                 .child(highlighted(p, &item.command, &matched)),
         )
-        // `.d` carries no overflow rule: a description that outgrows its
-        // column wraps rather than truncating, as the custom command does.
-        .child(div().flex_1().min_w(px(0.0)).ui(DETAIL_TEXT).text_color(p.ink_3).child(item.description));
+        // One line: the row is `ROW_H` tall, so a description that outgrows
+        // its column truncates (the full text belongs to `/help`), never
+        // wraps onto the row below.
+        .child(div().flex_1().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).text_color(p.ink_3).child(item.description));
 
     if let Some(key) = item.key {
         row = row.child(h_flex().flex_none().gap(px(KEYS_GAP)).child(kbd(key)));
