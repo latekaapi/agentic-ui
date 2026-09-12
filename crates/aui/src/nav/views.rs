@@ -145,7 +145,7 @@ pub enum Grouping {
 #[derive(IntoElement)]
 pub struct SidebarView {
     id: ElementId,
-    grouping: Grouping,
+    grouping: Rc<Grouping>,
     caption: Option<SharedString>,
     selected: Option<SharedString>,
     actions: Vec<RowAction>,
@@ -157,10 +157,16 @@ pub struct SidebarView {
 }
 
 /// The sessions of a sidebar, grouped by `grouping`.
-pub fn sidebar_view(id: impl Into<ElementId>, grouping: Grouping) -> SidebarView {
+///
+/// The grouping is held behind an [`Rc`] because a sidebar is rebuilt on every
+/// frame while its sessions change only when the list does: an app that caches
+/// the built [`Grouping`] hands the same `Rc` over and over and pays nothing
+/// per frame. A bare `Grouping` still works — `impl Into<Rc<Grouping>>` moves
+/// it into a fresh `Rc` — so a caller that builds one per frame is unchanged.
+pub fn sidebar_view(id: impl Into<ElementId>, grouping: impl Into<Rc<Grouping>>) -> SidebarView {
     SidebarView {
         id: id.into(),
-        grouping,
+        grouping: grouping.into(),
         caption: None,
         selected: None,
         actions: Vec::new(),
@@ -229,9 +235,9 @@ impl SidebarView {
 
 /// The rows of one group, ready to be revealed.
 #[allow(clippy::too_many_arguments)]
-fn rows(
+fn rows<'a>(
     id: &ElementId,
-    sessions: Vec<SessionSummary>,
+    sessions: impl IntoIterator<Item = &'a SessionSummary>,
     selected: &Option<SharedString>,
     actions: &[RowAction],
     editing: &Option<(SharedString, std::cell::RefCell<Option<AnyElement>>)>,
@@ -277,7 +283,10 @@ impl RenderOnce for SidebarView {
             col = col.child(row);
         }
 
-        match grouping {
+        // The grouping is only read here, so every group, session and label is
+        // borrowed out of the caller's `Rc`: the only clone a frame pays is the
+        // per-row one [`compact_session_row`] takes by value.
+        match &*grouping {
             Grouping::Status(groups) => {
                 for group in groups {
                     let key: ElementId = (id.clone(), group.id.clone()).into();
@@ -286,7 +295,7 @@ impl RenderOnce for SidebarView {
                         let group_id = group.id.clone();
                         header = header.on_toggle(move |_, w, cx| h(&group_id, w, cx));
                     }
-                    let body = rows(&key, group.sessions, &selected, &actions, &editing, &on_select, &on_action);
+                    let body = rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action);
                     let (reveal, _) = collapse((key, "body"), group.open, body, window, cx);
                     col = col.child(header).child(reveal);
                 }
@@ -302,7 +311,7 @@ impl RenderOnce for SidebarView {
                         let group_id = group.id.clone();
                         row = row.on_toggle(move |_, w, cx| h(&group_id, w, cx));
                     }
-                    let body = rows(&key, group.sessions, &selected, &actions, &editing, &on_select, &on_action);
+                    let body = rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action);
                     let (reveal, _) = collapse((key, "body"), group.open, body, window, cx);
                     col = col.child(row).child(reveal);
                 }
@@ -310,13 +319,15 @@ impl RenderOnce for SidebarView {
             Grouping::Date(groups) => {
                 // Pinned sessions lift out of the date buckets into a leading
                 // group styled like the sidebar's `Pinned 3` (card 21).
-                let mut pinned: Vec<SessionSummary> = Vec::new();
-                let mut dated: Vec<DateGroup> = Vec::with_capacity(groups.len());
-                for group in groups.into_iter() {
-                    let (is_pinned, rest): (Vec<_>, Vec<_>) = group.sessions.into_iter().partition(|s| s.pinned);
+                // The partition is by reference: only the pointers move into
+                // the leading group, never the summaries themselves.
+                let mut pinned: Vec<&SessionSummary> = Vec::new();
+                let mut dated: Vec<(&SharedString, Vec<&SessionSummary>)> = Vec::with_capacity(groups.len());
+                for group in groups {
+                    let (is_pinned, rest): (Vec<_>, Vec<_>) = group.sessions.iter().partition(|s| s.pinned);
                     pinned.extend(is_pinned);
                     if !rest.is_empty() {
-                        dated.push(DateGroup::new(group.label, rest));
+                        dated.push((&group.label, rest));
                     }
                 }
                 if !pinned.is_empty() {
@@ -324,13 +335,13 @@ impl RenderOnce for SidebarView {
                     let count = SharedString::from(pinned.len().to_string());
                     col = col
                         .child(group_header((key.clone(), "header"), "Pinned", true).count(count))
-                        .child(rows(&key, pinned, &selected, &actions, &editing, &on_select, &on_action));
+                        .child(rows(&key, pinned.iter().copied(), &selected, &actions, &editing, &on_select, &on_action));
                 }
-                for (i, group) in dated.into_iter().enumerate() {
+                for (i, (label, sessions)) in dated.into_iter().enumerate() {
                     let key: ElementId = (id.clone(), SharedString::from(format!("date-{i}"))).into();
                     col = col
-                        .child(date_group_header(group.label.clone()))
-                        .child(rows(&key, group.sessions, &selected, &actions, &editing, &on_select, &on_action));
+                        .child(date_group_header(label.clone()))
+                        .child(rows(&key, sessions.iter().copied(), &selected, &actions, &editing, &on_select, &on_action));
                 }
             }
         }

@@ -23,7 +23,8 @@ use aui::nav::{sidebar, SessionSummary, SidebarAccount, SidebarGroup, SidebarNav
 use aui::tokens::AgentState;
 use aui::protocol::{ToolBody, ToolStatus, TurnMeta};
 use aui::screens::{login, LoginState};
-use aui::transcript::{assistant_turn, tool_card};
+use aui::protocol::{ActivityState, QuestionOption, Step, StepState};
+use aui::transcript::{activity_group, assistant_turn, code_block, question_card, status_row, tool_card, StatusLead};
 use gpui::{AnyElement, IntoElement, TestAppContext, Window};
 
 /// Clock time allowed for a card to settle before its frames are counted:
@@ -186,4 +187,122 @@ fn browser_card(status: ToolStatus) -> impl IntoElement {
             caption: Some("Signed in".into()),
         },
     )
+}
+
+// ---------------------------------------------------------------------------
+// Streaming clocks (finding `performance-13`): the ambient loops a transcript
+// runs — the caret's blink, the working shimmer and spinner, the question and
+// code rows' springs. Each pair asserts both halves of the gate: the active
+// card keeps the frames it needs, the settled one asks for none.
+// ---------------------------------------------------------------------------
+
+/// The caret's `blink 1s steps(2)` loop: on while the turn streams, gone when
+/// the turn is finished prose.
+#[gpui::test]
+fn the_streaming_caret_stops_when_the_turn_does(cx: &mut TestAppContext) {
+    let streaming = frames_at_rest(cx, "transcript/assistant-turn (streaming)", |_, _| {
+        assistant_turn("stream-on", "Writing the answer out")
+            .streaming(true)
+            .into_any_element()
+    });
+    assert!(
+        streaming > 0,
+        "a streaming turn should keep blinking its caret"
+    );
+
+    let settled = frames_at_rest(cx, "transcript/assistant-turn (not streaming)", |_, _| {
+        assistant_turn("stream-off", "Writing the answer out")
+            .streaming(false)
+            .into_any_element()
+    });
+    assert_eq!(settled, 0, "a finished turn kept blinking a caret");
+}
+
+/// The activity group's working header: spinner plus shimmering label while it
+/// works, plain glyph and text once it is done.
+#[gpui::test]
+fn a_finished_activity_group_requests_no_frames(cx: &mut TestAppContext) {
+    let working = frames_at_rest(cx, "transcript/activity (working)", |_, _| {
+        activity(ActivityState::Working, StepState::Running).into_any_element()
+    });
+    assert!(working > 0, "a working activity group should animate");
+
+    let done = frames_at_rest(cx, "transcript/activity (done)", |_, _| {
+        activity(ActivityState::Done, StepState::Done).into_any_element()
+    });
+    assert_eq!(done, 0, "a finished activity group kept requesting frames");
+}
+
+/// The status row's two clocks: the braille spinner and the label shimmer.
+#[gpui::test]
+fn a_settled_status_row_requests_no_frames(cx: &mut TestAppContext) {
+    let working = frames_at_rest(cx, "transcript/status-row (working)", |_, _| {
+        status_row("status-on", "Working")
+            .lead(StatusLead::Braille)
+            .shimmer(true)
+            .into_any_element()
+    });
+    assert!(working > 0, "a working status row should animate");
+
+    let settled = frames_at_rest(cx, "transcript/status-row (settled)", |_, _| {
+        status_row("status-off", "Done")
+            .lead(StatusLead::None)
+            .shimmer(false)
+            .into_any_element()
+    });
+    assert_eq!(settled, 0, "a settled status row kept requesting frames");
+}
+
+/// The question card's springs and tweens: they run while a selection moves
+/// and stop at their target, so an unanswered card at rest is silent.
+#[gpui::test]
+fn a_settled_question_card_requests_no_frames(cx: &mut TestAppContext) {
+    let frames = frames_at_rest(cx, "transcript/question", |_, _| {
+        question_card(
+            "question",
+            "Which postal format?",
+            &[
+                QuestionOption {
+                    label: "Canadian postal".into(),
+                    description: "A1A 1A1, space optional".into(),
+                    key: "1".into(),
+                    preview: None,
+                },
+                QuestionOption {
+                    label: "US ZIP".into(),
+                    description: "5 or 9 digits".into(),
+                    key: "2".into(),
+                    preview: None,
+                },
+            ],
+        )
+        .into_any_element()
+    });
+    assert_eq!(frames, 0, "a settled question card kept requesting frames");
+}
+
+/// The code block's hover tweens settle at their resting opacity.
+#[gpui::test]
+fn a_settled_code_block_requests_no_frames(cx: &mut TestAppContext) {
+    let frames = frames_at_rest(cx, "transcript/code-block", |_, _| {
+        code_block("code", "src/main.rs", "fn main() {\n    println!(\"hi\");\n}")
+            .language("rust")
+            .into_any_element()
+    });
+    assert_eq!(frames, 0, "a settled code block kept requesting frames");
+}
+
+/// A working activity group with one running step.
+fn activity(state: ActivityState, step: StepState) -> impl IntoElement {
+    activity_group(
+        "activity",
+        vec![
+            Step { verb: "Searched".into(), target: "src/checkout".into(), state: StepState::Done, result: Some("2 hits".into()) },
+            Step { verb: "Edited".into(), target: "src/checkout/validators.ts".into(), state: step, result: None },
+        ],
+        "Running tests",
+        "12s",
+        state,
+    )
+    .open(true)
 }

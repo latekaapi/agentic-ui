@@ -395,7 +395,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
 - **fn** `sidebar_search` — A search row wrapping `field`.
   - `pub fn sidebar_search(id: impl Into<ElementId>, field: impl IntoElement) -> SidebarSearch`
 - **fn** `sidebar_view` — The sessions of a sidebar, grouped by `grouping`.
-  - `pub fn sidebar_view(id: impl Into<ElementId>, grouping: Grouping) -> SidebarView`
+  - `pub fn sidebar_view(id: impl Into<ElementId>, grouping: impl Into<Rc<Grouping>>) -> SidebarView`
 - **fn** `view_menu` — The 250 px menu reached from the sliders icon on a group row.
   - `pub fn view_menu(id: impl Into<ElementId>, rows: Vec<MenuRow>) -> ViewMenu`
 - **fn** `view_submenu` — A submenu listing `items`, with `selected` marked by an accent-ink check.
