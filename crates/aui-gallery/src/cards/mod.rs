@@ -2,6 +2,7 @@
 
 pub mod activity;
 pub mod app_shell;
+pub mod app_shell_native;
 pub mod approval;
 pub mod attachments;
 pub mod browser;

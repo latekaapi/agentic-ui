@@ -52,6 +52,7 @@ Conventions used below: **anatomy** (parts, left to right / top to bottom), **si
 - Sidebar footer: 1 px top border, padding 10 12: avatar 22, name (ink-3 12 px, truncates), provider usage meter (mark 11 px + 40 × 3 bar in ink-3 on surface-3 + "78%" mono 11), chevron-down xs ghost.
 - Sidebar toggle: collapsing the sidebar swaps the pane for the rail (never a clipped sidebar) on the layout spring. In the shell the rail column is 72 wide, not 48, because the window's traffic lights own the top-left; the collapsed sidebar header cell keeps the lights and nothing else, and the sidebar toggle moves to the leading edge of the centre header (⌘B does the same) so the sidebar can always be reopened.
 - Right pane toggle: closing the pane collapses the third column with the layout spring (slow 280 ms) and the toggle icon in the centre header reopens it; the `x` in the right cell does the same.
+- Native lights, steady header: `SidebarHeader::native_lights` reserves the 72 px native-light footprint (position the window with `traffic_light_position` for `TitlebarOptions`); `AppShell::header_follows_sidebar(false)` keeps the header row's sidebar cell at rest width while only the pane collapses to the rail (card `shell/app-shell-native`).
 - Data: worktree name, branch, provider, right-pane tabs, active tab.
 
 ### 1.2 Panel chrome and tabs (card 11)

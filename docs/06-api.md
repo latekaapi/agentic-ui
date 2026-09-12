@@ -695,12 +695,15 @@ App shell: the three-column layout with one 44 px header cell per column, contin
   - `pub fn tab_ghost(icon: Option<IconName>, label: impl Into<SharedString>) -> TabGhost`
 - **fn** `tab_strip` — A strip over `tabs` with `active` selected.
   - `pub fn tab_strip(id: impl Into<ElementId>, tabs: Vec<TabItem>, active: usize) -> TabStrip`
+- **fn** `traffic_light_position` — Where a host window should place macOS’s native traffic lights so their centre is the header’s centre at every density: pass this to `TitlebarOptions.traffic_light_position` when the window keeps the [...]
+  - `pub fn traffic_light_position(cx: &App) -> Point<Pixels>`
 
 - **struct** `AppShell` — The shell. Build with `app_shell`.
   - `pub fn centre(self, el: impl IntoElement) -> Self` — The centre pane (transcript + composer).
   - `pub fn draggable(self, draggable: bool) -> Self` — Wraps the header row in a window drag region: press-drag moves the window, double-click zooms (macOS titlebar behaviour, `zoom_window` elsewhere). [...]
   - `pub fn framed(self, framed: bool) -> Self` — Draws the window frame the design card shows: line-strong border, radius 12, elevation 3. Apps fill the window instead.
   - `pub fn header_centre(self, el: impl IntoElement) -> Self` — The centre header cell content.
+  - `pub fn header_follows_sidebar(self, follows: bool) -> Self` — Whether the header row’s sidebar cell follows the collapse (default true, today’s behaviour: the cell shrinks to the rail with the pane). [...]
   - `pub fn header_right(self, el: impl IntoElement) -> Self` — The right header cell content (the pane’s tab strip).
   - `pub fn header_sidebar(self, el: impl IntoElement) -> Self` — The sidebar header cell content.
   - `pub fn rail(self, el: impl IntoElement) -> Self` — The collapsed sidebar pane: the rail that replaces `AppShell::sidebar` while `sidebar_open` is false. [...]
@@ -757,6 +760,7 @@ App shell: the three-column layout with one 44 px header cell per column, contin
   - `pub fn can_go_back(self, on: bool) -> Self` — Enables the back arrow.
   - `pub fn can_go_forward(self, on: bool) -> Self` — Enables the forward arrow (disabled at 45 % otherwise).
   - `pub fn collapsed(self, collapsed: bool) -> Self` — The sidebar is collapsed to the rail: the cell is only as wide as the rail, so it keeps the window controls (the top-left of a macOS window is theirs whether or not the shell paints them) and drops the navigation actions, which move to the leading edge of the centre header (`CentreHeader::on_expand_sidebar`). [...]
+  - `pub fn native_lights(self, on: bool) -> Self` — Reserves the footprint of macOS’s own traffic lights: a leading spacer `NATIVE_LIGHTS_WIDTH` wide with nothing painted in it. [...]
   - `pub fn on_back(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Back arrow click.
   - `pub fn on_forward(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Forward arrow click.
   - `pub fn on_search(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Search click (opens the command palette).
@@ -782,6 +786,14 @@ App shell: the three-column layout with one 44 px header cell per column, contin
 - **enum** `DropZone` — Where a dragged tab would land.
   - variants: `Left`, `Right`, `Top`, `Bottom`, `Centre`
 
+- **const** `NATIVE_LIGHTS_WIDTH` — Reserved leading footprint: first-light offset + two strides + one diameter + the trailing margin shared with the painted lights.
+  - `pub const NATIVE_LIGHTS_WIDTH: f32 = _; // 72f32`
+- **const** `NATIVE_LIGHTS_X` — Left edge of the first native light, from the window’s left edge.
+  - `pub const NATIVE_LIGHTS_X: f32 = 12.0;`
+- **const** `NATIVE_LIGHT_DIAM` — Native traffic-light geometry (macOS metrics: each light is 12 pt across, centres 20 pt apart, the first light’s left edge 12 pt from the window’s left edge). [...]
+  - `pub const NATIVE_LIGHT_DIAM: f32 = 12.0;`
+- **const** `NATIVE_LIGHT_STRIDE` — Centre-to-centre stride of the native traffic lights.
+  - `pub const NATIVE_LIGHT_STRIDE: f32 = 20.0;`
 - **const** `RAIL_WIDTH` — The collapsed sidebar rail (⌘B).
   - `pub const RAIL_WIDTH: f32 = 48.0;`
 - **const** `RAIL_WIDTH_WITH_LIGHTS` — The collapsed sidebar column when the window’s controls sit above it: the macOS traffic lights own the top-left of the window whether the shell paints them or the system does, so the rail column widen [...]

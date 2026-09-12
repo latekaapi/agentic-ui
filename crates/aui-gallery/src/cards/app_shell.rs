@@ -248,7 +248,7 @@ pub(crate) fn collapsed_by_default() -> bool {
 }
 
 /// The collapsed sidebar: the nav glyphs, then one dot per active worktree.
-fn shell_rail() -> impl IntoElement {
+pub(crate) fn shell_rail() -> impl IntoElement {
     let (pinned, in_progress) = sessions();
     let mut items = vec![
         RailItem::nav("tasks", IconName::List),
@@ -309,7 +309,7 @@ fn row(id: (&'static str, usize), session: SessionSummary, selected: bool) -> im
     session_row(id, session).selected(selected).margin_x(ROW_MARGIN_X).row_gap(ROW_GAP).branch_max(BRANCH_MAX).activity_max(ACTIVITY_MAX)
 }
 
-fn sidebar(_cx: &mut App) -> impl IntoElement {
+pub(crate) fn sidebar(_cx: &mut App) -> impl IntoElement {
     let (pinned, in_progress) = sessions();
     let mut col = v_flex()
         .size_full()
@@ -343,7 +343,7 @@ fn sidebar(_cx: &mut App) -> impl IntoElement {
     )
 }
 
-fn centre(window: &mut Window, cx: &mut App) -> impl IntoElement {
+pub(crate) fn centre(window: &mut Window, cx: &mut App) -> impl IntoElement {
     let p = cx.aui().colors;
     let caret_on = looping(("card10-caret", "blink"), Loop::linear(CARET_PERIOD).resting(1.0), window, cx) < 0.5;
     let transcript = v_flex()
@@ -462,7 +462,7 @@ fn tool_row(p: Palette, id: &'static str, state: ToolState, verb: &'static str, 
         .child(right)
 }
 
-fn right_pane(cx: &mut App) -> impl IntoElement {
+pub(crate) fn right_pane(cx: &mut App) -> impl IntoElement {
     let p = cx.aui().colors;
     let file_row = |id: &'static str, kind: FileType, name: &'static str, path: &'static str, status: &'static str, color: Hsla| {
         h_flex()

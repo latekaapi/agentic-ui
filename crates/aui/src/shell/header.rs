@@ -30,8 +30,33 @@ const LIGHTS_MARGIN_RIGHT: f32 = 8.0;
 const LIGHT_CLOSE: u32 = 0xFF5F57;
 const LIGHT_MIN: u32 = 0xFEBC2E;
 const LIGHT_ZOOM: u32 = 0x28C840;
+/// Native traffic-light geometry (macOS metrics: each light is 12 pt across,
+/// centres 20 pt apart, the first light's left edge 12 pt from the window's
+/// left edge). A host that keeps the system's own lights reserves
+/// [`NATIVE_LIGHTS_WIDTH`] at the header's leading edge via
+/// [`SidebarHeader::native_lights`] and positions the window with
+/// [`traffic_light_position`]. The reservation lands on the shell's collapsed
+/// rail with lights, so the two must never drift (see the unit test below).
+pub const NATIVE_LIGHT_DIAM: f32 = 12.0;
+/// Centre-to-centre stride of the native traffic lights.
+pub const NATIVE_LIGHT_STRIDE: f32 = 20.0;
+/// Left edge of the first native light, from the window's left edge.
+pub const NATIVE_LIGHTS_X: f32 = 12.0;
+/// Reserved leading footprint: first-light offset + two strides + one
+/// diameter + the trailing margin shared with the painted lights.
+pub const NATIVE_LIGHTS_WIDTH: f32 =
+    NATIVE_LIGHTS_X + 2.0 * NATIVE_LIGHT_STRIDE + NATIVE_LIGHT_DIAM + LIGHTS_MARGIN_RIGHT;
 /// Glyph size of the `+` in the right header (`.btn.icon.xs` with a 12 px icon).
 const XS_GLYPH: f32 = 12.0;
+
+/// Where a host window should place macOS's native traffic lights so their
+/// centre is the header's centre at every density: pass this to
+/// `TitlebarOptions.traffic_light_position` when the window keeps the native
+/// lights and the sidebar header reserves their footprint with
+/// [`SidebarHeader::native_lights`].
+pub fn traffic_light_position(cx: &App) -> gpui::Point<gpui::Pixels> {
+    gpui::Point::new(px(NATIVE_LIGHTS_X), (cx.aui().metrics.header - px(NATIVE_LIGHT_DIAM)) * 0.5)
+}
 
 /// A plain header cell: 44 px row, gap 6, padding 0 10. Build with [`header_cell`].
 #[derive(IntoElement)]
@@ -68,6 +93,7 @@ fn header_row(cx: &App) -> gpui::Div {
 pub struct SidebarHeader {
     id: ElementId,
     traffic_lights: bool,
+    native_lights: bool,
     collapsed: bool,
     can_go_back: bool,
     can_go_forward: bool,
@@ -82,6 +108,7 @@ pub fn sidebar_header(id: impl Into<ElementId>) -> SidebarHeader {
     SidebarHeader {
         id: id.into(),
         traffic_lights: false,
+        native_lights: false,
         collapsed: false,
         can_go_back: true,
         can_go_forward: false,
@@ -96,6 +123,16 @@ impl SidebarHeader {
     /// Paints the three traffic lights (for the gallery; real windows have native ones).
     pub fn traffic_lights(mut self, on: bool) -> Self {
         self.traffic_lights = on;
+        self
+    }
+
+    /// Reserves the footprint of macOS's own traffic lights: a leading spacer
+    /// [`NATIVE_LIGHTS_WIDTH`] wide with nothing painted in it. For host
+    /// windows that keep the native lights (positioned with
+    /// [`traffic_light_position`]) so the back/forward buttons clear them.
+    /// Mutually exclusive with [`SidebarHeader::traffic_lights`].
+    pub fn native_lights(mut self, on: bool) -> Self {
+        self.native_lights = on;
         self
     }
 
@@ -156,13 +193,19 @@ fn ghost(id: ElementId, name: &'static str, glyph: IconName, handler: Option<Cli
 
 impl RenderOnce for SidebarHeader {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        debug_assert!(
+            !(self.traffic_lights && self.native_lights),
+            "SidebarHeader: traffic_lights and native_lights are mutually exclusive"
+        );
         let id = self.id.clone();
         let mut row = header_row(cx).id(id.clone());
-        if self.collapsed && !self.traffic_lights {
+        if self.collapsed && !self.traffic_lights && !self.native_lights {
             // A rail-wide cell with native window controls above it: leave it empty.
             return row;
         }
-        if self.traffic_lights {
+        if self.native_lights {
+            row = row.child(div().flex_none().w(px(NATIVE_LIGHTS_WIDTH)));
+        } else if self.traffic_lights {
             let light = |rgb: u32| div().flex_none().size(px(LIGHT_SIZE)).rounded_full().bg(gpui::rgb(rgb));
             row = row.child(
                 h_flex()
@@ -344,5 +387,22 @@ impl RenderOnce for RightHeader {
             .child(add)
             .child(div().flex_1())
             .child(ghost(id, "close", IconName::X, self.on_close))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::RAIL_WIDTH_WITH_LIGHTS;
+
+    #[test]
+    fn native_lights_reservation_matches_rail_with_lights() {
+        // 12 pt offset + two 20 pt strides + 12 pt light + the 8 pt trailing
+        // margin shared with the painted lights.
+        assert_eq!(NATIVE_LIGHT_DIAM, 12.0);
+        assert_eq!(NATIVE_LIGHT_STRIDE, 20.0);
+        assert_eq!(NATIVE_LIGHTS_X, 12.0);
+        assert_eq!(NATIVE_LIGHTS_WIDTH, 72.0);
+        assert_eq!(NATIVE_LIGHTS_WIDTH, RAIL_WIDTH_WITH_LIGHTS);
     }
 }

@@ -121,6 +121,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::app_shell::build,
     },
     Entry {
+        id: "shell/app-shell-native",
+        group: "Shell",
+        title: "App shell, native lights",
+        subtitle: "Collapsed sidebar with the native traffic-light reservation; the header row stays put",
+        width: 1280.0,
+        height: 820.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::app_shell_native::build,
+    },
+    Entry {
         id: "shell/panel-chrome",
         group: "Shell",
         title: "Panel chrome and tabs",

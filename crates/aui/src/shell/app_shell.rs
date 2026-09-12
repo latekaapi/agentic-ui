@@ -47,6 +47,7 @@ pub struct AppShell {
     right_width: Pixels,
     right_open: bool,
     sidebar_open: bool,
+    header_follows_sidebar: bool,
     traffic_lights: bool,
     framed: bool,
     header_sidebar: Option<AnyElement>,
@@ -70,6 +71,7 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         right_width: px(RIGHT_WIDTH),
         right_open: true,
         sidebar_open: true,
+        header_follows_sidebar: true,
         traffic_lights: false,
         framed: false,
         header_sidebar: None,
@@ -136,6 +138,17 @@ impl AppShell {
     /// Whether the sidebar is expanded (false = the rail).
     pub fn sidebar_open(mut self, open: bool) -> Self {
         self.sidebar_open = open;
+        self
+    }
+
+    /// Whether the header row's sidebar cell follows the collapse (default
+    /// true, today's behaviour: the cell shrinks to the rail with the pane).
+    /// When false the cell keeps `sidebar_rest` width — and the divider under
+    /// it — whether or not `sidebar_open`, so back/forward, search and the
+    /// toggle stay where they are; only the pane below collapses to the rail
+    /// and the centre header begins at the same x in both states.
+    pub fn header_follows_sidebar(mut self, follows: bool) -> Self {
+        self.header_follows_sidebar = follows;
         self
     }
 
@@ -235,6 +248,10 @@ impl RenderOnce for AppShell {
         // resting width from the first frame.
         let collapsing = !self.sidebar_open && sidebar_w > rail_width + px(1.0);
         let (pane, pane_width) = if self.sidebar_open || collapsing { (self.sidebar, sidebar_rest) } else { (self.rail, rail_width) };
+        // A steady header row keeps the sidebar cell (and its divider) at the
+        // resting width however the pane below moves.
+        let (header_w, header_pane_w) =
+            if self.header_follows_sidebar { (sidebar_w, pane_width) } else { (sidebar_rest, sidebar_rest) };
 
         // Header cells: surface-1, bottom hairline. The sidebar cell owns the
         // first divider (its right border) and the right cell the second (its
@@ -252,10 +269,10 @@ impl RenderOnce for AppShell {
             .bg(p.surface_1)
             .child(
                 cell(div())
-                    .w(sidebar_w)
+                    .w(header_w)
                     .border_r_1()
                     .border_color(p.line)
-                    .child(div().h_full().w(pane_width).flex_none().flex().items_center().children(self.header_sidebar)),
+                    .child(div().h_full().w(header_pane_w).flex_none().flex().items_center().children(self.header_sidebar)),
             )
             .child(cell(div()).flex_1().children(self.header_centre))
             .child(

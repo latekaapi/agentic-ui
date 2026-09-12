@@ -18,7 +18,10 @@ pub use app_shell::{
 pub use drag_region::{drag_region, DragRegion};
 pub use composer_dock::{docked_composer, DockedComposer, DockedComposerIntent};
 pub use drop_zones::{drop_zones, tab_ghost, DropZone, DropZones, TabGhost};
-pub use header::{centre_header, header_cell, right_header, sidebar_header, CentreHeader, HeaderCell, RightHeader, SidebarHeader};
+pub use header::{
+    centre_header, header_cell, right_header, sidebar_header, traffic_light_position, CentreHeader, HeaderCell, RightHeader, SidebarHeader,
+    NATIVE_LIGHTS_WIDTH, NATIVE_LIGHTS_X, NATIVE_LIGHT_DIAM, NATIVE_LIGHT_STRIDE,
+};
 pub use resize_handle::{drag_capture_overlay, resize_handle, DragCaptureOverlay, ResizeHandle, RESIZE_HANDLE_W};
 pub use panel_header::{panel_header, PanelHeader};
 pub use tab_strip::{tab_strip, TabItem, TabStrip};
