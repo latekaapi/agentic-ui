@@ -899,7 +899,12 @@ impl RenderOnce for ProjectGroupRow {
                     .into_any_element(),
             ));
         }
-        row = row.child(div().flex_none().opacity(under_tray).child(tag(self.count)));
+        // An empty count draws nothing rather than an empty pill: a caller
+        // that has no number to show (a project with no sessions) says so by
+        // passing none (audit 2026-09-13).
+        if !self.count.is_empty() {
+            row = row.child(div().flex_none().opacity(under_tray).child(tag(self.count)));
+        }
         if self.on_group_action.is_some() {
             row = row.child(group_tray(&id, flags.hovered, tray_opacity, &self.on_group_action, window, cx));
         }

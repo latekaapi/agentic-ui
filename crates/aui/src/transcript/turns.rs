@@ -499,11 +499,21 @@ fn shape_last_line_width(window: &Window, text: SharedString, font_size: Pixels,
 /// turn that did none would be noise.
 pub fn footer_items(meta: &TurnMeta) -> Vec<SharedString> {
     let tokens = meta.tokens_in + meta.tokens_out;
-    let tokens = if tokens >= 1000 { format!("{:.1}k tokens", tokens as f64 / 1000.0) } else { format!("{tokens} tokens") };
+    // Zero tokens is not a turn that cost nothing, it is a turn whose usage
+    // the wire did not report — a replay, or a provider that sends no usage
+    // at all. `0 tokens` under a full reply states that as a fact, so it is
+    // dropped, the same way the cost cell below is dropped when the catalog
+    // reports no price (audit 2026-09-13).
+    let tokens = match tokens {
+        0 => String::new(),
+        n if n >= 1000 => format!("{:.1}k tokens", n as f64 / 1000.0),
+        n => format!("{n} tokens"),
+    };
     let mut items: Vec<SharedString> =
         vec![meta.model.clone().into(), format!("{:.1} s", meta.duration_ms as f64 / 1000.0).into(), tokens.into()];
-    // A provider that reports no model label leaves an empty cell, and an empty
-    // cell renders as a stray separator; drop it rather than draw it.
+    // A provider that reports no model label leaves an empty cell, as does the
+    // token cell above at zero, and an empty cell renders as a stray
+    // separator; drop it rather than draw it.
     items.retain(|item| !item.is_empty());
     if meta.reasoning_tokens > 0 {
         items.push(format!("{} reasoning", meta.reasoning_tokens).into());
@@ -646,8 +656,10 @@ impl RenderOnce for AssistantTurn {
 
 #[cfg(test)]
 mod tests {
-    use super::{assistant_turn, turn_selected_text, user_turn, AssistantTurnAction, UserTurnAction};
+    use super::{assistant_turn, footer_items, turn_selected_text, user_turn, AssistantTurnAction, UserTurnAction};
+    use crate::protocol::TurnMeta;
     use crate::transcript::{SelectionKey, TextSelection};
+    use gpui::SharedString;
 
     #[test]
     fn user_actions_default_to_all() {
@@ -700,5 +712,26 @@ mod tests {
             range: 0..7,
         };
         assert_eq!(turn_selected_text("Hello", &selection), None);
+    }
+
+    /// A turn whose usage the wire never reported draws no token cell at all,
+    /// the way a catalog with no price draws no cost cell — `0 tokens` under
+    /// a full reply is a number the app cannot stand behind.
+    #[test]
+    fn a_turn_with_no_reported_usage_draws_no_token_cell() {
+        let meta = |tokens_in: u64, tokens_out: u64| TurnMeta {
+            model: "muse-spark-1.3".into(),
+            duration_ms: 2300,
+            tokens_in,
+            tokens_out,
+            ..TurnMeta::default()
+        };
+        let cells = footer_items(&meta(0, 0));
+        assert!(!cells.iter().any(|c| c.contains("token")), "an unreported count was drawn: {cells:?}");
+        assert_eq!(cells, vec![SharedString::from("muse-spark-1.3"), SharedString::from("2.3 s")]);
+
+        // A reported count still draws, in both spellings.
+        assert!(footer_items(&meta(400, 19)).iter().any(|c| c.as_ref() == "419 tokens"));
+        assert!(footer_items(&meta(59_000, 200)).iter().any(|c| c.as_ref() == "59.2k tokens"));
     }
 }
