@@ -33,6 +33,7 @@ use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, spinner, status_dot, tag, ButtonSize};
 use crate::nav::{ActivityKind, MetaItem, SessionSummary};
+use crate::nav::{LEADING_BOX, NAV_GUTTER, NAV_LABEL_X};
 use crate::util::{indexed_child, interaction_flags, TrackInteraction};
 
 /// `.wt{grid-template-columns:14px 1fr auto;gap:2px 8px;padding:9px 10px;margin:2px 8px}`.
@@ -41,6 +42,9 @@ use crate::util::{indexed_child, interaction_flags, TrackInteraction};
 /// [`SessionRow::collapse_margins`].
 const DOT_COL: f32 = 14.0;
 const COL_GAP: f32 = 8.0;
+/// The label gap after the leading box: `NAV_LABEL_X - NAV_GUTTER -
+/// LEADING_BOX`, so the dot in the box puts the title at `NAV_LABEL_X`.
+const SR_LEAD_GAP: f32 = NAV_LABEL_X - NAV_GUTTER - LEADING_BOX;
 const ROW_GAP: f32 = 2.0;
 const PAD_Y: f32 = 9.0;
 const PAD_X: f32 = 10.0;
@@ -77,9 +81,10 @@ const UNREAD_R: f32 = 2.0;
 const CHILD_INDENT: f32 = 22.0;
 const CHILD_PAD: f32 = 6.0;
 const CHILD_ROW_PAD_LEFT: f32 = 8.0;
-/// `.sr{min-height:30px;padding:4px 10px 4px 12px;margin:0 8px;gap:2px 8px;font-size:12.5px}`.
+/// `.sr{min-height:30px;padding:4px 10px;margin:0 8px;font-size:12.5px}`.
+/// The ground keeps its 8 px inset while the dot cell is the leading box,
+/// so the title starts at `NAV_LABEL_X`.
 const SR_PAD_Y: f32 = 4.0;
-const SR_PAD_LEFT: f32 = 12.0;
 const SR_PAD_RIGHT: f32 = 10.0;
 const SR_MARGIN_X: f32 = 8.0;
 const SR_TEXT: f32 = 12.5;
@@ -647,9 +652,9 @@ impl RenderOnce for CompactSessionRow {
             .min_w(px(0.0))
             .min_h(cx.aui().metrics.row)
             .items_center()
-            .gap(px(COL_GAP))
+            .gap(px(if self.nested { COL_GAP } else { SR_LEAD_GAP }))
             .py(px(SR_PAD_Y))
-            .pl(px(if self.nested { SR_CHILD_PAD } else { SR_PAD_LEFT }))
+            .pl(px(if self.nested { SR_CHILD_PAD } else { 0.0 }))
             .pr(px(SR_PAD_RIGHT))
             .ml(px(if self.nested { SR_CHILD_INDENT } else { SR_MARGIN_X }))
             .mr(px(SR_MARGIN_X))
@@ -659,7 +664,15 @@ impl RenderOnce for CompactSessionRow {
             .text_color(text)
             .cursor_pointer()
             .track_interaction(&state)
-            .child(div().flex_none().w(px(DOT_COL)).flex().items_center().child(status_dot((id.clone(), "dot"), s.state).pulse(s.pulse)))
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(if self.nested { COL_GAP } else { LEADING_BOX }))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(status_dot((id.clone(), "dot"), s.state).pulse(s.pulse)),
+            )
             .child(lines);
         if self.nested {
             row = row.child(div().absolute().left(px(-1.0)).top(px(SR_RAIL_INSET)).bottom(px(SR_RAIL_INSET)).w(px(1.0)).bg(p.line));

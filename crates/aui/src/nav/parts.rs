@@ -14,13 +14,39 @@ use gpui_kit::base::{h_flex, v_flex};
 use crate::data::{avatar, icon_button, tag, usage_meter, ButtonSize};
 use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
 
-/// `.nav .it{gap:8px;height:30px;padding:0 8px}`.
-const NAV_GAP: f32 = 8.0;
-const NAV_PAD: f32 = 8.0;
-/// `.grp{gap:6px;height:28px;padding:0 12px}`.
+/// One gutter for every sidebar row kind.
+///
+/// Column edge → leading box ([`NAV_GUTTER`]), the box holding a nav icon, a
+/// group label's first glyph (or its chevron), or the session dot
+/// ([`LEADING_BOX`]), and the label gap after it — so every label and title
+/// starts at [`NAV_LABEL_X`]. On the 4/8 grid: the leading centre lands at
+/// 8 + 10 = 18 px from the column edge and the labels at 8 + 20 + 4 = 32 px
+/// (the owner's Claude frame: glyph centre ≈ 36 at 2×, labels ≈ 64 at 2×).
+/// Rows that keep an 8 px ground margin ([`crate::nav::session_row`]'s
+/// `SR_MARGIN_X`, the project row's `PJ_MARGIN_X`) carry the gutter in that
+/// margin and start their content flush; margin-free rows (`NavItem`, the
+/// caption [`GroupRow`]) pad it instead. The one exception is the plain
+/// project name, which starts in the leading box rather than at
+/// [`NAV_LABEL_X`] (with [`crate::nav::ProjectGroupRow::chevron`] the label
+/// follows at [`NAV_LABEL_X`] like everything else).
+pub const NAV_GUTTER: f32 = 8.0;
+/// Width of the box holding a nav icon, a group label's first glyph, or the
+/// session dot, all centred on one x. See [`NAV_GUTTER`].
+pub const LEADING_BOX: f32 = 20.0;
+/// Where every label and title starts: [`NAV_GUTTER`] + [`LEADING_BOX`] +
+/// the 4 px label gap. See [`NAV_GUTTER`].
+pub const NAV_LABEL_X: f32 = 32.0;
+/// The 4 px gap between the leading box and the label. A token-scale step,
+/// not a literal; equals `NAV_LABEL_X - NAV_GUTTER - LEADING_BOX`.
+const NAV_LABEL_GAP: f32 = 4.0;
+/// Right padding of a nav row; the ground runs nearer the column edge than
+/// the labels do.
+const NAV_PAD_RIGHT: f32 = 8.0;
+/// `.grp{gap:6px;height:28px}`. The caption label pads to [`NAV_LABEL_X`],
+/// not to this.
 const GROUP_H: f32 = 28.0;
 const GROUP_GAP: f32 = 6.0;
-const GROUP_PAD: f32 = 12.0;
+const GROUP_PAD_RIGHT: f32 = 12.0;
 /// `.chev{width:12px;height:12px}` — the default; rows that override it
 /// (`.pj .chev` 11 px, `.n .chev` 10 px) pass their own size to
 /// [`chevron_sized`].
@@ -93,8 +119,9 @@ impl RenderOnce for NavItem {
             .w_full()
             .h(cx.aui().metrics.row)
             .flex_none()
-            .gap(px(NAV_GAP))
-            .px(px(NAV_PAD))
+            .gap(px(NAV_LABEL_GAP))
+            .pl(px(NAV_GUTTER))
+            .pr(px(NAV_PAD_RIGHT))
             .rounded(px(scale::R_SM))
             .bg(bg)
             .text_color(text)
@@ -102,7 +129,7 @@ impl RenderOnce for NavItem {
             .medium()
             .cursor_pointer()
             .track_interaction(&state)
-            .child(icon(self.icon).color(p.ink_3))
+            .child(div().flex_none().w(px(LEADING_BOX)).flex().items_center().justify_center().child(icon(self.icon).color(p.ink_3)))
             .child(div().min_w(px(0.0)).truncate().child(self.label));
         if let Some(count) = self.count {
             row = row.child(div().flex_1()).child(
@@ -167,7 +194,8 @@ impl RenderOnce for GroupRow {
             .flex_none()
             .mt(px(self.margin_top))
             .gap(px(GROUP_GAP))
-            .px(px(GROUP_PAD))
+            .pl(px(NAV_LABEL_X))
+            .pr(px(GROUP_PAD_RIGHT))
             .child(div().text_role(TextRole::Caps).text_color(p.ink_3).child(self.label.to_uppercase()))
             .child(div().flex_1());
         if let Some(h) = self.on_view_options {
@@ -247,7 +275,7 @@ impl RenderOnce for GroupHeader {
             .flex_none()
             .mt(px(self.margin_top))
             .gap(px(GROUP_GAP))
-            .px(px(GROUP_PAD))
+            .px(px(GROUP_PAD_RIGHT))
             .cursor_pointer()
             .child(chevron((id, "chevron"), self.open, p.ink_3, window, cx))
             .child(div().ui(scale::FS_12).semibold().text_color(p.ink).whitespace_nowrap().child(self.label));

@@ -378,7 +378,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn knowledge_card(id: impl Into<ElementId>, role_id: impl Into<SharedString>, sources: Vec<SharedString>) -> KnowledgeCard`
 - **fn** `nav_item` — `Tasks`, `Automations`, `Inbox`…
   - `pub fn nav_item(id: impl Into<ElementId>, glyph: IconName, label: impl Into<SharedString>) -> NavItem`
-- **fn** `project_group_row` — A project row: chevron, folder mark, name, count.
+- **fn** `project_group_row` — A project row: the plain muted name and its count.
   - `pub fn project_group_row(id: impl Into<ElementId>, name: impl Into<SharedString>, count: impl Into<SharedString>, open: bool) -> ProjectGroupRow`
 - **fn** `project_mark` — A rounded square in `colour` with `initial` centred in the theme background colour. Stateless; no click handling — the caller owns the interaction.
   - `pub fn project_mark(initial: impl Into<SharedString>, colour: Hsla) -> ProjectMark`
@@ -446,21 +446,26 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn new(id: impl Into<SharedString>, name: impl Into<SharedString>, count: usize) -> Self` — A project with `count` sessions and no expanded children.
   - `pub fn session(self, session: RoleSession) -> Self` — Adds a session row under the project.
 - **struct** `ProjectGroup` — A project group: the `.pj` row and the sessions (and their children) below.
-  - fields: `id`, `name`, `count`, `open`, `muted`, `mark`, `trailing`, `state`, `sessions`,
-    `fold`, `current`
+  - fields: `id`, `name`, `count`, `open`, `muted`, `mark`, `trailing`, `state`, `chevron`,
+    `current_bar`, `sessions`, `fold`, `current`
+  - `pub fn chevron(self, chevron: bool) -> Self` — Draws the collapse chevron in the leading box; the label follows at `NAV_LABEL_X`. Off by default: the row is a plain label.
   - `pub fn current(self, current: bool) -> Self` — Marks this as the project the open session belongs to.
+  - `pub fn current_bar(self, current_bar: bool) -> Self` — Draws the 2 px bar with `Self::current`. Off by default: `current(true)` alone keeps only the semibold ink name.
   - `pub fn folded(self, hidden: usize, expanded: bool) -> Self` — Folds a long group: `hidden` rows are held back and `expanded` picks the row’s label (“Show {hidden} more” / “Show less”). [...]
-  - `pub fn mark(self, initial: impl Into<SharedString>, colour: Hsla) -> Self` — Draws the project’s mark in place of the folder glyph.
+  - `pub fn mark(self, initial: impl Into<SharedString>, colour: Hsla) -> Self` — Draws the project’s mark in the leading box. Unset by default: the row is plain.
   - `pub fn muted(self) -> Self` — Mutes the row (`Archived`, `Other workspaces`).
   - `pub fn new(id: impl Into<SharedString>, name: impl Into<SharedString>, count: impl Into<SharedString>) -> Self` — A closed, unmuted project.
   - `pub fn open(self, sessions: Vec<SessionSummary>) -> Self` — Opens the project and gives it its sessions.
   - `pub fn state(self, state: AgentState) -> Self` — Sets the rolled-up agent state: a status dot after the name, pulsing while a session runs.
   - `pub fn trailing(self, text: impl Into<SharedString>) -> Self` — Sets the trailing mono text before the count (the branch).
 - **struct** `ProjectGroupRow` — A project row (`.pj`). Build with `project_group_row`.
-  - `pub fn current(self) -> Self` — The project the open session belongs to: the name keeps `ink` at semibold and the row wears a 2 px accent bar at its left edge.
-  - `pub fn mark(self, initial: impl Into<SharedString>, colour: Hsla) -> Self` — Draws the project’s mark in place of the folder glyph. Muted groups keep the folder glyph.
+  - `pub fn chevron(self, chevron: bool) -> Self` — Draws the collapse chevron in the leading box; the label follows at `NAV_LABEL_X`. Off by default: the row is a plain label whose first glyph starts in the leading box.
+  - `pub fn current(self) -> Self` — The project the open session belongs to: the name keeps `ink` at semibold. The 2 px accent bar draws only with `Self::current_bar`.
+  - `pub fn current_bar(self, current_bar: bool) -> Self` — Draws the 2 px accent bar at the row’s left edge with `Self::current`. Off by default: `current` alone keeps only the semibold `ink` name.
+  - `pub fn mark(self, initial: impl Into<SharedString>, colour: Hsla) -> Self` — Draws the project’s mark in the leading box. Nothing passes one by default — the row is plain — and muted groups never draw it.
   - `pub fn muted(self) -> Self` — `.pj{color:var(--ink-3);font-weight:500}` — the archived project.
   - `pub fn on_group_action(self, f: impl Fn(GroupAction, &mut Window, &mut App) + 'static) -> Self` — A hover-tray button was clicked; the argument is what it asked for.
+  - `pub fn on_menu_prepainted(self, group_id: impl Into<SharedString>, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Reports the tray `…` button’s bounds, keyed by `group_id`, once per frame — what a group-row menu seats at. The library stores nothing.
   - `pub fn on_toggle(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Toggle click.
   - `pub fn state(self, state: AgentState) -> Self` — Sets the rolled-up agent state: a status dot after the name, pulsing while a session runs.
   - `pub fn trailing(self, text: impl Into<SharedString>) -> Self` — Sets the trailing mono text before the count (the branch).
@@ -560,8 +565,11 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn caption(self, caption: impl Into<SharedString>) -> Self` — The caps group row above the groups (`Workspaces`, `Projects`, `Recent`). It carries the sliders icon when `Self::on_view_options` is set.
   - `pub fn editing(self, session_id: impl Into<SharedString>, editor: impl IntoElement) -> Self` — One row is being renamed: draw `editor` in place of its name.
   - `pub fn on_action(self, f: impl Fn(&SharedString, RowAction, &mut Window, &mut App) + 'static) -> Self` — A row’s hover action was clicked.
+  - `pub fn on_current_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with the `current` project group row’s bounds. See `Self::on_selected_prepainted`.
   - `pub fn on_group_action(self, f: impl Fn(&SharedString, GroupAction, &mut Window, &mut App) + 'static) -> Self` — A project group row’s hover action was clicked; the arguments are the group id and what the tray button asked for.
+  - `pub fn on_group_menu_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with every rendered project group row’s tray `…` button bounds, keyed by group id — what a group-row menu seats at. See `Self::on_selected_prepainted`.
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A row was clicked; the argument is the session id.
+  - `pub fn on_selected_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with the selected session row’s bounds. The library stores nothing; the app decides what to do with the bounds (for example, seating a trigger menu at the row).
   - `pub fn on_toggle(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A group header or project row was clicked; the argument is the group id.
   - `pub fn on_view_options(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The sliders icon on the caption row was clicked: open the view menu.
   - `pub fn row_actions(self, actions: Vec<RowAction>) -> Self` — The hover actions every row carries; none by default.
@@ -609,6 +617,12 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
 
 - **const** `DENSE_FIELD_H` — Height of the dense rename field: the compact row is 30 px with 4 px of vertical padding, so the field gets 20 px inside a 22 px bordered wrapper.
   - `pub const DENSE_FIELD_H: f32 = 20.0;`
+- **const** `LEADING_BOX` — Width of the box holding a nav icon, a group label’s first glyph, or the session dot, all centred on one x. See `NAV_GUTTER`.
+  - `pub const LEADING_BOX: f32 = 20.0;`
+- **const** `NAV_GUTTER` — One gutter for every sidebar row kind.
+  - `pub const NAV_GUTTER: f32 = 8.0;`
+- **const** `NAV_LABEL_X` — Where every label and title starts: `NAV_GUTTER` + `LEADING_BOX` + the 4 px label gap. See `NAV_GUTTER`.
+  - `pub const NAV_LABEL_X: f32 = 32.0;`
 - **const** `RAIL_WIDTH` — `.rail{width:48px;padding:8px 0;gap:4px}`.
   - `pub const RAIL_WIDTH: f32 = 48.0;`
 - **const** `SIDEBAR_WIDTH` — `.side{width:256px}`.
@@ -621,6 +635,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
 
 Overlays: the command palette (card 12), the modal dialog, and later menus and popovers. Overlays render inside the window; the app decides when they are present and positions them.
 
+- **fn** `anchored_menu` — Seats a trigger menu at its trigger, inside the window.
+  - `pub fn anchored_menu(trigger: Bounds<Pixels>, side: MenuSide, align: MenuAlign, menu: impl IntoElement) -> impl IntoElement`
 - **fn** `command_palette` — The 560 px palette. `selected` indexes the rows of all sections in order, as the arrow keys walk them.
   - `pub fn command_palette(id: impl Into<ElementId>, query: impl Into<SharedString>, sections: Vec<PaletteSection>, selected: usize) -> CommandPalette`
 - **fn** `dialog` — A modal dialog headed `title`, with an `OK` primary until one is set.
@@ -667,6 +683,10 @@ Overlays: the command palette (card 12), the modal dialog, and later menus and p
 
 - **enum** `DialogKind` — What a dialog is about. The kind picks the tile’s glyph and its tint; nothing else in the card is coloured.
   - variants: `Info`, `Warning`, `Error`
+- **enum** `MenuAlign` — Which vertical edge of the trigger an `anchored_menu` aligns to.
+  - variants: `Start`, `End`
+- **enum** `MenuSide` — Which side of the trigger an `anchored_menu` hangs off.
+  - variants: `Below`, `Above`
 - **enum** `PaletteIcon` — The leading glyph of a palette row: an icon for actions and files, a status dot for worktrees, a project mark for projects.
   - variants: `Glyph`, `Dot`, `Mark`
 

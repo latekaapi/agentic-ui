@@ -96,16 +96,16 @@ fn status_groups() -> Vec<StatusGroup> {
     ]
 }
 
-/// The project grouping of column two: marks, a trailing branch, one running
-/// group with its dot, and the closed muted "Other workspaces" group.
-fn project_groups(p: &Palette) -> Vec<ProjectGroup> {
+/// The project grouping of column two: plain rows, a trailing branch, one
+/// running group with its dot, and the closed muted "Other workspaces"
+/// group.
+fn project_groups() -> Vec<ProjectGroup> {
     vec![
         ProjectGroup::new("acme-web", "acme-web", "5")
-            .mark("A", p.label(5))
             .trailing("main")
             .state(AgentState::Running)
-            // The project the open session belongs to: the accent bar at the
-            // row's left edge.
+            // The project the open session belongs to: the semibold ink
+            // name, with no bar unless the caller opts into one.
             .current(true)
             // Twelve rows held back: the column shows the visible three and
             // the "Show 12 more" row after them.
@@ -122,11 +122,8 @@ fn project_groups(p: &Palette) -> Vec<ProjectGroup> {
             ]),
         // A branch far longer than the column fits: it must give way (truncate)
         // while the project name keeps its readable minimum.
-        ProjectGroup::new("orca", "orca", "2")
-            .mark("O", p.label(3))
-            .trailing("feature/projects-2026-09-13-long")
-            .open(vec![notifier()]),
-        ProjectGroup::new("acme-internal", "acme-internal", "4").mark("I", p.label(1)),
+        ProjectGroup::new("orca", "orca", "2").trailing("feature/projects-2026-09-13-long").open(vec![notifier()]),
+        ProjectGroup::new("acme-internal", "acme-internal", "4"),
         ProjectGroup::new("other", "Other workspaces", "3").muted(),
     ]
 }
@@ -223,7 +220,7 @@ fn sized_column(p: &Palette, title: &'static str, body: AnyElement, overlay: Opt
 /// `SIDEBAR_MAX_WIDTH` on purpose: the component must not assume a bound the
 /// shell happens to impose.
 fn width_state(p: &Palette, title: &'static str, id: &'static str, width: f32) -> Div {
-    let view = sidebar_view(id, Grouping::Project(project_groups(p))).caption("Projects").selected("checkout");
+    let view = sidebar_view(id, Grouping::Project(project_groups())).caption("Projects").selected("checkout");
     let body = v_flex().w_full().child(view).into_any_element();
     sized_column(p, title, body, None, width, WIDTH_STATE_H)
 }
@@ -256,10 +253,10 @@ impl GroupBy {
     }
 
     /// The grouping (and its sessions) this choice renders.
-    fn grouping(self, p: &Palette) -> Grouping {
+    fn grouping(self) -> Grouping {
         match self {
             GroupBy::Status => Grouping::Status(status_groups()),
-            GroupBy::Project => Grouping::Project(project_groups(p)),
+            GroupBy::Project => Grouping::Project(project_groups()),
             GroupBy::Date => Grouping::Date(date_groups()),
         }
     }
@@ -592,7 +589,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 }
             }
         };
-        let mut view = sidebar_view(VIEW_IDS[i], group_by[i].grouping(&p))
+        let mut view = sidebar_view(VIEW_IDS[i], group_by[i].grouping())
             .caption(CAPTIONS[i])
             .selected("checkout")
             .on_view_options(on_view_options);

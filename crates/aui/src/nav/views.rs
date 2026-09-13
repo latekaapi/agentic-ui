@@ -9,7 +9,7 @@
 
 use std::rc::Rc;
 
-use aui_icons::{icon, FileType, IconName};
+use aui_icons::{icon, IconName};
 use aui_motion::{collapse, tint_fade, Tween};
 use aui_tokens::{scale, scaled, ActiveAui, AuiStyled, TextRole};
 use gpui::{
@@ -20,29 +20,31 @@ use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, status_dot, tag, ButtonSize};
 use crate::nav::{compact_session_row, group_header, group_row, project_mark, RowAction, SessionSummary};
+use crate::nav::{LEADING_BOX, NAV_GUTTER, NAV_LABEL_X};
 use crate::util::{interaction_flags, TrackInteraction};
 
-/// `.pj{gap:8px;height:30px;padding:0 10px;margin:4px 8px 0;font-weight:600;font-size:12.5px}`.
-/// The height is the shared row metric.
-const PJ_GAP: f32 = 8.0;
-const PJ_PAD_X: f32 = 10.0;
+/// `.pj{height:30px;margin:4px 8px 0}`. The height is the shared row metric;
+/// the ground keeps its 8 px inset from the column edge while the content
+/// follows the one gutter ([`NAV_GUTTER`], [`LEADING_BOX`], [`NAV_LABEL_X`]).
 const PJ_MARGIN_X: f32 = 8.0;
 const PJ_MARGIN_TOP: f32 = 4.0;
-/// Sessions under a project group indent one step so the hierarchy reads;
-/// status and date groupings keep their rows flush.
-const PJ_CHILD_INDENT: f32 = 16.0;
+/// Right padding of a project row; the tray and the count live here.
+const PJ_PAD_RIGHT: f32 = 10.0;
+/// The label gap after the leading box: `NAV_LABEL_X - NAV_GUTTER -
+/// LEADING_BOX`, so a chevron in the box puts the name at `NAV_LABEL_X`.
+const PJ_LEAD_GAP: f32 = NAV_LABEL_X - NAV_GUTTER - LEADING_BOX;
 /// The "Show N more" row after a folded project's sessions: 28 px, FS_12
 /// ink-3, chevron-down/up before the text, the row's own hover ground.
 const FOLD_H: f32 = 28.0;
 /// `.fold .chev{width:12px}`.
 const FOLD_CHEVRON: f32 = 12.0;
-const PJ_TEXT: f32 = 12.5;
+/// The plain group name: small muted label, not caps.
+const PJ_TEXT: f32 = scale::FS_11;
 /// `.pj .chev{width:11px;height:11px}` — one pixel smaller than the shared
 /// `.chev`, so this row rotates its own glyph.
 const PJ_CHEVRON: f32 = 11.0;
-/// `.fic{width:14px;height:14px}` — the folder mark on a project row.
-const FIC: f32 = 14.0;
 /// The project mark on a group row: 18 px, as the sidebar header draws it.
+/// Drawn only when a caller passes one explicitly; the default row is plain.
 const GROUP_MARK: f32 = 18.0;
 /// The trailing branch: mono 11 ink-3, truncating.
 const TRAIL_TEXT: f32 = scale::FS_11;
@@ -86,6 +88,10 @@ type PlainHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 type RowActionHandler = Rc<dyn Fn(&SharedString, RowAction, &mut Window, &mut App)>;
 type GroupActionHandler = Rc<dyn Fn(&SharedString, GroupAction, &mut Window, &mut App)>;
 type GroupRowActionHandler = Rc<dyn Fn(GroupAction, &mut Window, &mut App)>;
+/// A bounds intent: the library reports laid-out window bounds and stores
+/// nothing; the app decides what to do with them. The first argument is the
+/// row or group id the bounds belong to.
+type BoundsHandler = Rc<dyn Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App)>;
 
 /// A status group: `Needs you 1`, `Running 3`, `Done 2`.
 #[derive(Debug, Clone, PartialEq)]
@@ -146,13 +152,19 @@ pub struct ProjectGroup {
     /// Muted (`Archived`, `Other workspaces`): ink-3 at weight 500, and the
     /// folder glyph stays even when a mark is set.
     pub muted: bool,
-    /// The project's mark: its initial and label colour, drawn in place of
-    /// the folder glyph. A group with no mark (muted ones) keeps the folder.
+    /// The project's mark: its initial and label colour, drawn in the
+    /// leading box when set. Unset by default: the row is plain.
     pub mark: Option<(SharedString, gpui::Hsla)>,
     /// The trailing mono text before the count (the branch).
     pub trailing: Option<SharedString>,
     /// The rolled-up agent state: a status dot after the name.
     pub state: Option<aui_tokens::AgentState>,
+    /// Draw the collapse chevron in the leading box (off: the row is a plain
+    /// label whose first glyph starts in the box).
+    pub chevron: bool,
+    /// Draw the 2 px current bar with [`Self::current`]. `current` alone
+    /// keeps only the semibold ink name.
+    pub current_bar: bool,
     /// The rows under the project row.
     pub sessions: Vec<SessionSummary>,
     /// A folded group: `(held_back, expanded)`. When `held_back > 0` a
@@ -178,6 +190,8 @@ impl ProjectGroup {
             mark: None,
             trailing: None,
             state: None,
+            chevron: false,
+            current_bar: false,
             sessions: Vec::new(),
             fold: None,
             current: false,
@@ -197,7 +211,8 @@ impl ProjectGroup {
         self
     }
 
-    /// Draws the project's mark in place of the folder glyph.
+    /// Draws the project's mark in the leading box. Unset by default: the
+    /// row is plain.
     pub fn mark(mut self, initial: impl Into<SharedString>, colour: gpui::Hsla) -> Self {
         self.mark = Some((initial.into(), colour));
         self
@@ -229,6 +244,20 @@ impl ProjectGroup {
     /// Marks this as the project the open session belongs to.
     pub fn current(mut self, current: bool) -> Self {
         self.current = current;
+        self
+    }
+
+    /// Draws the collapse chevron in the leading box; the label follows at
+    /// [`NAV_LABEL_X`]. Off by default: the row is a plain label.
+    pub fn chevron(mut self, chevron: bool) -> Self {
+        self.chevron = chevron;
+        self
+    }
+
+    /// Draws the 2 px bar with [`Self::current`]. Off by default:
+    /// `current(true)` alone keeps only the semibold ink name.
+    pub fn current_bar(mut self, current_bar: bool) -> Self {
+        self.current_bar = current_bar;
         self
     }
 }
@@ -276,6 +305,9 @@ pub struct SidebarView {
     on_view_options: Option<PlainHandler>,
     on_action: Option<RowActionHandler>,
     on_group_action: Option<GroupActionHandler>,
+    on_selected_prepainted: Option<BoundsHandler>,
+    on_current_prepainted: Option<BoundsHandler>,
+    on_group_menu_prepainted: Option<BoundsHandler>,
 }
 
 /// The sessions of a sidebar, grouped by `grouping`.
@@ -298,6 +330,9 @@ pub fn sidebar_view(id: impl Into<ElementId>, grouping: impl Into<Rc<Grouping>>)
         on_view_options: None,
         on_action: None,
         on_group_action: None,
+        on_selected_prepainted: None,
+        on_current_prepainted: None,
+        on_group_menu_prepainted: None,
     }
 }
 
@@ -361,6 +396,38 @@ impl SidebarView {
         self.on_group_action = Some(Rc::new(f));
         self
     }
+
+    /// Fires once per frame with the selected session row's bounds. The
+    /// library stores nothing; the app decides what to do with the bounds
+    /// (for example, seating a trigger menu at the row).
+    pub fn on_selected_prepainted(
+        mut self,
+        f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_selected_prepainted = Some(Rc::new(f));
+        self
+    }
+
+    /// Fires once per frame with the `current` project group row's bounds.
+    /// See [`Self::on_selected_prepainted`].
+    pub fn on_current_prepainted(
+        mut self,
+        f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_current_prepainted = Some(Rc::new(f));
+        self
+    }
+
+    /// Fires once per frame with every rendered project group row's tray `…`
+    /// button bounds, keyed by group id — what a group-row menu seats at.
+    /// See [`Self::on_selected_prepainted`].
+    pub fn on_group_menu_prepainted(
+        mut self,
+        f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_group_menu_prepainted = Some(Rc::new(f));
+        self
+    }
 }
 
 /// The rows of one group, ready to be revealed.
@@ -373,13 +440,14 @@ fn rows<'a>(
     editing: &Option<(SharedString, std::cell::RefCell<Option<AnyElement>>)>,
     on_select: &Option<SelectHandler>,
     on_action: &Option<RowActionHandler>,
+    on_selected_prepainted: &Option<BoundsHandler>,
 ) -> AnyElement {
     let mut col = v_flex().w_full();
     for session in sessions {
         let row_id: ElementId = (id.clone(), session.id.clone()).into();
-        let mut row = compact_session_row(row_id, session.clone())
-            .selected(selected.as_ref() == Some(&session.id))
-            .actions(actions.to_vec());
+        let is_selected = selected.as_ref() == Some(&session.id);
+        let mut row =
+            compact_session_row(row_id, session.clone()).selected(is_selected).actions(actions.to_vec());
         // The editor is one element and elements are not `Clone`, so it goes to
         // whichever row claims it and the rest see none.
         if let Some((editing_id, slot)) = editing {
@@ -395,6 +463,26 @@ fn rows<'a>(
         if let Some(h) = on_action.clone() {
             row = row.on_action(move |k, a, w, cx| h(k, a, w, cx));
         }
+        // Only the selected row gets the wrapper, so the intent fires once
+        // per frame with that one row's bounds and other rows lay out
+        // exactly as before. The wrapper is a plain full-width column, so
+        // the row stretches inside it the way it stretches in the group.
+        if is_selected {
+            if let Some(h) = on_selected_prepainted.clone() {
+                let session_id = session.id.clone();
+                col = col.child(
+                    v_flex()
+                        .w_full()
+                        .on_children_prepainted(move |bounds, w, cx| {
+                            if let Some(first) = bounds.first() {
+                                h(&session_id, *first, w, cx);
+                            }
+                        })
+                        .child(row),
+                );
+                continue;
+            }
+        }
         col = col.child(row);
     }
     col.into_any_element()
@@ -402,8 +490,8 @@ fn rows<'a>(
 
 /// The "Show N more" / "Show less" row after a folded project's sessions:
 /// 28 px, FS_12 ink-3, chevron-down (up once expanded) before the text, the
-/// row's own hover ground. It carries the session rows' margins, so inside
-/// the indented block it keeps their indent and their right edge. Clicking
+/// row's own hover ground. It carries the session rows' margins and gutter,
+/// so its text starts at [`NAV_LABEL_X`] like every other label. Clicking
 /// it reports [`GroupAction::ToggleMore`] for `group_id`.
 #[allow(clippy::too_many_arguments)]
 fn fold_row(
@@ -431,8 +519,9 @@ fn fold_row(
         .min_w(px(0.0))
         .h(px(FOLD_H))
         .items_center()
-        .gap(px(PJ_GAP))
-        .px(px(PJ_PAD_X))
+        .gap(px(PJ_LEAD_GAP))
+        .pl(px(NAV_GUTTER))
+        .pr(px(PJ_PAD_RIGHT))
         .ml(px(PJ_MARGIN_X))
         .mr(px(PJ_MARGIN_X))
         .rounded(px(scale::R_SM))
@@ -452,8 +541,22 @@ fn fold_row(
 
 impl RenderOnce for SidebarView {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let SidebarView { id, grouping, caption, selected, actions, editing, on_select, on_toggle, on_view_options, on_action, on_group_action } =
-            self;
+        let SidebarView {
+            id,
+            grouping,
+            caption,
+            selected,
+            actions,
+            editing,
+            on_select,
+            on_toggle,
+            on_view_options,
+            on_action,
+            on_group_action,
+            on_selected_prepainted,
+            on_current_prepainted,
+            on_group_menu_prepainted,
+        } = self;
         let mut col = v_flex().w_full();
 
         if let Some(caption) = caption {
@@ -476,7 +579,7 @@ impl RenderOnce for SidebarView {
                         let group_id = group.id.clone();
                         header = header.on_toggle(move |_, w, cx| h(&group_id, w, cx));
                     }
-                    let body = rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action);
+                    let body = rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action, &on_selected_prepainted);
                     let (reveal, _) = collapse((key, "body"), group.open, body, window, cx);
                     col = col.child(header).child(reveal);
                 }
@@ -497,6 +600,7 @@ impl RenderOnce for SidebarView {
                     if let Some(state) = group.state {
                         row = row.state(state);
                     }
+                    row = row.chevron(group.chevron).current_bar(group.current_bar);
                     if group.current {
                         row = row.current();
                     }
@@ -508,10 +612,37 @@ impl RenderOnce for SidebarView {
                         let group_id = group.id.clone();
                         row = row.on_group_action(move |action, w, cx| h(&group_id, action, w, cx));
                     }
-                    let body = rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action);
-                    // Project children indent one step; the fold row (if any)
-                    // sits inside the same block so it keeps their indent and
-                    // their right edge. Status and date bodies stay flush.
+                    if let Some(h) = on_group_menu_prepainted.clone() {
+                        let group_id = group.id.clone();
+                        row = row.on_menu_prepainted(group_id, move |gid, bounds, w, cx| h(gid, bounds, w, cx));
+                    }
+                    // Only the current group row gets the wrapper, so the
+                    // intent fires once per frame with that one row's bounds.
+                    // The wrapper is a plain full-width column, so the row
+                    // stretches inside it the way it stretches in the view.
+                    let head: AnyElement = if group.current {
+                        if let Some(h) = on_current_prepainted.clone() {
+                            let group_id = group.id.clone();
+                            v_flex()
+                                .w_full()
+                                .on_children_prepainted(move |bounds, w, cx| {
+                                    if let Some(first) = bounds.first() {
+                                        h(&group_id, *first, w, cx);
+                                    }
+                                })
+                                .child(row)
+                                .into_any_element()
+                        } else {
+                            row.into_any_element()
+                        }
+                    } else {
+                        row.into_any_element()
+                    };
+                    let body = rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action, &on_selected_prepainted);
+                    // Sessions sit flush under their group: the dot lives in
+                    // the leading box and the titles start at `NAV_LABEL_X`,
+                    // so no indent block separates rows from their header.
+                    // The fold row (if any) joins the same column.
                     let mut inner = v_flex().w_full().child(body);
                     if let Some((hidden, expanded)) = group.fold {
                         if hidden > 0 {
@@ -531,15 +662,13 @@ impl RenderOnce for SidebarView {
                     // root with `width: auto` is fit-content, not stretch. The
                     // status and date bodies get it for free because `rows`
                     // itself is `w_full`; this wrapper sits between them and the
-                    // reveal, so without a width the whole indented block
-                    // collapses to its content — the rows stop short of the
-                    // project row at a wide sidebar and spill past its right
-                    // margin at a narrow one. With it the block takes the
-                    // column, the indent comes out of the content box, and the
+                    // reveal, so without a width the whole block collapses to
+                    // its content — the rows stop short of the project row at
+                    // a wide sidebar and spill past its right margin at a
+                    // narrow one. With it the block takes the column and the
                     // rows end where the project row ends at any width.
-                    let indented = v_flex().w_full().pl(px(PJ_CHILD_INDENT)).child(inner).into_any_element();
-                    let (reveal, _) = collapse((key, "body"), group.open, indented, window, cx);
-                    col = col.child(row).child(reveal);
+                    let (reveal, _) = collapse((key, "body"), group.open, inner.into_any_element(), window, cx);
+                    col = col.child(head).child(reveal);
                 }
             }
             Grouping::Date(groups) => {
@@ -561,13 +690,13 @@ impl RenderOnce for SidebarView {
                     let count = SharedString::from(pinned.len().to_string());
                     col = col
                         .child(group_header((key.clone(), "header"), "Pinned", true).count(count))
-                        .child(rows(&key, pinned.iter().copied(), &selected, &actions, &editing, &on_select, &on_action));
+                        .child(rows(&key, pinned.iter().copied(), &selected, &actions, &editing, &on_select, &on_action, &on_selected_prepainted));
                 }
                 for (i, (label, sessions)) in dated.into_iter().enumerate() {
                     let key: ElementId = (id.clone(), SharedString::from(format!("date-{i}"))).into();
                     col = col
                         .child(date_group_header(label.clone()))
-                        .child(rows(&key, sessions.iter().copied(), &selected, &actions, &editing, &on_select, &on_action));
+                        .child(rows(&key, sessions.iter().copied(), &selected, &actions, &editing, &on_select, &on_action, &on_selected_prepainted));
                 }
             }
         }
@@ -587,11 +716,14 @@ pub struct ProjectGroupRow {
     trailing: Option<SharedString>,
     state: Option<aui_tokens::AgentState>,
     current: bool,
+    chevron: bool,
+    current_bar: bool,
+    menu_bounds: Option<(SharedString, BoundsHandler)>,
     on_toggle: Option<crate::util::ClickHandler>,
     on_group_action: Option<GroupRowActionHandler>,
 }
 
-/// A project row: chevron, folder mark, name, count.
+/// A project row: the plain muted name and its count.
 pub fn project_group_row(
     id: impl Into<ElementId>,
     name: impl Into<SharedString>,
@@ -608,6 +740,9 @@ pub fn project_group_row(
         trailing: None,
         state: None,
         current: false,
+        chevron: false,
+        current_bar: false,
+        menu_bounds: None,
         on_toggle: None,
         on_group_action: None,
     }
@@ -620,8 +755,8 @@ impl ProjectGroupRow {
         self
     }
 
-    /// Draws the project's mark in place of the folder glyph. Muted groups
-    /// keep the folder glyph.
+    /// Draws the project's mark in the leading box. Nothing passes one by
+    /// default — the row is plain — and muted groups never draw it.
     pub fn mark(mut self, initial: impl Into<SharedString>, colour: gpui::Hsla) -> Self {
         self.mark = Some((initial.into(), colour));
         self
@@ -641,9 +776,37 @@ impl ProjectGroupRow {
     }
 
     /// The project the open session belongs to: the name keeps `ink` at
-    /// semibold and the row wears a 2 px accent bar at its left edge.
+    /// semibold. The 2 px accent bar draws only with
+    /// [`Self::current_bar`].
     pub fn current(mut self) -> Self {
         self.current = true;
+        self
+    }
+
+    /// Draws the collapse chevron in the leading box; the label follows at
+    /// [`NAV_LABEL_X`]. Off by default: the row is a plain label whose first
+    /// glyph starts in the leading box.
+    pub fn chevron(mut self, chevron: bool) -> Self {
+        self.chevron = chevron;
+        self
+    }
+
+    /// Draws the 2 px accent bar at the row's left edge with
+    /// [`Self::current`]. Off by default: `current` alone keeps only the
+    /// semibold `ink` name.
+    pub fn current_bar(mut self, current_bar: bool) -> Self {
+        self.current_bar = current_bar;
+        self
+    }
+
+    /// Reports the tray `…` button's bounds, keyed by `group_id`, once per
+    /// frame — what a group-row menu seats at. The library stores nothing.
+    pub fn on_menu_prepainted(
+        mut self,
+        group_id: impl Into<SharedString>,
+        f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.menu_bounds = Some((group_id.into(), Rc::new(f)));
         self
     }
 
@@ -671,11 +834,13 @@ fn under_tray(tray_opacity: f32) -> f32 {
 /// The hover tray at a project row's right end: `Plus` (new session here)
 /// and `Dots` (this project's menu), over the row's own surface-2 ground so
 /// it covers the count the way the session row's tray covers its meta.
+#[allow(clippy::too_many_arguments)]
 fn group_tray(
     id: &ElementId,
     visible: bool,
     opacity: f32,
     on_group_action: &Option<GroupRowActionHandler>,
+    menu_bounds: &Option<(SharedString, BoundsHandler)>,
     _window: &mut Window,
     cx: &mut App,
 ) -> gpui::Div {
@@ -699,6 +864,23 @@ fn group_tray(
                 cx.stop_propagation();
                 handler(action, w, cx)
             });
+        }
+        // The `…` button seats the group-row menu: wrap it so its bounds are
+        // reported once per frame. The wrapper sizes to the button, so the
+        // tray's layout is unchanged.
+        if action == GroupAction::Menu {
+            if let Some((group_id, h)) = menu_bounds.clone() {
+                tray = tray.child(
+                    div()
+                        .on_children_prepainted(move |bounds, w, cx| {
+                            if let Some(first) = bounds.first() {
+                                h(&group_id, *first, w, cx);
+                            }
+                        })
+                        .child(b),
+                );
+                continue;
+            }
         }
         tray = tray.child(b);
     }
@@ -811,47 +993,63 @@ impl RenderOnce for ProjectGroupRow {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let (hover_state, flags) = interaction_flags(id.clone(), window, cx);
-        // `.pj .chev{width:11px}` rotates 0° → 90° on the swap spring.
-        let chev = super::chevron_sized(id.clone(), self.open, p.ink_3, PJ_CHEVRON, window, cx);
-        let folder = if self.open { FileType::FolderOpen } else { FileType::Folder };
-        // Muted groups keep the folder glyph; the rest draw their mark.
-        let leading: gpui::AnyElement = match &self.mark {
-            Some((initial, colour)) if !self.muted => project_mark(initial.clone(), *colour).size(px(GROUP_MARK)).into_any_element(),
-            _ => icon(folder.icon()).size(px(FIC)).color(p.ink_3).into_any_element(),
-        };
-        // No `w_full`: at full width the 8 px margins overflow the column and
-        // the row ends 16 px past the session rows under it. Without a
-        // width the row stretches to the column minus its margins (the
-        // column's default align), so both gutters stay 8. It must not be
-        // `flex_1` either: in the view's column that would grow it
-        // vertically into all of the column's free space.
-        let mut row = h_flex()
-            .id(id.clone())
-            .relative()
-            .flex_none()
-            .min_w(px(0.0))
-            .h(cx.aui().metrics.row)
-            .gap(px(PJ_GAP))
-            .px(px(PJ_PAD_X))
-            .ml(px(PJ_MARGIN_X))
-            .mr(px(PJ_MARGIN_X))
-            .mt(px(PJ_MARGIN_TOP))
-            .ui(PJ_TEXT)
-            .text_color(if self.muted && !self.current { p.ink_3 } else { p.ink })
-            .cursor_pointer()
-            .track_interaction(&hover_state)
-            .child(chev)
-            .child(leading)
-            .child(
+        // Plain by default: the name is a small muted label whose first glyph
+        // starts in the leading box. With `chevron`, the chevron takes the
+        // box and the label follows at `NAV_LABEL_X`. An explicit mark still
+        // draws (other consumers), but nothing passes one by default.
+        let mut row = {
+            // No `w_full`: at full width the 8 px margins overflow the column and
+            // the row ends 16 px past the session rows under it. Without a
+            // width the row stretches to the column minus its margins (the
+            // column's default align), so both gutters stay 8. It must not be
+            // `flex_1` either: in the view's column that would grow it
+            // vertically into all of the column's free space.
+            let mut row = h_flex()
+                .id(id.clone())
+                .relative()
+                .flex_none()
+                .min_w(px(0.0))
+                .h(cx.aui().metrics.row)
+                .gap(px(PJ_LEAD_GAP))
+                .pl(px(0.0))
+                .pr(px(PJ_PAD_RIGHT))
+                .ml(px(PJ_MARGIN_X))
+                .mr(px(PJ_MARGIN_X))
+                .mt(px(PJ_MARGIN_TOP))
+                .ui(PJ_TEXT)
+                .text_color(if self.current { p.ink } else { p.ink_3 })
+                .cursor_pointer()
+                .track_interaction(&hover_state);
+            if self.chevron {
+                // `.pj .chev{width:11px}` rotates 0° → 90° on the swap spring.
+                let chev = super::chevron_sized(id.clone(), self.open, p.ink_3, PJ_CHEVRON, window, cx);
+                row = row.child(
+                    div().flex_none().w(px(LEADING_BOX)).flex().items_center().justify_center().child(chev),
+                );
+            } else if let Some((initial, colour)) = &self.mark {
+                if !self.muted {
+                    row = row.child(
+                        div()
+                            .flex_none()
+                            .w(px(LEADING_BOX))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(project_mark(initial.clone(), *colour).size(px(GROUP_MARK))),
+                    );
+                }
+            }
+            row.child(
                 div()
                     .min_w(px(NAME_MIN))
                     .truncate()
                     // The current project reads as current even when it is
                     // muted: `ink` at semibold, the unmuted treatment.
-                    .font_weight(if self.muted && !self.current { gpui::FontWeight::MEDIUM } else { gpui::FontWeight::SEMIBOLD })
+                    .font_weight(if self.current { gpui::FontWeight::SEMIBOLD } else { gpui::FontWeight::MEDIUM })
                     .child(self.name),
-            );
-        if self.current {
+            )
+        };
+        if self.current && self.current_bar {
             // Inside the row's margin, so the bar marks this row without
             // shifting anything in it: the row is `relative`, the bar
             // absolute at its left edge.
@@ -906,7 +1104,7 @@ impl RenderOnce for ProjectGroupRow {
             row = row.child(div().flex_none().opacity(under_tray).child(tag(self.count)));
         }
         if self.on_group_action.is_some() {
-            row = row.child(group_tray(&id, flags.hovered, tray_opacity, &self.on_group_action, window, cx));
+            row = row.child(group_tray(&id, flags.hovered, tray_opacity, &self.on_group_action, &self.menu_bounds, window, cx));
         }
         if let Some(on_toggle) = self.on_toggle {
             row = row.on_click(move |e, w, cx| on_toggle(e, w, cx));
@@ -967,5 +1165,29 @@ mod tests {
         assert!(ProjectGroup::new("a", "a", "1").current(true).current);
         let muted_current = ProjectGroup::new("a", "a", "1").muted().current(true);
         assert!(muted_current.current && muted_current.muted);
+    }
+
+    /// The one gutter: the leading centre lands ≈ 18 px from the column
+    /// edge and every label at `NAV_LABEL_X`.
+    #[test]
+    fn gutter_arithmetic_lands_the_leading_centre_and_labels() {
+        assert_eq!(NAV_GUTTER, 8.0, "column edge → leading box");
+        assert_eq!(LEADING_BOX, 20.0, "the nav-icon / chevron / dot box");
+        assert_eq!(NAV_LABEL_X, 32.0, "where every label and title starts");
+        assert_eq!(NAV_GUTTER + LEADING_BOX / 2.0, 18.0, "leading centre from the column edge");
+        assert_eq!(NAV_GUTTER + LEADING_BOX + PJ_LEAD_GAP, NAV_LABEL_X, "box + gap reaches the labels");
+        assert_eq!(PJ_LEAD_GAP, 4.0, "the label gap stays on the 4/8 grid");
+    }
+
+    /// Plain by default: no chevron box, no current bar. `current` alone
+    /// keeps only the semibold ink name.
+    #[test]
+    fn group_rows_are_plain_unless_asked() {
+        let group = ProjectGroup::new("a", "a", "1");
+        assert!(!group.chevron && !group.current_bar, "data defaults to plain");
+        let row = project_group_row("a", "a", "1", false);
+        assert!(!row.chevron && !row.current_bar, "row defaults to plain");
+        let dressed = project_group_row("a", "a", "1", false).chevron(true).current_bar(true);
+        assert!(dressed.chevron && dressed.current_bar, "builders opt in");
     }
 }

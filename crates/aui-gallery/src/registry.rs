@@ -171,6 +171,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::dialog::build,
     },
     Entry {
+        id: "overlay/anchored",
+        group: "Shell",
+        title: "Anchored trigger menus",
+        subtitle: "Four triggers each opening a menu through anchored_menu: below-start, the flip above, the window clamp",
+        width: 800.0,
+        height: 500.0,
+        theme: CardTheme::Both,
+        build: crate::cards::anchored::build,
+    },
+    Entry {
         id: "sidebar/rows",
         group: "Sidebar",
         title: "Worktree rows",
@@ -229,6 +239,16 @@ pub static ENTRIES: &[Entry] = &[
         height: 360.0,
         theme: CardTheme::Both,
         build: crate::cards::folder_drop::build,
+    },
+    Entry {
+        id: "nav/gutter",
+        group: "Sidebar",
+        title: "Sidebar gutter",
+        subtitle: "One gutter for every row kind at 240 and 420 px: rulers through the leading centre and NAV_LABEL_X",
+        width: 720.0,
+        height: 400.0,
+        theme: CardTheme::Both,
+        build: crate::cards::gutter::build,
     },
     Entry {
         id: "transcript/markers",

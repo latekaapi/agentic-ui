@@ -295,6 +295,14 @@ impl RenderOnce for CommandPalette {
             .shadow(p.shadow(PAL_SHADOW))
             .overflow_hidden()
             .text_color(p.ink)
+            // The open palette owns the wheel over it: it occludes the
+            // surface behind (no hover/click/scroll-through) and stops the
+            // wheel on this same element — after the body's own scroll
+            // handler, which is registered later and so runs first in the
+            // bubble phase — so the palette's list scrolls and the surface
+            // beneath never does. Mirrors the composer menus.
+            .occlude()
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
             .child(query_row(&id, &p, &self.query, &self.placeholder, self.query_slot, self.on_dismiss.clone()));
         // The list scrolls inside a bounded body; the query row and the
         // footer stay put.

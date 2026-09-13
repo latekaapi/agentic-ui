@@ -1,6 +1,7 @@
 //! Card renderers, one module per design card.
 
 pub mod activity;
+pub mod anchored;
 pub mod app_shell;
 pub mod app_shell_native;
 pub mod approval;
@@ -17,6 +18,7 @@ pub mod diff_review;
 pub mod files_docs;
 pub mod folder_drop;
 pub mod git_pr;
+pub mod gutter;
 pub mod icons;
 pub mod login;
 pub mod markdown;
