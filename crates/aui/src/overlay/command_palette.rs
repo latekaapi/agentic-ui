@@ -161,18 +161,30 @@ impl PaletteItem {
 }
 
 /// A titled block of rows (`Worktrees`, `Actions`, `Files`).
-#[derive(Debug, Clone, PartialEq)]
+///
+/// A section may carry a `lead` element — rendered inside the palette under
+/// the section title and before the rows — as well as zero or more rows.
 pub struct PaletteSection {
     /// The caps header.
     pub title: SharedString,
     /// The rows, in order.
     pub items: Vec<PaletteItem>,
+    lead: Option<gpui::AnyElement>,
 }
 
 impl PaletteSection {
     /// A section with its header and rows.
     pub fn new(title: impl Into<SharedString>, items: Vec<PaletteItem>) -> Self {
-        Self { title: title.into(), items }
+        Self { title: title.into(), items, lead: None }
+    }
+
+    /// A non-row element drawn under the section title and before the rows,
+    /// with the rows' horizontal padding and a `SP_2` gap below it. It is
+    /// not a row: keyboard selection skips it, hover does nothing to it,
+    /// and it scrolls with the list. A section may have a lead and no rows.
+    pub fn lead(mut self, el: impl IntoElement) -> Self {
+        self.lead = Some(el.into_any_element());
+        self
     }
 }
 
@@ -326,6 +338,13 @@ impl RenderOnce for CommandPalette {
                         .text_color(p.ink_3)
                         .child(section.title.to_uppercase()),
                 );
+            // The lead is not a row: it draws under the title with the
+            // rows' horizontal padding and a `SP_2` gap below it, creates
+            // no selection index and wires no hover, and scrolls with the
+            // list because it lives inside the scrolling body.
+            if let Some(lead) = section.lead {
+                block = block.child(div().flex_none().w_full().px(px(ITEM_PAD_X)).pb(px(scale::SP_2)).child(lead));
+            }
             for item in section.items {
                 let (key, state) = rows[index].clone();
                 block = block.child(palette_row(key, state, &p, item, index, index == active, &self.on_select, &self.on_hover, window, cx));

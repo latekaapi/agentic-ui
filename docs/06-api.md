@@ -660,6 +660,7 @@ Overlays: the command palette (card 12), the modal dialog, and later menus and p
 - **struct** `PaletteScrim` — The dimmed ground the palette floats on. Build with `palette_scrim`.
 - **struct** `PaletteSection` — A titled block of rows (`Worktrees`, `Actions`, `Files`).
   - fields: `title`, `items`
+  - `pub fn lead(self, el: impl IntoElement) -> Self` — A non-row element drawn under the section title and before the rows, with the rows’ horizontal padding and a `SP_2` gap below it. [...]
   - `pub fn new(title: impl Into<SharedString>, items: Vec<PaletteItem>) -> Self` — A section with its header and rows.
 
 - **enum** `DialogKind` — What a dialog is about. The kind picks the tile’s glyph and its tint; nothing else in the card is coloured.

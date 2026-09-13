@@ -3,6 +3,7 @@
 //! hints. Reproduces `design/src/cards/shell/12-command-palette.html` at
 //! 760×520.
 
+use aui::nav::folder_drop_card;
 use aui::overlay::{command_palette, palette_scrim, PaletteIcon, PaletteItem, PaletteSection};
 use aui_icons::IconName;
 use aui_tokens::{ActiveAui, AgentState};
@@ -30,7 +31,8 @@ fn sections(p: &aui_tokens::Palette) -> Vec<PaletteSection> {
                 .key("↩"),
                 PaletteItem::new("orca", PaletteIcon::Mark { initial: "O".into(), colour: p.label(3) }, "orca").context("v2.4"),
             ],
-        ),
+        )
+        .lead(folder_drop_card("card12-folder-drop")),
         PaletteSection::new(
             "Worktrees",
             vec![
