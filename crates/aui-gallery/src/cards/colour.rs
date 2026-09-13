@@ -54,6 +54,7 @@ fn theme_section(title: &'static str, p: Palette) -> impl IntoElement {
                 .child(title.to_uppercase()),
         )
         .child(swatches(p))
+        .child(labels_row(p))
         .child(states(p, title))
         .child(diff_pair(p))
         .child(ansi_grid(p))
@@ -107,6 +108,44 @@ fn swatches(p: Palette) -> impl IntoElement {
         grid = grid.child(r);
     }
     grid
+}
+
+/// The label ramp: the eight project colours, red through pink.
+fn labels_row(p: Palette) -> impl IntoElement {
+    let names = ["label-1", "label-2", "label-3", "label-4", "label-5", "label-6", "label-7", "label-8"];
+    let mut row = h_flex().w_full().gap(px(4.0)).mb(px(12.0));
+    for (i, name) in names.into_iter().enumerate() {
+        row = row.child(
+            div()
+                .flex_1()
+                .h(px(30.0))
+                .rounded(px(3.0))
+                .bg(p.label(i as u8))
+                .flex()
+                .items_end()
+                .px(px(6.0))
+                .py(px(5.0))
+                .font_family(scale::FONT_MONO)
+                .text_px(10.0)
+                .line_height(relative(1.0))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(p.bg)
+                .child(name),
+        );
+    }
+    v_flex()
+        .w_full()
+        .child(
+            div()
+                .mb(px(4.0))
+                .font_family(scale::FONT_MONO)
+                .text_px(10.0)
+                .line_height(relative(1.0))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(p.ink_3)
+                .child("LABELS · PROJECT IDENTITY, NEVER STATUS"),
+        )
+        .child(row)
 }
 
 fn states(p: Palette, section: &'static str) -> impl IntoElement {

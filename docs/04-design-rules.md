@@ -2,6 +2,7 @@
 
 Calm colour
 - Accent is the only decorative hue; status colours only carry meaning. Neutrals are tinted toward the accent.
+- Labels: the eight-colour `label-1 … label-8` ramp is the identity of a project, never status. A project's mark, group row, rail tile and palette row share its label colour; nothing else takes one, and a label colour never stands in for running, warning, done or failed.
 - No glows, no halos. Pending dialogs (approval, question, error) get a plain 1 px border in their status colour at ~70% alpha. Resolved cards fall back to the hairline.
 - Tags (repo, branch, counts, paths) are plain muted mono text with no background. Pills with tinted grounds are for status only.
 - Selected rows use a surface step (surface-3), never an accent wash. Tab indicators and progress bars use ink, not accent.

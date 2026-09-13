@@ -149,6 +149,11 @@ documented in `crates/aui-gallery/src/cards/views.rs`.
 | 21 Sidebar | nav::Sidebar, Rail | sidebar/sidebar | e8ceba3 · 1.0 % |
 | 22 Assistant sidebar | nav::RoleSections | sidebar/assistant | e8ceba3 · 1.6 % (tracking) |
 | 23 Sidebar views | nav::SidebarView (status/project/date), ViewMenu | sidebar/views | e8ceba3 · 1.0 % |
+| 24 Project mark | nav::ProjectMark, aui-tokens `label-1 … label-8`, Palette::label | nav/project-mark | — (new, no reference) |
+| — | nav::ProjectGroup mark/trailing/state, GroupAction, SidebarView::on_group_action | sidebar/views (project grouping) | — (new, no reference) |
+| — | nav::MenuRow::Swatch, view_submenu_rows | sidebar/views (Colour submenu) | — (new, no reference) |
+| — | nav::RailItem::tint | sidebar/sidebar (rail tiles) | — (new, no reference) |
+| — | overlay::PaletteIcon::Mark | shell/command-palette (Projects) | — (new, no reference) |
 | 30 Header identity and markers | shell::CentreHeader, transcript::MarkerRow | transcript/markers | a70ab8a · 1.0 % |
 | 31 Turns | transcript::UserTurn, AssistantTurn, prose | transcript/turns | dc89a4a · 1.7 % (inline code size) |
 | 32 Thinking | transcript::ThinkingBlock | transcript/thinking | a70ab8a · 1.1 % |

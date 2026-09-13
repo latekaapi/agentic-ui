@@ -65,6 +65,23 @@ impl Palette {
         }
     }
 
+    /// One of the eight project label colours, red through pink in token
+    /// order (`label-1` … `label-8`). The index wraps, so `0` and `8` are
+    /// both `label-1`: a project record stores its colour as a number and
+    /// never checks the range.
+    pub fn label(&self, index: u8) -> gpui::Hsla {
+        match index % 8 {
+            0 => self.label_1,
+            1 => self.label_2,
+            2 => self.label_3,
+            3 => self.label_4,
+            4 => self.label_5,
+            5 => self.label_6,
+            6 => self.label_7,
+            _ => self.label_8,
+        }
+    }
+
     /// The colour that carries an agent state (running → accent, waiting →
     /// warning, done → success, failed → danger, idle → ink-4).
     pub fn agent_state(&self, state: AgentState) -> gpui::Hsla {
@@ -143,6 +160,25 @@ mod tests {
         }
         assert!(Palette::COLOR_NAMES.contains(&"accent"));
         assert!(Palette::COLOR_NAMES.contains(&"ansi-bwhite"));
+    }
+
+    #[test]
+    fn label_ramp_has_eight_colours_in_each_theme() {
+        for theme in [ThemeKind::Light, ThemeKind::Dark] {
+            let palette = Palette::for_kind(theme);
+            let labels: Vec<&&str> = Palette::COLOR_NAMES.iter().filter(|n| n.starts_with("label-")).collect();
+            assert_eq!(labels.len(), 8, "{theme:?} has {} label names", labels.len());
+            for i in 1..=8 {
+                let name = format!("label-{i}");
+                assert!(Palette::COLOR_NAMES.contains(&name.as_str()), "{theme:?} missing {name}");
+                assert!(palette.color(&name).is_some(), "{theme:?} cannot look up {name}");
+            }
+        }
+        let light = light();
+        assert_eq!(light.label(0), light.label_1);
+        assert_eq!(light.label(7), light.label_8);
+        assert_eq!(light.label(8), light.label_1);
+        assert_eq!(dark().label(15), dark().label_8);
     }
 
     #[test]

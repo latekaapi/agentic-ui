@@ -89,6 +89,10 @@ pub enum RailItem {
         /// initial with the state dot as a corner badge, and the title is
         /// the cell's tooltip; without one, the cell is the bare dot.
         label: Option<SharedString>,
+        /// The tile's initial is drawn in this colour (the project label)
+        /// instead of the default ink; ignored without a `label`, and by
+        /// other kinds.
+        tint: Option<gpui::Hsla>,
     },
 }
 
@@ -105,7 +109,7 @@ impl RailItem {
 
     /// A session cell.
     pub fn session(id: impl Into<SharedString>, state: AgentState) -> Self {
-        RailItem::Session { id: id.into(), state, pulse: false, selected: false, label: None }
+        RailItem::Session { id: id.into(), state, pulse: false, selected: false, label: None, tint: None }
     }
 
     /// Titles a [`RailItem::Session`]: the tile shows its initial and the
@@ -146,6 +150,17 @@ impl RailItem {
     pub fn selected(mut self, is_selected: bool) -> Self {
         if let RailItem::Session { selected, .. } = &mut self {
             *selected = is_selected;
+        }
+        self
+    }
+
+    /// Draws a [`RailItem::Session`] tile's initial in `colour` (the project
+    /// label) instead of the default ink; the state dot and everything else
+    /// are unchanged. Ignored without a [`RailItem::label`], and by other
+    /// kinds.
+    pub fn tint(mut self, colour: gpui::Hsla) -> Self {
+        if let RailItem::Session { tint, .. } = &mut self {
+            *tint = Some(colour);
         }
         self
     }
@@ -253,15 +268,16 @@ impl RenderOnce for Rail {
                     }
                     col = col.child(cell);
                 }
-                RailItem::Session { id: session_id, state: agent_state, pulse, selected, label } => {
+                RailItem::Session { id: session_id, state: agent_state, pulse, selected, label, tint } => {
                     let cell_id: ElementId = (id.clone(), SharedString::from(format!("session-{i}"))).into();
                     let (state, flags) = interaction_flags(cell_id.clone(), window, cx);
-                    let tint = if selected { p.accent_soft } else { p.surface_2 };
+                    let ground = if selected { p.accent_soft } else { p.surface_2 };
                     // A titled cell is a tile that reads even when it is not
                     // selected: the ground is always there, only its tint
                     // moves with hover and selection.
                     let lit = selected || flags.hovered || label.is_some();
-                    let bg = tint_fade((cell_id.clone(), "bg"), lit, tint, Tween::FAST, window, cx);
+                    let bg = tint_fade((cell_id.clone(), "bg"), lit, ground, Tween::FAST, window, cx);
+                    let initial_color = tint.unwrap_or(if selected { p.accent_ink } else { p.ink_2 });
                     let mut cell = div()
                         .id(cell_id.clone())
                         .flex_none()
@@ -272,7 +288,7 @@ impl RenderOnce for Rail {
                         .size(px(CELL))
                         .rounded(px(scale::R_SM))
                         .bg(bg)
-                        .text_color(if selected { p.accent_ink } else { p.ink_2 })
+                        .text_color(initial_color)
                         .cursor_pointer()
                         .track_interaction(&state);
                     match label {

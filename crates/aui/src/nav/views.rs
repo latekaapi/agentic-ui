@@ -9,14 +9,15 @@
 
 use std::rc::Rc;
 
-use aui_icons::{icon, FileType};
+use aui_icons::{icon, FileType, IconName};
 use aui_motion::collapse;
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::tag;
-use crate::nav::{compact_session_row, group_header, group_row, RowAction, SessionSummary};
+use crate::data::{icon_button, status_dot, tag, ButtonSize};
+use crate::nav::{compact_session_row, group_header, group_row, project_mark, RowAction, SessionSummary};
+use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.pj{gap:8px;height:30px;padding:0 10px;margin:4px 8px 0;font-weight:600;font-size:12.5px}`.
 /// The height is the shared row metric.
@@ -30,6 +31,18 @@ const PJ_TEXT: f32 = 12.5;
 const PJ_CHEVRON: f32 = 11.0;
 /// `.fic{width:14px;height:14px}` — the folder mark on a project row.
 const FIC: f32 = 14.0;
+/// The project mark on a group row: 18 px, as the sidebar header draws it.
+const GROUP_MARK: f32 = 18.0;
+/// The trailing branch: mono 11 ink-3, truncating.
+const TRAIL_TEXT: f32 = scale::FS_11;
+const TRAIL_MAX: f32 = 120.0;
+/// The hover tray: the same right/top inset the session row's tray uses, so
+/// the two trays sit in the same place.
+const TRAY_RIGHT: f32 = 8.0;
+const TRAY_TOP: f32 = 6.0;
+const TRAY_GAP: f32 = 2.0;
+const TRAY_PAD: f32 = 1.0;
+const TRAY_GLYPH: f32 = 12.0;
 /// `.dg{gap:8px;height:26px;padding:0 12px;margin-top:8px;font-size:11px;font-weight:600;text-transform:uppercase}`.
 const DG_GAP: f32 = 8.0;
 const DG_H: f32 = 26.0;
@@ -41,6 +54,8 @@ type SelectHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 type ToggleHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 type PlainHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 type RowActionHandler = Rc<dyn Fn(&SharedString, RowAction, &mut Window, &mut App)>;
+type GroupActionHandler = Rc<dyn Fn(&SharedString, GroupAction, &mut Window, &mut App)>;
+type GroupRowActionHandler = Rc<dyn Fn(GroupAction, &mut Window, &mut App)>;
 
 /// A status group: `Needs you 1`, `Running 3`, `Done 2`.
 #[derive(Debug, Clone, PartialEq)]
@@ -75,6 +90,15 @@ impl StatusGroup {
     }
 }
 
+/// What a project group row's hover tray asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupAction {
+    /// The `Plus` button: start a session in this project.
+    New,
+    /// The `Dots` button: open this project's menu.
+    Menu,
+}
+
 /// A project group: the `.pj` row and the sessions (and their children) below.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProjectGroup {
@@ -86,8 +110,16 @@ pub struct ProjectGroup {
     pub count: SharedString,
     /// Open: folder-open icon, chevron rotated, rows visible.
     pub open: bool,
-    /// Muted (`Archived`): ink-3 at weight 500.
+    /// Muted (`Archived`, `Other workspaces`): ink-3 at weight 500, and the
+    /// folder glyph stays even when a mark is set.
     pub muted: bool,
+    /// The project's mark: its initial and label colour, drawn in place of
+    /// the folder glyph. A group with no mark (muted ones) keeps the folder.
+    pub mark: Option<(SharedString, gpui::Hsla)>,
+    /// The trailing mono text before the count (the branch).
+    pub trailing: Option<SharedString>,
+    /// The rolled-up agent state: a status dot after the name.
+    pub state: Option<aui_tokens::AgentState>,
     /// The rows under the project row.
     pub sessions: Vec<SessionSummary>,
 }
@@ -95,7 +127,17 @@ pub struct ProjectGroup {
 impl ProjectGroup {
     /// A closed, unmuted project.
     pub fn new(id: impl Into<SharedString>, name: impl Into<SharedString>, count: impl Into<SharedString>) -> Self {
-        Self { id: id.into(), name: name.into(), count: count.into(), open: false, muted: false, sessions: Vec::new() }
+        Self {
+            id: id.into(),
+            name: name.into(),
+            count: count.into(),
+            open: false,
+            muted: false,
+            mark: None,
+            trailing: None,
+            state: None,
+            sessions: Vec::new(),
+        }
     }
 
     /// Opens the project and gives it its sessions.
@@ -105,9 +147,28 @@ impl ProjectGroup {
         self
     }
 
-    /// Mutes the row (`Archived`).
+    /// Mutes the row (`Archived`, `Other workspaces`).
     pub fn muted(mut self) -> Self {
         self.muted = true;
+        self
+    }
+
+    /// Draws the project's mark in place of the folder glyph.
+    pub fn mark(mut self, initial: impl Into<SharedString>, colour: gpui::Hsla) -> Self {
+        self.mark = Some((initial.into(), colour));
+        self
+    }
+
+    /// Sets the trailing mono text before the count (the branch).
+    pub fn trailing(mut self, text: impl Into<SharedString>) -> Self {
+        self.trailing = Some(text.into());
+        self
+    }
+
+    /// Sets the rolled-up agent state: a status dot after the name, pulsing
+    /// while a session runs.
+    pub fn state(mut self, state: aui_tokens::AgentState) -> Self {
+        self.state = Some(state);
         self
     }
 }
@@ -154,6 +215,7 @@ pub struct SidebarView {
     on_toggle: Option<ToggleHandler>,
     on_view_options: Option<PlainHandler>,
     on_action: Option<RowActionHandler>,
+    on_group_action: Option<GroupActionHandler>,
 }
 
 /// The sessions of a sidebar, grouped by `grouping`.
@@ -175,6 +237,7 @@ pub fn sidebar_view(id: impl Into<ElementId>, grouping: impl Into<Rc<Grouping>>)
         on_toggle: None,
         on_view_options: None,
         on_action: None,
+        on_group_action: None,
     }
 }
 
@@ -231,6 +294,13 @@ impl SidebarView {
         self.on_action = Some(Rc::new(f));
         self
     }
+
+    /// A project group row's hover action was clicked; the arguments are the
+    /// group id and what the tray button asked for.
+    pub fn on_group_action(mut self, f: impl Fn(&SharedString, GroupAction, &mut Window, &mut App) + 'static) -> Self {
+        self.on_group_action = Some(Rc::new(f));
+        self
+    }
 }
 
 /// The rows of one group, ready to be revealed.
@@ -272,7 +342,8 @@ fn rows<'a>(
 
 impl RenderOnce for SidebarView {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let SidebarView { id, grouping, caption, selected, actions, editing, on_select, on_toggle, on_view_options, on_action } = self;
+        let SidebarView { id, grouping, caption, selected, actions, editing, on_select, on_toggle, on_view_options, on_action, on_group_action } =
+            self;
         let mut col = v_flex().w_full();
 
         if let Some(caption) = caption {
@@ -307,9 +378,22 @@ impl RenderOnce for SidebarView {
                     if group.muted {
                         row = row.muted();
                     }
+                    if let Some((initial, colour)) = group.mark.clone() {
+                        row = row.mark(initial, colour);
+                    }
+                    if let Some(trailing) = group.trailing.clone() {
+                        row = row.trailing(trailing);
+                    }
+                    if let Some(state) = group.state {
+                        row = row.state(state);
+                    }
                     if let Some(h) = on_toggle.clone() {
                         let group_id = group.id.clone();
                         row = row.on_toggle(move |_, w, cx| h(&group_id, w, cx));
+                    }
+                    if let Some(h) = on_group_action.clone() {
+                        let group_id = group.id.clone();
+                        row = row.on_group_action(move |action, w, cx| h(&group_id, action, w, cx));
                     }
                     let body = rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action);
                     let (reveal, _) = collapse((key, "body"), group.open, body, window, cx);
@@ -357,7 +441,11 @@ pub struct ProjectGroupRow {
     count: SharedString,
     open: bool,
     muted: bool,
+    mark: Option<(SharedString, gpui::Hsla)>,
+    trailing: Option<SharedString>,
+    state: Option<aui_tokens::AgentState>,
     on_toggle: Option<crate::util::ClickHandler>,
+    on_group_action: Option<GroupRowActionHandler>,
 }
 
 /// A project row: chevron, folder mark, name, count.
@@ -367,7 +455,18 @@ pub fn project_group_row(
     count: impl Into<SharedString>,
     open: bool,
 ) -> ProjectGroupRow {
-    ProjectGroupRow { id: id.into(), name: name.into(), count: count.into(), open, muted: false, on_toggle: None }
+    ProjectGroupRow {
+        id: id.into(),
+        name: name.into(),
+        count: count.into(),
+        open,
+        muted: false,
+        mark: None,
+        trailing: None,
+        state: None,
+        on_toggle: None,
+        on_group_action: None,
+    }
 }
 
 impl ProjectGroupRow {
@@ -377,22 +476,95 @@ impl ProjectGroupRow {
         self
     }
 
+    /// Draws the project's mark in place of the folder glyph. Muted groups
+    /// keep the folder glyph.
+    pub fn mark(mut self, initial: impl Into<SharedString>, colour: gpui::Hsla) -> Self {
+        self.mark = Some((initial.into(), colour));
+        self
+    }
+
+    /// Sets the trailing mono text before the count (the branch).
+    pub fn trailing(mut self, text: impl Into<SharedString>) -> Self {
+        self.trailing = Some(text.into());
+        self
+    }
+
+    /// Sets the rolled-up agent state: a status dot after the name, pulsing
+    /// while a session runs.
+    pub fn state(mut self, state: aui_tokens::AgentState) -> Self {
+        self.state = Some(state);
+        self
+    }
+
     /// Toggle click.
     pub fn on_toggle(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_toggle = Some(Box::new(f));
         self
     }
+
+    /// A hover-tray button was clicked; the argument is what it asked for.
+    pub fn on_group_action(mut self, f: impl Fn(GroupAction, &mut Window, &mut App) + 'static) -> Self {
+        self.on_group_action = Some(Rc::new(f));
+        self
+    }
+}
+
+/// The hover tray at a project row's right end: `Plus` (new session here)
+/// and `Dots` (this project's menu), over the row's own surface-2 ground so
+/// it covers the count the way the session row's tray covers its meta.
+fn group_tray(
+    id: &ElementId,
+    visible: bool,
+    on_group_action: &Option<GroupRowActionHandler>,
+    window: &mut Window,
+    cx: &mut App,
+) -> gpui::Div {
+    let p = cx.aui().colors;
+    let opacity = aui_motion::tween((id.clone(), "tray-opacity"), if visible { 1.0f32 } else { 0.0 }, aui_motion::Tween::FAST, window, cx);
+    let mut tray = h_flex()
+        .absolute()
+        .right(px(TRAY_RIGHT))
+        .top(px(TRAY_TOP))
+        .gap(px(TRAY_GAP))
+        .p(px(TRAY_PAD))
+        .rounded(px(scale::R_SM))
+        .bg(p.surface_2)
+        .opacity(opacity);
+    for (glyph, action, name) in [(IconName::Plus, GroupAction::New, "new"), (IconName::Dots, GroupAction::Menu, "menu")] {
+        let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(TRAY_GLYPH));
+        if let Some(handler) = on_group_action.clone() {
+            // The tray sits inside the row, and gpui fires every `on_click`
+            // up the tree in the bubble phase: without this the tray buttons
+            // also toggled the group. The action is the whole click.
+            b = b.on_click(move |_, w, cx| {
+                cx.stop_propagation();
+                handler(action, w, cx)
+            });
+        }
+        tray = tray.child(b);
+    }
+    if !visible && opacity <= 0.001 {
+        tray = tray.invisible();
+    }
+    tray
 }
 
 impl RenderOnce for ProjectGroupRow {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
+        let (hover_state, flags) = interaction_flags(id.clone(), window, cx);
         // `.pj .chev{width:11px}` rotates 0° → 90° on the swap spring.
         let chev = super::chevron_sized(id.clone(), self.open, p.ink_3, PJ_CHEVRON, window, cx);
         let folder = if self.open { FileType::FolderOpen } else { FileType::Folder };
+        // Muted groups keep the folder glyph; the rest draw their mark.
+        let leading: gpui::AnyElement = match &self.mark {
+            Some((initial, colour)) if !self.muted => project_mark(initial.clone(), *colour).size(px(GROUP_MARK)).into_any_element(),
+            _ => icon(folder.icon()).size(px(FIC)).color(p.ink_3).into_any_element(),
+        };
         let mut row = h_flex()
-            .id(id)
+            .id(id.clone())
+            .relative()
             .w_full()
             .h(cx.aui().metrics.row)
             .flex_none()
@@ -403,17 +575,37 @@ impl RenderOnce for ProjectGroupRow {
             .ui(PJ_TEXT)
             .text_color(if self.muted { p.ink_3 } else { p.ink })
             .cursor_pointer()
+            .track_interaction(&hover_state)
             .child(chev)
-            .child(icon(folder.icon()).size(px(FIC)).color(p.ink_3))
+            .child(leading)
             .child(
                 div()
                     .min_w(px(0.0))
                     .truncate()
                     .font_weight(if self.muted { gpui::FontWeight::MEDIUM } else { gpui::FontWeight::SEMIBOLD })
                     .child(self.name),
-            )
-            .child(div().flex_1())
-            .child(tag(self.count));
+            );
+        if let Some(state) = self.state {
+            let pulse = state == aui_tokens::AgentState::Running;
+            row = row.child(status_dot((id.clone(), "state"), state).pulse(pulse));
+        }
+        row = row.child(div().flex_1());
+        if let Some(trailing) = self.trailing {
+            row = row.child(
+                div()
+                    .flex_none()
+                    .mono(TRAIL_TEXT)
+                    .text_color(p.ink_3)
+                    .max_w(px(TRAIL_MAX))
+                    .truncate()
+                    .child(trailing),
+            );
+        }
+        row = row.child(tag(self.count));
+        if self.on_group_action.is_some() {
+            let tray_visible = flags.hovered;
+            row = row.child(group_tray(&id, tray_visible, &self.on_group_action, window, cx));
+        }
         if let Some(on_toggle) = self.on_toggle {
             row = row.on_click(move |e, w, cx| on_toggle(e, w, cx));
         }

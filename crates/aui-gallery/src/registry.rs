@@ -211,6 +211,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::views::build,
     },
     Entry {
+        id: "nav/project-mark",
+        group: "Sidebar",
+        title: "Project mark",
+        subtitle: "The eight label colours at 14, 18 and 22 px",
+        width: 760.0,
+        height: 380.0,
+        theme: CardTheme::Both,
+        build: crate::cards::project_mark::build,
+    },
+    Entry {
         id: "transcript/markers",
         group: "Transcript",
         title: "Header identity and markers",

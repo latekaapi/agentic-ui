@@ -4,7 +4,7 @@
 
 use aui::keys::{Cancel, Confirm, SelectNext, SelectPrev, MENU_CONTEXT};
 use aui::nav::{
-    nav_item, sidebar_search, sidebar_view, view_menu, view_submenu, DateGroup, Grouping, MenuRow, ProjectGroup, RowAction,
+    nav_item, sidebar_search, sidebar_view, view_menu, view_submenu, view_submenu_rows, DateGroup, Grouping, MenuRow, ProjectGroup, RowAction,
     SessionSummary, StatusGroup,
 };
 use aui::nav::{ActivityKind, MetaItem};
@@ -88,22 +88,27 @@ fn status_groups() -> Vec<StatusGroup> {
     ]
 }
 
-/// The project grouping of column two.
-fn project_groups() -> Vec<ProjectGroup> {
+/// The project grouping of column two: marks, a trailing branch, one running
+/// group with its dot, and the closed muted "Other workspaces" group.
+fn project_groups(p: &Palette) -> Vec<ProjectGroup> {
     vec![
-        ProjectGroup::new("acme-web", "acme-web", "5").open(vec![
-            SessionSummary::new("checkout", "checkout-flow-v2", AgentState::Running, "49m")
-                .pulse()
-                .activity(ActivityKind::Working, "running regression tests"),
-            SessionSummary::new("auth-flow", "redesign auth flow", AgentState::Running, "8m")
-                .meta(MetaItem::Text("2 children · PR 1/2 ready".into()))
-                .child(SessionSummary::new("pr1", "PR 1/2 · migrate users.sql", AgentState::Done, "6m"))
-                .child(SessionSummary::new("pr2", "PR 2/2 · withSession", AgentState::Running, "now")),
-            auth_refresh(),
-        ]),
-        ProjectGroup::new("orca", "orca", "2").open(vec![notifier()]),
-        ProjectGroup::new("acme-internal", "acme-internal", "4"),
-        ProjectGroup::new("archived", "Archived", "37").muted(),
+        ProjectGroup::new("acme-web", "acme-web", "5")
+            .mark("A", p.label(5))
+            .trailing("main")
+            .state(AgentState::Running)
+            .open(vec![
+                SessionSummary::new("checkout", "checkout-flow-v2", AgentState::Running, "49m")
+                    .pulse()
+                    .activity(ActivityKind::Working, "running regression tests"),
+                SessionSummary::new("auth-flow", "redesign auth flow", AgentState::Running, "8m")
+                    .meta(MetaItem::Text("2 children · PR 1/2 ready".into()))
+                    .child(SessionSummary::new("pr1", "PR 1/2 · migrate users.sql", AgentState::Done, "6m"))
+                    .child(SessionSummary::new("pr2", "PR 2/2 · withSession", AgentState::Running, "now")),
+                auth_refresh(),
+            ]),
+        ProjectGroup::new("orca", "orca", "2").mark("O", p.label(3)).trailing("v2.4").open(vec![notifier()]),
+        ProjectGroup::new("acme-internal", "acme-internal", "4").mark("I", p.label(1)),
+        ProjectGroup::new("other", "Other workspaces", "3").muted(),
     ]
 }
 
@@ -213,10 +218,10 @@ impl GroupBy {
     }
 
     /// The grouping (and its sessions) this choice renders.
-    fn grouping(self) -> Grouping {
+    fn grouping(self, p: &Palette) -> Grouping {
         match self {
             GroupBy::Status => Grouping::Status(status_groups()),
-            GroupBy::Project => Grouping::Project(project_groups()),
+            GroupBy::Project => Grouping::Project(project_groups(p)),
             GroupBy::Date => Grouping::Date(date_groups()),
         }
     }
@@ -390,6 +395,16 @@ fn group_items() -> Vec<SharedString> {
     vec!["Status".into(), "Project".into(), "Date".into(), "Custom groups".into(), "None".into()]
 }
 
+/// The eight rows of the `Colour` submenu: the label ramp, with the current
+/// project's colour checked.
+fn colour_rows(p: &Palette) -> Vec<MenuRow> {
+    ["Red", "Orange", "Yellow", "Green", "Teal", "Blue", "Violet", "Pink"]
+        .into_iter()
+        .enumerate()
+        .map(|(i, name)| MenuRow::Swatch { label: name.into(), colour: p.label(i as u8), checked: i == 5 })
+        .collect()
+}
+
 /// The `.ttl` above each column.
 const TITLES: [&str; COLUMNS] = ["Group by status", "Group by project · sessions and children", "By date · flat"];
 /// The caps group row of each column — the column's own name, not its grouping.
@@ -539,7 +554,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 }
             }
         };
-        let mut view = sidebar_view(VIEW_IDS[i], group_by[i].grouping())
+        let mut view = sidebar_view(VIEW_IDS[i], group_by[i].grouping(&p))
             .caption(CAPTIONS[i])
             .selected("checkout")
             .on_view_options(on_view_options);
@@ -576,6 +591,8 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .at_rest(),
             ),
         )
+        .child(div().mt(px(NOTE_TOP)).ui(scale::FS_12).text_color(p.ink_3).child("Colour · the project submenu"))
+        .child(view_submenu_rows("view-colour", colour_rows(&p)).at_rest())
         .child(
             div().mt(px(NOTE_TOP)).ui(scale::FS_12).text_color(p.ink_3).child(
                 "One row anatomy serves every view: status dot, name, elapsed time, and an optional \

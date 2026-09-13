@@ -13,12 +13,13 @@ use aui_icons::{icon, IconName};
 use aui_motion::{presence, tint_fade, tween, EnterExit, PresenceStyle, Tween};
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette, TextRole};
 use gpui::{
-    black, div, linear_color_stop, linear_gradient, prelude::*, px, App, ElementId, FontWeight, HighlightStyle, IntoElement, SharedString,
+    black, div, linear_color_stop, linear_gradient, prelude::*, px, App, ElementId, FontWeight, HighlightStyle, Hsla, IntoElement, SharedString,
     StyledText, Window,
 };
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{kbd, pill, status_dot, PillVariant};
+use crate::nav::project_mark;
 use crate::util::{interaction_flags, Interaction};
 
 /// `.scrim{height:470px;border-radius:var(--r-lg);padding-top:56px}`.
@@ -64,6 +65,8 @@ const ITEM_PAD_X: f32 = 10.0;
 const ITEM_ICON: f32 = 14.0;
 /// `.it .hint{gap:4px}`.
 const HINT_GAP: f32 = 4.0;
+/// A project mark in the leading slot: 14 px, as menu rows draw it.
+const MARK: f32 = 14.0;
 /// `.it .subtle.mono{font-size:11px}` — the worktree's repo.
 const CONTEXT_TEXT: f32 = scale::FS_11;
 /// `.it .pill{height:16px}` — the "needs you" badge is the short pill.
@@ -83,13 +86,20 @@ type HoverHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 type DismissHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// The leading glyph of a palette row: an icon for actions and files, a status
-/// dot for worktrees.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// dot for worktrees, a project mark for projects.
+#[derive(Debug, Clone, PartialEq)]
 pub enum PaletteIcon {
     /// A line icon from the sprite (ink-3, ink when the row is highlighted).
     Glyph(IconName),
     /// A 7 px status dot in the agent state's colour.
     Dot(AgentState),
+    /// A 14 px project mark in the project's label colour.
+    Mark {
+        /// The mark's initial.
+        initial: SharedString,
+        /// The mark's fill (the project label colour).
+        colour: Hsla,
+    },
 }
 
 /// One row of the palette.
@@ -425,6 +435,7 @@ fn palette_row(
     row = match item.icon {
         PaletteIcon::Glyph(name) => row.child(icon(name).size(px(ITEM_ICON)).color(glyph_color)),
         PaletteIcon::Dot(state) => row.child(status_dot((id.clone(), "dot"), state)),
+        PaletteIcon::Mark { initial, colour } => row.child(project_mark(initial, colour).size(px(MARK))),
     };
 
     row = row.child(label(p, &item.label, &item.matched));

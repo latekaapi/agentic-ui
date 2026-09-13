@@ -26,6 +26,8 @@ const VALUE_GAP: f32 = 4.0;
 /// The submenu chevron on a value row is 10 px; the check is 14 px.
 const VALUE_CHEVRON: f32 = 10.0;
 const CHECK: f32 = 14.0;
+/// A swatch row's leading colour circle.
+const SWATCH: f32 = 10.0;
 /// `.menu .sep{height:1px;margin:6px 4px}`.
 const SEP_H: f32 = 1.0;
 const SEP_MARGIN_Y: f32 = 6.0;
@@ -56,6 +58,16 @@ pub enum MenuRow {
     Toggle {
         /// The left label.
         label: SharedString,
+        /// Draws the check.
+        checked: bool,
+    },
+    /// A toggle row with a leading colour swatch (the project colour
+    /// submenu): the check is drawn as [`MenuRow::Toggle`] draws it.
+    Swatch {
+        /// The left label.
+        label: SharedString,
+        /// The 10 px circle before the label.
+        colour: gpui::Hsla,
         /// Draws the check.
         checked: bool,
     },
@@ -140,6 +152,26 @@ fn menu_row(id: ElementId, height: gpui::Pixels, ground: gpui::Hsla, window: &mu
         .track_interaction(&state)
 }
 
+/// A toggle row's content in either menu: the optional leading colour
+/// swatch, the truncating label, and the accent-ink check when on.
+fn toggle_row(
+    mut el: gpui::Stateful<gpui::Div>,
+    label: SharedString,
+    checked: bool,
+    swatch: Option<gpui::Hsla>,
+    check: f32,
+    p: &aui_tokens::Palette,
+) -> gpui::Stateful<gpui::Div> {
+    if let Some(colour) = swatch {
+        el = el.child(div().flex_none().size(px(SWATCH)).rounded_full().bg(colour));
+    }
+    el = el.child(div().min_w(px(0.0)).truncate().child(label)).child(div().flex_1());
+    if checked {
+        el = el.child(icon(IconName::Check).size(px(check)).color(p.accent_ink));
+    }
+    el
+}
+
 /// `.menu .sep` / `.sub .sep`.
 fn separator(p: &aui_tokens::Palette) -> gpui::Div {
     div().flex_none().h(px(SEP_H)).my(px(SEP_MARGIN_Y)).mx(px(SEP_MARGIN_X)).bg(p.line)
@@ -178,12 +210,15 @@ impl RenderOnce for ViewMenu {
                     menu = menu.child(el);
                 }
                 MenuRow::Toggle { label, checked } => {
-                    let mut el = menu_row(key, row_h, gpui::transparent_black(), window, cx)
-                        .child(div().min_w(px(0.0)).truncate().child(label))
-                        .child(div().flex_1());
-                    if checked {
-                        el = el.child(icon(IconName::Check).size(px(CHECK)).color(p.accent_ink));
+                    let mut el = toggle_row(menu_row(key, row_h, gpui::transparent_black(), window, cx), label, checked, None, CHECK, &p);
+                    if let Some(h) = self.on_activate.clone() {
+                        el = el.on_click(move |_, w, cx| h(i, w, cx));
                     }
+                    menu = menu.child(el);
+                }
+                MenuRow::Swatch { label, colour, checked } => {
+                    let mut el =
+                        toggle_row(menu_row(key, row_h, gpui::transparent_black(), window, cx), label, checked, Some(colour), CHECK, &p);
                     if let Some(h) = self.on_activate.clone() {
                         el = el.on_click(move |_, w, cx| h(i, w, cx));
                     }
@@ -195,11 +230,14 @@ impl RenderOnce for ViewMenu {
     }
 }
 
-/// The 170 px submenu of the `Group by` row. Build with [`view_submenu`].
+/// The 170 px submenu of the `Group by` row. Build with [`view_submenu`], or
+/// with [`view_submenu_rows`] for rows that carry their own checks (the
+/// project colour swatches).
 #[derive(IntoElement)]
 pub struct ViewSubmenu {
     id: ElementId,
     items: Vec<SharedString>,
+    rows: Vec<MenuRow>,
     selected: Option<usize>,
     separator_before: Option<usize>,
     present: bool,
@@ -209,7 +247,14 @@ pub struct ViewSubmenu {
 
 /// A submenu listing `items`, with `selected` marked by an accent-ink check.
 pub fn view_submenu(id: impl Into<ElementId>, items: Vec<SharedString>, selected: Option<usize>) -> ViewSubmenu {
-    ViewSubmenu { id: id.into(), items, selected, separator_before: None, present: true, timing: EnterExit::DEFAULT, on_activate: None }
+    ViewSubmenu { id: id.into(), items, rows: Vec::new(), selected, separator_before: None, present: true, timing: EnterExit::DEFAULT, on_activate: None }
+}
+
+/// A submenu of menu rows, each carrying its own check (a `Colour` submenu
+/// of [`MenuRow::Swatch`] rows). Indices reported by `on_activate` count
+/// across the plain `items` first, then these rows.
+pub fn view_submenu_rows(id: impl Into<ElementId>, rows: Vec<MenuRow>) -> ViewSubmenu {
+    ViewSubmenu { id: id.into(), items: Vec::new(), rows, selected: None, separator_before: None, present: true, timing: EnterExit::DEFAULT, on_activate: None }
 }
 
 impl ViewSubmenu {
@@ -247,6 +292,7 @@ impl RenderOnce for ViewSubmenu {
         let style = PresenceStyle::fade_rise(sample, MENU_RISE);
 
         let mut menu = menu_surface(&p, SUB_W).relative().top(style.offset_y).opacity(style.opacity);
+        let plain = self.items.len();
         for (i, label) in self.items.into_iter().enumerate() {
             if self.separator_before == Some(i) {
                 menu = menu.child(separator(&p));
@@ -262,6 +308,38 @@ impl RenderOnce for ViewSubmenu {
                 el = el.on_click(move |_, w, cx| h(i, w, cx));
             }
             menu = menu.child(el);
+        }
+        for (j, row) in self.rows.into_iter().enumerate() {
+            let i = plain + j;
+            let key: ElementId = (id.clone(), SharedString::from(format!("row-{j}"))).into();
+            match row {
+                MenuRow::Separator => menu = menu.child(separator(&p)),
+                MenuRow::Toggle { label, checked } => {
+                    let mut el = toggle_row(menu_row(key, px(SUB_ROW_H), gpui::transparent_black(), window, cx), label, checked, None, SUB_CHECK, &p);
+                    if let Some(h) = self.on_activate.clone() {
+                        el = el.on_click(move |_, w, cx| h(i, w, cx));
+                    }
+                    menu = menu.child(el);
+                }
+                MenuRow::Swatch { label, colour, checked } => {
+                    let mut el =
+                        toggle_row(menu_row(key, px(SUB_ROW_H), gpui::transparent_black(), window, cx), label, checked, Some(colour), SUB_CHECK, &p);
+                    if let Some(h) = self.on_activate.clone() {
+                        el = el.on_click(move |_, w, cx| h(i, w, cx));
+                    }
+                    menu = menu.child(el);
+                }
+                MenuRow::Submenu { label, value, .. } => {
+                    let mut el = menu_row(key, px(SUB_ROW_H), gpui::transparent_black(), window, cx)
+                        .child(div().min_w(px(0.0)).truncate().child(label))
+                        .child(div().flex_1())
+                        .child(div().flex_none().text_color(p.ink_3).child(value));
+                    if let Some(h) = self.on_activate.clone() {
+                        el = el.on_click(move |_, w, cx| h(i, w, cx));
+                    }
+                    menu = menu.child(el);
+                }
+            }
         }
         menu
     }

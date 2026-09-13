@@ -378,6 +378,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn nav_item(id: impl Into<ElementId>, glyph: IconName, label: impl Into<SharedString>) -> NavItem`
 - **fn** `project_group_row` — A project row: chevron, folder mark, name, count.
   - `pub fn project_group_row(id: impl Into<ElementId>, name: impl Into<SharedString>, count: impl Into<SharedString>, open: bool) -> ProjectGroupRow`
+- **fn** `project_mark` — A rounded square in `colour` with `initial` centred in the theme background colour. Stateless; no click handling — the caller owns the interaction.
+  - `pub fn project_mark(initial: impl Into<SharedString>, colour: Hsla) -> ProjectMark`
 - **fn** `project_row` — A project row: folder glyph, name, session count.
   - `pub fn project_row(id: impl Into<ElementId>, project: &Project) -> ProjectRow`
 - **fn** `rail` — A rail showing `items`, top to bottom.
@@ -400,6 +402,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn view_menu(id: impl Into<ElementId>, rows: Vec<MenuRow>) -> ViewMenu`
 - **fn** `view_submenu` — A submenu listing `items`, with `selected` marked by an accent-ink check.
   - `pub fn view_submenu(id: impl Into<ElementId>, items: Vec<SharedString>, selected: Option<usize>) -> ViewSubmenu`
+- **fn** `view_submenu_rows` — A submenu of menu rows, each carrying its own check (a `Colour` submenu of `MenuRow::Swatch` rows). Indices reported by `on_activate` count across the plain `items` first, then these rows.
+  - `pub fn view_submenu_rows(id: impl Into<ElementId>, rows: Vec<MenuRow>) -> ViewSubmenu`
 
 - **struct** `Activity` — The live third line of a row.
   - fields: `kind`, `text`
@@ -433,13 +437,22 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn new(id: impl Into<SharedString>, name: impl Into<SharedString>, count: usize) -> Self` — A project with `count` sessions and no expanded children.
   - `pub fn session(self, session: RoleSession) -> Self` — Adds a session row under the project.
 - **struct** `ProjectGroup` — A project group: the `.pj` row and the sessions (and their children) below.
-  - fields: `id`, `name`, `count`, `open`, `muted`, `sessions`
-  - `pub fn muted(self) -> Self` — Mutes the row (`Archived`).
+  - fields: `id`, `name`, `count`, `open`, `muted`, `mark`, `trailing`, `state`, `sessions`
+  - `pub fn mark(self, initial: impl Into<SharedString>, colour: Hsla) -> Self` — Draws the project’s mark in place of the folder glyph.
+  - `pub fn muted(self) -> Self` — Mutes the row (`Archived`, `Other workspaces`).
   - `pub fn new(id: impl Into<SharedString>, name: impl Into<SharedString>, count: impl Into<SharedString>) -> Self` — A closed, unmuted project.
   - `pub fn open(self, sessions: Vec<SessionSummary>) -> Self` — Opens the project and gives it its sessions.
+  - `pub fn state(self, state: AgentState) -> Self` — Sets the rolled-up agent state: a status dot after the name, pulsing while a session runs.
+  - `pub fn trailing(self, text: impl Into<SharedString>) -> Self` — Sets the trailing mono text before the count (the branch).
 - **struct** `ProjectGroupRow` — A project row (`.pj`). Build with `project_group_row`.
+  - `pub fn mark(self, initial: impl Into<SharedString>, colour: Hsla) -> Self` — Draws the project’s mark in place of the folder glyph. Muted groups keep the folder glyph.
   - `pub fn muted(self) -> Self` — `.pj{color:var(--ink-3);font-weight:500}` — the archived project.
+  - `pub fn on_group_action(self, f: impl Fn(GroupAction, &mut Window, &mut App) + 'static) -> Self` — A hover-tray button was clicked; the argument is what it asked for.
   - `pub fn on_toggle(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Toggle click.
+  - `pub fn state(self, state: AgentState) -> Self` — Sets the rolled-up agent state: a status dot after the name, pulsing while a session runs.
+  - `pub fn trailing(self, text: impl Into<SharedString>) -> Self` — Sets the trailing mono text before the count (the branch).
+- **struct** `ProjectMark` — A project mark. Build with `project_mark`.
+  - `pub fn size(self, size: impl Into<Pixels>) -> Self` — Overrides the square’s side: 14 for menu rows and the palette, 18 for the header and group rows, 22 for the rail. The initial scales with it.
 - **struct** `ProjectRow` — A project row (`.proj`). Build with `project_row`.
   - `pub fn on_select(self, f: impl Fn(&str, &mut Window, &mut App) + 'static) -> Self` — Selection intent, carrying the project id.
 - **struct** `Rail` — The collapsed sidebar. Build with `rail`.
@@ -533,6 +546,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn caption(self, caption: impl Into<SharedString>) -> Self` — The caps group row above the groups (`Workspaces`, `Projects`, `Recent`). It carries the sliders icon when `Self::on_view_options` is set.
   - `pub fn editing(self, session_id: impl Into<SharedString>, editor: impl IntoElement) -> Self` — One row is being renamed: draw `editor` in place of its name.
   - `pub fn on_action(self, f: impl Fn(&SharedString, RowAction, &mut Window, &mut App) + 'static) -> Self` — A row’s hover action was clicked.
+  - `pub fn on_group_action(self, f: impl Fn(&SharedString, GroupAction, &mut Window, &mut App) + 'static) -> Self` — A project group row’s hover action was clicked; the arguments are the group id and what the tray button asked for.
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A row was clicked; the argument is the session id.
   - `pub fn on_toggle(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A group header or project row was clicked; the argument is the group id.
   - `pub fn on_view_options(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The sliders icon on the caption row was clicked: open the view menu.
@@ -546,7 +560,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn at_rest(self) -> Self` — Skips the enter: the menu is drawn at rest on its first frame. For a menu that is part of a static composition (the design card, a restored panel) rather than one the person just opened.
   - `pub fn on_activate(self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self` — A row was clicked; the argument is its index in `rows`.
   - `pub fn present(self, present: bool) -> Self` — Whether the menu is open; `false` plays the exit.
-- **struct** `ViewSubmenu` — The 170 px submenu of the `Group by` row. Build with `view_submenu`.
+- **struct** `ViewSubmenu` — The 170 px submenu of the `Group by` row. Build with `view_submenu`, or with `view_submenu_rows` for rows that carry their own checks (the project colour swatches).
   - `pub fn at_rest(self) -> Self` — Skips the enter: the submenu is drawn at rest on its first frame.
   - `pub fn on_activate(self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self` — An item was clicked; the argument is its index.
   - `pub fn present(self, present: bool) -> Self` — Whether the submenu is open; `false` plays the exit.
@@ -554,10 +568,12 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
 
 - **enum** `ActivityKind` — How the activity line is drawn.
   - variants: `Working`, `Waiting`, `Failed`, `Plain`
+- **enum** `GroupAction` — What a project group row’s hover tray asks for.
+  - variants: `New`, `Menu`
 - **enum** `Grouping` — How a `SidebarView` groups its sessions. The variant carries the groups, because each grouping has its own header shape.
   - variants: `Status`, `Project`, `Date`
 - **enum** `MenuRow` — One row of the view-options menu.
-  - variants: `Submenu`, `Toggle`, `Separator`
+  - variants: `Submenu`, `Toggle`, `Swatch`, `Separator`
 - **enum** `MetaItem` — An item on the meta line.
   - variants: `Text`, `Tag`, `Danger`, `Warning`
 - **enum** `RailItem` — One cell of the rail. Build with `RailItem::nav`, `RailItem::separator` or `RailItem::session`.
@@ -570,6 +586,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn selected(self, is_selected: bool) -> Self` — Marks a `RailItem::Session` as the current one; ignored by other kinds.
   - `pub fn separator() -> Self` — The hairline separator.
   - `pub fn session(id: impl Into<SharedString>, state: AgentState) -> Self` — A session cell.
+  - `pub fn tint(self, colour: Hsla) -> Self` — Draws a `RailItem::Session` tile’s initial in `colour` (the project label) instead of the default ink; the state dot and everything else are unchanged. [...]
 - **enum** `RowAction` — The hover actions on a row.
   - variants: `Terminal`, `Browser`, `Pin`, `Rename`, `Hide`, `Archive`, `More`
 - **enum** `SessionKind` — What kind of work a session is, which fixes its glyph.
@@ -635,8 +652,8 @@ Overlays: the command palette (card 12), the modal dialog, and later menus and p
 
 - **enum** `DialogKind` — What a dialog is about. The kind picks the tile’s glyph and its tint; nothing else in the card is coloured.
   - variants: `Info`, `Warning`, `Error`
-- **enum** `PaletteIcon` — The leading glyph of a palette row: an icon for actions and files, a status dot for worktrees.
-  - variants: `Glyph`, `Dot`
+- **enum** `PaletteIcon` — The leading glyph of a palette row: an icon for actions and files, a status dot for worktrees, a project mark for projects.
+  - variants: `Glyph`, `Dot`, `Mark`
 
 - **const** `POPOVER_LAYER` — The priority every popover in the library paints at. Deferred draws are painted in priority order, so a menu opened from inside another popover can ask for `POPOVER_LAYER` + 1 and land on top of it.
   - `pub const POPOVER_LAYER: usize = 1;`
@@ -1646,7 +1663,8 @@ Design tokens for the Agentic UI (`aui`) library. Everything visual that a compo
   - fields: `bg`, `surface_1`, `surface_2`, `surface_3`, `overlay`, `line`, `line_strong`,
     `ink`, `ink_2`, `ink_3`, `ink_4`, `accent`, `accent_strong`, `accent_ink`, `accent_soft`,
     `accent_ring`, `success`, `success_soft`, `warning`, `warning_soft`, `danger`,
-    `danger_soft`, `info`, `info_soft`, `diff_add`, `diff_add_strong`, `diff_del`,
+    `danger_soft`, `info`, `info_soft`, `label_1`, `label_2`, `label_3`, `label_4`, `label_5`,
+    `label_6`, `label_7`, `label_8`, `diff_add`, `diff_add_strong`, `diff_del`,
     `diff_del_strong`, `selection`, `term_bg`, `term_fg`, `term_dim`, `term_cursor`,
     `ansi_black`, `ansi_red`, `ansi_green`, `ansi_yellow`, `ansi_blue`, `ansi_magenta`,
     `ansi_cyan`, `ansi_white`, `ansi_bblack`, `ansi_bred`, `ansi_bgreen`, `ansi_byellow`,
@@ -1657,6 +1675,7 @@ Design tokens for the Agentic UI (`aui`) library. Everything visual that a compo
   - `pub fn attention_border(&self, color: Hsla) -> Hsla` — The pending-dialog attention border: the status colour at 70 % alpha, as the design rules require (no halo, no glow).
   - `pub fn color(&self, name: &str) -> Option<Hsla>` — Looks a colour up by its token name (`"surface-1"`).
   - `pub fn for_kind(kind: ThemeKind) -> Palette` — The palette for a theme kind.
+  - `pub fn label(&self, index: u8) -> Hsla` — One of the eight project label colours, red through pink in token order (`label-1` … `label-8`). [...]
   - `pub fn shadow(&self, level: u8) -> Vec<BoxShadow>` — Converts one of the three elevation levels into gpui box shadows.
 - **struct** `ShadowLayer` — One layer of a box shadow, in logical pixels.
   - fields: `x`, `y`, `blur`, `spread`, `color`

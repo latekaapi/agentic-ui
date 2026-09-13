@@ -63,8 +63,8 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         RailItem::nav("automations", IconName::Zap),
         RailItem::nav("inbox", IconName::Inbox).badge(),
         RailItem::separator(),
-        RailItem::session("checkout", AgentState::Running).pulse().selected(true),
-        RailItem::session("notifier", AgentState::Waiting).pulse(),
+        RailItem::session("checkout", AgentState::Running).pulse().selected(true).label("checkout-flow-v2").tint(p.label(5)),
+        RailItem::session("notifier", AgentState::Waiting).pulse().label("infra/notifier").tint(p.label(3)),
         RailItem::session("auth", AgentState::Done),
     ];
     h_flex()

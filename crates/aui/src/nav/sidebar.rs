@@ -7,7 +7,7 @@ use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Windo
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, ButtonSize};
-use crate::nav::{group_header, group_row, nav_item, rail, sidebar_footer, session_row, RailItem, SessionSummary};
+use crate::nav::{group_header, group_row, nav_item, project_mark, rail, sidebar_footer, session_row, RailItem, SessionSummary};
 use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.side{width:256px}`.
@@ -16,11 +16,10 @@ pub const SIDEBAR_WIDTH: f32 = 256.0;
 const HEADER_GAP: f32 = 8.0;
 const HEADER_PAD_LEFT: f32 = 12.0;
 const HEADER_PAD_RIGHT: f32 = 10.0;
-/// `.hd .ws{gap:6px;font-weight:600}` with an 18 px / radius 5 accent square
+/// `.hd .ws{gap:6px;font-weight:600}` with the 18 px project mark in accent
 /// and an 11 px chevron.
 const WS_GAP: f32 = 6.0;
 const WS_MARK: f32 = 18.0;
-const WS_MARK_RADIUS: f32 = 5.0;
 const WS_CHEVRON: f32 = 11.0;
 /// `.nav{padding:8px}`.
 const NAV_PAD: f32 = 8.0;
@@ -280,6 +279,13 @@ impl Sidebar {
         let id = self.id.clone();
         let switcher_id: ElementId = (id.clone(), "workspace").into();
         let (state, _) = interaction_flags(switcher_id.clone(), window, cx);
+        let initial: String = self
+            .nav
+            .workspace
+            .chars()
+            .find(|c| c.is_alphanumeric())
+            .map(|c| c.to_uppercase().to_string())
+            .unwrap_or_else(|| "\u{b7}".to_owned());
         let mut switcher = h_flex()
             .id(switcher_id)
             .flex_none()
@@ -289,7 +295,7 @@ impl Sidebar {
             .text_color(p.ink)
             .cursor_pointer()
             .track_interaction(&state)
-            .child(div().flex_none().size(px(WS_MARK)).rounded(px(WS_MARK_RADIUS)).bg(p.accent))
+            .child(project_mark(initial, p.accent).size(px(WS_MARK)))
             .child(div().min_w(px(0.0)).truncate().child(self.nav.workspace.clone()))
             .child(icon(IconName::ChevronDown).size(px(WS_CHEVRON)).color(p.ink_3));
         if let Some(h) = self.on_action.clone() {

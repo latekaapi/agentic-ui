@@ -5,7 +5,7 @@
 
 use aui::overlay::{command_palette, palette_scrim, PaletteIcon, PaletteItem, PaletteSection};
 use aui_icons::IconName;
-use aui_tokens::AgentState;
+use aui_tokens::{ActiveAui, AgentState};
 use gpui::*;
 
 /// The query the card is frozen on: `<input value="wor">`.
@@ -15,9 +15,22 @@ const PLACEHOLDER: &str = "Search actions, worktrees, files…";
 /// The row the card shows highlighted (`.it.on`): the first worktree.
 const SELECTED: usize = 0;
 
-/// The three sections of the card, in order.
-fn sections() -> Vec<PaletteSection> {
+/// The sections of the card, in order.
+fn sections(p: &aui_tokens::Palette) -> Vec<PaletteSection> {
     vec![
+        PaletteSection::new(
+            "Projects",
+            vec![
+                PaletteItem::new(
+                    "acme-web",
+                    PaletteIcon::Mark { initial: "A".into(), colour: p.label(5) },
+                    "acme-web",
+                )
+                .context("main")
+                .key("↩"),
+                PaletteItem::new("orca", PaletteIcon::Mark { initial: "O".into(), colour: p.label(3) }, "orca").context("v2.4"),
+            ],
+        ),
         PaletteSection::new(
             "Worktrees",
             vec![
@@ -47,9 +60,10 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let selected_state = window.use_keyed_state("card12-selected", cx, |_, _| SELECTED);
     let selected = *selected_state.read(cx);
     let on_hover = selected_state.clone();
+    let p = cx.aui().colors;
 
     palette_scrim(
-        command_palette("card12-palette", QUERY, sections(), selected)
+        command_palette("card12-palette", QUERY, sections(&p), selected)
             .placeholder(PLACEHOLDER)
             // The card is a static composition, not a palette the person just
             // opened: draw it at rest so the enter does not blur the capture.
