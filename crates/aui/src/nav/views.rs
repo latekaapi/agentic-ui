@@ -11,8 +11,11 @@ use std::rc::Rc;
 
 use aui_icons::{icon, FileType, IconName};
 use aui_motion::collapse;
-use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
-use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
+use aui_tokens::{scale, scaled, ActiveAui, AuiStyled, TextRole};
+use gpui::{
+    div, font, prelude::*, px, AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels,
+    SharedString, Style, TextRun, Window,
+};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, status_dot, tag, ButtonSize};
@@ -36,6 +39,20 @@ const GROUP_MARK: f32 = 18.0;
 /// The trailing branch: mono 11 ink-3, truncating.
 const TRAIL_TEXT: f32 = scale::FS_11;
 const TRAIL_MAX: f32 = 120.0;
+/// The project name never shrinks below this while the branch still has room:
+/// the branch yields first and collapses toward zero, and only once it is
+/// gone does the name truncate.
+const NAME_MIN: f32 = 96.0;
+/// The branch yields all of its room before the name gives any: this dwarfs
+/// the name's default shrink, so narrowing collapses the branch toward zero
+/// first and the name only shrinks (down to [`NAME_MIN`], then truncating)
+/// once the branch is gone.
+const BRANCH_SHRINK_FIRST: f32 = 1000.0;
+/// Below this width the branch drops out entirely instead of rendering a
+/// sliver: nothing readable fits, so the name keeps the room. Short branches
+/// that naturally fit under this still render — only a squeezed branch, one
+/// whose natural width no longer fits its room, is dropped.
+const BRANCH_DROP_BELOW: f32 = 40.0;
 /// The hover tray: the same right/top inset the session row's tray uses, so
 /// the two trays sit in the same place.
 const TRAY_RIGHT: f32 = 8.0;
@@ -549,6 +566,104 @@ fn group_tray(
     tray
 }
 
+/// A trailing branch that drops out entirely when squeezed below
+/// [`BRANCH_DROP_BELOW`]. The wrapper carries the flex (yield first, down to
+/// zero); each frame re-derives the decision from live layout, so widening
+/// brings the branch back with no state and no extra frames.
+struct BranchDrop {
+    text: SharedString,
+    child: AnyElement,
+}
+
+/// A trailing branch that drops out entirely when squeezed below
+/// [`BRANCH_DROP_BELOW`].
+fn branch_drop(text: SharedString, child: AnyElement) -> BranchDrop {
+    BranchDrop { text, child }
+}
+
+/// The branch's natural width in real pixels: the same face and size its div
+/// renders, measured without a width cap.
+fn branch_natural_width(text: &SharedString, window: &mut Window, cx: &mut App) -> Pixels {
+    let run = TextRun {
+        len: text.len(),
+        font: font(scale::FONT_MONO),
+        color: cx.aui().colors.ink_3,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    window.text_system().layout_line(text, scaled(TRAIL_TEXT).to_pixels(window.rem_size()), &[run], None).width
+}
+
+impl IntoElement for BranchDrop {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for BranchDrop {
+    type RequestLayoutState = LayoutId;
+    type PrepaintState = bool;
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let child_id = self.child.request_layout(window, cx);
+        let mut style = Style { flex_shrink: BRANCH_SHRINK_FIRST, ..Style::default() };
+        style.min_size.width = px(0.0).into();
+        style.max_size.width = px(TRAIL_MAX).into();
+        (window.request_layout(style, [child_id], cx), child_id)
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        let room = bounds.size.width;
+        // Squeezed below the minimum while wanting more room: paint nothing.
+        // A branch that naturally fits its room always paints.
+        let show = room >= px(BRANCH_DROP_BELOW) || branch_natural_width(&self.text, window, cx) <= room;
+        if show {
+            self.child.prepaint(window, cx);
+        }
+        show
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut Self::RequestLayoutState,
+        show: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if *show {
+            self.child.paint(window, cx);
+        }
+    }
+}
+
 impl RenderOnce for ProjectGroupRow {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
@@ -580,7 +695,7 @@ impl RenderOnce for ProjectGroupRow {
             .child(leading)
             .child(
                 div()
-                    .min_w(px(0.0))
+                    .min_w(px(NAME_MIN))
                     .truncate()
                     .font_weight(if self.muted { gpui::FontWeight::MEDIUM } else { gpui::FontWeight::SEMIBOLD })
                     .child(self.name),
@@ -591,15 +706,21 @@ impl RenderOnce for ProjectGroupRow {
         }
         row = row.child(div().flex_1());
         if let Some(trailing) = self.trailing {
-            row = row.child(
+            // The branch yields room before the name does: it shrinks while
+            // the name holds `NAME_MIN`, truncates inside whatever room is
+            // left, and drops out entirely once squeezed below
+            // `BRANCH_DROP_BELOW`.
+            row = row.child(branch_drop(
+                trailing.clone(),
                 div()
-                    .flex_none()
+                    .min_w(px(0.0))
                     .mono(TRAIL_TEXT)
                     .text_color(p.ink_3)
                     .max_w(px(TRAIL_MAX))
                     .truncate()
-                    .child(trailing),
-            );
+                    .child(trailing)
+                    .into_any_element(),
+            ));
         }
         row = row.child(tag(self.count));
         if self.on_group_action.is_some() {

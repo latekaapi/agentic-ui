@@ -106,7 +106,12 @@ fn project_groups(p: &Palette) -> Vec<ProjectGroup> {
                     .child(SessionSummary::new("pr2", "PR 2/2 · withSession", AgentState::Running, "now")),
                 auth_refresh(),
             ]),
-        ProjectGroup::new("orca", "orca", "2").mark("O", p.label(3)).trailing("v2.4").open(vec![notifier()]),
+        // A branch far longer than the column fits: it must give way (truncate)
+        // while the project name keeps its readable minimum.
+        ProjectGroup::new("orca", "orca", "2")
+            .mark("O", p.label(3))
+            .trailing("feature/projects-2026-09-13-long")
+            .open(vec![notifier()]),
         ProjectGroup::new("acme-internal", "acme-internal", "4").mark("I", p.label(1)),
         ProjectGroup::new("other", "Other workspaces", "3").muted(),
     ]

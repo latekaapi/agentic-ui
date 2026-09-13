@@ -49,7 +49,7 @@ mod tween;
 
 pub use aui_tokens::{durations, springs, Easing};
 pub use check::{check_draw, CheckDraw};
-pub use collapse::collapse;
+pub use collapse::{collapse, Reveal};
 pub use icon_morph::{icon_morph, IconMorph, MorphSample};
 pub use looping::{looping, Loop};
 pub use presence::{presence, EnterExit, PresenceSample, PresenceStyle};

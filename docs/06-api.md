@@ -1451,7 +1451,7 @@ The motion layer of the Agentic UI library (design card 04, spec §0.4). [...]
 - **fn** `child_id` — Derives a child id from a parent id and an index or generation, so one element can own several independently keyed motions.
   - `pub fn child_id(parent: impl Into<ElementId>, index: usize) -> ElementId`
 - **fn** `collapse` — Wraps `child` in a measured, clipped reveal whose height follows the layout spring from 0 (closed) to the child’s natural height (open). [...]
-  - `pub fn collapse(id: impl Into<ElementId>, open: bool, child: AnyElement, window: &mut Window, cx: &mut App) -> (MotionReveal, f32)`
+  - `pub fn collapse(id: impl Into<ElementId>, open: bool, child: AnyElement, window: &mut Window, cx: &mut App) -> (Reveal, f32)`
 - **fn** `icon_morph` — Samples the morph phase for `id`: `show_second` picks the resting glyph.
   - `pub fn icon_morph(id: impl Into<ElementId>, show_second: bool, window: &mut Window, cx: &mut App) -> MorphSample`
 - **fn** `looping` — The current phase in `0..=1` of a loop keyed by `id`.
@@ -1496,6 +1496,8 @@ The motion layer of the Agentic UI library (design card 04, spec §0.4). [...]
   - `pub fn fade_rise(sample: PresenceSample, rise: f32) -> Self` — Fade + rise by `rise` px (cards: 6, toolbars: 4, chunks: 3).
   - `pub fn fade_rise_scale(sample: PresenceSample, rise: f32, from_scale: f32) -> Self` — Fade + rise + a slight scale (command palette: 6 px, .985).
   - `pub fn settled(sample: PresenceSample) -> bool` — Whether the element is fully at rest and visible.
+- **struct** `Reveal` — A measured, clipped vertical reveal driven by normalized progress.
+  - `pub fn new(id: impl Into<ElementId>, progress: f32, child: AnyElement) -> Self` — A reveal of `child` at normalized `progress` (clamped to 0..=1).
 - **struct** `Tween` — A named timing policy: duration + easing (+ optional delay).
   - fields: `duration`, `easing`, `delay`
   - `pub const fn new(duration: Duration, easing: Easing) -> Self` — A custom policy.
