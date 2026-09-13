@@ -447,7 +447,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn session(self, session: RoleSession) -> Self` — Adds a session row under the project.
 - **struct** `ProjectGroup` — A project group: the `.pj` row and the sessions (and their children) below.
   - fields: `id`, `name`, `count`, `open`, `muted`, `mark`, `trailing`, `state`, `sessions`,
-    `fold`
+    `fold`, `current`
+  - `pub fn current(self, current: bool) -> Self` — Marks this as the project the open session belongs to.
   - `pub fn folded(self, hidden: usize, expanded: bool) -> Self` — Folds a long group: `hidden` rows are held back and `expanded` picks the row’s label (“Show {hidden} more” / “Show less”). [...]
   - `pub fn mark(self, initial: impl Into<SharedString>, colour: Hsla) -> Self` — Draws the project’s mark in place of the folder glyph.
   - `pub fn muted(self) -> Self` — Mutes the row (`Archived`, `Other workspaces`).
@@ -456,6 +457,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn state(self, state: AgentState) -> Self` — Sets the rolled-up agent state: a status dot after the name, pulsing while a session runs.
   - `pub fn trailing(self, text: impl Into<SharedString>) -> Self` — Sets the trailing mono text before the count (the branch).
 - **struct** `ProjectGroupRow` — A project row (`.pj`). Build with `project_group_row`.
+  - `pub fn current(self) -> Self` — The project the open session belongs to: the name keeps `ink` at semibold and the row wears a 2 px accent bar at its left edge.
   - `pub fn mark(self, initial: impl Into<SharedString>, colour: Hsla) -> Self` — Draws the project’s mark in place of the folder glyph. Muted groups keep the folder glyph.
   - `pub fn muted(self) -> Self` — `.pj{color:var(--ink-3);font-weight:500}` — the archived project.
   - `pub fn on_group_action(self, f: impl Fn(GroupAction, &mut Window, &mut App) + 'static) -> Self` — A hover-tray button was clicked; the argument is what it asked for.

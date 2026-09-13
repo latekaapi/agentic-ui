@@ -19,6 +19,14 @@ const COLUMN: f32 = 262.0;
 const COLUMN_GAP: f32 = 18.0;
 /// `.side{height:600px;border-radius:var(--r-lg)}`.
 const PANEL_H: f32 = 600.0;
+/// The two width states under the main row: the sidebar's narrow end and a
+/// width past the shell's own maximum. Short panels — the rows' right edge is
+/// what they are for, not the whole list.
+const WIDTH_NARROW: f32 = 240.0;
+const WIDTH_WIDE: f32 = 520.0;
+const WIDTH_STATE_H: f32 = 300.0;
+/// The gap between the card's main row and the width states.
+const ROW_GAP: f32 = 26.0;
 /// `.nav{padding:10px 8px 6px}`.
 const NAV_PAD_TOP: f32 = 10.0;
 const NAV_PAD_X: f32 = 8.0;
@@ -96,6 +104,9 @@ fn project_groups(p: &Palette) -> Vec<ProjectGroup> {
             .mark("A", p.label(5))
             .trailing("main")
             .state(AgentState::Running)
+            // The project the open session belongs to: the accent bar at the
+            // row's left edge.
+            .current(true)
             // Twelve rows held back: the column shows the visible three and
             // the "Show 12 more" row after them.
             .folded(12, false)
@@ -177,10 +188,16 @@ fn nav(id: &'static str) -> impl IntoElement {
 /// already lifted onto [`popover_layer`]; it is absolutely positioned inside
 /// the panel and so leaves the panel's own layout untouched.
 fn column(p: &Palette, title: &'static str, body: AnyElement, overlay: Option<AnyElement>) -> Div {
+    sized_column(p, title, body, overlay, COLUMN, PANEL_H)
+}
+
+/// [`column()`] at a chosen panel width and height — what the width states
+/// below the card's main row are built from.
+fn sized_column(p: &Palette, title: &'static str, body: AnyElement, overlay: Option<AnyElement>, width: f32, height: f32) -> Div {
     let mut panel = v_flex()
         .relative()
         .w_full()
-        .h(px(PANEL_H))
+        .h(px(height))
         .flex_none()
         .overflow_hidden()
         .rounded(px(scale::R_LG))
@@ -193,9 +210,22 @@ fn column(p: &Palette, title: &'static str, body: AnyElement, overlay: Option<An
     }
     v_flex()
         .flex_none()
-        .w(px(COLUMN))
+        .w(px(width))
         .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.ink_3).child(title))
         .child(panel)
+}
+
+/// The project grouping at the sidebar's narrow and wide ends. Every row —
+/// the project row, its sessions, a nested child, the fold row — ends at the
+/// same right edge at both widths, and so does the selected row's ground:
+/// `.pj` and `.sr` both carry an 8 px gutter, so that edge is the panel's
+/// inner edge less 8 whatever the width. The wide state is past the app's own
+/// `SIDEBAR_MAX_WIDTH` on purpose: the component must not assume a bound the
+/// shell happens to impose.
+fn width_state(p: &Palette, title: &'static str, id: &'static str, width: f32) -> Div {
+    let view = sidebar_view(id, Grouping::Project(project_groups(p))).caption("Projects").selected("checkout");
+    let body = v_flex().w_full().child(view).into_any_element();
+    sized_column(p, title, body, None, width, WIDTH_STATE_H)
 }
 
 /// How one column groups its sessions. The card starts with one of each.
@@ -628,5 +658,16 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     for c in columns {
         root = root.child(c);
     }
-    root.child(menus).into_any_element()
+    let root = root.child(menus);
+
+    // The same grouping at both ends of the sidebar's width range: the rows
+    // must end where the project row ends in each.
+    let widths = h_flex()
+        .w_full()
+        .items_start()
+        .gap(px(COLUMN_GAP))
+        .child(width_state(&p, "Narrow · 240 px", "view-narrow", WIDTH_NARROW))
+        .child(width_state(&p, "Wide · 520 px", "view-wide", WIDTH_WIDE));
+
+    v_flex().w_full().child(root).child(div().mt(px(ROW_GAP)).w_full().child(widths)).into_any_element()
 }

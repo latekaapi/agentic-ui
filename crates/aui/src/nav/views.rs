@@ -61,6 +61,11 @@ const BRANCH_SHRINK_FIRST: f32 = 1000.0;
 /// that naturally fit under this still render — only a squeezed branch, one
 /// whose natural width no longer fits its room, is dropped.
 const BRANCH_DROP_BELOW: f32 = 40.0;
+/// The current project's mark: a 2 px accent bar down the row's left edge,
+/// inside the row's own margin so it lines up with nothing else moving.
+const CURRENT_BAR_W: f32 = 2.0;
+/// The bar stops short of the row's rounded corners at top and bottom.
+const CURRENT_BAR_INSET: f32 = 4.0;
 /// The hover tray: the same right/top inset the session row's tray uses, so
 /// the two trays sit in the same place.
 const TRAY_RIGHT: f32 = 8.0;
@@ -155,6 +160,10 @@ pub struct ProjectGroup {
     /// never decides how many rows to show — the caller passes the rows it
     /// wants visible and the count it held back.
     pub fold: Option<(usize, bool)>,
+    /// The project the open session belongs to: the name holds `ink` at
+    /// semibold even when the group is muted, and a 2 px accent bar sits at
+    /// the row's left edge. One group at a time; the caller decides which.
+    pub current: bool,
 }
 
 impl ProjectGroup {
@@ -171,6 +180,7 @@ impl ProjectGroup {
             state: None,
             sessions: Vec::new(),
             fold: None,
+            current: false,
         }
     }
 
@@ -213,6 +223,12 @@ impl ProjectGroup {
     /// [`GroupAction::ToggleMore`].
     pub fn folded(mut self, hidden: usize, expanded: bool) -> Self {
         self.fold = Some((hidden, expanded));
+        self
+    }
+
+    /// Marks this as the project the open session belongs to.
+    pub fn current(mut self, current: bool) -> Self {
+        self.current = current;
         self
     }
 }
@@ -481,6 +497,9 @@ impl RenderOnce for SidebarView {
                     if let Some(state) = group.state {
                         row = row.state(state);
                     }
+                    if group.current {
+                        row = row.current();
+                    }
                     if let Some(h) = on_toggle.clone() {
                         let group_id = group.id.clone();
                         row = row.on_toggle(move |_, w, cx| h(&group_id, w, cx));
@@ -507,7 +526,18 @@ impl RenderOnce for SidebarView {
                             ));
                         }
                     }
-                    let indented = v_flex().pl(px(PJ_CHILD_INDENT)).child(inner).into_any_element();
+                    // `w_full` is load-bearing: `collapse` lays its child out
+                    // as a *root* (`Reveal::prepaint` → `layout_as_root`), and a
+                    // root with `width: auto` is fit-content, not stretch. The
+                    // status and date bodies get it for free because `rows`
+                    // itself is `w_full`; this wrapper sits between them and the
+                    // reveal, so without a width the whole indented block
+                    // collapses to its content — the rows stop short of the
+                    // project row at a wide sidebar and spill past its right
+                    // margin at a narrow one. With it the block takes the
+                    // column, the indent comes out of the content box, and the
+                    // rows end where the project row ends at any width.
+                    let indented = v_flex().w_full().pl(px(PJ_CHILD_INDENT)).child(inner).into_any_element();
                     let (reveal, _) = collapse((key, "body"), group.open, indented, window, cx);
                     col = col.child(row).child(reveal);
                 }
@@ -556,6 +586,7 @@ pub struct ProjectGroupRow {
     mark: Option<(SharedString, gpui::Hsla)>,
     trailing: Option<SharedString>,
     state: Option<aui_tokens::AgentState>,
+    current: bool,
     on_toggle: Option<crate::util::ClickHandler>,
     on_group_action: Option<GroupRowActionHandler>,
 }
@@ -576,6 +607,7 @@ pub fn project_group_row(
         mark: None,
         trailing: None,
         state: None,
+        current: false,
         on_toggle: None,
         on_group_action: None,
     }
@@ -608,6 +640,13 @@ impl ProjectGroupRow {
         self
     }
 
+    /// The project the open session belongs to: the name keeps `ink` at
+    /// semibold and the row wears a 2 px accent bar at its left edge.
+    pub fn current(mut self) -> Self {
+        self.current = true;
+        self
+    }
+
     /// Toggle click.
     pub fn on_toggle(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_toggle = Some(Box::new(f));
@@ -621,18 +660,26 @@ impl ProjectGroupRow {
     }
 }
 
+/// What the branch and the count fade to while the project row's hover tray
+/// is up. The tray covers this end of the row, so the two are complementary:
+/// whatever the tray gains, they give up, on the one tween. Opacity only —
+/// both keep their boxes, so nothing under the pointer reflows (D6).
+fn under_tray(tray_opacity: f32) -> f32 {
+    1.0 - tray_opacity
+}
+
 /// The hover tray at a project row's right end: `Plus` (new session here)
 /// and `Dots` (this project's menu), over the row's own surface-2 ground so
 /// it covers the count the way the session row's tray covers its meta.
 fn group_tray(
     id: &ElementId,
     visible: bool,
+    opacity: f32,
     on_group_action: &Option<GroupRowActionHandler>,
-    window: &mut Window,
+    _window: &mut Window,
     cx: &mut App,
 ) -> gpui::Div {
     let p = cx.aui().colors;
-    let opacity = aui_motion::tween((id.clone(), "tray-opacity"), if visible { 1.0f32 } else { 0.0 }, aui_motion::Tween::FAST, window, cx);
     let mut tray = h_flex()
         .absolute()
         .right(px(TRAY_RIGHT))
@@ -790,7 +837,7 @@ impl RenderOnce for ProjectGroupRow {
             .mr(px(PJ_MARGIN_X))
             .mt(px(PJ_MARGIN_TOP))
             .ui(PJ_TEXT)
-            .text_color(if self.muted { p.ink_3 } else { p.ink })
+            .text_color(if self.muted && !self.current { p.ink_3 } else { p.ink })
             .cursor_pointer()
             .track_interaction(&hover_state)
             .child(chev)
@@ -799,14 +846,41 @@ impl RenderOnce for ProjectGroupRow {
                 div()
                     .min_w(px(NAME_MIN))
                     .truncate()
-                    .font_weight(if self.muted { gpui::FontWeight::MEDIUM } else { gpui::FontWeight::SEMIBOLD })
+                    // The current project reads as current even when it is
+                    // muted: `ink` at semibold, the unmuted treatment.
+                    .font_weight(if self.muted && !self.current { gpui::FontWeight::MEDIUM } else { gpui::FontWeight::SEMIBOLD })
                     .child(self.name),
             );
+        if self.current {
+            // Inside the row's margin, so the bar marks this row without
+            // shifting anything in it: the row is `relative`, the bar
+            // absolute at its left edge.
+            row = row.child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .top(px(CURRENT_BAR_INSET))
+                    .bottom(px(CURRENT_BAR_INSET))
+                    .w(px(CURRENT_BAR_W))
+                    .rounded(px(CURRENT_BAR_W))
+                    .bg(p.accent),
+            );
+        }
         if let Some(state) = self.state {
             let pulse = state == aui_tokens::AgentState::Running;
             row = row.child(status_dot((id.clone(), "state"), state).pulse(pulse));
         }
         row = row.child(div().flex_1());
+        // The tray covers this end of the row, so the branch and the count
+        // step aside while it is up: one tween drives both, so they fade out
+        // exactly as the tray fades in. Opacity only — they keep their boxes,
+        // so nothing reflows under the pointer (D6).
+        let tray_opacity = if self.on_group_action.is_some() {
+            aui_motion::tween((id.clone(), "tray-opacity"), if flags.hovered { 1.0f32 } else { 0.0 }, aui_motion::Tween::FAST, window, cx)
+        } else {
+            0.0
+        };
+        let under_tray = under_tray(tray_opacity);
         if let Some(trailing) = self.trailing {
             // The branch yields room before the name does: it shrinks while
             // the name holds `NAME_MIN`, truncates inside whatever room is
@@ -820,14 +894,14 @@ impl RenderOnce for ProjectGroupRow {
                     .text_color(p.ink_3)
                     .max_w(px(TRAIL_MAX))
                     .truncate()
+                    .opacity(under_tray)
                     .child(trailing)
                     .into_any_element(),
             ));
         }
-        row = row.child(tag(self.count));
+        row = row.child(div().flex_none().opacity(under_tray).child(tag(self.count)));
         if self.on_group_action.is_some() {
-            let tray_visible = flags.hovered;
-            row = row.child(group_tray(&id, tray_visible, &self.on_group_action, window, cx));
+            row = row.child(group_tray(&id, flags.hovered, tray_opacity, &self.on_group_action, window, cx));
         }
         if let Some(on_toggle) = self.on_toggle {
             row = row.on_click(move |e, w, cx| on_toggle(e, w, cx));
@@ -861,5 +935,32 @@ impl RenderOnce for DateGroupHeader {
             .text_color(p.ink_3)
             .child(div().flex_none().child(self.label.to_uppercase()))
             .child(div().flex_1().h(px(DG_RULE)).bg(p.line))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// D6: the branch and the count are exactly what the tray is not, so a
+    /// half-faded tray leaves them half-visible and the two never both claim
+    /// the row's right end.
+    #[test]
+    fn the_tray_and_what_it_covers_are_complementary() {
+        for tray in [0.0f32, 0.25, 0.5, 0.75, 1.0] {
+            assert!((tray + under_tray(tray) - 1.0).abs() < f32::EPSILON, "tray {tray} leaves {}", under_tray(tray));
+        }
+        assert_eq!(under_tray(0.0), 1.0, "at rest the branch and the count are fully drawn");
+        assert_eq!(under_tray(1.0), 0.0, "a fully shown tray hides both");
+    }
+
+    /// D4: `current` survives the builder, and it is independent of `muted` —
+    /// the current project can be an archived one.
+    #[test]
+    fn current_is_its_own_flag() {
+        assert!(!ProjectGroup::new("a", "a", "1").current);
+        assert!(ProjectGroup::new("a", "a", "1").current(true).current);
+        let muted_current = ProjectGroup::new("a", "a", "1").muted().current(true);
+        assert!(muted_current.current && muted_current.muted);
     }
 }
