@@ -59,6 +59,8 @@ const MARK_OVERLAP: f32 = 4.0;
 /// Activity glyphs: spinner 10 px, shield 11 px.
 const ACTIVITY_SPINNER: f32 = 10.0;
 const ACTIVITY_ICON: f32 = 11.0;
+/// The pin at the start of a pinned session's meta line: 11 px ink-3.
+const PIN_META: f32 = 11.0;
 /// `.acts{right:8px;top:6px;gap:2px;padding:1px}` and its 4 px slide.
 const ACTS_RIGHT: f32 = 8.0;
 const ACTS_TOP: f32 = 6.0;
@@ -152,13 +154,42 @@ pub fn dense_field(state: &Entity<TextareaState>) -> Textarea {
         .h(px(DENSE_FIELD_H))
 }
 
+/// The tooltip on a row's pin button: `Pin`, or `Unpin` once pinned.
+struct RowTip(SharedString);
+
+impl gpui::Render for RowTip {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let p = cx.aui().colors;
+        div()
+            .px(px(scale::SP_3))
+            .py(px(scale::SP_2))
+            .rounded(px(scale::R_SM))
+            .border_1()
+            .border_color(p.line_strong)
+            .bg(p.overlay)
+            .text_color(p.ink)
+            .ui(scale::FS_12)
+            .whitespace_nowrap()
+            .child(self.0.clone())
+    }
+}
+
+/// The pin at the start of a pinned session's meta line.
+fn pin_mark(p: &aui_tokens::Palette) -> AnyElement {
+    icon(IconName::Pin).size(px(PIN_META)).color(p.ink_3).into_any_element()
+}
+
 /// The `.acts` hover tray: the actions, faded and slid in on hover.
 ///
 /// Shared by both rows so a rename affordance looks the same wherever it is.
+/// On a pinned session the pin button flips to unpin: it draws `PinOff`
+/// with an "Unpin" tooltip, and still reports [`RowAction::Pin`].
+#[allow(clippy::too_many_arguments)]
 fn action_tray(
     id: &ElementId,
     session_id: &SharedString,
     actions: &[RowAction],
+    pinned: bool,
     visible: bool,
     on_action: &Option<ActionHandler>,
     window: &mut Window,
@@ -184,7 +215,9 @@ fn action_tray(
         .opacity(opacity);
     for action in actions {
         let action = *action;
-        let mut b = icon_button((id.clone(), action.name()), action.glyph()).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+        let unpin = action == RowAction::Pin && pinned;
+        let glyph = if unpin { IconName::PinOff } else { action.glyph() };
+        let mut b = icon_button((id.clone(), action.name()), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
         if let Some(on_action) = on_action.clone() {
             let key = session_id.clone();
             // The tray sits inside the row, and gpui fires every `on_click`
@@ -197,7 +230,15 @@ fn action_tray(
                 on_action(&key, action, w, cx)
             });
         }
-        tray = tray.child(b);
+        if action != RowAction::Pin {
+            tray = tray.child(b);
+            continue;
+        }
+        // The pin names what it will do: "Pin", or "Unpin" once pinned.
+        let tip: SharedString = if unpin { "Unpin".into() } else { "Pin".into() };
+        tray = tray.child(
+            div().id((id.clone(), SharedString::from(format!("{}-tip", action.name())))).tooltip(move |_, cx| cx.new(|_| RowTip(tip.clone())).into()).child(b),
+        );
     }
     if !visible && opacity <= 0.001 {
         tray = tray.invisible();
@@ -399,7 +440,10 @@ impl RenderOnce for SessionRow {
 
         let mut lines = v_flex().flex_1().min_w(px(0.0)).gap(px(self.row_gap));
         lines = lines.child(h_flex().w_full().items_start().gap(px(COL_GAP)).child(name).child(time));
-        let items = meta_items(&p, &s, self.branch_max);
+        let mut items = meta_items(&p, &s, self.branch_max);
+        if s.pinned {
+            items.insert(0, pin_mark(&p));
+        }
         if !items.is_empty() {
             lines = lines.child(meta_line(&p, self.meta_size, items));
         }
@@ -444,7 +488,7 @@ impl RenderOnce for SessionRow {
 
         if self.show_actions {
             let actions = self.actions.clone().unwrap_or_else(|| RowAction::ALL.to_vec());
-            row = row.child(action_tray(&id, &s.id, &actions, acts_visible, &self.on_action, window, cx));
+            row = row.child(action_tray(&id, &s.id, &actions, s.pinned, acts_visible, &self.on_action, window, cx));
         }
 
         if let Some(on_select) = self.on_select.clone() {
@@ -586,6 +630,9 @@ impl RenderOnce for CompactSessionRow {
         }
         let mut meta = meta_items(&p, &s, BRANCH_MAX);
         meta.append(&mut items);
+        if s.pinned {
+            meta.insert(0, pin_mark(&p));
+        }
         if !meta.is_empty() {
             lines = lines.child(meta_line(&p, SR_META_TEXT, meta));
         }
@@ -618,7 +665,7 @@ impl RenderOnce for CompactSessionRow {
             row = row.child(div().absolute().left(px(-1.0)).top(px(SR_RAIL_INSET)).bottom(px(SR_RAIL_INSET)).w(px(1.0)).bg(p.line));
         }
         if !self.actions.is_empty() {
-            row = row.child(action_tray(&id, &s.id, &self.actions, acts_visible, &self.on_action, window, cx));
+            row = row.child(action_tray(&id, &s.id, &self.actions, s.pinned, acts_visible, &self.on_action, window, cx));
         }
         // A row being renamed is not a row waiting to be opened: a click on the
         // field it is holding would otherwise close the field it just opened.

@@ -4,8 +4,11 @@
 
 use aui_icons::{icon, IconName, Provider};
 use aui_motion::{spring_phase, tint_fade, tween, SpringKind, Tween};
-use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
-use gpui::{div, prelude::*, px, radians, AnyElement, App, ElementId, Hsla, IntoElement, SharedString, Window};
+use aui_tokens::{scale, scaled, ActiveAui, AuiStyled, TextRole};
+use gpui::{
+    div, font, prelude::*, px, radians, AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
+    Hsla, Pixels, SharedString, Style, TextRun, Window,
+};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{avatar, icon_button, tag, usage_meter, ButtonSize};
@@ -299,26 +302,25 @@ impl SidebarFooter {
         self
     }
 
-    /// A third line under the identity: what the account is entitled to, e.g.
-    /// `"High Usage \u{b7} 2% this week"`.
+    /// A small label after the name on the name's row: what the account is
+    /// entitled to, e.g. `"Power Usage"`. The plan is the first to give way
+    /// when room is short: it truncates, then drops out entirely below 40 px
+    /// of room, while the name never shrinks below 72 px.
     ///
-    /// `warning` tints the row — an entitlement the person should look at
+    /// `warning` tints the label — an entitlement the person should look at
     /// ("Pay-as-you-go", "Plan unknown") is the only thing in a footer that
     /// earns colour, and a plan that is simply in force does not.
     ///
-    /// Off by default, and independent of [`SidebarFooter::detail`]: either
-    /// line alone stacks under the name.
+    /// Off by default, and independent of [`SidebarFooter::detail`].
     pub fn plan(mut self, plan: impl Into<SharedString>, warning: bool) -> Self {
         self.plan = Some((plan.into(), warning));
         self
     }
 
-    /// One quiet control at the right of the plan row.
+    /// One quiet control after the plan label.
     ///
-    /// The identity row's width is already spoken for — the name, the account
-    /// and whatever `trailing` holds — so a second control goes on the second
-    /// line, where there is room for it and where it is next to the thing it
-    /// is about.
+    /// It travels with the plan — next to the thing it is about, and gone
+    /// when the plan drops. Drawn only while [`SidebarFooter::plan`] is set.
     pub fn plan_trailing(mut self, el: impl IntoElement) -> Self {
         self.plan_trailing = Some(el.into_any_element());
         self
@@ -343,13 +345,173 @@ impl SidebarFooter {
     }
 }
 
+/// The footer name never shrinks below this while the plan still has room:
+/// the plan yields first and collapses toward zero, and only once it is
+/// gone does the name truncate.
+const FOOTER_NAME_MIN: f32 = 72.0;
+/// The plan yields all of its room before the name gives any: this dwarfs
+/// the name's default shrink, so narrowing collapses the plan toward zero
+/// first and the name only shrinks (down to [`FOOTER_NAME_MIN`], then
+/// truncating) once the plan is gone.
+const PLAN_SHRINK_FIRST: f32 = 1000.0;
+/// Below this width the plan drops out entirely instead of rendering a
+/// sliver: nothing readable fits, so the name keeps the room. A plan that
+/// naturally fits under this still renders — only a squeezed plan, one whose
+/// natural width no longer fits its room, is dropped.
+const PLAN_DROP_BELOW: f32 = 40.0;
+
+/// A plan label that drops out entirely when squeezed below
+/// [`PLAN_DROP_BELOW`]. The wrapper carries the flex (yield first, down to
+/// zero); each frame re-derives the decision from live layout, so widening
+/// brings the plan back with no state and no extra frames.
+struct PlanDrop {
+    text: SharedString,
+    child: AnyElement,
+}
+
+/// A plan label that drops out entirely when squeezed below
+/// [`PLAN_DROP_BELOW`].
+fn plan_drop(text: SharedString, child: AnyElement) -> PlanDrop {
+    PlanDrop { text, child }
+}
+
+/// Whether the plan label paints in `room` px when its natural width is
+/// `natural` px: it truncates while room allows, and drops out entirely once
+/// squeezed below [`PLAN_DROP_BELOW`] — unless it naturally fits.
+fn plan_shows(room: f32, natural: f32) -> bool {
+    room >= PLAN_DROP_BELOW || natural <= room
+}
+
+/// The plan's natural width in real pixels: the same face and size its div
+/// renders, measured without a width cap.
+fn plan_natural_width(text: &SharedString, window: &mut Window, cx: &mut App) -> Pixels {
+    let run = TextRun {
+        len: text.len(),
+        font: font(scale::FONT_UI),
+        color: cx.aui().colors.ink_3,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    window.text_system().layout_line(text, scaled(scale::FS_11).to_pixels(window.rem_size()), &[run], None).width
+}
+
+impl IntoElement for PlanDrop {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for PlanDrop {
+    type RequestLayoutState = LayoutId;
+    type PrepaintState = bool;
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let child_id = self.child.request_layout(window, cx);
+        let mut style = Style { flex_shrink: PLAN_SHRINK_FIRST, ..Style::default() };
+        style.min_size.width = px(0.0).into();
+        (window.request_layout(style, [child_id], cx), child_id)
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        let room = f32::from(bounds.size.width);
+        // Squeezed below the minimum while wanting more room: paint nothing.
+        // A plan that naturally fits its room always paints.
+        let show = plan_shows(room, f32::from(plan_natural_width(&self.text, window, cx)));
+        if show {
+            self.child.prepaint(window, cx);
+        }
+        show
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut Self::RequestLayoutState,
+        show: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if *show {
+            self.child.paint(window, cx);
+        }
+    }
+}
+
 impl RenderOnce for SidebarFooter {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let plan = self.plan;
-        let plan_trailing = self.plan_trailing;
-        let pad_y = self.pad_y;
+        // Row one carries the name, with the plan as a small label after it
+        // and the chevron at the right; row two carries the meter — beside
+        // the identity when the caller gave one, alone when they did not.
+        // The name is the one thing the footer always shows: it truncates but
+        // never below `FOOTER_NAME_MIN`, while the plan yields first —
+        // truncating, then dropping out entirely below `PLAN_DROP_BELOW`. A
+        // bare name keeps the quieter ink it always had.
+        let stacked = self.detail.is_some() || self.plan.is_some();
+        let mut name_row = h_flex().w_full().items_center().gap(px(FOOTER_GAP)).child(
+            div().min_w(px(FOOTER_NAME_MIN)).truncate().when(stacked, |d| d.text_color(p.ink_2)).child(self.name),
+        );
+        if let Some((plan, warning)) = self.plan {
+            let ink = if warning { p.warning } else { p.ink_3 };
+            let label = SharedString::from(format!("\u{b7} {plan}"));
+            let mut plan_row = h_flex()
+                .items_center()
+                .gap(px(FOOTER_GAP))
+                .child(div().min_w(px(0.0)).truncate().ui(scale::FS_11).text_color(ink).child(label.clone()));
+            if let Some(trailing) = self.plan_trailing {
+                plan_row = plan_row.child(div().flex_none().child(trailing));
+            }
+            name_row = name_row.child(plan_drop(label, plan_row.into_any_element()));
+        }
+        name_row = name_row.child(div().flex_1());
+        if self.meter.is_some() {
+            name_row = name_row.child(
+                icon_button((id.clone(), "account"), IconName::ChevronDown).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)),
+            );
+        }
+        let mut stack = v_flex().flex_1().min_w(px(0.0)).child(name_row);
+        if self.detail.is_some() || self.meter.is_some() {
+            let mut meter_row = h_flex().w_full().items_center().gap(px(FOOTER_GAP));
+            if let Some(detail) = self.detail {
+                meter_row = meter_row.child(
+                    div().flex_1().min_w(px(0.0)).truncate().ui(scale::FS_11).text_color(p.ink_4).child(detail),
+                );
+            } else {
+                meter_row = meter_row.child(div().flex_1());
+            }
+            if let Some((provider, fraction)) = self.meter {
+                meter_row = meter_row.child(usage_meter(provider, fraction));
+            }
+            stack = stack.child(meter_row);
+        }
         let mut row = h_flex()
             .id(id.clone())
             .w_full()
@@ -362,59 +524,14 @@ impl RenderOnce for SidebarFooter {
             .ui(scale::FS_12)
             .text_color(p.ink_3)
             .child(avatar(self.initial))
-            .child({
-                // One line for the name; a second for the identity and a third
-                // for the entitlement when the caller gave them. A bare name
-                // keeps the quieter ink it always had.
-                let stacked = self.detail.is_some();
-                let mut stack = v_flex().flex_1().min_w(px(0.0)).child(
-                    div()
-                        .w_full()
-                        .truncate()
-                        .when(stacked, |d| d.text_color(p.ink_2))
-                        .child(self.name),
-                );
-                if let Some(detail) = self.detail {
-                    stack = stack.child(div().w_full().truncate().ui(scale::FS_11).text_color(p.ink_4).child(detail));
-                }
-                stack
-            });
-        if let Some((provider, fraction)) = self.meter {
-            row = row.child(usage_meter(provider, fraction)).child(
-                icon_button((id, "account"), IconName::ChevronDown).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)),
-            );
-        }
+            .child(stack);
         if let Some(trailing) = self.trailing {
             row = row.child(trailing);
         }
         if let Some(on_click) = self.on_click {
             row = row.on_click(move |e, w, cx| on_click(e, w, cx));
         }
-        let Some((plan, warning)) = plan else {
-            return row.into_any_element();
-        };
-        // The entitlement gets the footer's whole width, under the identity row
-        // rather than inside its text column: the trailing control takes the
-        // width the identity has to share, and a plan truncated where its
-        // number lives says nothing at all.
-        let ink = if warning { p.warning } else { p.ink_4 };
-        v_flex()
-            .w_full()
-            .flex_none()
-            .border_t_1()
-            .border_color(p.line)
-            .child(row.border_t_0().pb(px(0.0)))
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap(px(FOOTER_GAP))
-                    .px(px(FOOTER_PAD_X))
-                    .pb(px(pad_y))
-                    .child(div().flex_1().min_w(px(0.0)).truncate().ui(scale::FS_11).text_color(ink).child(plan))
-                    .children(plan_trailing.map(|el| div().flex_none().child(el))),
-            )
-            .into_any_element()
+        row
     }
 }
 
@@ -498,4 +615,25 @@ impl RenderOnce for SidebarSearch {
         }
         row
     }
+}
+
+#[cfg(test)]
+mod footer_plan_tests {
+    use super::*;
+
+    #[test]
+    fn roomy_plan_always_paints() {
+        assert!(plan_shows(200.0, 80.0));
+        assert!(plan_shows(PLAN_DROP_BELOW, 80.0));
+    }
+
+    #[test]
+    fn squeezed_plan_drops_only_when_it_wants_more_room() {
+        assert!(!plan_shows(PLAN_DROP_BELOW - 1.0, 80.0));
+        assert!(plan_shows(PLAN_DROP_BELOW - 1.0, PLAN_DROP_BELOW - 1.0));
+    }
+
+    const _: () = {
+        assert!(FOOTER_NAME_MIN > PLAN_DROP_BELOW);
+    };
 }

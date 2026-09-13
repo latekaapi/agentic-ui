@@ -96,6 +96,9 @@ fn project_groups(p: &Palette) -> Vec<ProjectGroup> {
             .mark("A", p.label(5))
             .trailing("main")
             .state(AgentState::Running)
+            // Twelve rows held back: the column shows the visible three and
+            // the "Show 12 more" row after them.
+            .folded(12, false)
             .open(vec![
                 SessionSummary::new("checkout", "checkout-flow-v2", AgentState::Running, "49m")
                     .pulse()

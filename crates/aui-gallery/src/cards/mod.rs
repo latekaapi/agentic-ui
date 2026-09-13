@@ -15,6 +15,7 @@ pub mod composer;
 pub mod dialog;
 pub mod diff_review;
 pub mod files_docs;
+pub mod folder_drop;
 pub mod git_pr;
 pub mod icons;
 pub mod login;

@@ -368,6 +368,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn date_group_header(label: impl Into<SharedString>) -> DateGroupHeader`
 - **fn** `dense_field` — The dense single-line field for `CompactSessionRow::editor`: the row-title size, no appearance and no border, fixed to one line. [...]
   - `pub fn dense_field(state: &Entity<TextareaState>) -> Textarea`
+- **fn** `folder_drop_card` — A card reading “Drop a folder here” / “or click to choose one”.
+  - `pub fn folder_drop_card(id: impl Into<ElementId>) -> FolderDropCard`
 - **fn** `group_header` — A group header (`Pinned 3`, `In progress 17`).
   - `pub fn group_header(id: impl Into<ElementId>, label: impl Into<SharedString>, open: bool) -> GroupHeader`
 - **fn** `group_row` — A caps group row.
@@ -417,6 +419,13 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - fields: `label`, `sessions`
   - `pub fn new(label: impl Into<SharedString>, sessions: Vec<SessionSummary>) -> Self` — A date group.
 - **struct** `DateGroupHeader` — A date header (`.dg`). Build with `date_group_header`.
+- **struct** `FolderDropCard` — A full-width card that takes a folder. Build with `folder_drop_card`.
+  - `pub fn dragging(self, dragging: bool) -> Self` — Draws the drag-over state statically: accent border on accent-soft.
+  - `pub fn key(self, key: impl Into<SharedString>) -> Self` — A keycap at the card’s right (`⌘⇧O`): the shortcut that chooses.
+  - `pub fn on_click(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — Click on the card (choose a folder).
+  - `pub fn on_drop(self, f: impl Fn(Vec<PathBuf>, &mut Window, &mut App) + 'static) -> Self` — A drop landed: every dropped path that is a directory.
+  - `pub fn subtitle(self, subtitle: impl Into<SharedString>) -> Self` — Overrides the subtitle (`or click to choose one`).
+  - `pub fn title(self, title: impl Into<SharedString>) -> Self` — Overrides the title (`Drop a folder here`).
 - **struct** `GroupHeader` — A collapsible group header: chevron, 12 px / 600 label, mono count, optional trailing element. Build with `group_header`.
   - `pub fn count(self, count: impl Into<SharedString>) -> Self` — The mono count after the label.
   - `pub fn margin_top(self, margin: f32) -> Self` — Overrides the 8 px top margin.
@@ -437,7 +446,9 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn new(id: impl Into<SharedString>, name: impl Into<SharedString>, count: usize) -> Self` — A project with `count` sessions and no expanded children.
   - `pub fn session(self, session: RoleSession) -> Self` — Adds a session row under the project.
 - **struct** `ProjectGroup` — A project group: the `.pj` row and the sessions (and their children) below.
-  - fields: `id`, `name`, `count`, `open`, `muted`, `mark`, `trailing`, `state`, `sessions`
+  - fields: `id`, `name`, `count`, `open`, `muted`, `mark`, `trailing`, `state`, `sessions`,
+    `fold`
+  - `pub fn folded(self, hidden: usize, expanded: bool) -> Self` — Folds a long group: `hidden` rows are held back and `expanded` picks the row’s label (“Show {hidden} more” / “Show less”). [...]
   - `pub fn mark(self, initial: impl Into<SharedString>, colour: Hsla) -> Self` — Draws the project’s mark in place of the folder glyph.
   - `pub fn muted(self) -> Self` — Mutes the row (`Archived`, `Other workspaces`).
   - `pub fn new(id: impl Into<SharedString>, name: impl Into<SharedString>, count: impl Into<SharedString>) -> Self` — A closed, unmuted project.
@@ -509,15 +520,16 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A session row was clicked; the argument is the session id.
   - `pub fn on_toggle_group(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A group header was clicked; the argument is the group id.
 - **struct** `SidebarAccount` — The account footer’s data.
-  - fields: `initial`, `name`, `provider`, `usage`
+  - fields: `initial`, `name`, `plan`, `provider`, `usage`
   - `pub fn new(initial: impl Into<SharedString>, name: impl Into<SharedString>, provider: Provider, usage: f32) -> Self` — A footer for `name`.
+  - `pub fn plan(self, plan: impl Into<SharedString>, warning: bool) -> Self` — The plan label the footer draws after the name.
 - **struct** `SidebarFooter` — The account footer: avatar, name, provider usage meter, chevron. Build with `sidebar_footer`.
   - `pub fn detail(self, detail: impl Into<SharedString>) -> Self` — A second, quieter line under the name: the account’s email, the identity a “signed in as” footer is really reporting.
   - `pub fn meter(self, provider: Provider, fraction: f32) -> Self` — Shows the provider usage meter (`fraction` in 0..=1) and the chevron.
   - `pub fn on_click(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Click on the footer (account menu).
   - `pub fn pad_y(self, pad: f32) -> Self` — Vertical padding: 10 in the shell, 8 in the sidebar cards.
-  - `pub fn plan(self, plan: impl Into<SharedString>, warning: bool) -> Self` — A third line under the identity: what the account is entitled to, e.g. `"High Usage \u{b7} 2% this week"`.
-  - `pub fn plan_trailing(self, el: impl IntoElement) -> Self` — One quiet control at the right of the plan row.
+  - `pub fn plan(self, plan: impl Into<SharedString>, warning: bool) -> Self` — A small label after the name on the name’s row: what the account is entitled to, e.g. [...]
+  - `pub fn plan_trailing(self, el: impl IntoElement) -> Self` — One quiet control after the plan label.
   - `pub fn trailing(self, el: impl IntoElement) -> Self` — Replaces the meter + chevron with another element (the assistant’s pill).
 - **struct** `SidebarGroup` — A collapsible group of sessions.
   - fields: `id`, `label`, `count`, `open`, `trailing`, `sessions`
@@ -569,7 +581,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
 - **enum** `ActivityKind` — How the activity line is drawn.
   - variants: `Working`, `Waiting`, `Failed`, `Plain`
 - **enum** `GroupAction` — What a project group row’s hover tray asks for.
-  - variants: `New`, `Menu`
+  - variants: `New`, `Menu`, `ToggleMore`
 - **enum** `Grouping` — How a `SidebarView` groups its sessions. The variant carries the groups, because each grouping has its own header shape.
   - variants: `Status`, `Project`, `Date`
 - **enum** `MenuRow` — One row of the view-options menu.
@@ -1874,12 +1886,12 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
 - **enum** `IconName` — Every glyph in the Agentic UI sprite sheet.
   - variants: `Chevron`, `ChevronDown`, `Terminal`, `File`, `Folder`, `Search`, `Globe`,
     `Check`, `X`, `Plus`, `ArrowUp`, `Stop`, `Sparkle`, `Edit`, `Eye`, `EyeOff`, `Git`, `Copy`,
-    `Pin`, `Bell`, `Layout`, `Split`, `Refresh`, `ArrowLeft`, `ArrowRight`, `Cursor`, `Camera`,
-    `Paperclip`, `Slash`, `At`, `Brain`, `List`, `Shield`, `Question`, `Doc`, `Sheet`, `Pdf`,
-    `Image`, `Play`, `Dots`, `Inbox`, `Zap`, `Book`, `Link`, `Sidebar`, `Clock`, `PanelRight`,
-    `GradCap`, `Scale`, `Gear`, `FtFolder`, `FtFolderOpen`, `FtTs`, `FtTsx`, `FtJson`, `FtMd`,
-    `FtTest`, `FtCss`, `FtLock`, `FtImage`, `FtFile`, `Sliders`, `SpinnerRing`, `SpinnerArc`,
-    `CheckBold`, `XBold`, `Chev`, `Archive`
+    `Pin`, `PinOff`, `Bell`, `Layout`, `Split`, `Refresh`, `ArrowLeft`, `ArrowRight`, `Cursor`,
+    `Camera`, `Paperclip`, `Slash`, `At`, `Brain`, `List`, `Shield`, `Question`, `Doc`, `Sheet`,
+    `Pdf`, `Image`, `Play`, `Dots`, `Inbox`, `Zap`, `Book`, `Link`, `Sidebar`, `Clock`,
+    `PanelRight`, `GradCap`, `Scale`, `Gear`, `FtFolder`, `FtFolderOpen`, `FtTs`, `FtTsx`,
+    `FtJson`, `FtMd`, `FtTest`, `FtCss`, `FtLock`, `FtImage`, `FtFile`, `Sliders`,
+    `SpinnerRing`, `SpinnerArc`, `CheckBold`, `XBold`, `Chev`, `Archive`
   - `pub fn bytes(self) -> &'static [u8] ⓘ` — The standalone SVG bytes for this glyph.
   - `pub fn id(self) -> &'static str` — The `id` of this glyph’s `<symbol>` in the sprite sheet.
   - `pub fn path(self) -> &'static str` — The asset path this glyph is served at by `crate::Assets`.

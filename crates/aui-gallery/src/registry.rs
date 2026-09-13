@@ -221,6 +221,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::project_mark::build,
     },
     Entry {
+        id: "nav/folder-drop",
+        group: "Sidebar",
+        title: "Folder drop card",
+        subtitle: "Dashed card for a folder: click to choose, drag-over lights in accent, keycap hint",
+        width: 640.0,
+        height: 360.0,
+        theme: CardTheme::Both,
+        build: crate::cards::folder_drop::build,
+    },
+    Entry {
         id: "transcript/markers",
         group: "Transcript",
         title: "Header identity and markers",

@@ -2,6 +2,7 @@
 //! rail, the three groupings (status / project / date) with the view-options
 //! menu, and the assistant's role sections (cards 20–23, spec §2).
 
+mod folder_drop;
 mod parts;
 mod project_mark;
 mod rail;
@@ -12,6 +13,7 @@ mod types;
 mod view_menu;
 mod views;
 
+pub use folder_drop::{folder_drop_card, FolderDropCard};
 pub use project_mark::{project_mark, ProjectMark};
 pub use parts::{
     chevron, chevron_sized, group_header, group_row, nav_item, sidebar_footer, sidebar_search, GroupHeader, GroupRow, NavItem,

@@ -55,7 +55,10 @@ pub fn sample_sessions() -> Vec<(SessionSummary, bool)> {
             false,
         ),
         (
-            SessionSummary::new("webhook", "Webhook retry backoff", AgentState::Idle, "2d").repo("acme-internal").branch("fix/webhook-retry-backoff"),
+            SessionSummary::new("webhook", "Webhook retry backoff", AgentState::Idle, "2d")
+                .repo("acme-internal")
+                .branch("fix/webhook-retry-backoff")
+                .pinned(),
             false,
         ),
         (
@@ -131,7 +134,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
 /// `.legend`: 12 px ink-2 paragraphs led by an ink 600 word.
 fn legend(p: Palette) -> impl IntoElement {
     let items = [
-        ("Anatomy.", " Status dot, name, elapsed time; second line repo tag, branch, provider marks; optional third line is the live activity sentence, truncated, updated as the agent streams."),
+        ("Anatomy.", " Status dot, name, elapsed time; second line repo tag, branch, provider marks; optional third line is the live activity sentence, truncated, updated as the agent streams. A pinned session leads its meta line with a pin, and its hover tray flips the pin to unpin."),
         ("States.", " Running pulses in accent. Needs-you pulses in warning and shows what it is waiting for. Done shows the PR pill. Failed shows the failing count. Idle is grey and silent."),
         ("Hover.", " The time slot yields to quiet actions: terminal, browser, pin, more — rows that manage lifecycle add archive. Unread turns get a 3 px accent bar on the left edge."),
         ("Rename.", " The dense field edits in place at the row-title size with no chrome; the focus border lives on its 22 px wrapper, so the row keeps its 30 px and siblings never move."),

@@ -121,8 +121,10 @@ impl SidebarGroup {
 pub struct SidebarAccount {
     /// The avatar's initial.
     pub initial: SharedString,
-    /// Name and plan (`Bharani · Max`).
+    /// The account name (`latekaapi`).
     pub name: SharedString,
+    /// The plan label after the name (`Power Usage`), with its warning tint.
+    pub plan: Option<(SharedString, bool)>,
     /// The provider whose usage the meter shows.
     pub provider: Provider,
     /// Usage as a fraction in `0..=1`.
@@ -132,7 +134,13 @@ pub struct SidebarAccount {
 impl SidebarAccount {
     /// A footer for `name`.
     pub fn new(initial: impl Into<SharedString>, name: impl Into<SharedString>, provider: Provider, usage: f32) -> Self {
-        Self { initial: initial.into(), name: name.into(), provider, usage }
+        Self { initial: initial.into(), name: name.into(), plan: None, provider, usage }
+    }
+
+    /// The plan label the footer draws after the name.
+    pub fn plan(mut self, plan: impl Into<SharedString>, warning: bool) -> Self {
+        self.plan = Some((plan.into(), warning));
+        self
     }
 }
 
@@ -404,6 +412,9 @@ impl RenderOnce for Sidebar {
         let mut footer = sidebar_footer((id, "footer"), self.nav.footer.initial, self.nav.footer.name)
             .meter(self.nav.footer.provider, self.nav.footer.usage)
             .pad_y(FOOTER_PAD_Y);
+        if let Some((plan, warning)) = self.nav.footer.plan.clone() {
+            footer = footer.plan(plan, warning);
+        }
         if let Some(h) = self.on_action.clone() {
             footer = footer.on_click(move |_, w, cx| h("account", w, cx));
         }

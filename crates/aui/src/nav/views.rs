@@ -10,11 +10,11 @@
 use std::rc::Rc;
 
 use aui_icons::{icon, FileType, IconName};
-use aui_motion::collapse;
+use aui_motion::{collapse, tint_fade, Tween};
 use aui_tokens::{scale, scaled, ActiveAui, AuiStyled, TextRole};
 use gpui::{
-    div, font, prelude::*, px, AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels,
-    SharedString, Style, TextRun, Window,
+    div, font, prelude::*, px, radians, AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
+    Pixels, SharedString, Style, TextRun, Window,
 };
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -28,6 +28,14 @@ const PJ_GAP: f32 = 8.0;
 const PJ_PAD_X: f32 = 10.0;
 const PJ_MARGIN_X: f32 = 8.0;
 const PJ_MARGIN_TOP: f32 = 4.0;
+/// Sessions under a project group indent one step so the hierarchy reads;
+/// status and date groupings keep their rows flush.
+const PJ_CHILD_INDENT: f32 = 16.0;
+/// The "Show N more" row after a folded project's sessions: 28 px, FS_12
+/// ink-3, chevron-down/up before the text, the row's own hover ground.
+const FOLD_H: f32 = 28.0;
+/// `.fold .chev{width:12px}`.
+const FOLD_CHEVRON: f32 = 12.0;
 const PJ_TEXT: f32 = 12.5;
 /// `.pj .chev{width:11px;height:11px}` — one pixel smaller than the shared
 /// `.chev`, so this row rotates its own glyph.
@@ -114,6 +122,9 @@ pub enum GroupAction {
     New,
     /// The `Dots` button: open this project's menu.
     Menu,
+    /// The "Show N more" / "Show less" row: show the rows the caller held
+    /// back, or hide them again.
+    ToggleMore,
 }
 
 /// A project group: the `.pj` row and the sessions (and their children) below.
@@ -139,6 +150,11 @@ pub struct ProjectGroup {
     pub state: Option<aui_tokens::AgentState>,
     /// The rows under the project row.
     pub sessions: Vec<SessionSummary>,
+    /// A folded group: `(held_back, expanded)`. When `held_back > 0` a
+    /// "Show N more" / "Show less" row follows the sessions; the library
+    /// never decides how many rows to show — the caller passes the rows it
+    /// wants visible and the count it held back.
+    pub fold: Option<(usize, bool)>,
 }
 
 impl ProjectGroup {
@@ -154,6 +170,7 @@ impl ProjectGroup {
             trailing: None,
             state: None,
             sessions: Vec::new(),
+            fold: None,
         }
     }
 
@@ -186,6 +203,16 @@ impl ProjectGroup {
     /// while a session runs.
     pub fn state(mut self, state: aui_tokens::AgentState) -> Self {
         self.state = Some(state);
+        self
+    }
+
+    /// Folds a long group: `hidden` rows are held back and `expanded`
+    /// picks the row's label ("Show {hidden} more" / "Show less").
+    /// The caller passes the rows it wants visible in [`Self::open`] and
+    /// the count it held back here; clicking the row reports
+    /// [`GroupAction::ToggleMore`].
+    pub fn folded(mut self, hidden: usize, expanded: bool) -> Self {
+        self.fold = Some((hidden, expanded));
         self
     }
 }
@@ -357,6 +384,56 @@ fn rows<'a>(
     col.into_any_element()
 }
 
+/// The "Show N more" / "Show less" row after a folded project's sessions:
+/// 28 px, FS_12 ink-3, chevron-down (up once expanded) before the text, the
+/// row's own hover ground. It carries the session rows' margins, so inside
+/// the indented block it keeps their indent and their right edge. Clicking
+/// it reports [`GroupAction::ToggleMore`] for `group_id`.
+#[allow(clippy::too_many_arguments)]
+fn fold_row(
+    id: impl Into<ElementId>,
+    group_id: &SharedString,
+    hidden: usize,
+    expanded: bool,
+    on_group_action: &Option<GroupActionHandler>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let p = cx.aui().colors;
+    let id: ElementId = id.into();
+    let (state, flags) = interaction_flags(id.clone(), window, cx);
+    let bg = tint_fade((id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
+    let label: SharedString = if expanded { "Show less".into() } else { format!("Show {hidden} more").into() };
+    let mut glyph = icon(IconName::ChevronDown).size(px(FOLD_CHEVRON)).color(p.ink_3);
+    if expanded {
+        glyph = glyph.rotate(radians(std::f32::consts::PI));
+    }
+    let mut row = h_flex()
+        .id(id.clone())
+        .relative()
+        .flex_none()
+        .min_w(px(0.0))
+        .h(px(FOLD_H))
+        .items_center()
+        .gap(px(PJ_GAP))
+        .px(px(PJ_PAD_X))
+        .ml(px(PJ_MARGIN_X))
+        .mr(px(PJ_MARGIN_X))
+        .rounded(px(scale::R_SM))
+        .bg(bg)
+        .ui(scale::FS_12)
+        .text_color(p.ink_3)
+        .cursor_pointer()
+        .track_interaction(&state)
+        .child(glyph)
+        .child(div().flex_1().min_w(px(0.0)).truncate().child(label));
+    if let Some(h) = on_group_action.clone() {
+        let group_id = group_id.clone();
+        row = row.on_click(move |_, w, cx| h(&group_id, GroupAction::ToggleMore, w, cx));
+    }
+    row.into_any_element()
+}
+
 impl RenderOnce for SidebarView {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let SidebarView { id, grouping, caption, selected, actions, editing, on_select, on_toggle, on_view_options, on_action, on_group_action } =
@@ -413,7 +490,25 @@ impl RenderOnce for SidebarView {
                         row = row.on_group_action(move |action, w, cx| h(&group_id, action, w, cx));
                     }
                     let body = rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action);
-                    let (reveal, _) = collapse((key, "body"), group.open, body, window, cx);
+                    // Project children indent one step; the fold row (if any)
+                    // sits inside the same block so it keeps their indent and
+                    // their right edge. Status and date bodies stay flush.
+                    let mut inner = v_flex().w_full().child(body);
+                    if let Some((hidden, expanded)) = group.fold {
+                        if hidden > 0 {
+                            inner = inner.child(fold_row(
+                                (key.clone(), "more"),
+                                &group.id,
+                                hidden,
+                                expanded,
+                                &on_group_action,
+                                window,
+                                cx,
+                            ));
+                        }
+                    }
+                    let indented = v_flex().pl(px(PJ_CHILD_INDENT)).child(inner).into_any_element();
+                    let (reveal, _) = collapse((key, "body"), group.open, indented, window, cx);
                     col = col.child(row).child(reveal);
                 }
             }
@@ -677,15 +772,22 @@ impl RenderOnce for ProjectGroupRow {
             Some((initial, colour)) if !self.muted => project_mark(initial.clone(), *colour).size(px(GROUP_MARK)).into_any_element(),
             _ => icon(folder.icon()).size(px(FIC)).color(p.ink_3).into_any_element(),
         };
+        // No `w_full`: at full width the 8 px margins overflow the column and
+        // the row ends 16 px past the session rows under it. Without a
+        // width the row stretches to the column minus its margins (the
+        // column's default align), so both gutters stay 8. It must not be
+        // `flex_1` either: in the view's column that would grow it
+        // vertically into all of the column's free space.
         let mut row = h_flex()
             .id(id.clone())
             .relative()
-            .w_full()
-            .h(cx.aui().metrics.row)
             .flex_none()
+            .min_w(px(0.0))
+            .h(cx.aui().metrics.row)
             .gap(px(PJ_GAP))
             .px(px(PJ_PAD_X))
-            .mx(px(PJ_MARGIN_X))
+            .ml(px(PJ_MARGIN_X))
+            .mr(px(PJ_MARGIN_X))
             .mt(px(PJ_MARGIN_TOP))
             .ui(PJ_TEXT)
             .text_color(if self.muted { p.ink_3 } else { p.ink })
