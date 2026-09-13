@@ -10,9 +10,9 @@
 //! | `cmd-b` | [`ToggleSidebar`] | anywhere |
 //! | `cmd-k` | [`TogglePalette`] | anywhere |
 //! | `cmd-\` | [`ToggleRightPane`] | anywhere |
-//! | `up` / `down` | [`SelectPrev`] / [`SelectNext`] | [`MENU_CONTEXT`] |
-//! | `enter` | [`Confirm`] | [`MENU_CONTEXT`] |
-//! | `escape` | [`Cancel`] | [`MENU_CONTEXT`], [`APPROVAL_CONTEXT`], [`ROOT_CONTEXT`] |
+//! | `up` / `down` | [`SelectPrev`] / [`SelectNext`] | [`MENU_CONTEXT`], [`SETTINGS_CONTEXT`] |
+//! | `enter` / `space` | [`Confirm`] | [`MENU_CONTEXT`] (`enter` only), [`SETTINGS_CONTEXT`] (both) |
+//! | `escape` | [`Cancel`] | [`MENU_CONTEXT`], [`SETTINGS_CONTEXT`], [`APPROVAL_CONTEXT`], [`ROOT_CONTEXT`] |
 //! | `y` / `a` / `n` | [`ApproveOnce`] / [`ApproveAlways`] / [`Deny`] | [`APPROVAL_CONTEXT`] |
 //! | `1`…`9` | [`ChooseNth`] | [`APPROVAL_CONTEXT`] |
 //! | `tab` / `shift-tab` | [`FocusNext`] / [`FocusPrev`] | [`ROOT_CONTEXT`] |
@@ -30,7 +30,8 @@ actions!(
         ToggleRightPane,
         /// Open or close the command palette.
         TogglePalette,
-        /// Run the highlighted row of a menu or the palette.
+        /// Run the highlighted row of a menu or the palette, or flip the
+        /// focused switch of the settings dialog.
         Confirm,
         /// Close the overlay that has the keyboard.
         Cancel,
@@ -74,6 +75,12 @@ pub const ROOT_CONTEXT: &str = "AuiRoot";
 /// The context a menu, picker or the command palette puts on itself while it
 /// holds the keyboard: it owns the arrows, return and escape.
 pub const MENU_CONTEXT: &str = "AuiMenu";
+/// The context the settings dialog puts on its card while it holds the
+/// keyboard: it owns the arrows, return and escape like [`MENU_CONTEXT`],
+/// plus `space`, so space flips the focused switch there without changing
+/// what space does in every other menu. An element carries exactly one
+/// context, so the dialog does not stack this on [`MENU_CONTEXT`].
+pub const SETTINGS_CONTEXT: &str = "AuiSettings";
 /// The context a pending approval card puts on itself while it is focused: it
 /// owns Y, A and N.
 pub const APPROVAL_CONTEXT: &str = "AuiApproval";
@@ -81,7 +88,7 @@ pub const APPROVAL_CONTEXT: &str = "AuiApproval";
 /// Installs the default bindings. Called by [`crate::init`]; an application
 /// that wants a different keymap can rebind the same actions afterwards.
 pub fn bind(cx: &mut App) {
-    let dismiss = format!("{MENU_CONTEXT} || {APPROVAL_CONTEXT} || {ROOT_CONTEXT}");
+    let dismiss = format!("{MENU_CONTEXT} || {SETTINGS_CONTEXT} || {APPROVAL_CONTEXT} || {ROOT_CONTEXT}");
     cx.bind_keys([
         KeyBinding::new("cmd-b", ToggleSidebar, None),
         KeyBinding::new("cmd-k", TogglePalette, None),
@@ -89,6 +96,10 @@ pub fn bind(cx: &mut App) {
         KeyBinding::new("up", SelectPrev, Some(MENU_CONTEXT)),
         KeyBinding::new("down", SelectNext, Some(MENU_CONTEXT)),
         KeyBinding::new("enter", Confirm, Some(MENU_CONTEXT)),
+        KeyBinding::new("up", SelectPrev, Some(SETTINGS_CONTEXT)),
+        KeyBinding::new("down", SelectNext, Some(SETTINGS_CONTEXT)),
+        KeyBinding::new("enter", Confirm, Some(SETTINGS_CONTEXT)),
+        KeyBinding::new("space", Confirm, Some(SETTINGS_CONTEXT)),
         KeyBinding::new("escape", Cancel, Some(&dismiss)),
         KeyBinding::new("y", ApproveOnce, Some(APPROVAL_CONTEXT)),
         KeyBinding::new("a", ApproveAlways, Some(APPROVAL_CONTEXT)),

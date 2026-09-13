@@ -2,11 +2,14 @@
 //! and popovers. Overlays render inside the window; the app decides when they
 //! are present and positions them.
 
+mod card;
 mod command_palette;
 mod dialog;
+mod settings;
 
 pub use command_palette::*;
 pub use dialog::{dialog, Dialog, DialogKind};
+pub use settings::{settings_dialog, SettingsDialog, SettingsRow, SettingsSection};
 
 use aui_tokens::scale;
 use gpui::{point, prelude::ParentElement, px, Anchor, Bounds, IntoElement, Pixels};

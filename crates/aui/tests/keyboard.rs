@@ -13,8 +13,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use aui::composer::{command_menu, CommandItem, CommandSection};
-use aui::keys::{ApproveAlways, ApproveOnce, Cancel, ChooseNth, Confirm, Deny, SelectNext, SelectPrev, APPROVAL_CONTEXT, MENU_CONTEXT};
-use aui::overlay::{command_palette, PaletteIcon, PaletteItem, PaletteSection};
+use aui::keys::{
+    ApproveAlways, ApproveOnce, Cancel, ChooseNth, Confirm, Deny, FocusNext, FocusPrev, SelectNext, SelectPrev, APPROVAL_CONTEXT, MENU_CONTEXT,
+    ROOT_CONTEXT,
+};
+use aui::overlay::{command_palette, settings_dialog, PaletteIcon, PaletteItem, PaletteSection, SettingsRow, SettingsSection};
 use aui::protocol::{ApprovalChoice, ApprovalDecision, ApprovalState};
 use aui::transcript::approval_card;
 use gpui::{div, point, prelude::*, px, App, Context, FocusHandle, IntoElement, Modifiers, MouseButton, SharedString, TestAppContext, Window};
@@ -351,6 +354,137 @@ fn menu_down_down_enter_selects_the_third_row(cx: &mut TestAppContext) {
 
     assert_eq!(&*log.borrow(), &["select:clear".to_string()]);
     assert_eq!(host.read_with(cx, |host, _| host.selected), 2);
+}
+
+// ------------------------------------------------------- the settings dialog
+
+/// The settings dialog owns its card focus, so — unlike the palette and menu
+/// hosts above — this host holds no focus handle and wires no actions: it
+/// only owns the sections, the open section and the log, the way an
+/// application owns its persisted settings. Tab still needs the application
+/// root around the dialog, so the host carries that: `tab` / `shift-tab` walk
+/// the rail and the switches through `focus_next` / `focus_prev`.
+struct SettingsHost {
+    root: FocusHandle,
+    selected: usize,
+    open: bool,
+    log: Log,
+}
+
+fn settings_sections() -> Vec<SettingsSection> {
+    vec![
+        SettingsSection {
+            id: "sidebar".into(),
+            label: "Sidebar".into(),
+            rows: vec![
+                SettingsRow::Switch { id: "chevron".into(), label: "Collapse chevron".into(), detail: None, on: true },
+                SettingsRow::Switch {
+                    id: "bar".into(),
+                    label: "Current-project bar".into(),
+                    detail: Some("Marks the open session.".into()),
+                    on: false,
+                },
+            ],
+        },
+        SettingsSection {
+            id: "appearance".into(),
+            label: "Appearance".into(),
+            rows: vec![SettingsRow::Switch { id: "compact".into(), label: "Compact rows".into(), detail: None, on: false }],
+        },
+    ]
+}
+
+impl Render for SettingsHost {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.open {
+            return div().id("settings-closed").into_any_element();
+        }
+        let host = cx.entity();
+        let flip_log = self.log.clone();
+        let section_log = self.log.clone();
+        let section_host = host.clone();
+        let dismiss_log = self.log.clone();
+        let dismiss_host = host.clone();
+        div()
+            .key_context(ROOT_CONTEXT)
+            .track_focus(&self.root)
+            .on_action(cx.listener(|_, _: &FocusNext, window, cx| window.focus_next(cx)))
+            .on_action(cx.listener(|_, _: &FocusPrev, window, cx| window.focus_prev(cx)))
+            .child(
+                settings_dialog("test-settings", settings_sections(), self.selected)
+                    .at_rest()
+                    .on_select_section(move |index, _, cx| {
+                        section_log.borrow_mut().push(format!("section:{index}"));
+                        section_host.update(cx, |this, cx| {
+                            this.selected = index;
+                            cx.notify();
+                        });
+                    })
+                    .on_switch(move |id, on, _, _| flip_log.borrow_mut().push(format!("flip:{id}:{on}")))
+                    .on_dismiss(move |_, cx| {
+                        dismiss_log.borrow_mut().push("dismiss".into());
+                        dismiss_host.update(cx, |this, cx| {
+                            this.open = false;
+                            cx.notify();
+                        });
+                    }),
+            )
+            .into_any_element()
+    }
+}
+
+fn settings_keys(cx: &mut TestAppContext, keys: &str, selected: usize) -> (Vec<String>, bool, usize) {
+    init(cx);
+    let log = log();
+    let (host, cx) = cx.add_window_view({
+        let log = log.clone();
+        |_, cx: &mut Context<SettingsHost>| SettingsHost { root: cx.focus_handle(), selected, open: true, log }
+    });
+    cx.simulate_keystrokes(keys);
+    let out = log.borrow().clone();
+    let (open, selected) = host.read_with(cx, |host, _| (host.open, host.selected));
+    (out, open, selected)
+}
+
+#[gpui::test]
+fn settings_escape_dismisses(cx: &mut TestAppContext) {
+    let (log, open, _) = settings_keys(cx, "escape", 0);
+    assert_eq!(log, vec!["dismiss".to_string()]);
+    assert!(!open);
+}
+
+#[gpui::test]
+fn settings_down_down_enter_flips_the_second_switch(cx: &mut TestAppContext) {
+    let (log, _, _) = settings_keys(cx, "down down enter", 0);
+    assert_eq!(log, vec!["flip:bar:true".to_string()]);
+}
+
+#[gpui::test]
+fn settings_space_flips_the_focused_switch(cx: &mut TestAppContext) {
+    let (log, _, _) = settings_keys(cx, "down space", 0);
+    assert_eq!(log, vec!["flip:chevron:false".to_string()]);
+}
+
+#[gpui::test]
+fn settings_enter_without_a_focused_row_flips_nothing(cx: &mut TestAppContext) {
+    let (log, _, _) = settings_keys(cx, "enter", 0);
+    assert!(log.is_empty());
+}
+
+#[gpui::test]
+fn settings_up_from_no_focus_lands_on_the_last_switch(cx: &mut TestAppContext) {
+    let (log, _, _) = settings_keys(cx, "up enter", 0);
+    assert_eq!(log, vec!["flip:bar:true".to_string()]);
+}
+
+#[gpui::test]
+fn settings_tab_reaches_the_section_rail(cx: &mut TestAppContext) {
+    // Appearance is open; tabs walk the close button then the rail, and
+    // return on the first rail row selects its section instead of flipping
+    // a switch.
+    let (log, _, selected) = settings_keys(cx, "tab tab enter", 1);
+    assert_eq!(log, vec!["section:0".to_string()]);
+    assert_eq!(selected, 0);
 }
 
 // ------------------------------------- the `:focus-visible` approximation

@@ -36,17 +36,16 @@
 //! ```
 
 use std::rc::Rc;
-use std::time::Duration;
 
 use aui_icons::{icon, IconName};
-use aui_motion::{presence, EnterExit, PresenceStyle};
+use aui_motion::EnterExit;
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
-use gpui::{black, div, prelude::*, px, relative, App, ElementId, Hsla, IntoElement, SharedString, Window};
-use gpui_kit::base::{h_flex, v_flex};
+use gpui::{div, prelude::*, px, relative, App, ElementId, Hsla, IntoElement, SharedString, Window};
+use gpui_kit::base::h_flex;
 
 use crate::data::{button, ButtonSize};
 
-use super::SCRIM_TINT_TOP;
+use super::card::{modal_card, modal_presence, modal_scrim, rest_timing, ModalIntent};
 
 /// The default card width, the same measure as the sign-in card.
 const DIALOG_W: f32 = 420.0;
@@ -64,11 +63,6 @@ const DETAIL_PAD_Y: f32 = scale::SP_3;
 const DETAIL_PAD_X: f32 = scale::SP_4;
 /// The action row.
 const ACTION_GAP: f32 = scale::SP_3;
-/// The card enters like the palette does: a small drop at 98.5 % of its width.
-const CARD_DROP: f32 = 6.0;
-const CARD_FROM_SCALE: f32 = 0.985;
-/// The card's elevation over the scrim.
-const CARD_SHADOW: u8 = 3;
 
 /// What a dialog is about. The kind picks the tile's glyph and its tint;
 /// nothing else in the card is coloured.
@@ -94,7 +88,7 @@ impl DialogKind {
     }
 }
 
-type Handler = Rc<dyn Fn(&mut Window, &mut App)>;
+type Handler = ModalIntent;
 
 /// A modal dialog. Build with [`dialog`].
 ///
@@ -213,7 +207,7 @@ impl Dialog {
     /// Skips the enter: the dialog is drawn at rest on its first frame, for a
     /// static capture.
     pub fn at_rest(mut self) -> Self {
-        self.timing.enter = Duration::ZERO;
+        self.timing = rest_timing(self.timing);
         self
     }
 }
@@ -222,24 +216,12 @@ impl RenderOnce for Dialog {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let sample = presence((id.clone(), "presence"), self.present, self.timing, window, cx);
-        let style = PresenceStyle::fade_rise_scale(sample, CARD_DROP, CARD_FROM_SCALE);
+        let style = modal_presence(&id, self.present, self.timing, window, cx);
         let (tile_bg, tile_ink, glyph) = self.kind.tile(&p);
 
-        let mut card = v_flex()
-            .relative()
-            // The card drops onto its resting place, so the rise goes upwards.
-            .top(-style.offset_y)
-            .flex_none()
-            .w(px(self.width * style.scale))
+        let mut card = modal_card(&p, self.width, &style)
             .gap(px(CARD_GAP))
             .p(px(CARD_PAD))
-            .rounded(px(scale::R_LG))
-            .border_1()
-            .border_color(p.line_strong)
-            .bg(p.overlay)
-            .shadow(p.shadow(CARD_SHADOW))
-            .text_color(p.ink)
             .child(
                 h_flex()
                     .w_full()
@@ -305,26 +287,6 @@ impl RenderOnce for Dialog {
         }
         card = card.child(actions);
 
-        // The scrim covers the window; the card sits on top of it and eats its
-        // own clicks so only the scrim dismisses.
-        let mut scrim = div()
-            .id(id.clone())
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(black().opacity(SCRIM_TINT_TOP * style.opacity));
-        if let Some(handler) = self.on_dismiss.clone() {
-            scrim = scrim.on_click(move |_, w, cx| handler(w, cx));
-        }
-        scrim.child(
-            div()
-                .id((id, "card"))
-                .flex_none()
-                .opacity(style.opacity)
-                .occlude()
-                .child(card),
-        )
+        modal_scrim(id, style.opacity, self.on_dismiss.clone(), card)
     }
 }

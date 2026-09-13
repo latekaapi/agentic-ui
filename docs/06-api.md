@@ -337,7 +337,7 @@ The library’s keyboard actions and their default bindings.
 - **struct** `Cancel` — Close the overlay that has the keyboard.
 - **struct** `ChooseNth` — Pick the n-th choice of a card that carries a server-minted choice list.
   - fields: `index`
-- **struct** `Confirm` — Run the highlighted row of a menu or the palette.
+- **struct** `Confirm` — Run the highlighted row of a menu or the palette, or flip the focused switch of the settings dialog.
 - **struct** `Deny` — Refuse the pending request.
 - **struct** `FocusNext` — Move the keyboard to the next tab stop.
 - **struct** `FocusPrev` — Move the keyboard to the previous tab stop.
@@ -353,6 +353,8 @@ The library’s keyboard actions and their default bindings.
   - `pub const MENU_CONTEXT: &str = "AuiMenu";`
 - **const** `ROOT_CONTEXT` — The context a screen puts on its outermost element: it owns Tab and the escape that closes whatever is open.
   - `pub const ROOT_CONTEXT: &str = "AuiRoot";`
+- **const** `SETTINGS_CONTEXT` — The context the settings dialog puts on its card while it holds the keyboard: it owns the arrows, return and escape like `MENU_CONTEXT`, plus `space`, so space flips the focused switch there without changing what space does in every other menu. [...]
+  - `pub const SETTINGS_CONTEXT: &str = "AuiSettings";`
 
 ### `aui::nav`
 
@@ -645,6 +647,8 @@ Overlays: the command palette (card 12), the modal dialog, and later menus and p
   - `pub fn palette_scrim(child: impl IntoElement) -> PaletteScrim`
 - **fn** `popover_layer` — Lifts an anchored overlay — a menu, a popover, a hover card — out of the paint order of the surface it hangs off.
   - `pub fn popover_layer(child: impl IntoElement) -> Deferred`
+- **fn** `settings_dialog` — A settings dialog over `sections` with the `selected`-th section open. `selected` past the last section clamps to it.
+  - `pub fn settings_dialog(id: impl Into<ElementId>, sections: Vec<SettingsSection>, selected: usize) -> SettingsDialog`
 
 - **struct** `CommandPalette` — The command palette. Build with `command_palette`.
   - `pub fn at_rest(self) -> Self` — Skips the enter: the palette is drawn at rest on its first frame. For a palette that is part of a static composition (the design card) rather than one the person just opened.
@@ -680,6 +684,15 @@ Overlays: the command palette (card 12), the modal dialog, and later menus and p
   - fields: `title`, `items`
   - `pub fn lead(self, el: impl IntoElement) -> Self` — A non-row element drawn under the section title and before the rows, with the rows’ horizontal padding and a `SP_2` gap below it. [...]
   - `pub fn new(title: impl Into<SharedString>, items: Vec<PaletteItem>) -> Self` — A section with its header and rows.
+- **struct** `SettingsDialog` — A settings dialog over `sections` with `selected` section open. Build with `settings_dialog`.
+  - `pub fn at_rest(self) -> Self` — Skips the enter: the dialog is drawn at rest on its first frame, for a static capture.
+  - `pub fn on_dismiss(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The scrim was clicked, or the `esc` keycap, the close glyph or the `esc` key was pressed. A click on the card itself does not reach this.
+  - `pub fn on_select_section(self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self` — A rail row was clicked; the argument is its index in `sections`. A rail row focused by `⇥` selects through `enter` / `space` too.
+  - `pub fn on_switch(self, f: impl Fn(&SharedString, bool, &mut Window, &mut App) + 'static) -> Self` — A switch flipped — by clicking it, or by `enter` / `space` on the focused switch row. [...]
+  - `pub fn present(self, present: bool) -> Self` — Whether the dialog is open; `false` plays the exit.
+  - `pub fn width(self, width: f32) -> Self` — Overrides the card width.
+- **struct** `SettingsSection` — One section of the dialog: a rail row and its page.
+  - fields: `id`, `label`, `rows`
 
 - **enum** `DialogKind` — What a dialog is about. The kind picks the tile’s glyph and its tint; nothing else in the card is coloured.
   - variants: `Info`, `Warning`, `Error`
@@ -689,6 +702,8 @@ Overlays: the command palette (card 12), the modal dialog, and later menus and p
   - variants: `Below`, `Above`
 - **enum** `PaletteIcon` — The leading glyph of a palette row: an icon for actions and files, a status dot for worktrees, a project mark for projects.
   - variants: `Glyph`, `Dot`, `Mark`
+- **enum** `SettingsRow` — One row of a settings page.
+  - variants: `Switch`, `Note`, `Heading`
 
 - **const** `POPOVER_LAYER` — The priority every popover in the library paints at. Deferred draws are painted in priority order, so a menu opened from inside another popover can ask for `POPOVER_LAYER` + 1 and land on top of it.
   - `pub const POPOVER_LAYER: usize = 1;`

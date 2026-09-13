@@ -171,6 +171,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::dialog::build,
     },
     Entry {
+        id: "overlay/settings",
+        group: "Shell",
+        title: "Settings dialog",
+        subtitle: "Section rail with switch pages: headings, details, notes; esc, arrows, space and enter",
+        width: 760.0,
+        height: 480.0,
+        theme: CardTheme::Both,
+        build: crate::cards::settings::build,
+    },
+    Entry {
         id: "overlay/anchored",
         group: "Shell",
         title: "Anchored trigger menus",
