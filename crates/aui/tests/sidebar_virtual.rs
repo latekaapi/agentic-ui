@@ -64,6 +64,63 @@ impl Render for Host {
     }
 }
 
+/// The rename probe: an editor-shaped element (a fixed-size box like the dense
+/// rename field) carrying a `canvas` that records every paint. Only an editor
+/// that reaches the prepainted tree paints — one claimed by a discarded
+/// first pass never does.
+///
+/// The canvas also forces the multi-build frame: its prepaint requests an
+/// autoscroll just above the row, the way a field keeping its cursor visible
+/// would, and gpui-pre 0.3.3's `list` answers an in-prepaint autoscroll by
+/// laying out every visible row a second time in the same frame (`list.rs`
+/// `prepaint` retries `prepaint_items` with `autoscroll=false`). A take-once
+/// editor slot loses to that second pass.
+fn probe_editor(paints: &Rc<Cell<usize>>) -> impl IntoElement {
+    let paints = paints.clone();
+    gpui::div().w(gpui::px(120.)).h(gpui::px(20.)).child(gpui::canvas(
+        |bounds, window, _| {
+            // Wholly above the viewport: the list answers with its
+            // autoscroll retry, laying every visible row out a second time
+            // in this same frame.
+            window.request_autoscroll(gpui::Bounds::from_corners(
+                point(bounds.left(), bounds.top() - px(1000.)),
+                point(bounds.right(), bounds.top() - px(900.)),
+            ));
+        },
+        move |_, _, _, _| {
+            paints.set(paints.get() + 1);
+        },
+    ))
+}
+
+/// A host mid-rename: the renaming row's editor is a fresh probe element per
+/// host render (one slot per frame, as an app builds it), and `on_row_built`
+/// records every build of the renaming row's flattened index.
+struct RenameHost {
+    grouping: Grouping,
+    state: gpui::ListState,
+    target_ix: usize,
+    paints: Rc<Cell<usize>>,
+    builds: Rc<Cell<usize>>,
+}
+
+impl Render for RenameHost {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let paints = self.paints.clone();
+        let builds = self.builds.clone();
+        let target_ix = self.target_ix;
+        v_flex().w(px(300.)).h(px(700.)).child(
+            virtual_sidebar_view("rename", self.grouping.clone(), self.state.clone())
+                .editing("r1", move |_, _| probe_editor(&paints).into_any_element())
+                .on_row_built(move |ix| {
+                    if ix == target_ix {
+                        builds.set(builds.get() + 1);
+                    }
+                }),
+        )
+    }
+}
+
 /// One layout+paint pass of a fresh host in a 300x700 panel; returns rows
 /// built by the list. Mounting through an entity (rather than drawing the
 /// component bare) is what seats the rendered-view stack the list's paint
@@ -116,4 +173,56 @@ fn virtual_sidebar_builds_only_visible_rows_per_frame(cx: &mut TestAppContext) {
     draw_once(cx, &grouping, &state, &built);
     assert!(state.bounds_for_item(last).is_some(), "revealed row has bounds");
     assert_eq!(state.item_is_below_viewport(last), Some(false), "revealed row is on screen");
+}
+
+/// The rename editor must reach the painted row even though the list can
+/// build a visible row twice in one frame (first prepaint pass, then the
+/// autoscroll retry's second pass): with a take-once slot the first build
+/// claims the editor and the painted build draws the plain row, so the field
+/// vanishes while the sidebar scrolls.
+#[gpui::test]
+fn renaming_editor_reaches_the_painted_row_across_remeasure(cx: &mut TestAppContext) {
+    init(cx);
+    let cx = cx.add_empty_window();
+    // One open group of three sessions: the renaming row sits at the top of
+    // a 300x700 panel, on screen with no scrolling needed.
+    let grouping = Grouping::Project(vec![
+        ProjectGroup::new("p", "project", "3").open(vec![
+            SessionSummary::new("r1", "first", AgentState::Idle, "1h"),
+            SessionSummary::new("r2", "second", AgentState::Idle, "1h"),
+            SessionSummary::new("r3", "third", AgentState::Idle, "1h"),
+        ]),
+    ]);
+    let rows = flatten_sidebar(&grouping, false);
+    let target_ix = row_index_for_session(&rows, &grouping, &"r1".into()).expect("renaming row has an index");
+    let state = sidebar_list_state(rows.len());
+    let paints = Rc::new(Cell::new(0usize));
+    let builds = Rc::new(Cell::new(0usize));
+
+    // One frame: the autoscroll the probe requests mid-prepaint makes the
+    // list lay the visible rows out twice in this same frame, with the
+    // renaming row on screen throughout (the overshoot only steers the top
+    // edge).
+    builds.set(0);
+    paints.set(0);
+    let host = RenameHost {
+        grouping: grouping.clone(),
+        state: state.clone(),
+        target_ix,
+        paints: paints.clone(),
+        builds: builds.clone(),
+    };
+    cx.draw(point(px(0.), px(0.)), size(px(300.), px(700.)), |_, cx| cx.new(|_| host).into_any_element());
+
+    assert!(
+        builds.get() >= 2,
+        "the renaming row must build more than once in this frame (first pass, then the autoscroll retry): {}",
+        builds.get()
+    );
+    println!("RENAME builds={} paints={}", builds.get(), paints.get());
+    assert!(
+        paints.get() > 0,
+        "the renaming row's editor painted {} times: the measure build stole it",
+        paints.get()
+    );
 }

@@ -99,6 +99,17 @@ pub(crate) type GroupRowActionHandler = Rc<dyn Fn(GroupAction, &mut Window, &mut
 /// row or group id the bounds belong to.
 pub(crate) type BoundsHandler = Rc<dyn Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App)>;
 
+/// Builds the inline rename editor fresh for one build of the renaming row.
+///
+/// A sidebar row can build more than once per frame — the virtualised list
+/// re-runs its render pass on an in-prepaint autoscroll, and overdraw
+/// measurement builds rows whose elements never paint — while an element
+/// builds only once. The editor therefore arrives as a builder the row calls
+/// on every build, never as one element the first build claims. Runs inside
+/// layout, so it must only build: never notify or mutate UI state (the same
+/// contract as the virtual view's `on_row_built` hook).
+pub type EditorBuilder = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
+
 /// A status group: `Needs you 1`, `Running 3`, `Done 2`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StatusGroup {
@@ -307,7 +318,7 @@ pub struct SidebarView {
     caption: Option<SharedString>,
     selected: Option<SharedString>,
     actions: Vec<RowAction>,
-    editing: Option<(SharedString, std::cell::RefCell<Option<AnyElement>>)>,
+    editing: Option<(SharedString, EditorBuilder)>,
     on_select: Option<SelectHandler>,
     on_toggle: Option<ToggleHandler>,
     on_view_options: Option<PlainHandler>,
@@ -383,12 +394,14 @@ impl SidebarView {
         self
     }
 
-    /// One row is being renamed: draw `editor` in place of its name.
+    /// One row is being renamed: draw the built editor in place of its name.
     ///
-    /// The element is the caller's, and so is everything about it — the text,
-    /// the focus, and what Enter and Escape mean.
-    pub fn editing(mut self, session_id: impl Into<SharedString>, editor: impl IntoElement) -> Self {
-        self.editing = Some((session_id.into(), std::cell::RefCell::new(Some(editor.into_any_element()))));
+    /// `build` runs on every build of that row in a frame — there can be
+    /// several (measure, then paint) — so each one draws the field. The
+    /// editor itself is the caller's, and so is everything about it: the
+    /// text, the focus, and what Enter and Escape mean.
+    pub fn editing(mut self, session_id: impl Into<SharedString>, build: impl Fn(&mut Window, &mut App) -> AnyElement + 'static) -> Self {
+        self.editing = Some((session_id.into(), Rc::new(build)));
         self
     }
 
@@ -451,21 +464,22 @@ pub(crate) fn session_row_element(
     session: &SessionSummary,
     selected: &Option<SharedString>,
     actions: &[RowAction],
-    editing: &Option<(SharedString, std::cell::RefCell<Option<AnyElement>>)>,
+    editing: &Option<(SharedString, EditorBuilder)>,
     on_select: &Option<SelectHandler>,
     on_action: &Option<RowActionHandler>,
     on_selected_prepainted: &Option<BoundsHandler>,
+    window: &mut Window,
+    cx: &mut App,
 ) -> AnyElement {
     let is_selected = selected.as_ref() == Some(&session.id);
     let mut row =
         compact_session_row(row_id, session.clone()).selected(is_selected).actions(actions.to_vec());
-    // The editor is one element and elements are not `Clone`, so it goes to
-    // whichever row claims it and the rest see none.
-    if let Some((editing_id, slot)) = editing {
+    // The editor builds fresh on every build of the renaming row: rows can
+    // build more than once per frame and an element builds only once, so a
+    // shared element would go to whichever build ran first.
+    if let Some((editing_id, build)) = editing {
         if editing_id == &session.id {
-            if let Some(editor) = slot.borrow_mut().take() {
-                row = row.editor(editor);
-            }
+            row = row.editor(build(window, cx));
         }
     }
     if let Some(h) = on_select.clone() {
@@ -502,10 +516,12 @@ fn rows<'a>(
     sessions: impl IntoIterator<Item = &'a SessionSummary>,
     selected: &Option<SharedString>,
     actions: &[RowAction],
-    editing: &Option<(SharedString, std::cell::RefCell<Option<AnyElement>>)>,
+    editing: &Option<(SharedString, EditorBuilder)>,
     on_select: &Option<SelectHandler>,
     on_action: &Option<RowActionHandler>,
     on_selected_prepainted: &Option<BoundsHandler>,
+    window: &mut Window,
+    cx: &mut App,
 ) -> AnyElement {
     let mut col = v_flex().w_full();
     for session in sessions {
@@ -519,6 +535,8 @@ fn rows<'a>(
             on_select,
             on_action,
             on_selected_prepainted,
+            window,
+            cx,
         ));
     }
     col.into_any_element()
@@ -683,7 +701,8 @@ impl RenderOnce for SidebarView {
                         let group_id = group.id.clone();
                         header = header.on_toggle(move |_, w, cx| h(&group_id, w, cx));
                     }
-                    let body = rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action, &on_selected_prepainted);
+                    let body =
+                        rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action, &on_selected_prepainted, window, cx);
                     let (reveal, _) = collapse((key, "body"), group.open, body, window, cx);
                     col = col.child(header).child(reveal);
                 }
@@ -699,7 +718,8 @@ impl RenderOnce for SidebarView {
                         &on_group_menu_prepainted,
                         &on_current_prepainted,
                     );
-                    let body = rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action, &on_selected_prepainted);
+                    let body =
+                        rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action, &on_selected_prepainted, window, cx);
                     // Sessions sit flush under their group: the dot lives in
                     // the leading box and the titles start at `NAV_LABEL_X`,
                     // so no indent block separates rows from their header.
@@ -751,13 +771,35 @@ impl RenderOnce for SidebarView {
                     let count = SharedString::from(pinned.len().to_string());
                     col = col
                         .child(group_header((key.clone(), "header"), "Pinned", true).count(count))
-                        .child(rows(&key, pinned.iter().copied(), &selected, &actions, &editing, &on_select, &on_action, &on_selected_prepainted));
+                        .child(rows(
+                            &key,
+                            pinned.iter().copied(),
+                            &selected,
+                            &actions,
+                            &editing,
+                            &on_select,
+                            &on_action,
+                            &on_selected_prepainted,
+                            window,
+                            cx,
+                        ));
                 }
                 for (i, (label, sessions)) in dated.into_iter().enumerate() {
                     let key: ElementId = (id.clone(), SharedString::from(format!("date-{i}"))).into();
                     col = col
                         .child(date_group_header(label.clone()))
-                        .child(rows(&key, sessions.iter().copied(), &selected, &actions, &editing, &on_select, &on_action, &on_selected_prepainted));
+                        .child(rows(
+                            &key,
+                            sessions.iter().copied(),
+                            &selected,
+                            &actions,
+                            &editing,
+                            &on_select,
+                            &on_action,
+                            &on_selected_prepainted,
+                            window,
+                            cx,
+                        ));
                 }
             }
         }

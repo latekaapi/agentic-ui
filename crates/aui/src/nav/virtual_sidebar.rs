@@ -104,14 +104,13 @@
 //!   centre / plain label first glyph / dot at 18, titles at 32) are
 //!   identical in both paths and both themes.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{div, list, prelude::*, px, AnyElement, App, Bounds, ElementId, IntoElement, ListAlignment, ListState, Pixels, RenderOnce, SharedString, Window};
 
 use super::views::{
-    fold_row, project_head_element, session_row_element, BoundsHandler, GroupActionHandler, PlainHandler, RowActionHandler, SelectHandler,
-    ToggleHandler,
+    fold_row, project_head_element, session_row_element, BoundsHandler, EditorBuilder, GroupActionHandler, PlainHandler, RowActionHandler,
+    SelectHandler, ToggleHandler,
 };
 use crate::nav::{date_group_header, group_header, group_row, GroupAction, Grouping, RowAction, SessionSummary};
 
@@ -332,7 +331,7 @@ pub struct VirtualSidebarView {
     caption: Option<SharedString>,
     selected: Option<SharedString>,
     actions: Vec<RowAction>,
-    editing: Option<(SharedString, RefCell<Option<AnyElement>>)>,
+    editing: Option<(SharedString, EditorBuilder)>,
     on_select: Option<SelectHandler>,
     on_toggle: Option<ToggleHandler>,
     on_view_options: Option<PlainHandler>,
@@ -410,14 +409,15 @@ impl VirtualSidebarView {
         self
     }
 
-    /// One row is being renamed: draw `editor` in place of its name.
+    /// One row is being renamed: draw the built editor in place of its name.
     ///
-    /// The element is the caller's, and so is everything about it — the text,
-    /// the focus, and what Enter and Escape mean. The slot is claimed by the
-    /// first build of that row in a frame; render only one sidebar path per
-    /// frame while renaming.
-    pub fn editing(mut self, session_id: impl Into<SharedString>, editor: impl IntoElement) -> Self {
-        self.editing = Some((session_id.into(), RefCell::new(Some(editor.into_any_element()))));
+    /// `build` runs on every build of that row in a frame — there can be
+    /// several (measure, then paint) — so each one draws the field, and any
+    /// number of sidebar paths may render in a frame while renaming. The
+    /// editor itself is the caller's, and so is everything about it: the
+    /// text, the focus, and what Enter and Escape mean.
+    pub fn editing(mut self, session_id: impl Into<SharedString>, build: impl Fn(&mut Window, &mut App) -> AnyElement + 'static) -> Self {
+        self.editing = Some((session_id.into(), Rc::new(build)));
         self
     }
 
@@ -500,7 +500,7 @@ fn render_flat_row(
     caption: &Option<SharedString>,
     selected: &Option<SharedString>,
     actions: &[RowAction],
-    editing: &Option<(SharedString, RefCell<Option<AnyElement>>)>,
+    editing: &Option<(SharedString, EditorBuilder)>,
     on_select: &Option<SelectHandler>,
     on_toggle: &Option<ToggleHandler>,
     on_view_options: &Option<PlainHandler>,
@@ -574,7 +574,7 @@ fn render_flat_row(
                 SessionScope::Date { dated } => (view_id.clone(), SharedString::from(format!("date-{dated}"))).into(),
             };
             let row_id: ElementId = (key.clone(), summary.id.clone()).into();
-            session_row_element(row_id, summary, selected, actions, editing, on_select, on_action, on_selected_prepainted)
+            session_row_element(row_id, summary, selected, actions, editing, on_select, on_action, on_selected_prepainted, window, cx)
         }
         SidebarRow::Fold { group } => {
             let project = match grouping {

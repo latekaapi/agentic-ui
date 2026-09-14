@@ -575,7 +575,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn on_clear(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — The clear button was pressed.
 - **struct** `SidebarView` — The body of a sidebar panel in one grouping. Build with `sidebar_view`.
   - `pub fn caption(self, caption: impl Into<SharedString>) -> Self` — The caps group row above the groups (`Workspaces`, `Projects`, `Recent`). It carries the sliders icon when `Self::on_view_options` is set.
-  - `pub fn editing(self, session_id: impl Into<SharedString>, editor: impl IntoElement) -> Self` — One row is being renamed: draw `editor` in place of its name.
+  - `pub fn editing(self, session_id: impl Into<SharedString>, build: impl Fn(&mut Window, &mut App) -> AnyElement + 'static) -> Self` — One row is being renamed: draw the built editor in place of its name.
   - `pub fn on_action(self, f: impl Fn(&SharedString, RowAction, &mut Window, &mut App) + 'static) -> Self` — A row’s hover action was clicked.
   - `pub fn on_current_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with the `current` project group row’s bounds. See `Self::on_selected_prepainted`.
   - `pub fn on_group_action(self, f: impl Fn(&SharedString, GroupAction, &mut Window, &mut App) + 'static) -> Self` — A project group row’s hover action was clicked; the arguments are the group id and what the tray button asked for.
@@ -601,7 +601,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn separator_before(self, index: usize) -> Self` — Draws a hairline above the item at `index` (`None` sits below the grouping choices).
 - **struct** `VirtualSidebarView` — The body of a virtualised sidebar panel in one grouping. Build with `virtual_sidebar_view`.
   - `pub fn caption(self, caption: impl Into<SharedString>) -> Self` — The caps group row above the groups (`Workspaces`, `Projects`, `Recent`). It carries the sliders icon when `Self::on_view_options` is set.
-  - `pub fn editing(self, session_id: impl Into<SharedString>, editor: impl IntoElement) -> Self` — One row is being renamed: draw `editor` in place of its name.
+  - `pub fn editing(self, session_id: impl Into<SharedString>, build: impl Fn(&mut Window, &mut App) -> AnyElement + 'static) -> Self` — One row is being renamed: draw the built editor in place of its name.
   - `pub fn on_action(self, f: impl Fn(&SharedString, RowAction, &mut Window, &mut App) + 'static) -> Self` — A row’s hover action was clicked.
   - `pub fn on_current_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with the `current` project group row’s bounds. See `Self::on_selected_prepainted`.
   - `pub fn on_group_action(self, f: impl Fn(&SharedString, GroupAction, &mut Window, &mut App) + 'static) -> Self` — A project group row’s hover action was clicked; the arguments are the group id and what the tray button asked for.
@@ -661,6 +661,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
 - **const** `SIDEBAR_WIDTH` — `.side{width:256px}`.
   - `pub const SIDEBAR_WIDTH: f32 = 256.0;`
 
+- **type** `EditorBuilder` — Builds the inline rename editor fresh for one build of the renaming row.
+  - `pub type EditorBuilder = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;`
 - **type** `RoleIntent` — Handler for an intent that carries the id of the row it came from.
   - `pub type RoleIntent = Rc<dyn Fn(&str, &mut Window, &mut App)>;`
 

@@ -600,7 +600,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         if i == COLUMNS - 1 {
             view = view
                 .row_actions(vec![RowAction::Rename, RowAction::Hide])
-                .editing("checkout", rename_field(&p));
+                .editing("checkout", move |_, _| rename_field(&p).into_any_element());
         }
         let mut body = v_flex().w_full().child(nav(NAV_IDS[i]));
         if i == COLUMNS - 1 {

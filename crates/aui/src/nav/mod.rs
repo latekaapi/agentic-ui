@@ -27,8 +27,8 @@ pub use sidebar::{sidebar, Sidebar, SidebarAccount, SidebarGroup, SidebarNav, Si
 pub use roles::{knowledge_card, project_row, role_section, role_session_row, KnowledgeCard, Project, ProjectRow, Role, RoleIntent, RoleSection, RoleSession, RoleSessionRow, SessionKind};
 pub use view_menu::{view_menu, view_submenu, view_submenu_rows, MenuRow, ViewMenu, ViewSubmenu};
 pub use views::{
-    date_group_header, project_group_row, sidebar_view, DateGroup, DateGroupHeader, GroupAction, Grouping, ProjectGroup, ProjectGroupRow,
-    SidebarView, StatusGroup,
+    date_group_header, project_group_row, sidebar_view, DateGroup, DateGroupHeader, EditorBuilder, GroupAction, Grouping, ProjectGroup,
+    ProjectGroupRow, SidebarView, StatusGroup,
 };
 pub use virtual_sidebar::{
     ensure_row_visible, flatten_sidebar, row_index_for_session, sidebar_list_state, virtual_sidebar_view, SessionScope, SidebarRow, VirtualSidebarView,
