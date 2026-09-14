@@ -254,6 +254,7 @@ Shared data-display primitives every card is built from (`base.css`): buttons, c
 - **struct** `Spinner` — The spinner. Build with `spinner`.
   - `pub fn size(self, size: impl Into<Pixels>) -> Self` — Overrides the diameter (rows use 10 and 11).
 - **struct** `StatusDot` — A status dot. Build with `status_dot`.
+  - `pub fn phase(self, phase: f32) -> Self` — Samples the ring at `phase` instead of mounting the looping animation: no frame is requested, so the ring only moves when the caller re-renders (a view on its own timer, pairing this with `pulse_phase`). [...]
   - `pub fn pulse(self, pulse: bool) -> Self` — Adds the expanding ring (`.dot.pulse`).
   - `pub fn size(self, size: impl Into<Pixels>) -> Self` — Overrides the diameter (the rail uses 8).
 - **struct** `Tag` — A tag. Build with `tag`.
@@ -426,6 +427,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn editor(self, editor: impl IntoElement) -> Self` — Replace the name with a field the caller owns: an inline rename.
   - `pub fn on_action(self, f: impl Fn(&SharedString, RowAction, &mut Window, &mut App) + 'static) -> Self` — Hover-action click.
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — Row click.
+  - `pub fn pulse_phase(self, phase: f32) -> Self` — Samples the status dot’s pulse ring at `phase` instead of mounting the looping animation: no frame is requested, so the ring only moves when the caller re-renders (a view on its own timer). [...]
   - `pub fn selected(self, selected: bool) -> Self` — Selected: surface-3 ground and ink text.
 - **struct** `DateGroup` — A date group: the `.dg` caps header with its hairline rule, and the flat rows under it.
   - fields: `label`, `sessions`
@@ -479,6 +481,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn on_group_action(self, f: impl Fn(GroupAction, &mut Window, &mut App) + 'static) -> Self` — A hover-tray button was clicked; the argument is what it asked for.
   - `pub fn on_menu_prepainted(self, group_id: impl Into<SharedString>, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Reports the tray `…` button’s bounds, keyed by `group_id`, once per frame — what a group-row menu seats at. The library stores nothing.
   - `pub fn on_toggle(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Toggle click.
+  - `pub fn pulse_phase(self, phase: f32) -> Self` — Samples the state dot’s pulse ring at `phase` instead of mounting the looping animation: no frame is requested, so the ring only moves when the caller re-renders (a view on its own timer). [...]
   - `pub fn state(self, state: AgentState) -> Self` — Sets the rolled-up agent state: a status dot after the name, pulsing while a session runs.
   - `pub fn trailing(self, text: impl Into<SharedString>) -> Self` — Sets the trailing mono text before the count (the branch).
 - **struct** `ProjectMark` — A project mark. Build with `project_mark`.
@@ -490,6 +493,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn flat(self, flat: bool) -> Self` — Drops the rail’s own card (border, radius, ground) and lets it fill the column it is given: the shell already paints the sidebar column’s surface and divider, so the standalone card would double them.
   - `pub fn on_action(self, f: impl Fn(&str, &mut Window, &mut App) + 'static) -> Self` — A nav cell (or `"account"`) was clicked; the argument is its name.
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A session cell was clicked; the argument is the session id.
+  - `pub fn pulse_phase(self, phase: f32) -> Self` — Samples every pulsing session dot at `phase` instead of mounting the looping animation: no frame is requested per render, so the rail only moves when the caller re-renders it. [...]
 - **struct** `Role` — One role of the assistant (`.sec`): the person’s hat, its projects and the knowledge sources the assistant is grounded in while wearing it.
   - fields: `id`, `name`, `icon`, `open`, `count`, `projects`, `knowledge`
   - `pub fn knowledge(self, source: impl Into<SharedString>) -> Self` — Adds a knowledge source.
@@ -584,6 +588,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn on_selected_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with the selected session row’s bounds. The library stores nothing; the app decides what to do with the bounds (for example, seating a trigger menu at the row).
   - `pub fn on_toggle(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A group header or project row was clicked; the argument is the group id.
   - `pub fn on_view_options(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The sliders icon on the caption row was clicked: open the view menu.
+  - `pub fn pulse_phase(self, phase: f32) -> Self` — Samples every pulsing dot in the list (session rows, project heads) at `phase` instead of mounting the looping animation: no frame is requested per render, so the list only moves when the caller re-renders it. [...]
   - `pub fn row_actions(self, actions: Vec<RowAction>) -> Self` — The hover actions every row carries; none by default.
   - `pub fn selected(self, id: impl Into<SharedString>) -> Self` — The id of the selected session.
 - **struct** `StatusGroup` — A status group: `Needs you 1`, `Running 3`, `Done 2`.
@@ -611,6 +616,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn on_selected_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with the selected session row’s bounds. [...]
   - `pub fn on_toggle(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A group header or project row was clicked; the argument is the group id.
   - `pub fn on_view_options(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The sliders icon on the caption row was clicked: open the view menu.
+  - `pub fn pulse_phase(self, phase: f32) -> Self` — Samples every pulsing dot in the list (session rows, project heads) at `phase` instead of mounting the looping animation: no frame is requested per render, so the list only moves when the caller re-renders it. [...]
   - `pub fn row_actions(self, actions: Vec<RowAction>) -> Self` — The hover actions every row carries; none by default.
   - `pub fn selected(self, id: impl Into<SharedString>) -> Self` — The id of the selected session.
 
@@ -1636,10 +1642,13 @@ Motion durations from `motion.json`, mirrored for convenience.
 
 Pulse: the ring that expands out of a running / waiting status dot every 2 s (`.dot.pulse::after` in base.css: inset −4 px, 1.5 px border, scale .6 → 1.5, opacity .7 → 0, ease-out).
 
+- **fn** `pulse_phase` — Samples the pulse phase for a cycle that started at `epoch`, without asking for a frame: exactly what `crate::looping::looping` reports for the pulse loop at `now`. [...]
+  - `pub fn pulse_phase(epoch: Instant, now: Instant) -> f32`
 - **fn** `pulse_ring` — Builds a pulsing dot. With `active = false` it is a plain dot.
   - `pub fn pulse_ring(id: impl Into<ElementId>, dot: Pixels, color: Hsla, active: bool) -> PulseRing`
 
 - **struct** `PulseRing` — A status dot with its pulsing ring. `dot` is the dot diameter (7 px in rows). The ring is drawn as a sibling so the dot itself never moves.
+  - `pub fn phase(self, phase: f32) -> Self` — Samples the ring at `phase` instead of mounting the looping animation: no frame is requested, so the ring only moves when the caller re-renders. [...]
 
 - **const** `PERIOD` — One pulse cycle.
   - `pub const PERIOD: Duration;`

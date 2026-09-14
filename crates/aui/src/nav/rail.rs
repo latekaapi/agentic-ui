@@ -176,13 +176,14 @@ pub struct Rail {
     items: Vec<RailItem>,
     flat: bool,
     initial: Option<SharedString>,
+    pulse_phase: Option<f32>,
     on_select: Option<SelectHandler>,
     on_action: Option<ActionHandler>,
 }
 
 /// A rail showing `items`, top to bottom.
 pub fn rail(id: impl Into<ElementId>, items: Vec<RailItem>) -> Rail {
-    Rail { id: id.into(), items, flat: false, initial: None, on_select: None, on_action: None }
+    Rail { id: id.into(), items, flat: false, initial: None, pulse_phase: None, on_select: None, on_action: None }
 }
 
 impl Rail {
@@ -191,6 +192,14 @@ impl Rail {
     /// surface and divider, so the standalone card would double them.
     pub fn flat(mut self, flat: bool) -> Self {
         self.flat = flat;
+        self
+    }
+
+    /// Samples every pulsing session dot at `phase` instead of mounting the
+    /// looping animation: no frame is requested per render, so the rail only
+    /// moves when the caller re-renders it. Unset: dots loop as before.
+    pub fn pulse_phase(mut self, phase: f32) -> Self {
+        self.pulse_phase = Some(phase);
         self
     }
 
@@ -307,12 +316,24 @@ impl RenderOnce for Rail {
                                         .absolute()
                                         .top(px(TILE_DOT_INSET))
                                         .right(px(TILE_DOT_INSET))
-                                        .child(status_dot((cell_id.clone(), "dot"), agent_state).size(px(TILE_DOT)).pulse(pulse)),
+                                                                        .child({
+                                    let mut dot = status_dot((cell_id.clone(), "dot"), agent_state)
+                                        .size(px(TILE_DOT))
+                                        .pulse(pulse);
+                                    if let Some(phase) = self.pulse_phase {
+                                        dot = dot.phase(phase);
+                                    }
+                                    dot
+                                }),
                                 )
                                 .tooltip(move |_, cx| cx.new(|_| RailTip(title.clone())).into());
                         }
                         None => {
-                            cell = cell.child(status_dot((cell_id, "dot"), agent_state).size(px(SESSION_DOT)).pulse(pulse));
+                            let mut dot = status_dot((cell_id, "dot"), agent_state).size(px(SESSION_DOT)).pulse(pulse);
+                            if let Some(phase) = self.pulse_phase {
+                                dot = dot.phase(phase);
+                            }
+                            cell = cell.child(dot);
                         }
                     }
                     if let Some(h) = self.on_select.clone() {

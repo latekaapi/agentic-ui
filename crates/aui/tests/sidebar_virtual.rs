@@ -226,3 +226,75 @@ fn renaming_editor_reaches_the_painted_row_across_remeasure(cx: &mut TestAppCont
         paints.get()
     );
 }
+
+/// A host with one running session. Without a sampled phase its dot pulses
+/// through the looping animation, which asks gpui for another frame on every
+/// render; with one the ring is sampled and requests nothing.
+struct PulseHost {
+    grouping: Grouping,
+    state: gpui::ListState,
+    phase: Option<f32>,
+    renders: Rc<Cell<usize>>,
+}
+
+impl Render for PulseHost {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        self.renders.set(self.renders.get() + 1);
+        let mut view = virtual_sidebar_view("pulse", self.grouping.clone(), self.state.clone());
+        if let Some(phase) = self.phase {
+            view = view.pulse_phase(phase);
+        }
+        v_flex().w(px(300.)).h(px(700.)).child(view)
+    }
+}
+
+/// Drives `draws` frames through a windowed host with a running row and
+/// counts the frames the sidebar keeps requesting plus the host renders
+/// they cause. Mirrors `idle_frames.rs`: notify, park, collect the next
+/// frame, advance the app clock the animation runs on.
+fn pulse_frames(cx: &mut TestAppContext, phase: Option<f32>, draws: usize) -> (usize, usize) {
+    let grouping = Grouping::Project(vec![
+        ProjectGroup::new("p", "project", "1").open(vec![
+            SessionSummary::new("r1", "first", AgentState::Running, "now").pulse(),
+        ]),
+    ]);
+    let rows = flatten_sidebar(&grouping, false);
+    let state = sidebar_list_state(rows.len());
+    let renders = Rc::new(Cell::new(0usize));
+    let (host, cx) = cx.add_window_view(|_, _| PulseHost { grouping, state, phase, renders: renders.clone() });
+    let frame = std::time::Duration::from_millis(16);
+    let mut frames = 0;
+    for _ in 0..draws {
+        host.update(cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+        frames += cx.update(|window, app| window.simulate_next_frame(app));
+        cx.executor().advance_clock(frame);
+    }
+    (frames, renders.get())
+}
+
+/// The looping running dot is a self-perpetuating frame loop: every render
+/// mounts the pulse, which asks for the next frame, which re-renders the
+/// pane (and, through `mark_view_dirty`'s ancestor walk, the root) — so a
+/// running session holds the whole window at full display rate for as long
+/// as it runs. This pins the legacy mode the sampled phase replaces; it
+/// keeps passing because unset phases still loop.
+#[gpui::test]
+fn running_dot_requests_a_frame_every_render(cx: &mut TestAppContext) {
+    init(cx);
+    let (frames, renders) = pulse_frames(cx, None, 10);
+    println!("PULSE frames={frames} renders={renders} over 10 draws");
+    assert!(frames >= 10, "a running dot must keep asking for the next frame: {frames}/10");
+    assert!(renders >= 10, "each granted frame must re-render the host: {renders}/10");
+}
+
+/// A sampled running dot costs no frames: the ring is drawn at the passed
+/// phase and nothing asks for the next one, so the sidebar only moves when
+/// its owner's timer re-renders it. This is the mode the harness runs.
+#[gpui::test]
+fn sampled_phase_dot_requests_no_frames(cx: &mut TestAppContext) {
+    init(cx);
+    let (frames, renders) = pulse_frames(cx, Some(0.35), 10);
+    println!("SAMPLED frames={frames} renders={renders} over 10 draws");
+    assert_eq!(frames, 0, "a sampled dot must request no frames: {frames}/10");
+}

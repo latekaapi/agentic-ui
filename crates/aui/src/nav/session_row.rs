@@ -539,6 +539,7 @@ pub struct CompactSessionRow {
     nested: bool,
     actions: Vec<RowAction>,
     editor: Option<AnyElement>,
+    pulse_phase: Option<f32>,
     on_select: Option<SelectHandler>,
     on_action: Option<ActionHandler>,
 }
@@ -552,6 +553,7 @@ pub fn compact_session_row(id: impl Into<ElementId>, session: SessionSummary) ->
         nested: false,
         actions: Vec::new(),
         editor: None,
+        pulse_phase: None,
         on_select: None,
         on_action: None,
     }
@@ -570,6 +572,15 @@ impl CompactSessionRow {
     /// so many groupings that it takes the caller's list or draws nothing.
     pub fn actions(mut self, actions: Vec<RowAction>) -> Self {
         self.actions = actions;
+        self
+    }
+
+    /// Samples the status dot's pulse ring at `phase` instead of mounting
+    /// the looping animation: no frame is requested, so the ring only moves
+    /// when the caller re-renders (a view on its own timer). Unset: the dot
+    /// loops as before.
+    pub fn pulse_phase(mut self, phase: f32) -> Self {
+        self.pulse_phase = Some(phase);
         self
     }
 
@@ -671,7 +682,13 @@ impl RenderOnce for CompactSessionRow {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(status_dot((id.clone(), "dot"), s.state).pulse(s.pulse)),
+                    .child({
+                        let mut dot = status_dot((id.clone(), "dot"), s.state).pulse(s.pulse);
+                        if let Some(phase) = self.pulse_phase {
+                            dot = dot.phase(phase);
+                        }
+                        dot
+                    }),
             )
             .child(lines);
         if self.nested {

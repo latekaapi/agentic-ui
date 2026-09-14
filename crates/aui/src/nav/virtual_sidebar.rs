@@ -332,6 +332,7 @@ pub struct VirtualSidebarView {
     selected: Option<SharedString>,
     actions: Vec<RowAction>,
     editing: Option<(SharedString, EditorBuilder)>,
+    pulse_phase: Option<f32>,
     on_select: Option<SelectHandler>,
     on_toggle: Option<ToggleHandler>,
     on_view_options: Option<PlainHandler>,
@@ -358,6 +359,7 @@ pub fn virtual_sidebar_view(id: impl Into<ElementId>, grouping: impl Into<Rc<Gro
         selected: None,
         actions: Vec::new(),
         editing: None,
+        pulse_phase: None,
         on_select: None,
         on_toggle: None,
         on_view_options: None,
@@ -418,6 +420,17 @@ impl VirtualSidebarView {
     /// text, the focus, and what Enter and Escape mean.
     pub fn editing(mut self, session_id: impl Into<SharedString>, build: impl Fn(&mut Window, &mut App) -> AnyElement + 'static) -> Self {
         self.editing = Some((session_id.into(), Rc::new(build)));
+        self
+    }
+
+    /// Samples every pulsing dot in the list (session rows, project heads)
+    /// at `phase` instead of mounting the looping animation: no frame is
+    /// requested per render, so the list only moves when the caller
+    /// re-renders it. Sample once per frame and pass the same phase to
+    /// every row, so the frame agrees with itself. Unset: dots loop as
+    /// before.
+    pub fn pulse_phase(mut self, phase: f32) -> Self {
+        self.pulse_phase = Some(phase);
         self
     }
 
@@ -501,6 +514,7 @@ fn render_flat_row(
     selected: &Option<SharedString>,
     actions: &[RowAction],
     editing: &Option<(SharedString, EditorBuilder)>,
+    pulse_phase: Option<f32>,
     on_select: &Option<SelectHandler>,
     on_toggle: &Option<ToggleHandler>,
     on_view_options: &Option<PlainHandler>,
@@ -542,7 +556,15 @@ fn render_flat_row(
                 _ => unreachable!("flatten_sidebar only emits project heads for a project grouping"),
             };
             let key: ElementId = (view_id.clone(), project.id.clone()).into();
-            project_head_element(&key, project, on_toggle, on_group_action, on_group_menu_prepainted, on_current_prepainted)
+            project_head_element(
+                &key,
+                project,
+                on_toggle,
+                on_group_action,
+                on_group_menu_prepainted,
+                on_current_prepainted,
+                pulse_phase,
+            )
         }
         SidebarRow::PinnedHeader => {
             let mut count = 0;
@@ -574,7 +596,19 @@ fn render_flat_row(
                 SessionScope::Date { dated } => (view_id.clone(), SharedString::from(format!("date-{dated}"))).into(),
             };
             let row_id: ElementId = (key.clone(), summary.id.clone()).into();
-            session_row_element(row_id, summary, selected, actions, editing, on_select, on_action, on_selected_prepainted, window, cx)
+            session_row_element(
+                row_id,
+                summary,
+                selected,
+                actions,
+                editing,
+                on_select,
+                on_action,
+                on_selected_prepainted,
+                pulse_phase,
+                window,
+                cx,
+            )
         }
         SidebarRow::Fold { group } => {
             let project = match grouping {
@@ -599,6 +633,7 @@ impl RenderOnce for VirtualSidebarView {
             selected,
             actions,
             editing,
+            pulse_phase,
             on_select,
             on_toggle,
             on_view_options,
@@ -627,6 +662,7 @@ impl RenderOnce for VirtualSidebarView {
                     &selected,
                     &actions,
                     &editing,
+                    pulse_phase,
                     &on_select,
                     &on_toggle,
                     &on_view_options,

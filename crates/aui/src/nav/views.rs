@@ -319,6 +319,7 @@ pub struct SidebarView {
     selected: Option<SharedString>,
     actions: Vec<RowAction>,
     editing: Option<(SharedString, EditorBuilder)>,
+    pulse_phase: Option<f32>,
     on_select: Option<SelectHandler>,
     on_toggle: Option<ToggleHandler>,
     on_view_options: Option<PlainHandler>,
@@ -344,6 +345,7 @@ pub fn sidebar_view(id: impl Into<ElementId>, grouping: impl Into<Rc<Grouping>>)
         selected: None,
         actions: Vec::new(),
         editing: None,
+        pulse_phase: None,
         on_select: None,
         on_toggle: None,
         on_view_options: None,
@@ -402,6 +404,17 @@ impl SidebarView {
     /// text, the focus, and what Enter and Escape mean.
     pub fn editing(mut self, session_id: impl Into<SharedString>, build: impl Fn(&mut Window, &mut App) -> AnyElement + 'static) -> Self {
         self.editing = Some((session_id.into(), Rc::new(build)));
+        self
+    }
+
+    /// Samples every pulsing dot in the list (session rows, project heads)
+    /// at `phase` instead of mounting the looping animation: no frame is
+    /// requested per render, so the list only moves when the caller
+    /// re-renders it. Sample once per frame and pass the same phase to
+    /// every row, so the frame agrees with itself. Unset: dots loop as
+    /// before.
+    pub fn pulse_phase(mut self, phase: f32) -> Self {
+        self.pulse_phase = Some(phase);
         self
     }
 
@@ -468,12 +481,16 @@ pub(crate) fn session_row_element(
     on_select: &Option<SelectHandler>,
     on_action: &Option<RowActionHandler>,
     on_selected_prepainted: &Option<BoundsHandler>,
+    pulse_phase: Option<f32>,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
     let is_selected = selected.as_ref() == Some(&session.id);
     let mut row =
         compact_session_row(row_id, session.clone()).selected(is_selected).actions(actions.to_vec());
+    if let Some(phase) = pulse_phase {
+        row = row.pulse_phase(phase);
+    }
     // The editor builds fresh on every build of the renaming row: rows can
     // build more than once per frame and an element builds only once, so a
     // shared element would go to whichever build ran first.
@@ -520,6 +537,7 @@ fn rows<'a>(
     on_select: &Option<SelectHandler>,
     on_action: &Option<RowActionHandler>,
     on_selected_prepainted: &Option<BoundsHandler>,
+    pulse_phase: Option<f32>,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -535,6 +553,7 @@ fn rows<'a>(
             on_select,
             on_action,
             on_selected_prepainted,
+            pulse_phase,
             window,
             cx,
         ));
@@ -606,6 +625,7 @@ pub(crate) fn project_head_element(
     on_group_action: &Option<GroupActionHandler>,
     on_group_menu_prepainted: &Option<BoundsHandler>,
     on_current_prepainted: &Option<BoundsHandler>,
+    pulse_phase: Option<f32>,
 ) -> AnyElement {
     let mut row = project_group_row((key.clone(), "project"), group.name.clone(), group.count.clone(), group.open);
     if group.muted {
@@ -619,6 +639,9 @@ pub(crate) fn project_head_element(
     }
     if let Some(state) = group.state {
         row = row.state(state);
+    }
+    if let Some(phase) = pulse_phase {
+        row = row.pulse_phase(phase);
     }
     row = row.chevron(group.chevron).current_bar(group.current_bar);
     if group.current {
@@ -670,6 +693,7 @@ impl RenderOnce for SidebarView {
             selected,
             actions,
             editing,
+            pulse_phase,
             on_select,
             on_toggle,
             on_view_options,
@@ -701,8 +725,19 @@ impl RenderOnce for SidebarView {
                         let group_id = group.id.clone();
                         header = header.on_toggle(move |_, w, cx| h(&group_id, w, cx));
                     }
-                    let body =
-                        rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action, &on_selected_prepainted, window, cx);
+                    let body = rows(
+                        &key,
+                        &group.sessions,
+                        &selected,
+                        &actions,
+                        &editing,
+                        &on_select,
+                        &on_action,
+                        &on_selected_prepainted,
+                        pulse_phase,
+                        window,
+                        cx,
+                    );
                     let (reveal, _) = collapse((key, "body"), group.open, body, window, cx);
                     col = col.child(header).child(reveal);
                 }
@@ -717,9 +752,21 @@ impl RenderOnce for SidebarView {
                         &on_group_action,
                         &on_group_menu_prepainted,
                         &on_current_prepainted,
+                        pulse_phase,
                     );
-                    let body =
-                        rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action, &on_selected_prepainted, window, cx);
+                    let body = rows(
+                        &key,
+                        &group.sessions,
+                        &selected,
+                        &actions,
+                        &editing,
+                        &on_select,
+                        &on_action,
+                        &on_selected_prepainted,
+                        pulse_phase,
+                        window,
+                        cx,
+                    );
                     // Sessions sit flush under their group: the dot lives in
                     // the leading box and the titles start at `NAV_LABEL_X`,
                     // so no indent block separates rows from their header.
@@ -780,6 +827,7 @@ impl RenderOnce for SidebarView {
                             &on_select,
                             &on_action,
                             &on_selected_prepainted,
+                            pulse_phase,
                             window,
                             cx,
                         ));
@@ -797,6 +845,7 @@ impl RenderOnce for SidebarView {
                             &on_select,
                             &on_action,
                             &on_selected_prepainted,
+                            pulse_phase,
                             window,
                             cx,
                         ));
@@ -818,6 +867,7 @@ pub struct ProjectGroupRow {
     mark: Option<(SharedString, gpui::Hsla)>,
     trailing: Option<SharedString>,
     state: Option<aui_tokens::AgentState>,
+    pulse_phase: Option<f32>,
     current: bool,
     chevron: bool,
     current_bar: bool,
@@ -842,6 +892,7 @@ pub fn project_group_row(
         mark: None,
         trailing: None,
         state: None,
+        pulse_phase: None,
         current: false,
         chevron: false,
         current_bar: false,
@@ -875,6 +926,15 @@ impl ProjectGroupRow {
     /// while a session runs.
     pub fn state(mut self, state: aui_tokens::AgentState) -> Self {
         self.state = Some(state);
+        self
+    }
+
+    /// Samples the state dot's pulse ring at `phase` instead of mounting
+    /// the looping animation: no frame is requested, so the ring only moves
+    /// when the caller re-renders (a view on its own timer). Unset: the dot
+    /// loops as before.
+    pub fn pulse_phase(mut self, phase: f32) -> Self {
+        self.pulse_phase = Some(phase);
         self
     }
 
@@ -1170,7 +1230,11 @@ impl RenderOnce for ProjectGroupRow {
         }
         if let Some(state) = self.state {
             let pulse = state == aui_tokens::AgentState::Running;
-            row = row.child(status_dot((id.clone(), "state"), state).pulse(pulse));
+            let mut dot = status_dot((id.clone(), "state"), state).pulse(pulse);
+            if let Some(phase) = self.pulse_phase {
+                dot = dot.phase(phase);
+            }
+            row = row.child(dot);
         }
         row = row.child(div().flex_1());
         // The tray covers this end of the row, so the branch and the count

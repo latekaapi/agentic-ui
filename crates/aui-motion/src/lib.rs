@@ -53,7 +53,7 @@ pub use collapse::{collapse, Reveal};
 pub use icon_morph::{icon_morph, IconMorph, MorphSample};
 pub use looping::{looping, Loop};
 pub use presence::{presence, EnterExit, PresenceSample, PresenceStyle};
-pub use pulse::{pulse_ring, PulseRing};
+pub use pulse::{pulse_phase, pulse_ring, PulseRing};
 pub use reveal::{stream_reveal, RevealSample};
 pub use shake::shake_offset;
 pub use shimmer::{shimmer_text, skeleton};
