@@ -12,6 +12,7 @@ mod sidebar;
 mod types;
 mod view_menu;
 mod views;
+mod virtual_sidebar;
 
 pub use folder_drop::{folder_drop_card, FolderDropCard};
 pub use project_mark::{project_mark, ProjectMark};
@@ -28,4 +29,8 @@ pub use view_menu::{view_menu, view_submenu, view_submenu_rows, MenuRow, ViewMen
 pub use views::{
     date_group_header, project_group_row, sidebar_view, DateGroup, DateGroupHeader, GroupAction, Grouping, ProjectGroup, ProjectGroupRow,
     SidebarView, StatusGroup,
+};
+pub use virtual_sidebar::{
+    ensure_row_visible, flatten_sidebar, row_index_for_session, sidebar_list_state, virtual_sidebar_view, SessionScope, SidebarRow, VirtualSidebarView,
+    SIDEBAR_OVERDRAW,
 };

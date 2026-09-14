@@ -33,6 +33,7 @@ pub mod rows;
 pub mod secret_field;
 pub mod settings;
 pub mod sidebar;
+pub mod sidebar_virtual;
 pub mod summary_status;
 pub mod terminal;
 pub mod terminal_live;

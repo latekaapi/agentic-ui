@@ -88,16 +88,16 @@ const DG_PAD_X: f32 = 12.0;
 /// `.dg .rule{flex:1;height:1px;background:var(--line)}`.
 const DG_RULE: f32 = 1.0;
 
-type SelectHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
-type ToggleHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
-type PlainHandler = Rc<dyn Fn(&mut Window, &mut App)>;
-type RowActionHandler = Rc<dyn Fn(&SharedString, RowAction, &mut Window, &mut App)>;
-type GroupActionHandler = Rc<dyn Fn(&SharedString, GroupAction, &mut Window, &mut App)>;
-type GroupRowActionHandler = Rc<dyn Fn(GroupAction, &mut Window, &mut App)>;
+pub(crate) type SelectHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
+pub(crate) type ToggleHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
+pub(crate) type PlainHandler = Rc<dyn Fn(&mut Window, &mut App)>;
+pub(crate) type RowActionHandler = Rc<dyn Fn(&SharedString, RowAction, &mut Window, &mut App)>;
+pub(crate) type GroupActionHandler = Rc<dyn Fn(&SharedString, GroupAction, &mut Window, &mut App)>;
+pub(crate) type GroupRowActionHandler = Rc<dyn Fn(GroupAction, &mut Window, &mut App)>;
 /// A bounds intent: the library reports laid-out window bounds and stores
 /// nothing; the app decides what to do with them. The first argument is the
 /// row or group id the bounds belong to.
-type BoundsHandler = Rc<dyn Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App)>;
+pub(crate) type BoundsHandler = Rc<dyn Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App)>;
 
 /// A status group: `Needs you 1`, `Running 3`, `Done 2`.
 #[derive(Debug, Clone, PartialEq)]
@@ -438,6 +438,63 @@ impl SidebarView {
     }
 }
 
+/// One session row: the compact row with its editor slot, click and action
+/// handlers, and the selected row's bounds-intent wrapper.
+///
+/// Shared by [`SidebarView`] (called once per session by [`rows`]) and the
+/// virtualised sidebar (called once per visible session row by the list's
+/// `render_item`), so the two paths cannot drift: same element ids, same
+/// geometry, same intents.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn session_row_element(
+    row_id: ElementId,
+    session: &SessionSummary,
+    selected: &Option<SharedString>,
+    actions: &[RowAction],
+    editing: &Option<(SharedString, std::cell::RefCell<Option<AnyElement>>)>,
+    on_select: &Option<SelectHandler>,
+    on_action: &Option<RowActionHandler>,
+    on_selected_prepainted: &Option<BoundsHandler>,
+) -> AnyElement {
+    let is_selected = selected.as_ref() == Some(&session.id);
+    let mut row =
+        compact_session_row(row_id, session.clone()).selected(is_selected).actions(actions.to_vec());
+    // The editor is one element and elements are not `Clone`, so it goes to
+    // whichever row claims it and the rest see none.
+    if let Some((editing_id, slot)) = editing {
+        if editing_id == &session.id {
+            if let Some(editor) = slot.borrow_mut().take() {
+                row = row.editor(editor);
+            }
+        }
+    }
+    if let Some(h) = on_select.clone() {
+        row = row.on_select(move |k, w, cx| h(k, w, cx));
+    }
+    if let Some(h) = on_action.clone() {
+        row = row.on_action(move |k, a, w, cx| h(k, a, w, cx));
+    }
+    // Only the selected row gets the wrapper, so the intent fires once
+    // per frame with that one row's bounds and other rows lay out
+    // exactly as before. The wrapper is a plain full-width column, so
+    // the row stretches inside it the way it stretches in the group.
+    if is_selected {
+        if let Some(h) = on_selected_prepainted.clone() {
+            let session_id = session.id.clone();
+            return v_flex()
+                .w_full()
+                .on_children_prepainted(move |bounds, w, cx| {
+                    if let Some(first) = bounds.first() {
+                        h(&session_id, *first, w, cx);
+                    }
+                })
+                .child(row)
+                .into_any_element();
+        }
+    }
+    row.into_any_element()
+}
+
 /// The rows of one group, ready to be revealed.
 #[allow(clippy::too_many_arguments)]
 fn rows<'a>(
@@ -453,45 +510,16 @@ fn rows<'a>(
     let mut col = v_flex().w_full();
     for session in sessions {
         let row_id: ElementId = (id.clone(), session.id.clone()).into();
-        let is_selected = selected.as_ref() == Some(&session.id);
-        let mut row =
-            compact_session_row(row_id, session.clone()).selected(is_selected).actions(actions.to_vec());
-        // The editor is one element and elements are not `Clone`, so it goes to
-        // whichever row claims it and the rest see none.
-        if let Some((editing_id, slot)) = editing {
-            if editing_id == &session.id {
-                if let Some(editor) = slot.borrow_mut().take() {
-                    row = row.editor(editor);
-                }
-            }
-        }
-        if let Some(h) = on_select.clone() {
-            row = row.on_select(move |k, w, cx| h(k, w, cx));
-        }
-        if let Some(h) = on_action.clone() {
-            row = row.on_action(move |k, a, w, cx| h(k, a, w, cx));
-        }
-        // Only the selected row gets the wrapper, so the intent fires once
-        // per frame with that one row's bounds and other rows lay out
-        // exactly as before. The wrapper is a plain full-width column, so
-        // the row stretches inside it the way it stretches in the group.
-        if is_selected {
-            if let Some(h) = on_selected_prepainted.clone() {
-                let session_id = session.id.clone();
-                col = col.child(
-                    v_flex()
-                        .w_full()
-                        .on_children_prepainted(move |bounds, w, cx| {
-                            if let Some(first) = bounds.first() {
-                                h(&session_id, *first, w, cx);
-                            }
-                        })
-                        .child(row),
-                );
-                continue;
-            }
-        }
-        col = col.child(row);
+        col = col.child(session_row_element(
+            row_id,
+            session,
+            selected,
+            actions,
+            editing,
+            on_select,
+            on_action,
+            on_selected_prepainted,
+        ));
     }
     col.into_any_element()
 }
@@ -502,7 +530,7 @@ fn rows<'a>(
 /// so its text starts at [`NAV_LABEL_X`] like every other label. Clicking
 /// it reports [`GroupAction::ToggleMore`] for `group_id`.
 #[allow(clippy::too_many_arguments)]
-fn fold_row(
+pub(crate) fn fold_row(
     id: impl Into<ElementId>,
     group_id: &SharedString,
     hidden: usize,
@@ -545,6 +573,74 @@ fn fold_row(
         row = row.on_click(move |_, w, cx| h(&group_id, GroupAction::ToggleMore, w, cx));
     }
     row.into_any_element()
+}
+
+/// One project group head: the project row with its toggle, tray actions,
+/// group-menu bounds intent, and the `current` row's bounds-intent wrapper.
+///
+/// Shared by [`SidebarView`] and the virtualised sidebar, so the two paths
+/// cannot drift: same element ids, same geometry, same intents.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn project_head_element(
+    key: &ElementId,
+    group: &ProjectGroup,
+    on_toggle: &Option<ToggleHandler>,
+    on_group_action: &Option<GroupActionHandler>,
+    on_group_menu_prepainted: &Option<BoundsHandler>,
+    on_current_prepainted: &Option<BoundsHandler>,
+) -> AnyElement {
+    let mut row = project_group_row((key.clone(), "project"), group.name.clone(), group.count.clone(), group.open);
+    if group.muted {
+        row = row.muted();
+    }
+    if let Some((initial, colour)) = group.mark.clone() {
+        row = row.mark(initial, colour);
+    }
+    if let Some(trailing) = group.trailing.clone() {
+        row = row.trailing(trailing);
+    }
+    if let Some(state) = group.state {
+        row = row.state(state);
+    }
+    row = row.chevron(group.chevron).current_bar(group.current_bar);
+    if group.current {
+        row = row.current();
+    }
+    if let Some(h) = on_toggle.clone() {
+        let group_id = group.id.clone();
+        row = row.on_toggle(move |_, w, cx| h(&group_id, w, cx));
+    }
+    if let Some(h) = on_group_action.clone() {
+        let group_id = group.id.clone();
+        row = row.on_group_action(move |action, w, cx| h(&group_id, action, w, cx));
+    }
+    if let Some(h) = on_group_menu_prepainted.clone() {
+        let group_id = group.id.clone();
+        row = row.on_menu_prepainted(group_id, move |gid, bounds, w, cx| h(gid, bounds, w, cx));
+    }
+    // Only the current group row gets the wrapper, so the
+    // intent fires once per frame with that one row's bounds.
+    // The wrapper is a plain full-width column, so the row
+    // stretches inside it the way it stretches in the view.
+    let head: AnyElement = if group.current {
+        if let Some(h) = on_current_prepainted.clone() {
+            let group_id = group.id.clone();
+            v_flex()
+                .w_full()
+                .on_children_prepainted(move |bounds, w, cx| {
+                    if let Some(first) = bounds.first() {
+                        h(&group_id, *first, w, cx);
+                    }
+                })
+                .child(row)
+                .into_any_element()
+        } else {
+            row.into_any_element()
+        }
+    } else {
+        row.into_any_element()
+    };
+    head
 }
 
 impl RenderOnce for SidebarView {
@@ -595,57 +691,14 @@ impl RenderOnce for SidebarView {
             Grouping::Project(groups) => {
                 for group in groups {
                     let key: ElementId = (id.clone(), group.id.clone()).into();
-                    let mut row = project_group_row((key.clone(), "project"), group.name.clone(), group.count.clone(), group.open);
-                    if group.muted {
-                        row = row.muted();
-                    }
-                    if let Some((initial, colour)) = group.mark.clone() {
-                        row = row.mark(initial, colour);
-                    }
-                    if let Some(trailing) = group.trailing.clone() {
-                        row = row.trailing(trailing);
-                    }
-                    if let Some(state) = group.state {
-                        row = row.state(state);
-                    }
-                    row = row.chevron(group.chevron).current_bar(group.current_bar);
-                    if group.current {
-                        row = row.current();
-                    }
-                    if let Some(h) = on_toggle.clone() {
-                        let group_id = group.id.clone();
-                        row = row.on_toggle(move |_, w, cx| h(&group_id, w, cx));
-                    }
-                    if let Some(h) = on_group_action.clone() {
-                        let group_id = group.id.clone();
-                        row = row.on_group_action(move |action, w, cx| h(&group_id, action, w, cx));
-                    }
-                    if let Some(h) = on_group_menu_prepainted.clone() {
-                        let group_id = group.id.clone();
-                        row = row.on_menu_prepainted(group_id, move |gid, bounds, w, cx| h(gid, bounds, w, cx));
-                    }
-                    // Only the current group row gets the wrapper, so the
-                    // intent fires once per frame with that one row's bounds.
-                    // The wrapper is a plain full-width column, so the row
-                    // stretches inside it the way it stretches in the view.
-                    let head: AnyElement = if group.current {
-                        if let Some(h) = on_current_prepainted.clone() {
-                            let group_id = group.id.clone();
-                            v_flex()
-                                .w_full()
-                                .on_children_prepainted(move |bounds, w, cx| {
-                                    if let Some(first) = bounds.first() {
-                                        h(&group_id, *first, w, cx);
-                                    }
-                                })
-                                .child(row)
-                                .into_any_element()
-                        } else {
-                            row.into_any_element()
-                        }
-                    } else {
-                        row.into_any_element()
-                    };
+                    let head = project_head_element(
+                        &key,
+                        group,
+                        &on_toggle,
+                        &on_group_action,
+                        &on_group_menu_prepainted,
+                        &on_current_prepainted,
+                    );
                     let body = rows(&key, &group.sessions, &selected, &actions, &editing, &on_select, &on_action, &on_selected_prepainted);
                     // Sessions sit flush under their group: the dot lives in
                     // the leading box and the titles start at `NAV_LABEL_X`,

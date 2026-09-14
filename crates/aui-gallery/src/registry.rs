@@ -231,6 +231,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::views::build,
     },
     Entry {
+        id: "nav/sidebar-virtual",
+        group: "Sidebar",
+        title: "Virtualised sidebar",
+        subtitle: "Two hundred sessions across eight groups with folds and a deep selection, rendered through a virtualised list; the note reports rows built per frame",
+        width: 360.0,
+        height: 820.0,
+        theme: CardTheme::Both,
+        build: crate::cards::sidebar_virtual::build,
+    },
+    Entry {
         id: "nav/project-mark",
         group: "Sidebar",
         title: "Project mark",

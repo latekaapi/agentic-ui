@@ -370,6 +370,10 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn date_group_header(label: impl Into<SharedString>) -> DateGroupHeader`
 - **fn** `dense_field` — The dense single-line field for `CompactSessionRow::editor`: the row-title size, no appearance and no border, fixed to one line. [...]
   - `pub fn dense_field(state: &Entity<TextareaState>) -> Textarea`
+- **fn** `ensure_row_visible` — Steer the list so row `ix` is visible, moving the least distance that shows it whole: a row above the viewport lands on the top edge, one below just clears the bottom edge, and a fully visible row cha [...]
+  - `pub fn ensure_row_visible(state: &ListState, ix: usize)`
+- **fn** `flatten_sidebar` — Flatten a grouping into its rows, in render order: the caption first when `caption` is set, then per group the header/head plus — for open groups only — the sessions and (project only) the fold row when rows are held back. [...]
+  - `pub fn flatten_sidebar(grouping: &Grouping, caption: bool) -> Vec<SidebarRow>`
 - **fn** `folder_drop_card` — A card reading “Drop a folder here” / “or click to choose one”.
   - `pub fn folder_drop_card(id: impl Into<ElementId>) -> FolderDropCard`
 - **fn** `group_header` — A group header (`Pinned 3`, `In progress 17`).
@@ -392,12 +396,16 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn role_section(id: impl Into<ElementId>, role: &Role) -> RoleSection`
 - **fn** `role_session_row` — A session row: the hairline rail, the kind glyph, the name, the elapsed time.
   - `pub fn role_session_row(id: impl Into<ElementId>, session: RoleSession) -> RoleSessionRow`
+- **fn** `row_index_for_session` — The flattened index of `session_id`, or `None` when the session has no row: an unknown id, or a session the caller held back behind a fold (expand the fold and re-flatten first). [...]
+  - `pub fn row_index_for_session(rows: &[SidebarRow], grouping: &Grouping, session_id: &SharedString) -> Option<usize>`
 - **fn** `session_row` — A row for `session`. Children are rendered beneath it, nested.
   - `pub fn session_row(id: impl Into<ElementId>, session: SessionSummary) -> SessionRow`
 - **fn** `sidebar` — A sidebar rendering `nav`.
   - `pub fn sidebar(id: impl Into<ElementId>, nav: SidebarNav) -> Sidebar`
 - **fn** `sidebar_footer` — A footer for `name` with `initial` in the avatar.
   - `pub fn sidebar_footer(id: impl Into<ElementId>, initial: impl Into<SharedString>, name: impl Into<SharedString>) -> SidebarFooter`
+- **fn** `sidebar_list_state` — Build the caller-owned [`ListState`] for a sidebar of `item_count` rows: top-aligned, with the `SIDEBAR_OVERDRAW` runway.
+  - `pub fn sidebar_list_state(item_count: usize) -> ListState`
 - **fn** `sidebar_search` — A search row wrapping `field`.
   - `pub fn sidebar_search(id: impl Into<ElementId>, field: impl IntoElement) -> SidebarSearch`
 - **fn** `sidebar_view` — The sessions of a sidebar, grouped by `grouping`.
@@ -408,6 +416,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn view_submenu(id: impl Into<ElementId>, items: Vec<SharedString>, selected: Option<usize>) -> ViewSubmenu`
 - **fn** `view_submenu_rows` — A submenu of menu rows, each carrying its own check (a `Colour` submenu of `MenuRow::Swatch` rows). Indices reported by `on_activate` count across the plain `items` first, then these rows.
   - `pub fn view_submenu_rows(id: impl Into<ElementId>, rows: Vec<MenuRow>) -> ViewSubmenu`
+- **fn** `virtual_sidebar_view` — The virtualised sessions of a sidebar, grouped by `grouping`.
+  - `pub fn virtual_sidebar_view(id: impl Into<ElementId>, grouping: impl Into<Rc<Grouping>>, state: ListState) -> VirtualSidebarView`
 
 - **struct** `Activity` — The live third line of a row.
   - fields: `kind`, `text`
@@ -553,7 +563,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn groups_label(self, label: impl Into<SharedString>) -> Self` — Overrides the caps label of the group row.
   - `pub fn item(self, item: SidebarNavItem) -> Self` — Adds a primary nav row.
   - `pub fn new(workspace: impl Into<SharedString>, footer: SidebarAccount) -> Self` — A sidebar for `workspace` with the given footer; add items and groups with the builder methods.
-  - `pub fn rail_items(&self) -> Vec<RailItem>` — The collapsed form of this data: the nav glyphs (the warning count becomes the badge), the separator, then one cell per active session — every session that is not `AgentState::Idle`, in group order.
+  - `pub fn rail_items(&self) -> Vec<RailItem>` — The collapsed form of this data: the nav glyphs (the warning count becomes the badge), the separator, then one cell per active session — every session that is not [`AgentState::Idle`], in group order.
   - `pub fn selected(self, id: impl Into<SharedString>) -> Self` — Selects a session.
 - **struct** `SidebarNavItem` — One primary nav row (`Tasks`, `Automations`, `Inbox`).
   - fields: `name`, `label`, `icon`, `count`, `warning`
@@ -589,6 +599,20 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn on_activate(self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self` — An item was clicked; the argument is its index.
   - `pub fn present(self, present: bool) -> Self` — Whether the submenu is open; `false` plays the exit.
   - `pub fn separator_before(self, index: usize) -> Self` — Draws a hairline above the item at `index` (`None` sits below the grouping choices).
+- **struct** `VirtualSidebarView` — The body of a virtualised sidebar panel in one grouping. Build with `virtual_sidebar_view`.
+  - `pub fn caption(self, caption: impl Into<SharedString>) -> Self` — The caps group row above the groups (`Workspaces`, `Projects`, `Recent`). It carries the sliders icon when `Self::on_view_options` is set.
+  - `pub fn editing(self, session_id: impl Into<SharedString>, editor: impl IntoElement) -> Self` — One row is being renamed: draw `editor` in place of its name.
+  - `pub fn on_action(self, f: impl Fn(&SharedString, RowAction, &mut Window, &mut App) + 'static) -> Self` — A row’s hover action was clicked.
+  - `pub fn on_current_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with the `current` project group row’s bounds. See `Self::on_selected_prepainted`.
+  - `pub fn on_group_action(self, f: impl Fn(&SharedString, GroupAction, &mut Window, &mut App) + 'static) -> Self` — A project group row’s hover action was clicked; the arguments are the group id and what the tray button asked for.
+  - `pub fn on_group_menu_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with every built project group row’s tray `…` button bounds, keyed by group id — what a group-row menu seats at. See `Self::on_selected_prepainted`.
+  - `pub fn on_row_built(self, f: impl Fn(usize) + 'static) -> Self` — Debug/testing hook: fires with the flattened index each time the list builds a row (visible rows plus the overdraw runway, plus any measure pass), so a test or the gallery can prove only visible rows are built. [...]
+  - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A row was clicked; the argument is the session id.
+  - `pub fn on_selected_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with the selected session row’s bounds. [...]
+  - `pub fn on_toggle(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A group header or project row was clicked; the argument is the group id.
+  - `pub fn on_view_options(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The sliders icon on the caption row was clicked: open the view menu.
+  - `pub fn row_actions(self, actions: Vec<RowAction>) -> Self` — The hover actions every row carries; none by default.
+  - `pub fn selected(self, id: impl Into<SharedString>) -> Self` — The id of the selected session.
 
 - **enum** `ActivityKind` — How the activity line is drawn.
   - variants: `Working`, `Waiting`, `Failed`, `Plain`
@@ -616,6 +640,11 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
 - **enum** `SessionKind` — What kind of work a session is, which fixes its glyph.
   - variants: `Chat`, `Document`, `Sheet`
   - `pub fn icon(self) -> IconName` — The glyph for this kind.
+- **enum** `SessionScope` — Which sessions a `SidebarRow::Session` points at. The key prefix each scope renders under mirrors the non-virtualised view exactly: the group id for status/project rows, `"pinned"` for the lifted pinn [...]
+  - variants: `Status`, `Project`, `Pinned`, `Date`
+- **enum** `SidebarRow` — One flattened row of a sidebar grouping. Build with `flatten_sidebar`; the fields stay private so only the flattener (which mirrors the non-virtualised render line for line) can mint rows, and the two [...]
+  - variants: `Caption`, `StatusHeader`, `ProjectHead`, `PinnedHeader`, `DateHeader`, `Session`,
+    `Fold`
 
 - **const** `DENSE_FIELD_H` — Height of the dense rename field: the compact row is 30 px with 4 px of vertical padding, so the field gets 20 px inside a 22 px bordered wrapper.
   - `pub const DENSE_FIELD_H: f32 = 20.0;`
@@ -627,6 +656,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub const NAV_LABEL_X: f32 = 32.0;`
 - **const** `RAIL_WIDTH` — `.rail{width:48px;padding:8px 0;gap:4px}`.
   - `pub const RAIL_WIDTH: f32 = 48.0;`
+- **const** `SIDEBAR_OVERDRAW` — The measured-but-unpainted runway above and below the sidebar viewport.
+  - `pub const SIDEBAR_OVERDRAW: f32 = 120.0;`
 - **const** `SIDEBAR_WIDTH` — `.side{width:256px}`.
   - `pub const SIDEBAR_WIDTH: f32 = 256.0;`
 
