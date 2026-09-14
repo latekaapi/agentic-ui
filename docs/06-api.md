@@ -563,7 +563,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn groups_label(self, label: impl Into<SharedString>) -> Self` — Overrides the caps label of the group row.
   - `pub fn item(self, item: SidebarNavItem) -> Self` — Adds a primary nav row.
   - `pub fn new(workspace: impl Into<SharedString>, footer: SidebarAccount) -> Self` — A sidebar for `workspace` with the given footer; add items and groups with the builder methods.
-  - `pub fn rail_items(&self) -> Vec<RailItem>` — The collapsed form of this data: the nav glyphs (the warning count becomes the badge), the separator, then one cell per active session — every session that is not [`AgentState::Idle`], in group order.
+  - `pub fn rail_items(&self) -> Vec<RailItem>` — The collapsed form of this data: the nav glyphs (the warning count becomes the badge), the separator, then one cell per active session — every session that is not `AgentState::Idle`, in group order.
   - `pub fn selected(self, id: impl Into<SharedString>) -> Self` — Selects a session.
 - **struct** `SidebarNavItem` — One primary nav row (`Tasks`, `Automations`, `Inbox`).
   - fields: `name`, `label`, `icon`, `count`, `warning`

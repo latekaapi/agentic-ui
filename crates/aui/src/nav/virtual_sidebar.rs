@@ -482,6 +482,16 @@ impl VirtualSidebarView {
 
 /// One flattened row, built with the same builders and element ids as the
 /// non-virtualised view.
+///
+/// The row sits inside a marginless full-width box first: gpui's `list`
+/// lays each item out at the full list width, so a row root's own margins
+/// never inset it the way they do as a flex-column child on the old path —
+/// the session rows would come out 8 px wider on each side and the date
+/// headers would lose their 8 px top margin (one missing gap per header,
+/// accumulating down the list). Inside the box the row is an ordinary block
+/// child again, so its margins apply exactly as they do in the flex column
+/// and the list measures the box at the row's true outer geometry. Same
+/// element ids, same geometry, same intents.
 #[allow(clippy::too_many_arguments)]
 fn render_flat_row(
     view_id: &ElementId,
@@ -502,7 +512,7 @@ fn render_flat_row(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    match row {
+    div().w_full().child(match row {
         SidebarRow::Caption => {
             // `flatten_sidebar` only emits this when a caption is set.
             let text = caption.clone().unwrap_or_default();
@@ -575,7 +585,8 @@ fn render_flat_row(
             let (hidden, expanded) = project.fold.unwrap_or((0, false));
             fold_row((key.clone(), "more"), &project.id, hidden, expanded, on_group_action, window, cx)
         }
-    }
+    })
+    .into_any_element()
 }
 
 impl RenderOnce for VirtualSidebarView {
