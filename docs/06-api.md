@@ -450,9 +450,9 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
 - **struct** `ProjectGroup` — A project group: the `.pj` row and the sessions (and their children) below.
   - fields: `id`, `name`, `count`, `open`, `muted`, `mark`, `trailing`, `state`, `chevron`,
     `current_bar`, `sessions`, `fold`, `current`
-  - `pub fn chevron(self, chevron: bool) -> Self` — Draws the collapse chevron in the leading box; the label follows at `NAV_LABEL_X`. Off by default: the row is a plain label.
-  - `pub fn current(self, current: bool) -> Self` — Marks this as the project the open session belongs to.
-  - `pub fn current_bar(self, current_bar: bool) -> Self` — Draws the 2 px bar with `Self::current`. Off by default: `current(true)` alone keeps only the semibold ink name.
+  - `pub fn chevron(self, chevron: bool) -> Self` — Draws the collapse chevron in the leading box; the label follows at `NAV_LABEL_X`. Off by default: the row is a plain label starting at the leading centre.
+  - `pub fn current(self, current: bool) -> Self` — Marks this as the project the open session belongs to. The name is unchanged; pair with `Self::current_bar` to mark it.
+  - `pub fn current_bar(self, current_bar: bool) -> Self` — Draws the 2 px bar with `Self::current`. Off by default: `current` alone changes nothing visible.
   - `pub fn folded(self, hidden: usize, expanded: bool) -> Self` — Folds a long group: `hidden` rows are held back and `expanded` picks the row’s label (“Show {hidden} more” / “Show less”). [...]
   - `pub fn mark(self, initial: impl Into<SharedString>, colour: Hsla) -> Self` — Draws the project’s mark in the leading box. Unset by default: the row is plain.
   - `pub fn muted(self) -> Self` — Mutes the row (`Archived`, `Other workspaces`).
@@ -461,9 +461,9 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn state(self, state: AgentState) -> Self` — Sets the rolled-up agent state: a status dot after the name, pulsing while a session runs.
   - `pub fn trailing(self, text: impl Into<SharedString>) -> Self` — Sets the trailing mono text before the count (the branch).
 - **struct** `ProjectGroupRow` — A project row (`.pj`). Build with `project_group_row`.
-  - `pub fn chevron(self, chevron: bool) -> Self` — Draws the collapse chevron in the leading box; the label follows at `NAV_LABEL_X`. Off by default: the row is a plain label whose first glyph starts in the leading box.
-  - `pub fn current(self) -> Self` — The project the open session belongs to: the name keeps `ink` at semibold. The 2 px accent bar draws only with `Self::current_bar`.
-  - `pub fn current_bar(self, current_bar: bool) -> Self` — Draws the 2 px accent bar at the row’s left edge with `Self::current`. Off by default: `current` alone keeps only the semibold `ink` name.
+  - `pub fn chevron(self, chevron: bool) -> Self` — Draws the collapse chevron in the leading box; the label follows at `NAV_LABEL_X`. Off by default: the row is a plain label whose first glyph starts at the leading centre.
+  - `pub fn current(self) -> Self` — The project the open session belongs to: the name reads like every other project. The 2 px accent bar draws only with `Self::current_bar`.
+  - `pub fn current_bar(self, current_bar: bool) -> Self` — Draws the 2 px accent bar at the row’s left edge with `Self::current`. Off by default: `current` alone changes nothing visible.
   - `pub fn mark(self, initial: impl Into<SharedString>, colour: Hsla) -> Self` — Draws the project’s mark in the leading box. Nothing passes one by default — the row is plain — and muted groups never draw it.
   - `pub fn muted(self) -> Self` — `.pj{color:var(--ink-3);font-weight:500}` — the archived project.
   - `pub fn on_group_action(self, f: impl Fn(GroupAction, &mut Window, &mut App) + 'static) -> Self` — A hover-tray button was clicked; the argument is what it asked for.

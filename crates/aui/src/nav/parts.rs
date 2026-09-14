@@ -26,7 +26,7 @@ use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
 /// `SR_MARGIN_X`, the project row's `PJ_MARGIN_X`) carry the gutter in that
 /// margin and start their content flush; margin-free rows (`NavItem`, the
 /// caption [`GroupRow`]) pad it instead. The one exception is the plain
-/// project name, which starts in the leading box rather than at
+/// project name, which starts at the leading centre rather than at
 /// [`NAV_LABEL_X`] (with [`crate::nav::ProjectGroupRow::chevron`] the label
 /// follows at [`NAV_LABEL_X`] like everything else).
 pub const NAV_GUTTER: f32 = 8.0;

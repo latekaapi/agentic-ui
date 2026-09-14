@@ -104,8 +104,9 @@ fn project_groups() -> Vec<ProjectGroup> {
         ProjectGroup::new("acme-web", "acme-web", "5")
             .trailing("main")
             .state(AgentState::Running)
-            // The project the open session belongs to: the semibold ink
-            // name, with no bar unless the caller opts into one.
+            // The project the open session belongs to: the same muted name
+            // as every other project — only the bar marks it, and the caller
+            // has not opted into one here.
             .current(true)
             // Twelve rows held back: the column shows the visible three and
             // the "Show 12 more" row after them.

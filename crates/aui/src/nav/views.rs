@@ -33,6 +33,12 @@ const PJ_PAD_RIGHT: f32 = 10.0;
 /// The label gap after the leading box: `NAV_LABEL_X - NAV_GUTTER -
 /// LEADING_BOX`, so a chevron in the box puts the name at `NAV_LABEL_X`.
 const PJ_LEAD_GAP: f32 = NAV_LABEL_X - NAV_GUTTER - LEADING_BOX;
+/// The plain name's left pad (owner round 5): with no chevron or mark the
+/// name starts at the leading centre (`NAV_GUTTER + LEADING_BOX / 2`), the
+/// one vertical line the nav icons and the session dots sit on — not at the
+/// column margin (where it sat left of the icons) and not at `NAV_LABEL_X`
+/// (where the chevron flag puts it, right of them).
+const PJ_PLAIN_PAD: f32 = NAV_GUTTER + LEADING_BOX / 2.0 - PJ_MARGIN_X;
 /// The "Show N more" row after a folded project's sessions: 28 px, FS_12
 /// ink-3, chevron-down/up before the text, the row's own hover ground.
 const FOLD_H: f32 = 28.0;
@@ -160,10 +166,10 @@ pub struct ProjectGroup {
     /// The rolled-up agent state: a status dot after the name.
     pub state: Option<aui_tokens::AgentState>,
     /// Draw the collapse chevron in the leading box (off: the row is a plain
-    /// label whose first glyph starts in the box).
+    /// label whose first glyph starts at the leading centre).
     pub chevron: bool,
-    /// Draw the 2 px current bar with [`Self::current`]. `current` alone
-    /// keeps only the semibold ink name.
+    /// Draw the 2 px current bar for [`Self::current`]. `current` alone
+    /// changes nothing visible.
     pub current_bar: bool,
     /// The rows under the project row.
     pub sessions: Vec<SessionSummary>,
@@ -172,9 +178,9 @@ pub struct ProjectGroup {
     /// never decides how many rows to show — the caller passes the rows it
     /// wants visible and the count it held back.
     pub fold: Option<(usize, bool)>,
-    /// The project the open session belongs to: the name holds `ink` at
-    /// semibold even when the group is muted, and a 2 px accent bar sits at
-    /// the row's left edge. One group at a time; the caller decides which.
+    /// The project the open session belongs to: the name reads like every
+    /// other project, and a 2 px accent bar sits at the row's left edge only
+    /// with `current_bar`. One group at a time; the caller decides which.
     pub current: bool,
 }
 
@@ -241,21 +247,23 @@ impl ProjectGroup {
         self
     }
 
-    /// Marks this as the project the open session belongs to.
+    /// Marks this as the project the open session belongs to. The name is
+    /// unchanged; pair with [`Self::current_bar`] to mark it.
     pub fn current(mut self, current: bool) -> Self {
         self.current = current;
         self
     }
 
     /// Draws the collapse chevron in the leading box; the label follows at
-    /// [`NAV_LABEL_X`]. Off by default: the row is a plain label.
+    /// [`NAV_LABEL_X`]. Off by default: the row is a plain label starting
+    /// at the leading centre.
     pub fn chevron(mut self, chevron: bool) -> Self {
         self.chevron = chevron;
         self
     }
 
     /// Draws the 2 px bar with [`Self::current`]. Off by default:
-    /// `current(true)` alone keeps only the semibold ink name.
+    /// `current` alone changes nothing visible.
     pub fn current_bar(mut self, current_bar: bool) -> Self {
         self.current_bar = current_bar;
         self
@@ -775,8 +783,8 @@ impl ProjectGroupRow {
         self
     }
 
-    /// The project the open session belongs to: the name keeps `ink` at
-    /// semibold. The 2 px accent bar draws only with
+    /// The project the open session belongs to: the name reads like every
+    /// other project. The 2 px accent bar draws only with
     /// [`Self::current_bar`].
     pub fn current(mut self) -> Self {
         self.current = true;
@@ -785,15 +793,15 @@ impl ProjectGroupRow {
 
     /// Draws the collapse chevron in the leading box; the label follows at
     /// [`NAV_LABEL_X`]. Off by default: the row is a plain label whose first
-    /// glyph starts in the leading box.
+    /// glyph starts at the leading centre.
     pub fn chevron(mut self, chevron: bool) -> Self {
         self.chevron = chevron;
         self
     }
 
     /// Draws the 2 px accent bar at the row's left edge with
-    /// [`Self::current`]. Off by default: `current` alone keeps only the
-    /// semibold `ink` name.
+    /// [`Self::current`]. Off by default: `current` alone changes nothing
+    /// visible.
     pub fn current_bar(mut self, current_bar: bool) -> Self {
         self.current_bar = current_bar;
         self
@@ -993,10 +1001,13 @@ impl RenderOnce for ProjectGroupRow {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let (hover_state, flags) = interaction_flags(id.clone(), window, cx);
-        // Plain by default: the name is a small muted label whose first glyph
-        // starts in the leading box. With `chevron`, the chevron takes the
-        // box and the label follows at `NAV_LABEL_X`. An explicit mark still
-        // draws (other consumers), but nothing passes one by default.
+        // Plain by default: the name is a small muted label whose first
+        // glyph starts at the leading centre. With `chevron` (or an explicit
+        // mark, which other consumers may pass), the box is taken and the
+        // label follows at `NAV_LABEL_X`. Every project reads the same muted
+        // treatment — `current` alone changes nothing (owner round 5); only
+        // `current_bar` marks the row, without moving it.
+        let leading_box = self.chevron || (self.mark.is_some() && !self.muted);
         let mut row = {
             // No `w_full`: at full width the 8 px margins overflow the column and
             // the row ends 16 px past the session rows under it. Without a
@@ -1011,13 +1022,13 @@ impl RenderOnce for ProjectGroupRow {
                 .min_w(px(0.0))
                 .h(cx.aui().metrics.row)
                 .gap(px(PJ_LEAD_GAP))
-                .pl(px(0.0))
+                .pl(px(if leading_box { 0.0 } else { PJ_PLAIN_PAD }))
                 .pr(px(PJ_PAD_RIGHT))
                 .ml(px(PJ_MARGIN_X))
                 .mr(px(PJ_MARGIN_X))
                 .mt(px(PJ_MARGIN_TOP))
                 .ui(PJ_TEXT)
-                .text_color(if self.current { p.ink } else { p.ink_3 })
+                .text_color(p.ink_3)
                 .cursor_pointer()
                 .track_interaction(&hover_state);
             if self.chevron {
@@ -1043,9 +1054,7 @@ impl RenderOnce for ProjectGroupRow {
                 div()
                     .min_w(px(NAME_MIN))
                     .truncate()
-                    // The current project reads as current even when it is
-                    // muted: `ink` at semibold, the unmuted treatment.
-                    .font_weight(if self.current { gpui::FontWeight::SEMIBOLD } else { gpui::FontWeight::MEDIUM })
+                    .medium()
                     .child(self.name),
             )
         };
@@ -1177,10 +1186,15 @@ mod tests {
         assert_eq!(NAV_GUTTER + LEADING_BOX / 2.0, 18.0, "leading centre from the column edge");
         assert_eq!(NAV_GUTTER + LEADING_BOX + PJ_LEAD_GAP, NAV_LABEL_X, "box + gap reaches the labels");
         assert_eq!(PJ_LEAD_GAP, 4.0, "the label gap stays on the 4/8 grid");
+        assert_eq!(
+            PJ_MARGIN_X + PJ_PLAIN_PAD,
+            NAV_GUTTER + LEADING_BOX / 2.0,
+            "the plain name starts at the leading centre"
+        );
     }
 
     /// Plain by default: no chevron box, no current bar. `current` alone
-    /// keeps only the semibold ink name.
+    /// changes nothing visible.
     #[test]
     fn group_rows_are_plain_unless_asked() {
         let group = ProjectGroup::new("a", "a", "1");
