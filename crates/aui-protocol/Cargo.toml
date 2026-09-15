@@ -3,8 +3,12 @@ name = "aui-protocol"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
 repository.workspace = true
+readme.workspace = true
 description = "Transport-agnostic session model rendered by the Agentic UI transcript."
+keywords = ["agent", "protocol", "chat", "session"]
+categories = ["data-structures"]
 
 [dependencies]
 serde = { workspace = true }

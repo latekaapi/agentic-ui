@@ -3,7 +3,12 @@ name = "aui-tokens"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
 description = "Design tokens for the Agentic UI library: colour palettes, type scale, spacing, radii, elevation, motion constants, bundled Geist fonts and the generated gpui-kit theme."
+keywords = ["gpui", "design-tokens", "theme", "ui"]
+categories = ["gui"]
 
 [dependencies]
 gpui.workspace = true

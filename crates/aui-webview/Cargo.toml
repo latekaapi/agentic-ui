@@ -3,8 +3,12 @@ name = "aui-webview"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
 repository.workspace = true
+readme.workspace = true
 description = "Embedded browser pane: a WebBackend trait, a scripted fake page for the gallery, and a wry/WKWebView backend behind the `wry` feature."
+keywords = ["gpui", "webview", "wry", "browser"]
+categories = ["gui"]
 
 [features]
 default = []

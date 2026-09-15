@@ -7,7 +7,9 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
+authors = ["latekaapi"]
 repository = "https://github.com/latekaapi/agentic-ui"
+readme = "README.md"
 
 [workspace.dependencies]
 # gpui is published as the `gpui-pre` family; gpui-kit pins the matching set.
