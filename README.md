@@ -1,14 +1,53 @@
-# agentic-ui
+# agentic-ui (`aui`)
 
-<!-- Replace `latekaapi/agentic-ui` once the repository is pushed. -->
 [![CI](https://github.com/latekaapi/agentic-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/latekaapi/agentic-ui/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A Rust component library for agent tooling, built on [gpui](https://www.gpui.rs)
-(`gpui-pre`) and `gpui-kit`. It provides the shell, transcript, composer and
-workbench that an Orca-like agent harness needs, plus the day-job assistant app
-built from the same parts. Everything is designed first in `design/`, rendered to
-reference screenshots, and then matched pixel for pixel in Rust.
+`aui` is a [gpui](https://www.gpui.rs) (`gpui-pre` + `gpui-kit`) component
+library for building agentic chat apps on macOS: the shell, sidebar,
+streaming transcript, composer and workbench (terminal, browser, diff, files)
+an agent-facing app needs, plus the tokens and motion engine that keep them
+all looking and moving like one product. Everything is designed first as
+plain HTML/CSS in `design/`, rendered to reference screenshots, and then
+matched pixel-for-pixel in Rust — see [Design is the source of
+truth](#design-is-the-source-of-truth) below.
+
+![The aui-gallery storybook, showing the App shell card](docs/images/gallery.png)
+
+## Status
+
+`aui` is at **v0.1, pre-1.0**. The API is used by one real app today (see
+[Reference consumer](#reference-consumer)) but is not yet stable: expect
+breaking changes between minor versions until 1.0. There is no published
+crates.io release; consume it as a git or path dependency.
+
+## Requirements
+
+- **macOS 14 (Sonoma) or later** — the version the reference consumer
+  targets (`LSMinimumSystemVersion`). `aui` itself sets no deployment target
+  of its own; the shell, webview (`aui-webview`) and terminal (`aui-terminal`)
+  panes are built on AppKit and WKWebView and are macOS-only.
+- **Rust 1.85 or later** (the workspace uses async closures; `rust-version`
+  is pinned in `Cargo.toml`).
+- **Xcode command line tools**: `xcode-select --install`.
+
+## Adding it to a project
+
+Not published to crates.io yet — add it as a git dependency (pin a tag once
+one exists; `main` until then):
+
+```toml
+[dependencies]
+aui = { git = "https://github.com/latekaapi/agentic-ui", tag = "v0.1.0" }
+aui-protocol = { git = "https://github.com/latekaapi/agentic-ui", tag = "v0.1.0" }
+gpui = { package = "gpui-pre", version = "0.3.3" }
+gpui-kit = "0.6"
+```
+
+`aui` re-exports the rest of the workspace, so most consumers only need
+`aui` and `aui-protocol` directly; reach for `aui-webview` / `aui-terminal`
+only if you want the browser or terminal panes. See [Getting
+started](#getting-started) for the full walkthrough.
 
 ## Crates
 
@@ -32,9 +71,8 @@ approval card and a streamed reply, under 400 commented lines.
 
 [`docs/08-getting-started.md`](docs/08-getting-started.md) walks through adding
 the crates to a project, the init sequence, the data-in / intents-out pattern,
-theming, text scale, motion and the keyboard, with that example as the running
-thread. [`docs/09-integration-brief.md`](docs/09-integration-brief.md) is the
-paste-able brief for integrating the library into an existing app, pane by pane:
+theming, text scale, motion and the keyboard, with the minimal example above
+as the running thread:
 
 ```sh
 cargo run -p aui --example minimal
@@ -43,11 +81,13 @@ cargo run -p aui --example minimal
 [`docs/06-api.md`](docs/06-api.md) is the generated public-API overview and
 [`CHANGELOG.md`](CHANGELOG.md) records what shipped in each release.
 
-## Prerequisites
+## Reference consumer
 
-- macOS (the shell, webview and terminal panes use AppKit and WKWebView).
-- Xcode command line tools: `xcode-select --install`.
-- Rust stable via [rustup](https://rustup.rs): `rustup update stable`.
+[Harness](https://github.com/latekaapi/harness) (placeholder link) is a
+macOS agent-development app built on `aui` and is this library's real-world
+proving ground: everything in `aui` exists because that app needed it.
+Reading its usage of the shell, transcript and workbench components is a
+faster way to see idiomatic `aui` than the minimal example alone.
 
 ## Build and run
 
@@ -126,3 +166,11 @@ result against the matching PNG in `design/reference/`. Differences in spacing,
 weight, colour or motion are bugs in the Rust until the spec says otherwise. The
 full procedure, including how to add a new reference render and what counts as a
 pass, is in [`docs/03-parity-process.md`](docs/03-parity-process.md).
+
+## License
+
+MIT — see [`LICENSE`](LICENSE). The bundled Geist / Geist Mono fonts
+(`crates/aui-tokens/fonts/*.ttf`) ship under the SIL Open Font License 1.1
+(`crates/aui-tokens/fonts/OFL.txt`), and the icon set adapts glyphs from
+Lucide (ISC). See [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) for the
+full third-party attributions.
