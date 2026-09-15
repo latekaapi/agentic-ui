@@ -89,6 +89,14 @@ fn user_turn_data(id: impl Into<String>, text: impl Into<String>) -> Turn {
 
 impl MinimalApp {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::new_with(window, cx, false)
+    }
+
+    /// Like [`Self::new`], but when `show_approval` is set it also drives the
+    /// composer's `Send` path once, synchronously, so the window opens with
+    /// the pending approval card already up — the state `docs/08-getting-started.md`'s
+    /// `images/minimal-approval.png` shows. Used by `--screenshot-approval`.
+    fn new_with(window: &mut Window, cx: &mut Context<Self>, show_approval: bool) -> Self {
         // gpui-kit's textarea, with the composer card's auto-grow row limits.
         let composer = cx.new(|cx| composer_state("Ask, draft, or type / for commands", window, cx));
         let mut session = Session::new("demo", Provider::Claude, "Opus 4.6", "~/work/rfp");
@@ -101,7 +109,12 @@ impl MinimalApp {
             meta: TurnMeta { model: "Opus 4.6".into(), duration_ms: 2_100, tokens_in: 1_840, tokens_out: 96, reasoning_tokens: 0, cost_usd: 0.014 },
         });
         let (focus_root, focus_approval) = (cx.focus_handle(), cx.focus_handle());
-        Self { session, revealed: 0, composer, sidebar_open: true, right_open: false, run: 0, focus_root, focus_approval, focus_pending_approval: false, focus_composer: true, tasks: Vec::new() }
+        let mut this = Self { session, revealed: 0, composer, sidebar_open: true, right_open: false, run: 0, focus_root, focus_approval, focus_pending_approval: false, focus_composer: true, tasks: Vec::new() };
+        if show_approval {
+            this.composer.update(cx, |state, cx| state.set_value("Rewrite section 2 against the current procurement rules.", window, cx));
+            this.send(window, cx);
+        }
+        this
     }
 
     /// `ComposerIntent::Send`: append the person's turn, then open an assistant
@@ -242,7 +255,7 @@ impl MinimalApp {
             .child(nav_item("nav-sessions", IconName::List, "Sessions").count("12"))
             .child(nav_item("nav-files", IconName::Folder, "Files"))
             .child(div().flex_1())
-            .child(sidebar_footer("nav-footer", "B", "Bharani").meter(ProviderMark::Claude, 0.62))
+            .child(sidebar_footer("nav-footer", "A", "Alex Rivera").meter(ProviderMark::Claude, 0.62))
     }
 
     /// One transcript block. Every newly arrived block fades in and rises 3 px
@@ -387,9 +400,30 @@ impl Render for MinimalApp {
     }
 }
 
+/// Pulls `--flag <value>` out of the process args, for the two screenshot
+/// flags below. Not a general parser — this example only ever takes one.
+fn arg_value(flag: &str) -> Option<std::path::PathBuf> {
+    let mut args = std::env::args();
+    while let Some(a) = args.next() {
+        if a == flag {
+            return args.next().map(std::path::PathBuf::from);
+        }
+    }
+    None
+}
+
 fn main() {
+    // `--screenshot <out.png>` / `--screenshot-approval <out.png>`: render
+    // the window off-screen a couple of frames in and quit, the same shape
+    // as the gallery's `--screenshot` (`aui-gallery/src/shot.rs`). This is
+    // how `docs/images/minimal.png` and `minimal-approval.png` are made.
+    let screenshot = arg_value("--screenshot");
+    let screenshot_approval = arg_value("--screenshot-approval");
+    let show_approval = screenshot_approval.is_some();
+    let capture_path = screenshot.or(screenshot_approval);
+
     // 1. The asset source first: it serves `aui-icons` over gpui-kit's set.
-    gpui_kit::application().with_assets(aui::assets::AuiAssets).run(|cx| {
+    gpui_kit::application().with_assets(aui::assets::AuiAssets).run(move |cx| {
         // 2. One call does gpui_kit::init, the fonts, the themes and the
         //    keymap. Nothing before it, and no window before it.
         aui::init(ThemeKind::Dark, cx);
@@ -406,11 +440,42 @@ fn main() {
         };
         // `Root` is gpui-kit's window root; overlays (popovers, the command
         // palette, toasts) need it in the tree.
-        cx.open_window(options, |window, cx| {
-            let view = cx.new(|cx| MinimalApp::new(window, cx));
-            cx.new(|cx| Root::new(view, window, cx))
-        })
-        .expect("open window");
+        let handle = cx
+            .open_window(options, |window, cx| {
+                let view = cx.new(|cx| {
+                    if show_approval {
+                        MinimalApp::new_with(window, cx, true)
+                    } else {
+                        MinimalApp::new(window, cx)
+                    }
+                });
+                cx.new(|cx| Root::new(view, window, cx))
+            })
+            .expect("open window");
         cx.activate(true);
+
+        if let Some(path) = capture_path {
+            cx.spawn(async move |cx| {
+                // Give fonts, layout and the first paint time to settle.
+                cx.background_executor().timer(Duration::from_millis(350)).await;
+                let result = cx.update(|cx| {
+                    handle.update(cx, |_root, window, _cx| {
+                        let image = window.render_to_image()?;
+                        if let Some(parent) = path.parent() {
+                            std::fs::create_dir_all(parent)?;
+                        }
+                        image.save(&path)?;
+                        anyhow::Ok(())
+                    })
+                });
+                match result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => eprintln!("screenshot failed: {err:#}"),
+                    Err(err) => eprintln!("screenshot failed: {err:#}"),
+                }
+                cx.update(|cx| cx.quit());
+            })
+            .detach();
+        }
     });
 }

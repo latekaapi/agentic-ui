@@ -66,7 +66,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         side = side.child(role_section(("card22-role", i), &role).active_session(Some("rfp-draft")));
     }
     side = side.child(div().flex_1()).child(
-        sidebar_footer("card22-footer", "B", "Bharani").pad_y(FOOTER_PAD_Y).trailing(pill("local-first").height(FOOTER_PILL_H)),
+        sidebar_footer("card22-footer", "A", "Alex Rivera").pad_y(FOOTER_PAD_Y).trailing(pill("local-first").height(FOOTER_PILL_H)),
     );
 
     h_flex().w_full().items_start().gap(px(COLUMN_GAP)).child(side).child(legend(p)).into_any_element()

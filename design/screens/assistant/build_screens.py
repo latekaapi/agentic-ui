@@ -102,7 +102,7 @@ def a_sidebar(active="RFP draft v3"):
   </div>
   <div class="sec"><div class="role closed"><svg class="chev"><use href="#chevron"></use></svg>{icon('scale')}Director, Law<span class="grow"></span><span class="cnt tag">2</span></div></div>
   <div class="sec"><div class="role closed"><svg class="chev"><use href="#chevron"></use></svg>{icon('gear')}Operations<span class="grow"></span><span class="cnt tag">4</span></div></div>
-  <div style="margin-top:auto;border-top:1px solid var(--line);padding:8px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3)"><i class="avatar">B</i><span class="grow trunc">Bharani</span><span class="meter">{mark("claude","C",11)}<i><b style="width:78%"></b></i>78%</span></div>
+  <div style="margin-top:auto;border-top:1px solid var(--line);padding:8px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3)"><i class="avatar">A</i><span class="grow trunc">Alex Rivera</span><span class="meter">{mark("claude","C",11)}<i><b style="width:78%"></b></i>78%</span></div>
 </aside>"""
 
 def a_header(center_title, center_sub, right_title, right_sub):

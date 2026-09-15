@@ -284,7 +284,7 @@ impl AssistantMock {
                     .on_select_session(move |id, w, cx| select(id, w, cx)),
             );
         }
-        col.child(div().flex_1()).child(sidebar_footer("assistant-footer", "B", "Bharani").meter(Provider::Claude, 0.78).pad_y(8.0))
+        col.child(div().flex_1()).child(sidebar_footer("assistant-footer", "A", "Alex Rivera").meter(Provider::Claude, 0.78).pad_y(8.0))
     }
 
     /// The collapsed sidebar: one cell per role, then the open project's

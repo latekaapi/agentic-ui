@@ -25,7 +25,7 @@ const FOOTER_PAD_Y: f32 = 8.0;
 fn sample_nav() -> SidebarNav {
     SidebarNav::new(
         "acme",
-        SidebarAccount::new("B", "Bharani · Max", Provider::Claude, 0.78).plan("Power Usage", false),
+        SidebarAccount::new("A", "Alex Rivera · Max", Provider::Claude, 0.78).plan("Power Usage", false),
     )
     .item(SidebarNavItem::new("tasks", "Tasks", IconName::List).count("7"))
     .item(SidebarNavItem::new("automations", "Automations", IconName::Zap))
@@ -115,7 +115,7 @@ fn narrow_footer(p: Palette) -> impl IntoElement {
         .bg(p.surface_1)
         .overflow_hidden()
         .child(
-            sidebar_footer("card21-narrow-footer", "B", "Bharani · Max")
+            sidebar_footer("card21-narrow-footer", "A", "Alex Rivera · Max")
                 .plan("Power Usage", false)
                 .meter(Provider::Claude, 0.78)
                 .pad_y(FOOTER_PAD_Y),

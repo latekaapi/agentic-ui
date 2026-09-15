@@ -338,8 +338,8 @@ pub(crate) fn sidebar(_cx: &mut App) -> impl IntoElement {
         // Three rows: the name, the identity under it, and what the account is
         // entitled to under that. The entitlement is the only line in a footer
         // that ever carries colour, and only when it wants looking at.
-        sidebar_footer("card10-footer", "B", "Bharani · Max")
-            .detail("bharani@example.com")
+        sidebar_footer("card10-footer", "A", "Alex Rivera · Max")
+            .detail("alex@example.com")
             .plan("High Usage · 2% this week", false)
             .meter(Provider::Claude, 0.78),
     )

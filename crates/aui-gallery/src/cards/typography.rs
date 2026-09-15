@@ -72,7 +72,7 @@ fn scale_grid(p: Palette) -> impl IntoElement {
                 .line_height(relative(LH_DISPLAY))
                 .semibold()
                 .text_color(p.ink)
-                .child("Welcome back, Bharani"),
+                .child("Welcome back, Alex Rivera"),
         ))
         .child(scale_row(
             p,

@@ -203,7 +203,7 @@ def sidebar(selected="checkout-flow-v2", view="status"):
   {''.join(rows)}
   <div class="grp"><svg class="chev" style="transform:rotate(90deg)"><use href="#chevron"></use></svg><span style="font-weight:600;font-size:12px">In progress</span><span class="count">17</span></div>
   {''.join(rows2)}
-  <div style="margin-top:auto;border-top:1px solid var(--line);padding:10px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3)"><i class="avatar">B</i><span class="grow trunc">Bharani · Max</span><span class="meter" title="Claude usage, 5-hour window">{mark("claude","C",11)}<i><b style="width:78%"></b></i>78%</span><button class="btn icon xs ghost">{icon('chevron-down','style="width:12px;height:12px"')}</button></div>
+  <div style="margin-top:auto;border-top:1px solid var(--line);padding:10px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3)"><i class="avatar">A</i><span class="grow trunc">Alex Rivera · Max</span><span class="meter" title="Claude usage, 5-hour window">{mark("claude","C",11)}<i><b style="width:78%"></b></i>78%</span><button class="btn icon xs ghost">{icon('chevron-down','style="width:12px;height:12px"')}</button></div>
 </aside>"""
 
 STATUSBAR = ''  # removed: no bottom bar
@@ -267,7 +267,7 @@ def ft(kind, extra=""):
     return f'<svg class="fic {cls}" {extra}><use href="#ft-{kind}"></use></svg>'
 
 
-SIDEBAR_FOOTER = f'<div style="margin-top:auto;border-top:1px solid var(--line);padding:10px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3)"><i class="avatar">B</i><span class="grow trunc">Bharani · Max</span><span class="meter">{mark("claude","C",11)}<i><b style="width:78%"></b></i>78%</span><button class="btn icon xs ghost">{icon("chevron-down","style=\"width:12px;height:12px\"")}</button></div>'
+SIDEBAR_FOOTER = f'<div style="margin-top:auto;border-top:1px solid var(--line);padding:10px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3)"><i class="avatar">A</i><span class="grow trunc">Alex Rivera · Max</span><span class="meter">{mark("claude","C",11)}<i><b style="width:78%"></b></i>78%</span><button class="btn icon xs ghost">{icon("chevron-down","style=\"width:12px;height:12px\"")}</button></div>'
 SIDEBAR_NAV = f'<div class="nav"><div class="it">{icon("list")}Tasks<span class="n">7</span></div><div class="it">{icon("zap")}Automations</div><div class="it">{icon("inbox")}Inbox<span class="n" style="color:var(--warning)">2</span></div></div>'
 
 def st_glyph(kind):

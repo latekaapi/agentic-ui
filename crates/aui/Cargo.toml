@@ -3,7 +3,12 @@ name = "aui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
 description = "The Agentic UI component library: shell, sidebar, transcript, composer, workbench, feedback and overlay components on gpui + gpui-kit, styled by aui-tokens and animated by aui-motion."
+keywords = ["gpui", "ui", "components", "agent", "macos"]
+categories = ["gui"]
 
 [dependencies]
 gpui.workspace = true
@@ -35,6 +40,8 @@ tree-sitter = [
 gpui = { workspace = true, features = ["test-support"] }
 gpui_platform = { workspace = true, features = ["test-support"] }
 aui-protocol.workspace = true
+# Only for the `minimal` example's `--screenshot`/`--screenshot-approval` flags.
+image.workspace = true
 
 [[example]]
 name = "minimal"
