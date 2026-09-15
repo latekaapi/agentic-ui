@@ -62,7 +62,8 @@ pub use stagger::stagger_delay;
 pub use ticker::number_ticker;
 pub use tween::{tint_fade, tween, Tween};
 
-/// Delivery phase of this crate, from `docs/01-research-and-plan.md`.
+/// Human-readable label for this crate's role in the workspace, for
+/// diagnostics that print which pieces of `aui` are linked in.
 pub const PHASE: &str = "phase 2 · motion engine";
 
 /// Derives a child id from a parent id and an index or generation, so one

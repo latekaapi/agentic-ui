@@ -150,11 +150,11 @@ impl PermissionMode {
 
 /// How much reasoning the provider should spend on a turn.
 ///
-/// Exactly the MSP `ReasoningEffort` enum (`msp.d.ts:812`), which is **closed**.
-/// Muse 1.1.1 added a `max` tier between `xhigh` and `ultra` (under 1.0.3 the
-/// CLI and the on-disk catalog advertised `max` while MSP rejected it with
-/// `unknown variant `max`` — see `docs/10-muse-research.md` §1.5), so a client
-/// must drive its effort picker from this enum, never from the catalog.
+/// This is a **closed** set on purpose: a backend's on-disk catalog can
+/// advertise a tier before its wire protocol actually accepts it (seen in
+/// the wild — a tier the catalog listed came back `unknown variant` from the
+/// server for one release), so a client should drive its effort picker from
+/// this enum, never from a backend's catalog.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ReasoningEffort {

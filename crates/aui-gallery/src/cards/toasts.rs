@@ -45,7 +45,7 @@ fn toasts() -> Vec<ToastData> {
 /// (one body line) fanned onto its neighbour.
 fn fan_toasts() -> Vec<ToastData> {
     vec![
-        ToastData::new("link-assets", "Link", "No such file: /Users/latekaapi/Projects/harness/assets"),
+        ToastData::new("link-assets", "Link", "No such file: ~/Projects/checkout-flow-v2/assets"),
         ToastData::new("link-dist", "Link", "dist/bundle.js"),
         ToastData::new("link-main", "Link", "src/main.ts"),
     ]

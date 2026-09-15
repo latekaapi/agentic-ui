@@ -1603,7 +1603,7 @@ The motion layer of the Agentic UI library (design card 04, spec §0.4). [...]
   - `pub fn policy_px(self) -> Spring` — The policy for a value in pixels, with a coarser settling tolerance so sub-pixel motion stops requesting frames.
   - `pub fn settle_time(self) -> Duration` — How long the spring takes to settle from rest to a unit step, for display and for choosing exit holds.
 
-- **const** `PHASE` — Delivery phase of this crate, from `docs/01-research-and-plan.md`.
+- **const** `PHASE` — Human-readable label for this crate’s role in the workspace, for diagnostics that print which pieces of `aui` are linked in.
   - `pub const PHASE: &str = "phase 2 · motion engine";`
 
 ### `aui-motion::check`
