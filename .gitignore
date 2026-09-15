@@ -4,3 +4,6 @@
 # design canvas seeds are regenerated from working files
 design/screens/*/*-screens.html
 .DS_Store
+# Python build tooling under design/
+__pycache__/
+*.pyc

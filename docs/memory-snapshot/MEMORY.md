@@ -1,7 +1,0 @@
-- [Project goals](project-agentic-ui-goals.md) — gpui UI library for an Orca-like agent harness + a day-job assistant app
-- [gpui ecosystem versions](gpui-ecosystem-versions.md) — gpui/gpui-kit/wry/animation crate versions and the ~/.cargo PATH quirk
-- [Decisions 2026-09-05](project-decisions-2026-09-05.md) — stack, design workflow, doc editing, v1 scope, assistant domain (roles > projects > sessions)
-- [Claude Design project](claude-design-project.md) — projectId for the Agentic UI design system and the push procedure
-- [Design taste feedback](feedback-design-taste.md) — calm colour, real buttons, action-row pattern, 3-part header, browser annotator
-- [gpui-pre API notes](gpui-pre-api-notes.md) — screenshot gating, native springs, theme JSON, svg masks, no letter-spacing
-- [Phase 3 bug-fix pass 2026-09-06](project-phase3-bugfix-2026-09-06.md) — sidebar rail, popover layer, tint_fade, uniform note cards; left uncommitted
