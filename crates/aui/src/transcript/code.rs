@@ -16,7 +16,8 @@ use gpui_kit::base::{h_flex, v_flex};
 use crate::data::{button, icon_button, pill, ButtonSize, PillVariant};
 use crate::icons::{icon, IconName};
 use crate::transcript::selectable::{
-    intersect_range, selectable_text, SelectionHandler, SelectionKey, TextSelection,
+    SelectionEndpoint, intersect_range, selectable_text, MessageSelection, SelectionHandler,
+    SelectionKey, SpanEvent, SpanHandler, TextSelection,
 };
 use crate::transcript::syntax::syntax_runs_in;
 use crate::util::{indexed_child, interaction_flags, TrackInteraction};
@@ -99,11 +100,12 @@ pub struct CodeBlock {
     selection: Option<Range<usize>>,
     selection_color: Option<Hsla>,
     on_selection_change: Option<SelectionHandler>,
+    on_span: Option<SpanHandler>,
 }
 
 /// A block showing `code` from `path`.
 pub fn code_block(id: impl Into<ElementId>, path: impl Into<SharedString>, code: impl Into<SharedString>) -> CodeBlock {
-    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, hidden_lines: 0, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None }
+    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, hidden_lines: 0, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None, on_span: None }
 }
 
 impl CodeBlock {
@@ -159,6 +161,17 @@ impl CodeBlock {
         f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_selection_change = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Cross-cell selection events from any line, translated to block-wide
+    /// indices for the view's [`SpanSession`](super::SpanSession).
+    /// Empty lines anchor at their newline offset, so a span dragged across
+    /// them stays continuous; word / paragraph picks remap to block-wide
+    /// ranges the same way. A block in span mode wires this instead of
+    /// [`on_selection_change`](Self::on_selection_change).
+    pub fn on_span_event(mut self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_span = Some(std::rc::Rc::new(f));
         self
     }
 }
@@ -276,6 +289,7 @@ impl RenderOnce for CodeBlock {
         let sel_color = self.selection_color.unwrap_or(p.selection);
         let sel_range = self.selection.clone();
         let sel_emit = self.on_selection_change.clone();
+        let sel_span = self.on_span.clone();
         let mut body = v_flex().w_full().py(px(CODE_PAD_Y)).px(px(CODE_PAD_X)).mono(scale::FS_12).line_height(relative(CODE_LH)).text_color(p.term_fg).whitespace_nowrap();
         let mut base = 0usize;
         for (i, line) in self.code.lines().enumerate() {
@@ -311,6 +325,55 @@ impl RenderOnce for CodeBlock {
                                 }
                             });
                             emit(next, window, cx);
+                        });
+                    }
+                    if let Some(emit) = &sel_span {
+                        let emit = emit.clone();
+                        let key = key.clone();
+                        let empty = line.is_empty();
+                        element = element.on_span_event(move |event, window, cx| {
+                            // Empty lines render a phantom space with no
+                            // bytes of their own; anchor those events at the
+                            // newline offset so spans stay continuous.
+                            let at = |offset: usize| {
+                                if empty {
+                                    line_start
+                                } else {
+                                    line_start + offset
+                                }
+                            };
+                            let mapped = match event {
+                                SpanEvent::Press { offset, .. } => SpanEvent::Press {
+                                    cell: key.clone(),
+                                    offset: at(offset),
+                                },
+                                SpanEvent::Hover { offset, .. } => SpanEvent::Hover {
+                                    cell: key.clone(),
+                                    offset: at(offset),
+                                },
+                                SpanEvent::Release {
+                                    hovered, link, ..
+                                } => SpanEvent::Release {
+                                    cell: key.clone(),
+                                    hovered,
+                                    link,
+                                },
+                                SpanEvent::Pick { selection } => SpanEvent::Pick {
+                                    selection: selection.map(|single| {
+                                        MessageSelection {
+                                            anchor: SelectionEndpoint {
+                                                cell: key.clone(),
+                                                offset: at(single.anchor.offset),
+                                            },
+                                            focus: SelectionEndpoint {
+                                                cell: key.clone(),
+                                                offset: at(single.focus.offset),
+                                            },
+                                        }
+                                    }),
+                                },
+                            };
+                            emit(mapped, window, cx);
                         });
                     }
                     div()

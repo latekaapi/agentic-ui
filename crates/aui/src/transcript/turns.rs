@@ -14,7 +14,7 @@ use std::rc::Rc;
 use std::sync::{LazyLock, Mutex};
 
 use crate::transcript::{caret_top_in_line, caret_visible, ProseStyle, CARET_H, CARET_MARGIN_LEFT, CARET_W};
-use crate::transcript::{LinkTarget, SelectionHandler, TextSelection, last_block_runs, markdown, markdown_selected_text, LinkHandler};
+use crate::transcript::{LinkTarget, MessageSelection, SelectionHandler, SpanEvent, SpanHandler, TextSelection, last_block_runs, markdown, markdown_selected_text, message_selected_text, LinkHandler};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, ButtonSize};
@@ -130,12 +130,14 @@ pub struct UserTurn {
     on_link: Option<LinkHandler>,
     selection: Option<TextSelection>,
     on_selection_change: Option<SelectionHandler>,
+    span: Option<MessageSelection>,
+    on_span: Option<SpanHandler>,
 }
 
 /// A user turn; `markdown` may carry mentions as inline code (`` `@src/checkout` ``),
 /// which render as mention chips.
 pub fn user_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> UserTurn {
-    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), actions: UserTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None }
+    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), actions: UserTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None, span: None, on_span: None }
 }
 
 impl UserTurn {
@@ -192,6 +194,24 @@ impl UserTurn {
         self.on_selection_change = Some(std::rc::Rc::new(f));
         self
     }
+
+    /// The stored cross-cell span the markdown body highlights: the app owns
+    /// one [`Option<MessageSelection>`] per turn and passes it back here,
+    /// passed straight through to the inner `markdown(...)`. While span mode
+    /// is on, [`selection`](Self::selection) is ignored.
+    pub fn span_selection(mut self, selection: Option<&MessageSelection>) -> Self {
+        self.span = selection.cloned();
+        self
+    }
+
+    /// Cross-cell selection events, passed straight through to the inner
+    /// `markdown(...)` for the turn's
+    /// [`SpanSession`](super::SpanSession). A turn in span mode
+    /// wires this instead of [`on_selection_change`](Self::on_selection_change).
+    pub fn on_span_event(mut self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_span = Some(std::rc::Rc::new(f));
+        self
+    }
 }
 
 /// Copies the selected text out of a turn's `markdown_source` without
@@ -200,6 +220,17 @@ impl UserTurn {
 /// clipboard on ⌘C; the keybinding stays with the app.
 pub fn turn_selected_text(markdown_source: &str, selection: &TextSelection) -> Option<String> {
     markdown_selected_text(markdown_source, selection)
+}
+
+/// Copies the selected text across `selection`'s cells in document order
+/// without re-rendering; see [`message_selected_text`]. The app puts this on
+/// the clipboard on ⌘C when it holds a span; the keybinding stays with the
+/// app.
+pub fn turn_span_selected_text(
+    markdown_source: &str,
+    selection: &MessageSelection,
+) -> Option<String> {
+    message_selected_text(markdown_source, selection)
 }
 
 /// Prose style shared by both turns: inline code on `code_bg` in the mono face.
@@ -308,6 +339,10 @@ impl RenderOnce for UserTurn {
                     if let Some(on_change) = self.on_selection_change.clone() {
                         body = body.on_selection_change(move |next, window, cx| on_change(next, window, cx));
                     }
+                    body = body.span_selection(self.span.as_ref());
+                    if let Some(on_span) = self.on_span.clone() {
+                        body = body.on_span_event(move |event, window, cx| on_span(event, window, cx));
+                    }
                     body
                 }),
         );
@@ -340,11 +375,13 @@ pub struct AssistantTurn {
     on_link: Option<LinkHandler>,
     selection: Option<TextSelection>,
     on_selection_change: Option<SelectionHandler>,
+    span: Option<MessageSelection>,
+    on_span: Option<SpanHandler>,
 }
 
 /// An assistant turn rendering `markdown`.
 pub fn assistant_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> AssistantTurn {
-    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, footer: Vec::new(), actions: AssistantTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None }
+    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, footer: Vec::new(), actions: AssistantTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None, span: None, on_span: None }
 }
 
 impl AssistantTurn {
@@ -418,6 +455,24 @@ impl AssistantTurn {
     /// plain clicks elsewhere in a cell arrive as `None` (clearing).
     pub fn on_selection_change(mut self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self {
         self.on_selection_change = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// The stored cross-cell span the markdown body highlights: the app owns
+    /// one [`Option<MessageSelection>`] per turn and passes it back here,
+    /// passed straight through to the inner `markdown(...)`. While span mode
+    /// is on, [`selection`](Self::selection) is ignored.
+    pub fn span_selection(mut self, selection: Option<&MessageSelection>) -> Self {
+        self.span = selection.cloned();
+        self
+    }
+
+    /// Cross-cell selection events, passed straight through to the inner
+    /// `markdown(...)` for the turn's
+    /// [`SpanSession`](super::SpanSession). A turn in span mode
+    /// wires this instead of [`on_selection_change`](Self::on_selection_change).
+    pub fn on_span_event(mut self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_span = Some(std::rc::Rc::new(f));
         self
     }
 }
@@ -623,6 +678,10 @@ impl RenderOnce for AssistantTurn {
                     if let Some(on_change) = self.on_selection_change.clone() {
                         body = body.on_selection_change(move |next, window, cx| on_change(next, window, cx));
                     }
+                    body = body.span_selection(self.span.as_ref());
+                    if let Some(on_span) = self.on_span.clone() {
+                        body = body.on_span_event(move |event, window, cx| on_span(event, window, cx));
+                    }
                     body
                 }))
                 .children(caret),
@@ -656,9 +715,12 @@ impl RenderOnce for AssistantTurn {
 
 #[cfg(test)]
 mod tests {
-    use super::{assistant_turn, footer_items, turn_selected_text, user_turn, AssistantTurnAction, UserTurnAction};
+    use super::{
+        assistant_turn, footer_items, turn_selected_text, turn_span_selected_text, user_turn,
+        AssistantTurnAction, UserTurnAction,
+    };
     use crate::protocol::TurnMeta;
-    use crate::transcript::{SelectionKey, TextSelection};
+    use crate::transcript::{MessageSelection, SelectionEndpoint, SelectionKey, TextSelection};
     use gpui::SharedString;
 
     #[test]
@@ -703,6 +765,35 @@ mod tests {
             turn_selected_text("Tighten `validateAddress` now", &selection).as_deref(),
             Some("Tighten")
         );
+    }
+
+    #[test]
+    fn turn_span_selected_text_joins_cells_in_order() {
+        let span = MessageSelection {
+            anchor: SelectionEndpoint {
+                cell: SelectionKey::paragraph("", 0),
+                offset: 6,
+            },
+            focus: SelectionEndpoint {
+                cell: SelectionKey::list_item("", 1, false, 0),
+                offset: 5,
+            },
+        };
+        assert_eq!(
+            turn_span_selected_text("First paragraph here.\n\n- alpha\n", &span).as_deref(),
+            Some("paragraph here.\n\n- alpha")
+        );
+        let unknown = MessageSelection {
+            anchor: SelectionEndpoint {
+                cell: SelectionKey::paragraph("", 9),
+                offset: 0,
+            },
+            focus: SelectionEndpoint {
+                cell: SelectionKey::paragraph("", 9),
+                offset: 3,
+            },
+        };
+        assert_eq!(turn_span_selected_text("Hello", &unknown), None);
     }
 
     #[test]

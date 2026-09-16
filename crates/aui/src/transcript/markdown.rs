@@ -34,6 +34,7 @@
 //! so are always the most recently used. See [`super::memo`].
 
 use std::ops::Range;
+use std::rc::Rc;
 use std::sync::{Arc, LazyLock};
 
 use aui_icons::{icon, IconName};
@@ -48,7 +49,8 @@ use pulldown_cmark::{Alignment, CodeBlockKind, Event, LinkType, Options, Parser,
 use super::code::code_block;
 use super::memo::Memo;
 use super::selectable::{
-    clamp_range, selectable_text, SelectableText, SelectionHandler, SelectionKey, TextSelection,
+    clamp_range, selectable_text, MessageSelection, SelectableText, SelectionEndpoint, SelectionHandler,
+    SelectionKey, SpanEvent, SpanHandler, TextSelection,
 };
 use super::ProseStyle;
 use crate::data::tag;
@@ -1098,17 +1100,57 @@ struct SelCtx {
     on_link: Option<LinkHandler>,
     color: Hsla,
     prefix: String,
+    span: Option<SpanCtx>,
+}
+
+/// Cross-cell selection state threaded through block rendering alongside
+/// [`SelCtx`]: the held span, the cells' document order, and the app's
+/// span-event handler. When present, cells highlight from the span and report
+/// [`SpanEvent`](super::SpanEvent)s; the legacy single-cell selection above
+/// is ignored, so a view never mixes the two paths.
+#[derive(Clone)]
+struct SpanCtx {
+    /// The selectable cells in render order; see [`walk_units`].
+    order: Rc<Vec<SelectionKey>>,
+    /// The span the app holds for this view.
+    current: Option<MessageSelection>,
+    /// The app's span-event handler; `None` highlights a scripted span with
+    /// no interaction.
+    on_event: Option<SpanHandler>,
 }
 
 /// Applies the selection state to a freshly built cell element: the visible
 /// range when the app's selection sits on `key`, link ranges with their click
-/// intent, and the selection-change intent.
+/// intent, and the selection-change intent. `text_len` is the cell's shaped
+/// byte length, for resolving a cross-cell span's slice of this cell.
 fn finish_cell(
     mut element: SelectableText,
     key: &SelectionKey,
     links: Vec<LinkRange>,
     sel: &SelCtx,
+    text_len: usize,
 ) -> SelectableText {
+    if let Some(span) = &sel.span {
+        if let Some(range) = span
+            .current
+            .as_ref()
+            .and_then(|current| current.range_for_cell(key, text_len, &span.order))
+        {
+            element = element.selection(Some(range));
+        }
+        if !links.is_empty() {
+            element = element.links(links);
+            if let Some(handler) = &sel.on_link {
+                let handler = handler.clone();
+                element = element.on_link(move |target, window, cx| handler(target, window, cx));
+            }
+        }
+        if let Some(handler) = &span.on_event {
+            let handler = handler.clone();
+            element = element.on_span_event(move |event, window, cx| handler(event, window, cx));
+        }
+        return element;
+    }
     if let Some(range) = sel
         .selection
         .as_ref()
@@ -1145,12 +1187,13 @@ fn inline_element(
     if text.is_empty() {
         return div().into_any_element();
     }
+    let len = text.len();
     let element = selectable_text(id, key.clone(), text)
         .runs(runs)
         .selection_color(sel.color);
     div()
         .w_full()
-        .child(finish_cell(element, &key, links, sel))
+        .child(finish_cell(element, &key, links, sel, len))
         .into_any_element()
 }
 
@@ -1337,12 +1380,13 @@ fn render_block(
                 return div().into_any_element();
             }
             let key = SelectionKey::heading(&sel.prefix, index);
+            let len = text.len();
             let element = selectable_text(block_id(id, index, "h"), key.clone(), text)
                 .runs(runs)
                 .selection_color(sel.color);
             let body = div()
                 .w_full()
-                .child(finish_cell(element, &key, links, sel))
+                .child(finish_cell(element, &key, links, sel, len))
                 .into_any_element();
             div()
                 .w_full()
@@ -1393,18 +1437,33 @@ fn render_block(
             // one key with byte offsets over the whole block text.
             let key = SelectionKey::code(&sel.prefix, index);
             fenced = fenced.selection_key(key.clone()).selection_color(sel.color);
-            if let Some(range) = sel
-                .selection
-                .as_ref()
-                .filter(|current| current.cell == key)
-                .map(|current| current.range.clone())
-            {
-                fenced = fenced.selection(Some(range));
-            }
-            if let Some(handler) = &sel.on_change {
-                let handler = handler.clone();
-                fenced =
-                    fenced.on_selection_change(move |next, window, cx| handler(next, window, cx));
+            if let Some(span) = &sel.span {
+                if let Some(range) = span
+                    .current
+                    .as_ref()
+                    .and_then(|current| current.range_for_cell(&key, text.len(), &span.order))
+                {
+                    fenced = fenced.selection(Some(range));
+                }
+                if let Some(handler) = &span.on_event {
+                    let handler = handler.clone();
+                    fenced =
+                        fenced.on_span_event(move |event, window, cx| handler(event, window, cx));
+                }
+            } else {
+                if let Some(range) = sel
+                    .selection
+                    .as_ref()
+                    .filter(|current| current.cell == key)
+                    .map(|current| current.range.clone())
+                {
+                    fenced = fenced.selection(Some(range));
+                }
+                if let Some(handler) = &sel.on_change {
+                    let handler = handler.clone();
+                    fenced =
+                        fenced.on_selection_change(move |next, window, cx| handler(next, window, cx));
+                }
             }
             fenced.into_any_element()
         }
@@ -1534,6 +1593,8 @@ pub struct Markdown {
     on_link: Option<LinkHandler>,
     selection: Option<TextSelection>,
     on_selection_change: Option<SelectionHandler>,
+    span: Option<MessageSelection>,
+    on_span: Option<SpanHandler>,
 }
 
 /// Renders `source` as markdown blocks in `style`.
@@ -1549,6 +1610,8 @@ pub fn markdown(
         on_link: None,
         selection: None,
         on_selection_change: None,
+        span: None,
+        on_span: None,
     }
 }
 
@@ -1561,18 +1624,42 @@ impl Markdown {
 
     /// The stored selection this render highlights: the app owns one
     /// [`Option<TextSelection>`] per markdown view and passes it back here.
+    /// Ignored while span mode is on (see
+    /// [`span_selection`](Self::span_selection)).
     pub fn selection(mut self, selection: Option<&TextSelection>) -> Self {
         self.selection = selection.cloned();
         self
     }
 
     /// Selection intents: drags and word / paragraph picks arrive as `Some`,
-    /// plain clicks elsewhere in a cell arrive as `None` (clearing).
+    /// plain clicks elsewhere in a cell arrive as `None` (clearing). Not
+    /// wired while span mode is on — cells report
+    /// [`SpanEvent`](super::SpanEvent)s instead, so wiring both would
+    /// double-report drags.
     pub fn on_selection_change(
         mut self,
         f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_selection_change = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// The stored cross-cell span this render highlights: the app owns one
+    /// [`Option<MessageSelection>`] per markdown view (plus its
+    /// [`SpanSession`](super::SpanSession)) and passes it back here. While
+    /// span mode is on — a span or a span-event handler is set — cells
+    /// highlight from the span and [`selection`](Self::selection) is ignored.
+    pub fn span_selection(mut self, selection: Option<&MessageSelection>) -> Self {
+        self.span = selection.cloned();
+        self
+    }
+
+    /// Cross-cell selection events for the view's
+    /// [`SpanSession`](super::SpanSession): presses, hovers while any button
+    /// is held, releases, and word / paragraph picks. A view in span mode
+    /// wires this instead of [`on_selection_change`](Self::on_selection_change).
+    pub fn on_span_event(mut self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_span = Some(std::rc::Rc::new(f));
         self
     }
 
@@ -1583,6 +1670,13 @@ impl Markdown {
     /// app.
     pub fn selected_text(&self, selection: &TextSelection) -> Option<String> {
         selected_text_in_blocks(&parsed_blocks(&self.source), selection)
+    }
+
+    /// Copies the selected text across `selection`'s cells in document order;
+    /// see [`message_selected_text`]. The app puts this on the clipboard on
+    /// ⌘C when it holds a span; the keybinding stays with the app.
+    pub fn span_selected_text(&self, selection: &MessageSelection) -> Option<String> {
+        message_selected_text(&self.source, selection)
     }
 }
 
@@ -1702,10 +1796,266 @@ fn walk_units<'a>(
     }
 }
 
+/// The selectable cells of `blocks` in render order: the shared lookup
+/// behind span highlighting and span copying. Keys only — no shaping — so a
+/// render builds this once per frame without layout work.
+fn span_order(blocks: &[Block]) -> Vec<SelectionKey> {
+    let mut order = Vec::new();
+    walk_units(blocks, "", &mut |key, _| order.push(key));
+    order
+}
+
+/// One selectable cell's copy text with its structure: list items carry their
+/// marker (`- ` or `N. `) and quote cells their `>` rail, so a copied span
+/// pastes back as the same structure; code cells keep their exact text with
+/// no marker at all.
+struct SliceCell {
+    /// The key the cell paints with.
+    key: SelectionKey,
+    /// The shaped text: what [`span_runs`] draws, minus styling.
+    text: String,
+    /// The structural marker prepended on copy, if any.
+    marker: Option<String>,
+    /// Code keeps its exact bytes; every other cell reads as words.
+    code: bool,
+    /// The list block this item belongs to, for tight joining; `None` for
+    /// every other cell.
+    list: Option<usize>,
+}
+
+/// Pushes one prose cell with its quote rail, if any.
+fn prose_cell(
+    out: &mut Vec<SliceCell>,
+    key: SelectionKey,
+    spans: &[Span],
+    quote: usize,
+    list: Option<usize>,
+    marker: Option<String>,
+) {
+    let rail = "> ".repeat(quote);
+    let marker = match (rail.is_empty(), marker) {
+        (true, marker) => marker,
+        (false, None) => Some(rail),
+        (false, Some(marker)) => Some(rail + &marker),
+    };
+    out.push(SliceCell {
+        key,
+        text: spans_text(spans),
+        marker,
+        code: false,
+        list,
+    });
+}
+
+/// Walks `blocks` in render order, pushing one [`SliceCell`] per selectable
+/// cell. The traversal mirrors [`render_block`] (including quote prefixes and
+/// list numbering), so the keys found here are the keys cells paint with.
+/// `quote` counts enclosing quotes for the `>` rail.
+fn walk_slices(blocks: &[Block], prefix: &str, quote: usize, out: &mut Vec<SliceCell>) {
+    for (index, block) in blocks.iter().enumerate() {
+        match block {
+            Block::Paragraph(spans) => {
+                prose_cell(out, SelectionKey::paragraph(prefix, index), spans, quote, None, None);
+            }
+            Block::Heading { spans, .. } => {
+                prose_cell(out, SelectionKey::heading(prefix, index), spans, quote, None, None);
+            }
+            Block::BulletList(items) => {
+                for (n, item) in items.iter().enumerate() {
+                    prose_cell(
+                        out,
+                        SelectionKey::list_item(prefix, index, false, n),
+                        item,
+                        quote,
+                        Some(index),
+                        Some("- ".to_string()),
+                    );
+                }
+            }
+            Block::OrderedList { start, items } => {
+                for (n, item) in items.iter().enumerate() {
+                    prose_cell(
+                        out,
+                        SelectionKey::list_item(prefix, index, true, n),
+                        item,
+                        quote,
+                        Some(index),
+                        Some(format!("{}. ", start + n as u64)),
+                    );
+                }
+            }
+            Block::CodeBlock { text, .. } => out.push(SliceCell {
+                key: SelectionKey::code(prefix, index),
+                text: text.clone(),
+                marker: None,
+                code: true,
+                list: None,
+            }),
+            Block::Table { header, rows, .. } => {
+                for (n, cell) in header.iter().enumerate() {
+                    prose_cell(
+                        out,
+                        SelectionKey::table_cell(prefix, index, None, n),
+                        cell,
+                        quote,
+                        None,
+                        None,
+                    );
+                }
+                for (r, row) in rows.iter().enumerate() {
+                    for (n, cell) in row.iter().enumerate() {
+                        prose_cell(
+                            out,
+                            SelectionKey::table_cell(prefix, index, Some(r), n),
+                            cell,
+                            quote,
+                            None,
+                            None,
+                        );
+                    }
+                }
+            }
+            Block::Quote(inner) => {
+                walk_slices(inner, &SelectionKey::quote_prefix(prefix, index), quote + 1, out);
+            }
+            Block::Rule | Block::Image { .. } => {}
+        }
+    }
+}
+
+/// Slices `selection` out of already-parsed `blocks`: the shared lookup
+/// behind [`Markdown::span_selected_text`] and [`message_selected_text`].
+///
+/// Cells between the ends copy whole; the ends copy their overlapped slice.
+/// Fragments join with a blank line between blocks — the copy reads the way
+/// the turn renders — except consecutive items of one list, which join
+/// tight so the list pastes back as a list. Wholly selected list items keep
+/// their markers (`- `, `N. `) and wholly selected quote cells their `>` rail
+/// for the same reason, while partial slices read as plain words exactly like
+/// the legacy single-cell copy; code blocks keep their exact bytes, sliced
+/// exactly when the span only overlaps part of the block. Empty cells
+/// contribute nothing, so they never pile up blank lines. `None` when an
+/// endpoint key addresses no cell or nothing remains.
+fn selected_span_text(blocks: &[Block], selection: &MessageSelection) -> Option<String> {
+    let mut cells = Vec::new();
+    walk_slices(blocks, "", 0, &mut cells);
+    let position = |key: &SelectionKey| cells.iter().position(|cell| cell.key == *key);
+    let anchor_ix = position(&selection.anchor.cell)?;
+    let focus_ix = position(&selection.focus.cell)?;
+    let (lo_ix, lo_off, hi_ix, hi_off) = if anchor_ix <= focus_ix {
+        (
+            anchor_ix,
+            selection.anchor.offset,
+            focus_ix,
+            selection.focus.offset,
+        )
+    } else {
+        (
+            focus_ix,
+            selection.focus.offset,
+            anchor_ix,
+            selection.anchor.offset,
+        )
+    };
+    let mut out = String::new();
+    let mut prev_list: Option<usize> = None;
+    for (ix, cell) in cells.iter().enumerate().skip(lo_ix).take(hi_ix - lo_ix + 1) {
+        let full = cell.text.as_str();
+        let bounds = if ix == lo_ix && ix == hi_ix {
+            let (start, end) = if lo_off <= hi_off {
+                (lo_off, hi_off)
+            } else {
+                (hi_off, lo_off)
+            };
+            start..end
+        } else if ix == lo_ix {
+            lo_off..full.len()
+        } else if ix == hi_ix {
+            0..hi_off
+        } else {
+            0..full.len()
+        };
+        let Some(slice) = clamp_range(bounds, full) else {
+            continue;
+        };
+        // Markers ride only on wholly selected cells: a partial slice reads
+        // exactly like the legacy single-cell copy, while fully covered
+        // items keep their structure so the span pastes back as a list.
+        let whole = slice.start == 0 && slice.end == full.len();
+        let fragment = if cell.code {
+            full[slice].to_string()
+        } else if whole {
+            if let Some(marker) = &cell.marker {
+                marker.clone() + &full[slice]
+            } else {
+                full[slice].to_string()
+            }
+        } else {
+            full[slice].to_string()
+        };
+        if !out.is_empty() {
+            // Consecutive items of one list stay one list; every other
+            // boundary is a block boundary, hence a blank line.
+            let tight = cell.list.is_some() && prev_list == cell.list;
+            out.push_str(if tight { "\n" } else { "\n\n" });
+        }
+        out.push_str(&fragment);
+        prev_list = cell.list;
+    }
+    if out.is_empty() { None } else { Some(out) }
+}
+
+/// Copies the selected text across `selection`'s cells in document order
+/// without building a view; see [`Markdown::span_selected_text`] for the
+/// joining rules.
+/// Blocks do not depend on the render style, so this reads exactly what
+/// [`Markdown::span_selected_text`] would return for a view of the same
+/// source. Turn views have no span-text method of their own — the app copies
+/// through this, or through
+/// [`turn_span_selected_text`](super::turn_span_selected_text).
+pub fn message_selected_text(source: &str, selection: &MessageSelection) -> Option<String> {
+    selected_span_text(&parsed_blocks(source), selection)
+}
+
+/// Copies the selected text across `selection`'s cells without building a
+/// view: the same lookup [`Markdown::span_selected_text`] uses, for callers
+/// that hold the source but never built the view.
+pub fn markdown_span_selected_text(source: &str, selection: &MessageSelection) -> Option<String> {
+    message_selected_text(source, selection)
+}
+
+/// The span covering a whole message: the first non-empty cell's start to the
+/// last non-empty cell's end. `None` for sources with no selectable text.
+/// The app drives select-all through this; the keybinding stays with the app.
+pub fn message_select_all(source: &str) -> Option<MessageSelection> {
+    let mut cells = Vec::new();
+    walk_slices(&parsed_blocks(source), "", 0, &mut cells);
+    let first = cells.iter().find(|cell| !cell.text.is_empty())?;
+    let last = cells.iter().rfind(|cell| !cell.text.is_empty())?;
+    MessageSelection::new(
+        SelectionEndpoint {
+            cell: first.key.clone(),
+            offset: 0,
+        },
+        SelectionEndpoint {
+            cell: last.key.clone(),
+            offset: last.text.len(),
+        },
+    )
+}
+
 impl RenderOnce for Markdown {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let palette = cx.aui().colors;
         let blocks = parsed_blocks(&self.source);
+        // Span mode is on when the app holds a span or listens for span
+        // events; the order walk is keys only (no shaping), so this adds no
+        // layout work beyond what the legacy path already does per frame.
+        let span = (self.span.is_some() || self.on_span.is_some()).then(|| SpanCtx {
+            order: Rc::new(span_order(&blocks)),
+            current: self.span.clone(),
+            on_event: self.on_span.clone(),
+        });
         let sel = SelCtx {
             link_ink: palette.accent,
             selection: self.selection.clone(),
@@ -1713,6 +2063,7 @@ impl RenderOnce for Markdown {
             on_link: self.on_link.clone(),
             color: palette.selection,
             prefix: String::new(),
+            span,
         };
         v_flex()
             .id(self.id.clone())
@@ -1983,6 +2334,161 @@ mod tests {
             })
             .expect("fenced blocks select over the whole block text");
         assert_eq!(code, "let x = 1;");
+    }
+
+    fn span_of(
+        anchor: (SelectionKey, usize),
+        focus: (SelectionKey, usize),
+    ) -> MessageSelection {
+        MessageSelection {
+            anchor: SelectionEndpoint {
+                cell: anchor.0,
+                offset: anchor.1,
+            },
+            focus: SelectionEndpoint {
+                cell: focus.0,
+                offset: focus.1,
+            },
+        }
+    }
+
+    const SPAN_SOURCE: &str =
+        "First paragraph here.\n\n- alpha\n- beta\n\n```rust\nlet x = 1;\nlet y = 2;\n```\n";
+
+    #[test]
+    fn spans_copy_paragraphs_lists_and_code_in_order() {
+        // "First paragraph here.": offset 6 skips "First ".
+        let selection = span_of(
+            (SelectionKey::paragraph("", 0), 6),
+            (SelectionKey::code("", 2), 9),
+        );
+        assert_eq!(
+            message_selected_text(SPAN_SOURCE, &selection).as_deref(),
+            Some("paragraph here.\n\n- alpha\n- beta\n\nlet x = 1")
+        );
+        // The view entry point reads the same blocks.
+        assert_eq!(
+            markdown("span-copy", SPAN_SOURCE, style()).span_selected_text(&selection),
+            message_selected_text(SPAN_SOURCE, &selection),
+        );
+    }
+
+    #[test]
+    fn spans_copy_reversed_drags_in_document_order() {
+        let selection = span_of(
+            (SelectionKey::code("", 2), 9),
+            (SelectionKey::paragraph("", 0), 6),
+        );
+        assert_eq!(
+            message_selected_text(SPAN_SOURCE, &selection).as_deref(),
+            Some("paragraph here.\n\n- alpha\n- beta\n\nlet x = 1")
+        );
+    }
+
+    #[test]
+    fn spans_cover_a_whole_middle_and_numbered_lists() {
+        let source = "Intro words.\n\n1. Patch the path\n2. Run tests\n\nOutro words.\n";
+        let selection = span_of(
+            (SelectionKey::paragraph("", 0), 6),
+            (SelectionKey::paragraph("", 2), 5),
+        );
+        assert_eq!(
+            message_selected_text(source, &selection).as_deref(),
+            Some("words.\n\n1. Patch the path\n2. Run tests\n\nOutro")
+        );
+    }
+
+    #[test]
+    fn spans_keep_code_exact_and_skip_empty_cells() {
+        // A partial code slice copies bytes, never markers.
+        let code_only = span_of(
+            (SelectionKey::code("", 2), 4),
+            (SelectionKey::code("", 2), 9),
+        );
+        assert_eq!(
+            message_selected_text(SPAN_SOURCE, &code_only).as_deref(),
+            Some("x = 1")
+        );
+        // An empty table cell contributes nothing: no stray blank line.
+        let table = "| a | |\n| -- | -- |\n| 1 | 2 |\n";
+        let selection = span_of(
+            (SelectionKey::table_cell("", 0, None, 0), 0),
+            (SelectionKey::table_cell("", 0, None, 1), 4),
+        );
+        assert_eq!(
+            message_selected_text(table, &selection).as_deref(),
+            Some("a")
+        );
+        // Unknown keys and fully out-of-range ends select nothing.
+        let unknown = span_of(
+            (SelectionKey::paragraph("", 9), 0),
+            (SelectionKey::paragraph("", 9), 4),
+        );
+        assert_eq!(message_selected_text(SPAN_SOURCE, &unknown), None);
+        let past_end = span_of(
+            (SelectionKey::paragraph("", 0), 60),
+            (SelectionKey::code("", 2), 9),
+        );
+        assert_eq!(
+            message_selected_text(SPAN_SOURCE, &past_end).as_deref(),
+            Some("- alpha\n- beta\n\nlet x = 1")
+        );
+    }
+
+    #[test]
+    fn single_cell_spans_match_the_legacy_copy() {
+        let legacy = TextSelection {
+            cell: SelectionKey::list_item("", 1, false, 1),
+            range: 1..4,
+        };
+        let span = MessageSelection::from_single(legacy.clone());
+        assert_eq!(
+            message_selected_text(SPAN_SOURCE, &span).as_deref(),
+            markdown_selected_text(SPAN_SOURCE, &legacy).as_deref(),
+        );
+        assert_eq!(
+            message_selected_text(SPAN_SOURCE, &span).as_deref(),
+            Some("eta")
+        );
+    }
+
+    #[test]
+    fn spans_rail_quotes_and_select_all_covers_the_message() {
+        let partial = span_of(
+            (
+                SelectionKey::paragraph(&SelectionKey::quote_prefix("", 0), 0),
+                0,
+            ),
+            (
+                SelectionKey::paragraph(&SelectionKey::quote_prefix("", 0), 0),
+                4,
+            ),
+        );
+        assert_eq!(
+            message_selected_text("> Keep copy.\n", &partial).as_deref(),
+            Some("Keep")
+        );
+        let whole = span_of(
+            (
+                SelectionKey::paragraph(&SelectionKey::quote_prefix("", 0), 0),
+                0,
+            ),
+            (
+                SelectionKey::paragraph(&SelectionKey::quote_prefix("", 0), 0),
+                10,
+            ),
+        );
+        assert_eq!(
+            message_selected_text("> Keep copy.\n", &whole).as_deref(),
+            Some("> Keep copy.")
+        );
+        let all = message_select_all(SPAN_SOURCE).expect("a message selects all");
+        assert_eq!(
+            message_selected_text(SPAN_SOURCE, &all).as_deref(),
+            Some("First paragraph here.\n\n- alpha\n- beta\n\nlet x = 1;\nlet y = 2;")
+        );
+        assert_eq!(message_select_all(""), None);
+        assert_eq!(message_select_all("---\n"), None);
     }
 
     #[test]

@@ -122,6 +122,273 @@ pub struct TextSelection {
 /// clears it.
 pub type SelectionHandler = Rc<dyn Fn(Option<TextSelection>, &mut Window, &mut App)>;
 
+/// One end of a cross-cell span: which cell, and the byte offset into that
+/// cell's shaped text. Offsets come from the same `index_for_position`
+/// mapping drags use, so they sit on char boundaries of the text the cell
+/// painted; stale offsets (the source edited mid-drag) clamp at render and
+/// copy time instead of panicking.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectionEndpoint {
+    /// The cell holding this end of the span.
+    pub cell: SelectionKey,
+    /// Byte offset into the cell's shaped text.
+    pub offset: usize,
+}
+
+/// A text selection spanning cells: one owner-level selection (anchor cell +
+/// offset, focus cell + offset) with the cells in between fully selected.
+/// The app holds one `Option<MessageSelection>` per markdown view — the
+/// anchor and focus live in app state, never in element state, so a cell
+/// entering or leaving the viewport mid-drag cannot drop the span.
+///
+/// A span whose ends share a cell behaves exactly like the legacy
+/// [`TextSelection`] over that range (see [`single_cell`](Self::single_cell));
+/// equal ends are a caret and are never stored — [`new`](Self::new) returns
+/// `None` for them, mirroring the single-cell rule.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageSelection {
+    /// Where the press started (cell + offset).
+    pub anchor: SelectionEndpoint,
+    /// Where the drag currently ends (cell + offset); may precede the anchor
+    /// in document order after a reversed drag.
+    pub focus: SelectionEndpoint,
+}
+
+impl MessageSelection {
+    /// Builds a span; `None` when both ends are the same cell at the same
+    /// offset (a caret is not a selection).
+    pub fn new(anchor: SelectionEndpoint, focus: SelectionEndpoint) -> Option<Self> {
+        if anchor == focus {
+            None
+        } else {
+            Some(MessageSelection { anchor, focus })
+        }
+    }
+
+    /// The degenerate span behind a legacy single-cell selection: the range's
+    /// start is the anchor, its end the focus.
+    pub fn from_single(selection: TextSelection) -> Self {
+        MessageSelection {
+            anchor: SelectionEndpoint {
+                cell: selection.cell.clone(),
+                offset: selection.range.start,
+            },
+            focus: SelectionEndpoint {
+                cell: selection.cell,
+                offset: selection.range.end,
+            },
+        }
+    }
+
+    /// The legacy single-cell selection when both ends share a cell, with the
+    /// range normalized (`start <= end`); `None` for cross-cell spans. A
+    /// caret cannot be built through [`new`](Self::new), so this only returns
+    /// `None` across cells.
+    pub fn single_cell(&self) -> Option<TextSelection> {
+        if self.anchor.cell != self.focus.cell {
+            return None;
+        }
+        normalize_range(self.anchor.offset, self.focus.offset).map(|range| TextSelection {
+            cell: self.anchor.cell.clone(),
+            range,
+        })
+    }
+
+    /// Position of `cell` in `order` (document order); `None` for keys the
+    /// current source no longer renders — stale selections select nothing,
+    /// the way unknown keys select nothing on the legacy path.
+    fn position(order: &[SelectionKey], cell: &SelectionKey) -> Option<usize> {
+        order.iter().position(|key| key == cell)
+    }
+
+    /// The visible range over a cell holding `text_len` bytes, given the
+    /// cells' document `order`: a partial slice in an endpoint cell, the full
+    /// `0..text_len` for cells strictly between the ends, and the normalized
+    /// range when both ends share the cell. `None` when the cell takes no
+    /// part in the span (outside it, an empty slice, or a key the source no
+    /// longer renders). Reversed drags (focus before anchor) render exactly
+    /// like forward ones.
+    pub fn range_for_cell(
+        &self,
+        cell: &SelectionKey,
+        text_len: usize,
+        order: &[SelectionKey],
+    ) -> Option<Range<usize>> {
+        let here = Self::position(order, cell)?;
+        let anchor_ix = Self::position(order, &self.anchor.cell)?;
+        let focus_ix = Self::position(order, &self.focus.cell)?;
+        if self.anchor.cell == self.focus.cell {
+            if *cell != self.anchor.cell {
+                return None;
+            }
+            let mut range = normalize_range(self.anchor.offset, self.focus.offset)?;
+            range.start = range.start.min(text_len);
+            range.end = range.end.min(text_len);
+            return if range.start < range.end { Some(range) } else { None };
+        }
+        let (lo_ix, lo_off, hi_ix, hi_off) = if anchor_ix < focus_ix {
+            (anchor_ix, self.anchor.offset, focus_ix, self.focus.offset)
+        } else {
+            (focus_ix, self.focus.offset, anchor_ix, self.anchor.offset)
+        };
+        if here < lo_ix || here > hi_ix {
+            return None;
+        }
+        if text_len == 0 {
+            return None;
+        }
+        if here > lo_ix && here < hi_ix {
+            return Some(0..text_len);
+        }
+        if here == lo_ix {
+            let start = lo_off.min(text_len);
+            return if start < text_len {
+                Some(start..text_len)
+            } else {
+                None
+            };
+        }
+        if here == hi_ix {
+            let end = hi_off.min(text_len);
+            return if end > 0 { Some(0..end) } else { None };
+        }
+        None
+    }
+}
+
+/// One cross-cell selection event from a [`SelectableText`] cell (or a code
+/// block line, translated to block-wide offsets): the app folds these into
+/// its held span through [`SpanSession::apply`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpanEvent {
+    /// A single-click press landed at `offset` in `cell`: the session opens,
+    /// holding whatever the app held until a hover commits a span.
+    Press {
+        /// The cell the press landed in.
+        cell: SelectionKey,
+        /// Byte offset into the cell's shaped text.
+        offset: usize,
+    },
+    /// The pointer moved over `cell` at `offset` while a mouse button is
+    /// held. Emitted regardless of which cell the press started in — that is
+    /// what lets a drag span cells — and ignored by [`SpanSession::apply`]
+    /// when no session is open, so drags that started in other views never
+    /// leak in.
+    Hover {
+        /// The hovered cell.
+        cell: SelectionKey,
+        /// Byte offset into the cell's shaped text.
+        offset: usize,
+    },
+    /// The button released after a press that started in `cell`: `hovered`
+    /// tells whether the pointer is still over that cell, `link` whether the
+    /// press-release landed on one link range (a link click keeps the held
+    /// span). Every cell's release handler fires window-wide; only the press
+    /// cell's release folds, the rest are ignored.
+    Release {
+        /// The cell the press started in.
+        cell: SelectionKey,
+        /// Whether the pointer is still over the press cell.
+        hovered: bool,
+        /// Whether the press-release landed on one link range.
+        link: bool,
+    },
+    /// A double-click word or triple-click paragraph pick replaces the held
+    /// span; `None` clears (a double-click on whitespace picks nothing,
+    /// exactly like the legacy path).
+    Pick {
+        /// The picked span, or `None` to clear.
+        selection: Option<MessageSelection>,
+    },
+}
+
+/// A cross-cell selection intent: each [`SpanEvent`] folded through the
+/// view's [`SpanSession`]. Kept separate from [`SelectionHandler`] so views
+/// that never span (and the harness's `select-text:` step) keep compiling
+/// untouched.
+pub type SpanHandler = Rc<dyn Fn(SpanEvent, &mut Window, &mut App)>;
+
+/// The caller-owned cross-cell drag session: the pending anchor while the
+/// button is held, and whether the pointer has moved since the press. The app
+/// holds one per markdown view next to its `Option<MessageSelection>` and
+/// folds every [`SpanEvent`] through [`apply`](Self::apply); both live in app
+/// state, so scrolling, virtualization and re-renders never reset them
+/// mid-drag.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct SpanSession {
+    /// The press endpoint while the button is held; `None` at rest.
+    anchor: Option<SelectionEndpoint>,
+    /// Whether a hover has extended the press yet.
+    moved: bool,
+}
+
+impl SpanSession {
+    /// Whether a press is currently held open.
+    pub fn is_active(&self) -> bool {
+        self.anchor.is_some()
+    }
+
+    /// Folds `event` into the session, returning the span the app should
+    /// hold: presses only open the session (the held span is untouched, so a
+    /// link click or a press-release outside the cell never disturbs it);
+    /// hovers with an open session commit the anchor-to-focus span (`None`
+    /// when the focus sits back on the anchor — a caret is not a selection);
+    /// the press cell's release ends the session, clearing on a plain click
+    /// and keeping whatever is held otherwise; every other cell's release and
+    /// every hover without an open session leave the held span alone.
+    pub fn apply(
+        &mut self,
+        held: Option<MessageSelection>,
+        event: &SpanEvent,
+    ) -> Option<MessageSelection> {
+        match event {
+            SpanEvent::Press { cell, offset } => {
+                self.anchor = Some(SelectionEndpoint {
+                    cell: cell.clone(),
+                    offset: *offset,
+                });
+                self.moved = false;
+                held
+            }
+            SpanEvent::Hover { cell, offset } => {
+                let Some(anchor) = self.anchor.clone() else {
+                    return held;
+                };
+                self.moved = true;
+                MessageSelection::new(
+                    anchor,
+                    SelectionEndpoint {
+                        cell: cell.clone(),
+                        offset: *offset,
+                    },
+                )
+            }
+            SpanEvent::Release { cell, hovered, link } => {
+                let Some(anchor) = self.anchor.take() else {
+                    return held;
+                };
+                let moved = std::mem::replace(&mut self.moved, false);
+                if anchor.cell != *cell {
+                    self.anchor = Some(anchor);
+                    return held;
+                }
+                if *link || moved {
+                    held
+                } else if *hovered {
+                    None
+                } else {
+                    held
+                }
+            }
+            SpanEvent::Pick { selection } => {
+                self.anchor = None;
+                self.moved = false;
+                selection.clone()
+            }
+        }
+    }
+}
+
 /// Orders an anchor/focus pair into a selection range; `None` when the two
 /// are equal (a caret is not a selection).
 pub(crate) fn normalize_range(anchor: usize, focus: usize) -> Option<Range<usize>> {
@@ -284,6 +551,35 @@ fn index_at(layout: &TextLayout, position: Point<Pixels>, text: &str) -> usize {
     ix
 }
 
+/// Emits a word / paragraph pick over `key` through `emit` as a degenerate
+/// single-cell span, clamping to `text`; an empty or unclampable range
+/// clears, exactly like [`emit_clamped`] on the legacy path.
+fn emit_pick(
+    emit: &Option<SpanHandler>,
+    key: &SelectionKey,
+    range: Range<usize>,
+    text: &str,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(emit) = emit else {
+        return;
+    };
+    let selection = clamp_range(range, text).and_then(|range| {
+        MessageSelection::new(
+            SelectionEndpoint {
+                cell: key.clone(),
+                offset: range.start,
+            },
+            SelectionEndpoint {
+                cell: key.clone(),
+                offset: range.end,
+            },
+        )
+    });
+    emit(SpanEvent::Pick { selection }, window, cx);
+}
+
 /// Emits `range` over `key` through `emit`, clamping to `text`; an empty or
 /// unclampable range clears instead of storing a caret.
 fn emit_clamped(
@@ -322,6 +618,7 @@ pub struct SelectableText {
     targets: Vec<LinkTarget>,
     on_link: Option<LinkHandler>,
     on_change: Option<SelectionHandler>,
+    on_span: Option<SpanHandler>,
     styled: Option<StyledText>,
 }
 
@@ -345,6 +642,7 @@ pub fn selectable_text(
         targets: Vec::new(),
         on_link: None,
         on_change: None,
+        on_span: None,
         styled: None,
     }
 }
@@ -396,6 +694,18 @@ impl SelectableText {
         f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_change = Some(Rc::new(f));
+        self
+    }
+
+    /// Fires cross-cell selection events for the view's [`SpanSession`]: a
+    /// single-click press, hovers over this cell while any button is held
+    /// (regardless of which cell the press started in), the release after a
+    /// press that started here, and double-click word / triple-click
+    /// paragraph picks. A view in span mode wires this instead of
+    /// [`on_selection_change`](Self::on_selection_change); wiring both
+    /// double-reports drags.
+    pub fn on_span_event(mut self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_span = Some(Rc::new(f));
         self
     }
 
@@ -515,10 +825,11 @@ impl Element for SelectableText {
                 let state = state.unwrap_or_default();
                 let on_link = self.on_link.take();
                 let on_change = self.on_change.take();
+                let on_span = self.on_span.take();
                 let links = std::mem::take(&mut self.links);
                 let targets = std::mem::take(&mut self.targets);
                 let key = self.key.clone();
-                let interactive = on_link.is_some() || on_change.is_some();
+                let interactive = on_link.is_some() || on_change.is_some() || on_span.is_some();
 
                 // Cursor affordance: the hand over links when they click
                 // (as `InteractiveText` paints it), the I-beam over
@@ -551,6 +862,7 @@ impl Element for SelectableText {
                         let links = links.clone();
                         let key = key.clone();
                         let emit = on_change.clone();
+                        let span = on_span.clone();
                         let hitbox = hitbox.clone();
                         window.on_mouse_event(
                             move |event: &MouseDownEvent, phase, window, cx| {
@@ -571,6 +883,14 @@ impl Element for SelectableText {
                                             window,
                                             cx,
                                         );
+                                        emit_pick(
+                                            &span,
+                                            &key,
+                                            word_range_at(&text, ix),
+                                            &text,
+                                            window,
+                                            cx,
+                                        );
                                     } else if event.click_count >= 3 {
                                         anchor.set(None);
                                         moved.set(true);
@@ -583,12 +903,30 @@ impl Element for SelectableText {
                                             window,
                                             cx,
                                         );
+                                        emit_pick(
+                                            &span,
+                                            &key,
+                                            paragraph_range(&text),
+                                            &text,
+                                            window,
+                                            cx,
+                                        );
                                     } else {
                                         anchor.set(Some(ix));
                                         moved.set(false);
                                         pressed.set(
                                             links.iter().position(|range| range.contains(&ix)),
                                         );
+                                        if let Some(emit) = &span {
+                                            emit(
+                                                SpanEvent::Press {
+                                                    cell: key.clone(),
+                                                    offset: ix,
+                                                },
+                                                window,
+                                                cx,
+                                            );
+                                        }
                                     }
                                     window.refresh();
                                 }
@@ -606,9 +944,33 @@ impl Element for SelectableText {
                         let text = text.clone();
                         let key = key.clone();
                         let emit = on_change.clone();
+                        let span = on_span.clone();
+                        let hover_box = hitbox.clone();
                         window.on_mouse_event(
                             move |event: &MouseMoveEvent, phase, window, cx| {
                                 if phase == DispatchPhase::Bubble && event.dragging() {
+                                    // Cross-cell hovers are deliberately not
+                                    // anchor-gated — the press may have
+                                    // started in another cell — only
+                                    // hover-gated, and only while a button is
+                                    // held. Without an open session the app
+                                    // folds these away, so drags from other
+                                    // views never leak in; no layout work
+                                    // happens here beyond this cell's own
+                                    // hover check and index mapping.
+                                    if let Some(emit) = &span {
+                                        if hover_box.is_hovered(window) {
+                                            let ix = index_at(&layout, event.position, &text);
+                                            emit(
+                                                SpanEvent::Hover {
+                                                    cell: key.clone(),
+                                                    offset: ix,
+                                                },
+                                                window,
+                                                cx,
+                                            );
+                                        }
+                                    }
                                     if let Some(a) = anchor.get() {
                                         let ix = index_at(&layout, event.position, &text);
                                         if ix != a {
@@ -636,6 +998,7 @@ impl Element for SelectableText {
                         let text = text.clone();
                         let key = key.clone();
                         let emit = on_change.clone();
+                        let span = on_span.clone();
                         let hitbox = hitbox.clone();
                         window.on_mouse_event(
                             move |event: &MouseUpEvent, phase, window, cx| {
@@ -645,6 +1008,33 @@ impl Element for SelectableText {
                                     if let Some(a) = anchor.take() {
                                         let was_moved = moved.replace(false);
                                         let pressed_ix = pressed.take();
+                                        // Double- and triple-click presses
+                                        // clear the anchor at press time, so
+                                        // this only runs for single-click
+                                        // presses — the session's press cell.
+                                        if let Some(emit) = &span {
+                                            let hovered = hitbox.is_hovered(window);
+                                            let link = hovered
+                                                && pressed_ix.and_then(|li| links.get(li)).is_some_and(
+                                                    |range| {
+                                                        range.contains(&a)
+                                                            && range.contains(&index_at(
+                                                                &layout,
+                                                                event.position,
+                                                                &text,
+                                                            ))
+                                                    },
+                                                );
+                                            emit(
+                                                SpanEvent::Release {
+                                                    cell: key.clone(),
+                                                    hovered,
+                                                    link,
+                                                },
+                                                window,
+                                                cx,
+                                            );
+                                        }
                                         if !was_moved {
                                             if hitbox.is_hovered(window) {
                                                 let ix = index_at(
@@ -804,6 +1194,259 @@ mod tests {
         assert_eq!(intersect_range(&(3..10), 5, 4), Some(0..4));
         assert_eq!(intersect_range(&(3..5), 5, 4), None);
         assert_eq!(intersect_range(&(0..2), 5, 0), None);
+    }
+
+    fn endpoint(cell: &SelectionKey, offset: usize) -> SelectionEndpoint {
+        SelectionEndpoint {
+            cell: cell.clone(),
+            offset,
+        }
+    }
+
+    fn three_cells() -> (SelectionKey, SelectionKey, SelectionKey, Vec<SelectionKey>) {
+        let a = SelectionKey::paragraph("", 0);
+        let b = SelectionKey::list_item("", 1, false, 0);
+        let c = SelectionKey::code("", 2);
+        let order = vec![a.clone(), b.clone(), c.clone()];
+        (a, b, c, order)
+    }
+
+    #[test]
+    fn spans_drop_carets_like_single_cells() {
+        let a = SelectionKey::paragraph("", 0);
+        assert!(MessageSelection::new(endpoint(&a, 3), endpoint(&a, 3)).is_none());
+        assert!(MessageSelection::new(endpoint(&a, 3), endpoint(&a, 7)).is_some());
+        // Same offset across different cells is still a span.
+        let b = SelectionKey::paragraph("", 1);
+        assert!(MessageSelection::new(endpoint(&a, 3), endpoint(&b, 3)).is_some());
+    }
+
+    #[test]
+    fn single_cell_spans_round_trip_through_legacy() {
+        let single = TextSelection {
+            cell: SelectionKey::paragraph("", 0),
+            range: 2..7,
+        };
+        let span = MessageSelection::from_single(single.clone());
+        assert_eq!(span.single_cell(), Some(single));
+        // Direction survives the round trip normalized.
+        let reversed = MessageSelection {
+            anchor: endpoint(&span.anchor.cell, 7),
+            focus: endpoint(&span.anchor.cell, 2),
+        };
+        assert_eq!(reversed.single_cell().as_ref().map(|s| s.range.clone()), Some(2..7));
+        // Cross-cell spans have no legacy form.
+        let (a, b, _, _) = three_cells();
+        let cross = MessageSelection::new(endpoint(&a, 0), endpoint(&b, 1))
+            .expect("distinct cells span");
+        assert_eq!(cross.single_cell(), None);
+    }
+
+    #[test]
+    fn ranges_cover_one_cell_end_to_end() {
+        let (a, b, _, order) = three_cells();
+        let text = "hello world";
+        let span =
+            MessageSelection::new(endpoint(&a, 2), endpoint(&a, 7)).expect("a range spans");
+        assert_eq!(span.range_for_cell(&a, text.len(), &order), Some(2..7));
+        assert_eq!(span.range_for_cell(&b, text.len(), &order), None);
+        // Reversed offsets paint the same range.
+        let reversed = MessageSelection {
+            anchor: endpoint(&a, 7),
+            focus: endpoint(&a, 2),
+        };
+        assert_eq!(reversed.range_for_cell(&a, text.len(), &order), Some(2..7));
+    }
+
+    #[test]
+    fn ranges_span_two_cells_with_partial_ends() {
+        let (a, b, c, order) = three_cells();
+        let span =
+            MessageSelection::new(endpoint(&a, 6), endpoint(&b, 3)).expect("two cells span");
+        assert_eq!(span.range_for_cell(&a, 11, &order), Some(6..11));
+        assert_eq!(span.range_for_cell(&b, 9, &order), Some(0..3));
+        assert_eq!(span.range_for_cell(&c, 9, &order), None);
+    }
+
+    #[test]
+    fn ranges_fill_every_cell_between_reversed_drags_too() {
+        let (a, b, c, order) = three_cells();
+        // Focus before anchor: the same cells highlight.
+        let span =
+            MessageSelection::new(endpoint(&c, 4), endpoint(&a, 6)).expect("many cells span");
+        assert_eq!(span.range_for_cell(&a, 11, &order), Some(6..11));
+        assert_eq!(span.range_for_cell(&b, 9, &order), Some(0..9));
+        assert_eq!(span.range_for_cell(&c, 8, &order), Some(0..4));
+        let forward =
+            MessageSelection::new(endpoint(&a, 6), endpoint(&c, 4)).expect("forward spans");
+        for (cell, len) in [(&a, 11), (&b, 9), (&c, 8)] {
+            assert_eq!(
+                span.range_for_cell(cell, len, &order),
+                forward.range_for_cell(cell, len, &order),
+                "reversed drags render like forward ones"
+            );
+        }
+    }
+
+    #[test]
+    fn ranges_reject_unknown_keys_empty_cells_and_past_end_offsets() {
+        let (a, b, _, order) = three_cells();
+        let span =
+            MessageSelection::new(endpoint(&a, 6), endpoint(&b, 3)).expect("two cells span");
+        let missing = SelectionKey::paragraph("", 9);
+        assert_eq!(span.range_for_cell(&missing, 11, &order), None);
+        // Empty cells never highlight, even in between.
+        assert_eq!(span.range_for_cell(&b, 0, &order), None);
+        // Past-the-end offsets clamp; a fully past-the-end end selects nothing.
+        assert_eq!(span.range_for_cell(&a, 4, &order), None);
+        assert_eq!(span.range_for_cell(&b, 1, &order), Some(0..1));
+        // A stale endpoint key drops the whole span.
+        let stale = MessageSelection {
+            anchor: endpoint(&missing, 0),
+            focus: endpoint(&b, 3),
+        };
+        assert_eq!(stale.range_for_cell(&b, 9, &order), None);
+    }
+
+    #[test]
+    fn sessions_fold_press_hover_and_release() {
+        let (a, b, _, _) = three_cells();
+        let mut session = SpanSession::default();
+        assert!(!session.is_active());
+        let held = session.apply(None, &SpanEvent::Press {
+            cell: a.clone(),
+            offset: 6,
+        });
+        assert_eq!(held, None);
+        assert!(session.is_active());
+        // Hovers without effect on other views cannot happen here, but a
+        // hover back on the anchor collapses to no selection.
+        let held = session.apply(held, &SpanEvent::Hover {
+            cell: a.clone(),
+            offset: 6,
+        });
+        assert_eq!(held, None);
+        let held = session.apply(held, &SpanEvent::Hover {
+            cell: b.clone(),
+            offset: 3,
+        });
+        let span = held.clone().expect("a drag commits a span");
+        assert_eq!(span.anchor, endpoint(&a, 6));
+        assert_eq!(span.focus, endpoint(&b, 3));
+        // The press cell's release ends the session and keeps the span.
+        let held = session.apply(held, &SpanEvent::Release {
+            cell: a.clone(),
+            hovered: true,
+            link: false,
+        });
+        assert_eq!(held, Some(span));
+        assert!(!session.is_active());
+    }
+
+    #[test]
+    fn sessions_clear_on_plain_clicks_and_keep_otherwise() {
+        let (a, b, _, _) = three_cells();
+        let span =
+            MessageSelection::new(endpoint(&a, 1), endpoint(&b, 2)).expect("a held span");
+        // A plain click in a fresh press clears.
+        let mut session = SpanSession::default();
+        let held = session.apply(Some(span.clone()), &SpanEvent::Press {
+            cell: a.clone(),
+            offset: 0,
+        });
+        assert_eq!(held, Some(span.clone()));
+        let held = session.apply(held, &SpanEvent::Release {
+            cell: a.clone(),
+            hovered: true,
+            link: false,
+        });
+        assert_eq!(held, None);
+        // A press released over another cell keeps what was held. Every
+        // cell's release handler fires window-wide, so the other cell's
+        // release arrives first and is ignored, then the press cell's own
+        // release (not hovered) ends the session.
+        let mut session = SpanSession::default();
+        let held = session.apply(Some(span.clone()), &SpanEvent::Press {
+            cell: a.clone(),
+            offset: 0,
+        });
+        let held = session.apply(held, &SpanEvent::Release {
+            cell: b.clone(),
+            hovered: true,
+            link: false,
+        });
+        assert_eq!(held, Some(span.clone()));
+        assert!(session.is_active());
+        let held = session.apply(held, &SpanEvent::Release {
+            cell: a.clone(),
+            hovered: false,
+            link: false,
+        });
+        assert_eq!(held, Some(span.clone()));
+        assert!(!session.is_active());
+        // Link clicks never disturb the held span.
+        let mut session = SpanSession::default();
+        let held = session.apply(Some(span.clone()), &SpanEvent::Press {
+            cell: a.clone(),
+            offset: 0,
+        });
+        let held = session.apply(held, &SpanEvent::Release {
+            cell: a.clone(),
+            hovered: true,
+            link: true,
+        });
+        assert_eq!(held, Some(span.clone()));
+        // Releases from cells that never pressed are ignored.
+        let mut session = SpanSession::default();
+        let held = session.apply(Some(span.clone()), &SpanEvent::Release {
+            cell: b.clone(),
+            hovered: true,
+            link: false,
+        });
+        assert_eq!(held, Some(span.clone()));
+        // Hovers with no open session are ignored.
+        let mut session = SpanSession::default();
+        let held = session.apply(Some(span.clone()), &SpanEvent::Hover {
+            cell: b.clone(),
+            offset: 5,
+        });
+        assert_eq!(held, Some(span.clone()));
+    }
+
+    #[test]
+    fn sessions_take_picks_and_reset_on_new_presses() {
+        let (a, b, _, _) = three_cells();
+        let word = MessageSelection::new(endpoint(&b, 2), endpoint(&b, 7)).expect("a word spans");
+        let mut session = SpanSession::default();
+        session.apply(None, &SpanEvent::Press {
+            cell: a.clone(),
+            offset: 0,
+        });
+        let held = session.apply(None, &SpanEvent::Pick {
+            selection: Some(word.clone()),
+        });
+        assert_eq!(held, Some(word));
+        assert!(!session.is_active());
+        // A whitespace double-click clears.
+        let held = session.apply(held, &SpanEvent::Pick { selection: None });
+        assert_eq!(held, None);
+        // A new press overwrites a session a lost release left open.
+        let mut session = SpanSession::default();
+        session.apply(None, &SpanEvent::Press {
+            cell: a.clone(),
+            offset: 1,
+        });
+        let held = session.apply(None, &SpanEvent::Press {
+            cell: b.clone(),
+            offset: 2,
+        });
+        assert!(session.is_active());
+        let held = session.apply(held, &SpanEvent::Hover {
+            cell: b.clone(),
+            offset: 4,
+        });
+        let span = held.expect("the new press anchors the span");
+        assert_eq!(span.anchor, endpoint(&b, 2));
     }
 
     #[test]
