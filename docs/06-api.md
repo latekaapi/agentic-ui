@@ -963,8 +963,14 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn markdown(id: impl Into<ElementId>, source: impl Into<SharedString>, style: ProseStyle) -> Markdown`
 - **fn** `markdown_selected_text` — Copies the selected text out of `source` without building a view: the slice of the holding cell’s shaped text, or `None` when the key addresses no cell or the range is empty. [...]
   - `pub fn markdown_selected_text(source: &str, selection: &TextSelection) -> Option<String>`
+- **fn** `markdown_span_selected_text` — Copies the selected text across `selection`’s cells without building a view: the same lookup `Markdown::span_selected_text` uses, for callers that hold the source but never built the view.
+  - `pub fn markdown_span_selected_text(source: &str, selection: &MessageSelection) -> Option<String>`
 - **fn** `marker_row` — A marker with plain text; add emphasis, links or a hand-off with the builders.
   - `pub fn marker_row(id: impl Into<ElementId>) -> MarkerRow`
+- **fn** `message_select_all` — The span covering a whole message: the first non-empty cell’s start to the last non-empty cell’s end. [...]
+  - `pub fn message_select_all(source: &str) -> Option<MessageSelection>`
+- **fn** `message_selected_text` — Copies the selected text across `selection`’s cells in document order without building a view; see `Markdown::span_selected_text` for the joining rules. [...]
+  - `pub fn message_selected_text(source: &str, selection: &MessageSelection) -> Option<String>`
 - **fn** `more_label` — `+3 more` for the collapsed preview’s overflow row.
   - `pub fn more_label(hidden: usize) -> String`
 - **fn** `needs_you_banner` — A needs-you banner: bold `headline` then plain `detail`, with a jump action.
@@ -1017,6 +1023,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn ts_language(language: &str) -> Option<&'static str>`
 - **fn** `turn_selected_text` — Copies the selected text out of a turn’s `markdown_source` without re-rendering: the slice of the holding cell’s shaped text, or `None` when the key addresses no cell or the range is empty. [...]
   - `pub fn turn_selected_text(markdown_source: &str, selection: &TextSelection) -> Option<String>`
+- **fn** `turn_span_selected_text` — Copies the selected text across `selection`’s cells in document order without re-rendering; see `message_selected_text`. [...]
+  - `pub fn turn_span_selected_text(markdown_source: &str, selection: &MessageSelection) -> Option<String>`
 - **fn** `user_turn` — A user turn; `markdown` may carry mentions as inline code (`@src/checkout`), which render as mention chips.
   - `pub fn user_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> UserTurn`
 
@@ -1058,13 +1066,16 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn on_action(self, f: impl Fn(AssistantTurnAction, &mut Window, &mut App) + 'static) -> Self` — Toolbar handler.
   - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Link-click handler, passed through to the markdown body.
   - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents, passed straight through to the inner `markdown(...)`: drags and word / paragraph picks arrive as `Some`, plain clicks elsewhere in a cell arrive as `None` (clearing).
+  - `pub fn on_span_event(self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self` — Cross-cell selection events, passed straight through to the inner `markdown(...)` for the turn’s `SpanSession`. A turn in span mode wires this instead of `on_selection_change`.
   - `pub fn selection(self, selection: Option<&TextSelection>) -> Self` — The stored selection the markdown body highlights: the app owns one `Option<TextSelection>` per turn and passes it back here, passed straight through to the inner `markdown(...)`.
+  - `pub fn span_selection(self, selection: Option<&MessageSelection>) -> Self` — The stored cross-cell span the markdown body highlights: the app owns one `Option<MessageSelection>` per turn and passes it back here, passed straight through to the inner `markdown(...)`. [...]
   - `pub fn streaming(self, streaming: bool) -> Self` — Shows the blinking caret after the text while chunks arrive.
 - **struct** `CodeBlock` — A code block. Build with `code_block`.
   - `pub fn hidden_lines(self, count: usize) -> Self` — How many more lines the fold row offers.
   - `pub fn language(self, language: impl Into<SharedString>) -> Self` — The language label after the filename.
   - `pub fn on_action(self, f: impl Fn(CodeBlockAction, &mut Window, &mut App) + 'static) -> Self` — Action handler.
   - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents from any line, translated to block-wide indices. Empty lines carry no bytes, so presses there clear instead.
+  - `pub fn on_span_event(self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self` — Cross-cell selection events from any line, translated to block-wide indices for the view’s `SpanSession`. [...]
   - `pub fn selection(self, range: Option<Range<usize>>) -> Self` — The visible selection, in block-wide byte indices. Only the lines it overlaps highlight.
   - `pub fn selection_color(self, color: Hsla) -> Self` — The highlight colour behind selected glyphs. Defaults to the theme’s `selection` token.
   - `pub fn selection_key(self, key: SelectionKey) -> Self` — The selection cell key this block’s lines share. Ranges are byte offsets over the whole block text, newlines included.
@@ -1092,15 +1103,24 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - fields: `range`, `target`
 - **struct** `Markdown` — A markdown block column. Build with `markdown`.
   - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Click handler for links: the argument is the clicked range’s target.
-  - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents: drags and word / paragraph picks arrive as `Some`, plain clicks elsewhere in a cell arrive as `None` (clearing).
+  - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents: drags and word / paragraph picks arrive as `Some`, plain clicks elsewhere in a cell arrive as `None` (clearing). [...]
+  - `pub fn on_span_event(self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self` — Cross-cell selection events for the view’s `SpanSession`: presses, hovers while any button is held, releases, and word / paragraph picks. [...]
   - `pub fn selected_text(&self, selection: &TextSelection) -> Option<String>` — Copies the selected text out of `selection`: the slice of the holding cell’s shaped text (code spans and link labels read as plain words), or `None` when the key addresses no cell or the range is empty. [...]
-  - `pub fn selection(self, selection: Option<&TextSelection>) -> Self` — The stored selection this render highlights: the app owns one `Option<TextSelection>` per markdown view and passes it back here.
+  - `pub fn selection(self, selection: Option<&TextSelection>) -> Self` — The stored selection this render highlights: the app owns one `Option<TextSelection>` per markdown view and passes it back here. Ignored while span mode is on (see `span_selection`).
+  - `pub fn span_selected_text(&self, selection: &MessageSelection) -> Option<String>` — Copies the selected text across `selection`’s cells in document order; see `message_selected_text`. The app puts this on the clipboard on ⌘C when it holds a span; the keybinding stays with the app.
+  - `pub fn span_selection(self, selection: Option<&MessageSelection>) -> Self` — The stored cross-cell span this render highlights: the app owns one `Option<MessageSelection>` per markdown view (plus its `SpanSession`) and passes it back here. [...]
 - **struct** `MarkerRow` — A marker row. Build with `marker_row`.
   - `pub fn glyph(self, name: IconName, color: Option<Hsla>) -> Self` — The 12 px leading glyph, optionally tinted (a warning shield).
   - `pub fn hand_off(self, hand_off: HandOff) -> Self` — The hand-off pill before the text.
   - `pub fn link(self, text: impl Into<SharedString>, on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — An accent-ink link.
   - `pub fn strong(self, text: impl Into<SharedString>) -> Self` — Emphasised text: ink, weight 500.
   - `pub fn text(self, text: impl Into<SharedString>) -> Self` — Plain ink-3 text.
+- **struct** `MessageSelection` — A text selection spanning cells: one owner-level selection (anchor cell + offset, focus cell + offset) with the cells in between fully selected. [...]
+  - fields: `anchor`, `focus`
+  - `pub fn from_single(selection: TextSelection) -> Self` — The degenerate span behind a legacy single-cell selection: the range’s start is the anchor, its end the focus.
+  - `pub fn new(anchor: SelectionEndpoint, focus: SelectionEndpoint) -> Option<Self>` — Builds a span; `None` when both ends are the same cell at the same offset (a caret is not a selection).
+  - `pub fn range_for_cell(&self, cell: &SelectionKey, text_len: usize, order: &[SelectionKey]) -> Option<Range<usize>>` — The visible range over a cell holding `text_len` bytes, given the cells’ document `order`: a partial slice in an endpoint cell, the full `0..text_len` for cells strictly between the ends, and the normalized range when both ends share the cell. [...]
+  - `pub fn single_cell(&self) -> Option<TextSelection>` — The legacy single-cell selection when both ends share a cell, with the range normalized (`start <= end`); `None` for cross-cell spans. [...]
 - **struct** `NeedsYouBanner` — The banner pinned above the composer when the agent is blocked on the person. Build with `needs_you_banner`.
   - `pub fn action_label(self, label: impl Into<SharedString>) -> Self` — Overrides the action’s label.
   - `pub fn at_rest(self) -> Self` — Skips the enter animation and draws the settled banner (static captures).
@@ -1137,9 +1157,12 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn links(self, links: Vec<LinkRange>) -> Self` — Clickable link ranges with their targets, in local byte indices. A press-release without movement on one fires `SelectableText::on_link`; movement starts a selection instead.
   - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Fires when a press-release without movement lands on a link range.
   - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Fires on drags and word / paragraph picks (`Some`) and on plain clicks elsewhere in the cell (`None`, clearing the selection).
+  - `pub fn on_span_event(self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self` — Fires cross-cell selection events for the view’s `SpanSession`: a single-click press, hovers over this cell while any button is held (regardless of which cell the press started in), the release after a press that started here, and double-click word / triple-click paragraph picks. [...]
   - `pub fn runs(self, runs: Vec<TextRun>) -> Self` — The text runs (same shape as `StyledText::with_runs`).
   - `pub fn selection(self, range: Option<Range<usize>>) -> Self` — The visible selection, in local byte indices; `None` (the default) paints plain text. The range splits the runs around it at paint time.
   - `pub fn selection_color(self, color: Hsla) -> Self` — The highlight colour behind selected glyphs — the theme’s `selection` token. Without it a selection range paints nothing.
+- **struct** `SelectionEndpoint` — One end of a cross-cell span: which cell, and the byte offset into that cell’s shaped text. [...]
+  - fields: `cell`, `offset`
 - **struct** `SelectionKey` — Identifies one selectable cell inside a `Markdown` render: a paragraph, heading, list item, table cell or fenced code block. [...]
   - `pub fn as_str(&self) -> &str` — The encoded key.
   - `pub fn code(prefix: &str, index: usize) -> Self` — Key of the `index`-th fenced code block under `prefix`. Every line of the block shares this key; ranges are byte offsets over the whole block text (newlines included).
@@ -1149,6 +1172,9 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn paragraph(prefix: &str, index: usize) -> Self` — Key of the `index`-th paragraph under `prefix`.
   - `pub fn quote_prefix(prefix: &str, index: usize) -> String` — The key prefix for blocks nested inside the `index`-th quote: inner keys read `q{index}-…`, so quote cells never collide with siblings.
   - `pub fn table_cell(prefix: &str, index: usize, row: Option<usize>, col: usize) -> Self` — Key of one table cell: `index` is the block, `row` is `None` for a header cell and `Some` for a body row, `col` the column.
+- **struct** `SpanSession` — The caller-owned cross-cell drag session: the pending anchor while the button is held, and whether the pointer has moved since the press. [...]
+  - `pub fn apply(&mut self, held: Option<MessageSelection>, event: &SpanEvent) -> Option<MessageSelection>` — Folds `event` into the session, returning the span the app should hold: presses only open the session (the held span is untouched, so a link click or a press-release outside the cell never disturbs it [...]
+  - `pub fn is_active(&self) -> bool` — Whether a press is currently held open.
 - **struct** `StatusRow` — One live status line under the transcript. Build with `status_row`.
   - `pub fn elapsed(self, elapsed: impl Into<SharedString>) -> Self` — The mono elapsed time after the label.
   - `pub fn key_hint(self, key: impl Into<SharedString>, text: impl Into<SharedString>) -> Self` — A keycap and its trailing text after the separator (`esc to interrupt`).
@@ -1194,7 +1220,9 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn on_action(self, f: impl Fn(UserTurnAction, &mut Window, &mut App) + 'static) -> Self` — Hover-action handler.
   - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Link-click handler, passed through to the markdown body.
   - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents, passed straight through to the inner `markdown(...)`: drags and word / paragraph picks arrive as `Some`, plain clicks elsewhere in a cell arrive as `None` (clearing).
+  - `pub fn on_span_event(self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self` — Cross-cell selection events, passed straight through to the inner `markdown(...)` for the turn’s `SpanSession`. A turn in span mode wires this instead of `on_selection_change`.
   - `pub fn selection(self, selection: Option<&TextSelection>) -> Self` — The stored selection the markdown body highlights: the app owns one `Option<TextSelection>` per turn and passes it back here, passed straight through to the inner `markdown(...)`.
+  - `pub fn span_selection(self, selection: Option<&MessageSelection>) -> Self` — The stored cross-cell span the markdown body highlights: the app owns one `Option<MessageSelection>` per turn and passes it back here, passed straight through to the inner `markdown(...)`. [...]
 
 - **enum** `AssistantTurnAction` — Actions on an assistant turn.
   - variants: `Copy`, `Retry`, `Fork`, `Pin`
@@ -1216,6 +1244,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - variants: `Answered`, `Skipped`, `Clarified`, `TimedOut`, `Interrupted`
 - **enum** `Span` — One inline segment.
   - variants: `Text`, `Code`, `Bold`, `Italic`, `Strikethrough`, `Link`
+- **enum** `SpanEvent` — One cross-cell selection event from a `SelectableText` cell (or a code block line, translated to block-wide offsets): the app folds these into its held span through `SpanSession::apply`.
+  - variants: `Press`, `Hover`, `Release`, `Pick`
 - **enum** `StatusLead` — The glyph that leads a `StatusRow`.
   - variants: `None`, `Spinner`, `Braille`
 - **enum** `SummaryAction` — What the summary card’s action row asks for.
@@ -1248,6 +1278,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub type LinkHandler = Rc<dyn Fn(LinkTarget, &mut Window, &mut App)>;`
 - **type** `SelectionHandler` — A selection intent: `Some` replaces the app’s stored selection, `None` clears it.
   - `pub type SelectionHandler = Rc<dyn Fn(Option<TextSelection>, &mut Window, &mut App)>;`
+- **type** `SpanHandler` — A cross-cell selection intent: each `SpanEvent` folded through the view’s `SpanSession`. [...]
+  - `pub type SpanHandler = Rc<dyn Fn(SpanEvent, &mut Window, &mut App)>;`
 
 ### `aui::util`
 

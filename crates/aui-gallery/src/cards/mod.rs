@@ -31,6 +31,7 @@ pub mod project_mark;
 pub mod question_plan_todo;
 pub mod rows;
 pub mod secret_field;
+pub mod selection;
 pub mod settings;
 pub mod sidebar;
 pub mod sidebar_virtual;

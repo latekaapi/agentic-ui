@@ -361,6 +361,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::markdown::build,
     },
     Entry {
+        id: "transcript/selection-span",
+        group: "Transcript",
+        title: "Cross-cell selection",
+        subtitle: "One owner-level span across a paragraph, a list and a fence, with manual drag",
+        width: 760.0,
+        height: 460.0,
+        theme: CardTheme::Both,
+        build: crate::cards::selection::build,
+    },
+    Entry {
         id: "transcript/code-diff",
         group: "Transcript",
         title: "Code and diff blocks",
