@@ -26,6 +26,10 @@ pub struct SessionSummary {
     pub providers: Vec<Provider>,
     /// Extra items on the meta line, after the tags.
     pub meta: Vec<MetaItem>,
+    /// An explicit second line, distinct from the `meta` preview tags. When
+    /// set it wins the row's second-line slot; rows without one show the
+    /// legacy meta tags (or empty space, keeping the two-line height).
+    pub byline: Option<Byline>,
     /// The optional third line.
     pub activity: Option<Activity>,
     /// Unread: the 3 px accent bar at the left edge.
@@ -50,6 +54,7 @@ impl SessionSummary {
             branch: None,
             providers: Vec::new(),
             meta: Vec::new(),
+            byline: None,
             activity: None,
             unread: false,
             pinned: false,
@@ -87,6 +92,31 @@ impl SessionSummary {
         self
     }
 
+    /// Sets the second line to a muted placeholder (`Working…`, `No reply
+    /// yet`): what the row shows while there is nothing else to say, e.g.
+    /// while a generated title is still being written. The library dims it;
+    /// the caller picks the words.
+    pub fn placeholder(mut self, text: impl Into<SharedString>) -> Self {
+        self.byline = Some(Byline::Placeholder(text.into()));
+        self
+    }
+
+    /// Sets the second line to one line of preview text, in place of the
+    /// meta tags for this row. Rows without an explicit second line keep
+    /// showing the [`Self::meta`] tags, so existing callers are unchanged.
+    pub fn preview(mut self, text: impl Into<SharedString>) -> Self {
+        self.byline = Some(Byline::Preview(text.into()));
+        self
+    }
+
+    /// Sets the second line to the two-part byline: what was last asked
+    /// (`ask`) and what came back (`result`), side by side on the row's one
+    /// second line, each truncating with an ellipsis at the row's width.
+    pub fn byline(mut self, ask: impl Into<SharedString>, result: impl Into<SharedString>) -> Self {
+        self.byline = Some(Byline::TwoLines { ask: ask.into(), result: result.into() });
+        self
+    }
+
     /// Sets the activity line.
     pub fn activity(mut self, kind: ActivityKind, text: impl Into<SharedString>) -> Self {
         self.activity = Some(Activity { kind, text: text.into() });
@@ -111,6 +141,27 @@ impl SessionSummary {
         self.children.push(child);
         self
     }
+}
+
+/// An explicit second line for a session row, distinct from the `meta`
+/// preview tags. Whatever the caller passes, the row keeps its two-line
+/// height: with nothing to show the line renders as empty space.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Byline {
+    /// Muted placeholder text (`Working…`, `No reply yet`): dimmed ink, no
+    /// spinner. The app decides the words; the library decides the look.
+    Placeholder(SharedString),
+    /// One line of preview text.
+    Preview(SharedString),
+    /// Last ask plus last result, side by side on the row's one second
+    /// line. Each half truncates with an ellipsis at the row's width and
+    /// never wraps onto another line.
+    TwoLines {
+        /// What was last asked.
+        ask: SharedString,
+        /// What came back.
+        result: SharedString,
+    },
 }
 
 /// An item on the meta line.

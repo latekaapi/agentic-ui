@@ -32,7 +32,7 @@ use gpui_kit::component::input::Textarea;
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, spinner, status_dot, tag, ButtonSize};
-use crate::nav::{ActivityKind, MetaItem, SessionSummary};
+use crate::nav::{ActivityKind, Byline, MetaItem, SessionSummary};
 use crate::nav::{LEADING_BOX, NAV_GUTTER, NAV_LABEL_X};
 use crate::util::{indexed_child, interaction_flags, TrackInteraction};
 
@@ -370,6 +370,72 @@ impl SessionRow {
     }
 }
 
+/// Which second line the compact row draws for a summary: the row model
+/// behind the uniform two-line height.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecondLineKind {
+    /// Nothing to show: empty space keeping the two-line height.
+    Empty,
+    /// The legacy meta tags (and activity sentence), one truncating line.
+    Meta,
+    /// Muted placeholder text.
+    Placeholder,
+    /// One line of preview text.
+    Preview,
+    /// Last ask plus last result on the one second line.
+    Byline,
+}
+
+/// Which second line `summary` draws. An explicit [`Byline`] wins the slot;
+/// otherwise the legacy meta tags show, or empty space when there are none —
+/// so every row keeps its second line whatever the caller passes.
+pub fn second_line_kind(summary: &SessionSummary) -> SecondLineKind {
+    match &summary.byline {
+        Some(Byline::Placeholder(_)) => SecondLineKind::Placeholder,
+        Some(Byline::Preview(_)) => SecondLineKind::Preview,
+        Some(Byline::TwoLines { .. }) => SecondLineKind::Byline,
+        None if has_legacy_second_line(summary) => SecondLineKind::Meta,
+        None => SecondLineKind::Empty,
+    }
+}
+
+impl SecondLineKind {
+    /// Slot height in lines: one in every state, so a row is always its
+    /// title plus this line — two lines tall, dots on their rhythm.
+    pub fn lines(self) -> u8 {
+        1
+    }
+
+    /// Every state ellipsizes at the row's width…
+    pub fn truncate(self) -> bool {
+        true
+    }
+
+    /// …and none wraps onto another line.
+    pub fn wraps(self) -> bool {
+        false
+    }
+
+    /// Ink for the slot's plain text: the placeholder sits a step dimmer
+    /// (ink-4, the search-field placeholder tone); everything else reads in
+    /// the usual second-line ink-3. The byline's ask runs a step brighter at
+    /// ink-2 while its result uses this.
+    pub fn ink(self, palette: &aui_tokens::Palette) -> gpui::Hsla {
+        match self {
+            SecondLineKind::Placeholder => palette.ink_4,
+            _ => palette.ink_3,
+        }
+    }
+}
+
+/// Whether the legacy meta tags (or activity) give the row a second line:
+/// the repo/branch tags, meta items, provider marks, the pin, or the
+/// activity sentence. Mirrors the render below, so the kind and the row
+/// cannot disagree about when the legacy line exists.
+fn has_legacy_second_line(s: &SessionSummary) -> bool {
+    s.repo.is_some() || s.branch.is_some() || !s.meta.is_empty() || !s.providers.is_empty() || s.pinned || s.activity.is_some()
+}
+
 /// The meta line: tags, marks and extra items, one line, truncating.
 fn meta_line(p: &aui_tokens::Palette, size: f32, items: Vec<gpui::AnyElement>) -> Div {
     h_flex().w_full().min_w(px(0.0)).overflow_hidden().gap(px(META_GAP)).ui(size).text_color(p.ink_3).whitespace_nowrap().children(items)
@@ -415,6 +481,69 @@ fn activity_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary, si
         text = text.max_w(px(max));
     }
     Some(meta_line(p, size, Vec::new()).text_color(color).children(glyph).child(text))
+}
+
+/// The compact row's second line: always exactly one line — empty space, the
+/// legacy meta tags, or the explicit [`Byline`] — truncating with an
+/// ellipsis at the row's width, never wrapping.
+fn second_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> AnyElement {
+    match &s.byline {
+        Some(Byline::Placeholder(text)) => {
+            // A blank still keeps the line: see the empty-space arm below.
+            let shown = if text.is_empty() { SharedString::from(" ") } else { text.clone() };
+            meta_line(p, SR_META_TEXT, Vec::new())
+                .text_color(SecondLineKind::Placeholder.ink(p))
+                .child(div().min_w(px(0.0)).truncate().child(shown))
+                .into_any_element()
+        }
+        Some(Byline::Preview(text)) => {
+            let shown = if text.is_empty() { SharedString::from(" ") } else { text.clone() };
+            meta_line(p, SR_META_TEXT, Vec::new())
+                .text_color(SecondLineKind::Preview.ink(p))
+                .child(div().min_w(px(0.0)).truncate().child(shown))
+                .into_any_element()
+        }
+        Some(Byline::TwoLines { ask, result }) => {
+            let line = meta_line(p, SR_META_TEXT, Vec::new()).text_color(SecondLineKind::Byline.ink(p));
+            match (ask.is_empty(), result.is_empty()) {
+                (true, true) => line.child(div().child(" ")),
+                (true, false) => line.child(div().min_w(px(0.0)).truncate().child(result.clone())),
+                (false, true) => line.child(div().min_w(px(0.0)).truncate().text_color(p.ink_2).child(ask.clone())),
+                (false, false) => line
+                    .child(div().flex_1().min_w(px(0.0)).truncate().text_color(p.ink_2).child(ask.clone()))
+                    .child(div().flex_none().child("·"))
+                    .child(div().flex_1().min_w(px(0.0)).truncate().child(result.clone())),
+            }
+            .into_any_element()
+        }
+        None if !has_legacy_second_line(s) => {
+            // Empty space, not a collapsed row: a blank keeps the line's
+            // height (code blocks use the same `" "` line-box trick), so a
+            // session with nothing to show is exactly as tall as its
+            // neighbours.
+            meta_line(p, SR_META_TEXT, Vec::new()).child(div().child(" ")).into_any_element()
+        }
+        None => {
+            let mut items = Vec::new();
+            if let Some(activity) = &s.activity {
+                let color = match activity.kind {
+                    ActivityKind::Working | ActivityKind::Plain => p.ink_3,
+                    ActivityKind::Waiting => p.warning,
+                    ActivityKind::Failed => p.danger,
+                };
+                if activity.kind == ActivityKind::Working {
+                    items.push(spinner((id.clone(), "activity-spinner")).size(px(ACTIVITY_SPINNER)).into_any_element());
+                }
+                items.push(div().min_w(px(0.0)).truncate().text_color(color).child(activity.text.clone()).into_any_element());
+            }
+            let mut meta = meta_items(p, s, BRANCH_MAX);
+            meta.append(&mut items);
+            if s.pinned {
+                meta.insert(0, pin_mark(p));
+            }
+            meta_line(p, SR_META_TEXT, meta).into_any_element()
+        }
+    }
 }
 
 impl RenderOnce for SessionRow {
@@ -632,26 +761,10 @@ impl RenderOnce for CompactSessionRow {
                 .child(title)
                 .child(div().flex_none().text_role(TextRole::MonoSmall).font_weight(gpui::FontWeight::MEDIUM).text_color(p.ink_3).child(s.elapsed.clone())),
         );
-        let mut items = Vec::new();
-        if let Some(activity) = &s.activity {
-            let color = match activity.kind {
-                ActivityKind::Working | ActivityKind::Plain => p.ink_3,
-                ActivityKind::Waiting => p.warning,
-                ActivityKind::Failed => p.danger,
-            };
-            if activity.kind == ActivityKind::Working {
-                items.push(spinner((id.clone(), "activity-spinner")).size(px(ACTIVITY_SPINNER)).into_any_element());
-            }
-            items.push(div().min_w(px(0.0)).truncate().text_color(color).child(activity.text.clone()).into_any_element());
-        }
-        let mut meta = meta_items(&p, &s, BRANCH_MAX);
-        meta.append(&mut items);
-        if s.pinned {
-            meta.insert(0, pin_mark(&p));
-        }
-        if !meta.is_empty() {
-            lines = lines.child(meta_line(&p, SR_META_TEXT, meta));
-        }
+        // The second line always keeps its line: empty space, the legacy
+        // meta tags, or the explicit byline — so every row is two lines
+        // tall whatever the caller passes.
+        lines = lines.child(second_line(&p, &id, &s));
 
         // No `w_full`: at full width the 8 px margins overflow the column and
         // the shell clips them, leaving ~0 px on the right. As a flex item the
@@ -720,5 +833,104 @@ impl RenderOnce for CompactSessionRow {
             col = col.child(r);
         }
         col.into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aui_tokens::{Palette, ThemeKind};
+
+    fn summary(id: &str) -> SessionSummary {
+        SessionSummary::new(id, id, aui_tokens::AgentState::Idle, "1h")
+    }
+
+    /// The four second-line states, as the gallery's sidebar card shows them:
+    /// title only, placeholder, one-line preview, two-line byline.
+    fn four_states() -> [SessionSummary; 4] {
+        [
+            summary("blank"),
+            summary("titling").placeholder("Working…"),
+            summary("preview").preview("Fixed the flaky checkout test"),
+            summary("byline").byline("tighten address validation", "patched the validator"),
+        ]
+    }
+
+    /// Every state reserves exactly one second line, so each row is its title
+    /// plus this line — two lines tall, dots on their rhythm — whether the
+    /// caller passes `Some(text)`, `None`, or empty.
+    #[test]
+    fn every_state_reserves_exactly_one_second_line() {
+        let kinds: Vec<SecondLineKind> = four_states().iter().map(second_line_kind).collect();
+        assert_eq!(
+            kinds,
+            vec![SecondLineKind::Empty, SecondLineKind::Placeholder, SecondLineKind::Preview, SecondLineKind::Byline],
+            "each state maps to its own kind"
+        );
+        for kind in kinds {
+            assert_eq!(kind.lines(), 1, "{kind:?} keeps one second line");
+        }
+        // `None`, empty and blank all read as empty space, never a collapsed row.
+        assert_eq!(second_line_kind(&summary("none")), SecondLineKind::Empty);
+        assert_eq!(second_line_kind(&summary("empty").preview("")), SecondLineKind::Preview);
+        assert_eq!(second_line_kind(&summary("empty2").placeholder("")), SecondLineKind::Placeholder);
+        assert_eq!(second_line_kind(&summary("empty3").byline("", "")), SecondLineKind::Byline);
+    }
+
+    /// Legacy callers that pass only the meta preview keep their line: tags,
+    /// the pin, and the activity sentence all still count as a second line.
+    #[test]
+    fn legacy_meta_tags_keep_their_second_line() {
+        assert_eq!(second_line_kind(&summary("repo").repo("acme-web")), SecondLineKind::Meta);
+        assert_eq!(
+            second_line_kind(&summary("meta").meta(MetaItem::Text("PR #2491 open".into()))),
+            SecondLineKind::Meta
+        );
+        assert_eq!(
+            second_line_kind(&summary("activity").activity(ActivityKind::Working, "running tests")),
+            SecondLineKind::Meta
+        );
+        assert_eq!(second_line_kind(&summary("pinned").pinned()), SecondLineKind::Meta);
+        // An explicit byline wins the slot over legacy tags.
+        assert_eq!(
+            second_line_kind(&summary("both").meta(MetaItem::Text("PR #2491 open".into())).preview("new words")),
+            SecondLineKind::Preview
+        );
+    }
+
+    /// The line ellipsizes at the row's width and never wraps onto another
+    /// line — in every state, and for a byline far longer than any sidebar
+    /// width the round-5 work supports (240–520 px).
+    #[test]
+    fn the_second_line_truncates_and_never_wraps() {
+        let long = "tighten address validation and add coverage for non-US postal codes across every checkout form";
+        let states = [
+            summary("blank"),
+            summary("titling").placeholder(format!("{long}…")),
+            summary("preview").preview(long),
+            summary("byline").byline(long, long),
+        ];
+        for s in &states {
+            let kind = second_line_kind(s);
+            assert!(kind.truncate(), "{kind:?} ellipsizes at the row's width");
+            assert!(!kind.wraps(), "{kind:?} never wraps to a third line");
+        }
+    }
+
+    /// The placeholder reads dimmer than ordinary preview text, in both
+    /// themes: ink-4 against the second line's usual ink-3.
+    #[test]
+    fn placeholder_is_dimmer_than_preview_in_both_themes() {
+        for theme in [ThemeKind::Dark, ThemeKind::Light] {
+            let p: Palette = Palette::for_kind(theme);
+            assert_eq!(SecondLineKind::Placeholder.ink(&p), p.ink_4, "placeholder ink in {theme:?}");
+            assert_eq!(SecondLineKind::Preview.ink(&p), p.ink_3, "preview ink in {theme:?}");
+            assert_eq!(SecondLineKind::Byline.ink(&p), p.ink_3, "byline result ink in {theme:?}");
+            assert_ne!(
+                SecondLineKind::Placeholder.ink(&p),
+                SecondLineKind::Preview.ink(&p),
+                "placeholder differs from preview in {theme:?}"
+            );
+        }
     }
 }

@@ -20,8 +20,8 @@ pub use parts::{
     chevron, chevron_sized, group_header, group_row, nav_item, sidebar_footer, sidebar_search, GroupHeader, GroupRow, NavItem,
     SidebarFooter, SidebarSearch, LEADING_BOX, NAV_GUTTER, NAV_LABEL_X,
 };
-pub use session_row::{compact_session_row, dense_field, session_row, CompactSessionRow, RowAction, SessionRow, DENSE_FIELD_H};
-pub use types::{Activity, ActivityKind, MetaItem, SessionSummary};
+pub use session_row::{compact_session_row, dense_field, second_line_kind, session_row, CompactSessionRow, RowAction, SecondLineKind, SessionRow, DENSE_FIELD_H};
+pub use types::{Activity, ActivityKind, Byline, MetaItem, SessionSummary};
 pub use rail::{rail, Rail, RailItem, RAIL_WIDTH};
 pub use sidebar::{sidebar, Sidebar, SidebarAccount, SidebarGroup, SidebarNav, SidebarNavItem, SIDEBAR_WIDTH};
 pub use roles::{knowledge_card, project_row, role_section, role_session_row, KnowledgeCard, Project, ProjectRow, Role, RoleIntent, RoleSection, RoleSession, RoleSessionRow, SessionKind};

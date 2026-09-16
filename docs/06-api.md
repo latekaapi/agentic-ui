@@ -399,6 +399,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn role_session_row(id: impl Into<ElementId>, session: RoleSession) -> RoleSessionRow`
 - **fn** `row_index_for_session` — The flattened index of `session_id`, or `None` when the session has no row: an unknown id, or a session the caller held back behind a fold (expand the fold and re-flatten first). [...]
   - `pub fn row_index_for_session(rows: &[SidebarRow], grouping: &Grouping, session_id: &SharedString) -> Option<usize>`
+- **fn** `second_line_kind` — Which second line `summary` draws. An explicit `Byline` wins the slot; otherwise the legacy meta tags show, or empty space when there are none — so every row keeps its second line whatever the caller [...]
+  - `pub fn second_line_kind(summary: &SessionSummary) -> SecondLineKind`
 - **fn** `session_row` — A row for `session`. Children are rendered beneath it, nested.
   - `pub fn session_row(id: impl Into<ElementId>, session: SessionSummary) -> SessionRow`
 - **fn** `sidebar` — A sidebar rendering `nav`.
@@ -526,13 +528,16 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn text_sizes(self, name: f32, meta: f32) -> Self` — Name and meta sizes (13 / 12 by default; the sidebar card uses 12.5 / 11.5).
 - **struct** `SessionSummary` — One session / worktree as the sidebar shows it.
   - fields: `id`, `name`, `state`, `pulse`, `elapsed`, `repo`, `branch`, `providers`, `meta`,
-    `activity`, `unread`, `pinned`, `children`
+    `byline`, `activity`, `unread`, `pinned`, `children`
   - `pub fn activity(self, kind: ActivityKind, text: impl Into<SharedString>) -> Self` — Sets the activity line.
   - `pub fn branch(self, branch: impl Into<SharedString>) -> Self` — Sets the branch tag.
+  - `pub fn byline(self, ask: impl Into<SharedString>, result: impl Into<SharedString>) -> Self` — Sets the second line to the two-part byline: what was last asked (`ask`) and what came back (`result`), side by side on the row’s one second line, each truncating with an ellipsis at the row’s width.
   - `pub fn child(self, child: SessionSummary) -> Self` — Adds a child session.
   - `pub fn meta(self, item: MetaItem) -> Self` — Adds a meta item.
   - `pub fn new(id: impl Into<SharedString>, name: impl Into<SharedString>, state: AgentState, elapsed: impl Into<SharedString>) -> Self` — A minimal summary; fill the rest with the builder methods.
   - `pub fn pinned(self) -> Self` — Pins the session: date groupings render it in the leading `Pinned` group, excluded from the date buckets.
+  - `pub fn placeholder(self, text: impl Into<SharedString>) -> Self` — Sets the second line to a muted placeholder (`Working…`, `No reply yet`): what the row shows while there is nothing else to say, e.g. [...]
+  - `pub fn preview(self, text: impl Into<SharedString>) -> Self` — Sets the second line to one line of preview text, in place of the meta tags for this row. Rows without an explicit second line keep showing the `Self::meta` tags, so existing callers are unchanged.
   - `pub fn provider(self, provider: Provider) -> Self` — Adds a provider mark.
   - `pub fn pulse(self) -> Self` — Pulses the dot.
   - `pub fn repo(self, repo: impl Into<SharedString>) -> Self` — Sets the repo tag.
@@ -622,6 +627,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
 
 - **enum** `ActivityKind` — How the activity line is drawn.
   - variants: `Working`, `Waiting`, `Failed`, `Plain`
+- **enum** `Byline` — An explicit second line for a session row, distinct from the `meta` preview tags. Whatever the caller passes, the row keeps its two-line height: with nothing to show the line renders as empty space.
+  - variants: `Placeholder`, `Preview`, `TwoLines`
 - **enum** `GroupAction` — What a project group row’s hover tray asks for.
   - variants: `New`, `Menu`, `ToggleMore`
 - **enum** `Grouping` — How a `SidebarView` groups its sessions. The variant carries the groups, because each grouping has its own header shape.
@@ -643,6 +650,12 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn tint(self, colour: Hsla) -> Self` — Draws a `RailItem::Session` tile’s initial in `colour` (the project label) instead of the default ink; the state dot and everything else are unchanged. [...]
 - **enum** `RowAction` — The hover actions on a row.
   - variants: `Terminal`, `Browser`, `Pin`, `Rename`, `Hide`, `Archive`, `More`
+- **enum** `SecondLineKind` — Which second line the compact row draws for a summary: the row model behind the uniform two-line height.
+  - variants: `Empty`, `Meta`, `Placeholder`, `Preview`, `Byline`
+  - `pub fn ink(self, palette: &Palette) -> Hsla` — Ink for the slot’s plain text: the placeholder sits a step dimmer (ink-4, the search-field placeholder tone); everything else reads in the usual second-line ink-3. [...]
+  - `pub fn lines(self) -> u8` — Slot height in lines: one in every state, so a row is always its title plus this line — two lines tall, dots on their rhythm.
+  - `pub fn truncate(self) -> bool` — Every state ellipsizes at the row’s width…
+  - `pub fn wraps(self) -> bool` — …and none wraps onto another line.
 - **enum** `SessionKind` — What kind of work a session is, which fixes its glyph.
   - variants: `Chat`, `Document`, `Sheet`
   - `pub fn icon(self) -> IconName` — The glyph for this kind.

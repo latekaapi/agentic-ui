@@ -25,6 +25,9 @@ const PANEL_H: f32 = 600.0;
 const WIDTH_NARROW: f32 = 240.0;
 const WIDTH_WIDE: f32 = 520.0;
 const WIDTH_STATE_H: f32 = 300.0;
+/// The second-line states panel sits beside the width states at a sidebar's
+/// usual width.
+const SECOND_LINE_WIDTH: f32 = 300.0;
 /// The gap between the card's main row and the width states.
 const ROW_GAP: f32 = 26.0;
 /// `.nav{padding:10px 8px 6px}`.
@@ -224,6 +227,24 @@ fn width_state(p: &Palette, title: &'static str, id: &'static str, width: f32) -
     let view = sidebar_view(id, Grouping::Project(project_groups())).caption("Projects").selected("checkout");
     let body = v_flex().w_full().child(view).into_any_element();
     sized_column(p, title, body, None, width, WIDTH_STATE_H)
+}
+
+/// The second line's four states in one 300 px panel: title only (empty
+/// space, not a collapsed row), the muted placeholder, a one-line preview,
+/// and the two-part byline. Every row is two lines tall so the dots sit on
+/// one rhythm; the long byline halves truncate with an ellipsis at the
+/// panel's width instead of wrapping to a third line.
+fn second_line_state(p: &Palette) -> Div {
+    let group = ProjectGroup::new("second-line", "Sessions", "4").open(vec![
+        SessionSummary::new("sl-blank", "Blank slate", AgentState::Idle, "now"),
+        SessionSummary::new("sl-titling", "New session", AgentState::Running, "now").pulse().placeholder("Working…"),
+        SessionSummary::new("sl-preview", "Checkout flow", AgentState::Done, "4h").preview("Fixed the flaky checkout test"),
+        SessionSummary::new("sl-byline", "Auth refresh", AgentState::Running, "8m")
+            .byline("tighten address validation and add non-US postal coverage", "patched the validator · 14 tests green"),
+    ]);
+    let view = sidebar_view("view-second-line", Grouping::Project(vec![group])).caption("Second line").selected("sl-preview");
+    let body = v_flex().w_full().child(view).into_any_element();
+    sized_column(p, "Second line · 300 px", body, None, SECOND_LINE_WIDTH, WIDTH_STATE_H)
 }
 
 /// How one column groups its sessions. The card starts with one of each.
@@ -631,10 +652,11 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(view_submenu_rows("view-colour", colour_rows(&p)).at_rest())
         .child(
             div().mt(px(NOTE_TOP)).ui(scale::FS_12).text_color(p.ink_3).child(
-                "One row anatomy serves every view: status dot, name, elapsed time, and an optional \
-                 meta line. Grouping changes the headers, not the rows. Children nest under a hairline \
-                 rail. The menu is reached from the sliders icon on the group header and remembers its \
-                 choice per workspace.",
+                "One row anatomy serves every view: status dot, name, elapsed time, and a second line \
+                 that always keeps its height — empty space, legacy meta tags, a muted placeholder, a \
+                 one-line preview, or the two-part byline. Grouping changes the headers, not the rows. \
+                 Children nest under a hairline rail. The menu is reached from the sliders icon on the \
+                 group header and remembers its choice per workspace.",
             ),
         );
 
@@ -659,13 +681,15 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let root = root.child(menus);
 
     // The same grouping at both ends of the sidebar's width range: the rows
-    // must end where the project row ends in each.
+    // must end where the project row ends in each. The second-line panel
+    // beside them shows all four states at one uniform row height.
     let widths = h_flex()
         .w_full()
         .items_start()
         .gap(px(COLUMN_GAP))
         .child(width_state(&p, "Narrow · 240 px", "view-narrow", WIDTH_NARROW))
-        .child(width_state(&p, "Wide · 520 px", "view-wide", WIDTH_WIDE));
+        .child(width_state(&p, "Wide · 520 px", "view-wide", WIDTH_WIDE))
+        .child(second_line_state(&p));
 
     v_flex().w_full().child(root).child(div().mt(px(ROW_GAP)).w_full().child(widths)).into_any_element()
 }
