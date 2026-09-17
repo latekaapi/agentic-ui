@@ -2,7 +2,7 @@
 //! `design/src/cards/transcript/31-turns.html` at 760×680.
 
 use aui::protocol::{Attachment, AttachmentKind, TurnMeta, UploadState};
-use aui::transcript::{assistant_turn, format_age, user_turn, AssistantTurnAction, TextSelection};
+use aui::transcript::{assistant_turn, format_age, user_turn, AssistantTurnAction, UserTurnAction, COPY_HOLD, TextSelection};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::v_flex;
@@ -131,6 +131,53 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     // `Option<TextSelection>` wired through every turn.
     let selection = window.use_keyed_state("card31-selection", cx, |_, _| None::<TextSelection>);
     let current = selection.read(cx).clone();
+    // The card owns the copy confirmations too, one flag per demo turn: the
+    // Copy intent sets it, a `COPY_HOLD` timer clears it. The library never
+    // timers anything itself, and the same hold drives the code block header.
+    let user_copied = window.use_keyed_state("card31-user-copied", cx, |_, _| false);
+    let assistant_copied = window.use_keyed_state("card31-assistant-copied", cx, |_, _| false);
+    let arm_user = {
+        let flag = user_copied.clone();
+        move |action: UserTurnAction, _: &mut Window, cx: &mut App| {
+            if action != UserTurnAction::Copy {
+                return;
+            }
+            flag.update(cx, |c, cx| {
+                *c = true;
+                cx.notify();
+            });
+            let flag = flag.clone();
+            cx.spawn(async move |cx| {
+                cx.background_executor().timer(COPY_HOLD).await;
+                flag.update(cx, |c, cx| {
+                    *c = false;
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+    };
+    let arm_assistant = {
+        let flag = assistant_copied.clone();
+        move |action: AssistantTurnAction, _: &mut Window, cx: &mut App| {
+            if action != AssistantTurnAction::Copy {
+                return;
+            }
+            flag.update(cx, |c, cx| {
+                *c = true;
+                cx.notify();
+            });
+            let flag = flag.clone();
+            cx.spawn(async move |cx| {
+                cx.background_executor().timer(COPY_HOLD).await;
+                flag.update(cx, |c, cx| {
+                    *c = false;
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+    };
     v_flex()
         .w_full()
         .gap(px(TURN_GAP))
@@ -171,6 +218,22 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .on_selection_change(track_selection(selection.clone())),
         )
         .child(div().w_full().flex().justify_end().child(
+            user_turn("card31-user-copied", "Copy this prompt with the row below.")
+                .actions_bottom(true)
+                .copied(*user_copied.read(cx))
+                .on_action(arm_user)
+                .selection(current.as_ref())
+                .on_selection_change(track_selection(selection.clone())),
+        ))
+        .child(
+            assistant_turn("card31-assistant-copied", "Copy this reply with the row below — the check holds 1.2 s, the code block's hold.")
+                .actions_bottom(true)
+                .copied(*assistant_copied.read(cx))
+                .on_action(arm_assistant)
+                .selection(current.as_ref())
+                .on_selection_change(track_selection(selection.clone())),
+        )
+        .child(div().w_full().flex().justify_end().child(
             user_turn("card31-user-long", LONG_TEXT)
                 .selection(current.as_ref())
                 .on_selection_change(track_selection(selection.clone())),
@@ -192,6 +255,12 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .ui(scale::FS_12)
                 .text_color(p.ink_3)
                 .child("How-long-ago captions: the user bubble carries one underneath (5m ago, now), the assistant footer one as its last cell (2m ago). Both format once per card with format_age against the card's clock; a turn with no reported timestamp draws no caption at all."),
+        )
+        .child(
+            div()
+                .ui(scale::FS_12)
+                .text_color(p.ink_3)
+                .child("Copy confirmations: the two bottom rows above are live — press copy and the rail's copy glyph morphs to a success check for 1.2 s (COPY_HOLD, the code block's hold and colour), then returns. The card owns the flag and the timer per turn; the hover rails run the same morph but stay hidden until hover, so the bottom rows carry the demo."),
         )
         .child(
             div()

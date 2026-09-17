@@ -3,13 +3,14 @@
 //! streaming caret).
 
 use aui_icons::{icon, IconName};
-use aui_motion::{tween, Tween};
+use aui_motion::{icon_morph, tween, IconMorph, Tween};
 use aui_protocol::{Attachment, AttachmentKind, TurnMeta};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, relative, App, Bounds, ElementId, IntoElement, Pixels, SharedString, TextRun, Window};
 use gpui_kit::base::ElementExt;
 use std::cell::RefCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::time::Duration;
 use std::rc::Rc;
 use std::sync::{LazyLock, Mutex};
 
@@ -17,7 +18,7 @@ use crate::transcript::{caret_top_in_line, caret_visible, ProseStyle, CARET_H, C
 use crate::transcript::{LinkTarget, MessageSelection, SelectionHandler, SpanEvent, SpanHandler, TextSelection, last_block_runs, markdown, markdown_selected_text, message_selected_text, LinkHandler};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{icon_button, ButtonSize};
+use crate::data::{icon_button, icon_content_button, ButtonSize};
 use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.u{max-width:78%;gap:6px}`.
@@ -54,6 +55,11 @@ const FOOTER_TOP: f32 = 10.0;
 /// Muted but visible at rest, full strength on turn hover.
 const BOTTOM_TOP: f32 = 8.0;
 const BOTTOM_IDLE: f32 = 0.55;
+/// How long the copy button's success check holds before the copy glyph
+/// returns: 1.2 s, the same hold the code block header uses. The library owns
+/// no timers, so the caller waits this long after the copy intent before it
+/// clears the [`UserTurn::copied`] / [`AssistantTurn::copied`] flag it owns.
+pub const COPY_HOLD: Duration = Duration::from_millis(1200);
 
 
 /// Actions on a user turn.
@@ -115,6 +121,21 @@ fn assistant_action_spec(action: AssistantTurnAction) -> (&'static str, IconName
     }
 }
 
+/// The copy ↔ success-check morph for a turn rail's copy button: the same
+/// element the code block header shows (copy glyph in the rail's ink, check in
+/// `success`, swapping on the swap spring), sampled under `(turn_id,
+/// "copy-morph")` so neighbouring turns never share a phase.
+fn copy_morph(turn_id: &ElementId, copied: bool, p: &Palette, window: &mut Window, cx: &mut App) -> IconMorph {
+    let sample = icon_morph((turn_id.clone(), "copy-morph"), copied, window, cx);
+    let size = px(ACTS_GLYPH);
+    IconMorph::new(
+        sample,
+        size,
+        icon(IconName::Copy).size(size),
+        icon(IconName::CheckBold).size(size).color(p.success),
+    )
+}
+
 type UserHandler = std::rc::Rc<dyn Fn(UserTurnAction, &mut Window, &mut App)>;
 type AssistantHandler = std::rc::Rc<dyn Fn(AssistantTurnAction, &mut Window, &mut App)>;
 
@@ -125,6 +146,7 @@ pub struct UserTurn {
     markdown: SharedString,
     attachments: Vec<Attachment>,
     age: Option<SharedString>,
+    copied: bool,
     actions: Vec<UserTurnAction>,
     actions_bottom: bool,
     on_action: Option<UserHandler>,
@@ -138,7 +160,7 @@ pub struct UserTurn {
 /// A user turn; `markdown` may carry mentions as inline code (`` `@src/checkout` ``),
 /// which render as mention chips.
 pub fn user_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> UserTurn {
-    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), age: None, actions: UserTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None, span: None, on_span: None }
+    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), age: None, copied: false, actions: UserTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None, span: None, on_span: None }
 }
 
 impl UserTurn {
@@ -154,6 +176,16 @@ impl UserTurn {
     /// reported [`Turn::timestamp`](aui_protocol::Turn::timestamp) wants.
     pub fn age(mut self, age: impl Into<SharedString>) -> Self {
         self.age = Some(age.into());
+        self
+    }
+
+    /// Whether the copy button shows its success check. The flag is the
+    /// caller's transient state — the library owns no timers — so the app
+    /// sets it on the copy intent and clears it after [`COPY_HOLD`], the way
+    /// the code block header holds its check for the same 1.2 s. Default
+    /// `false` keeps the copy glyph.
+    pub fn copied(mut self, copied: bool) -> Self {
+        self.copied = copied;
         self
     }
 
@@ -306,11 +338,20 @@ impl RenderOnce for UserTurn {
         if !bottom && !self.actions.is_empty() {
             let mut acts = h_flex().absolute().left(px(USER_ACTS_LEFT)).top(px(USER_ACTS_TOP)).gap(px(ACTS_GAP)).opacity(acts_opacity);
             for (name, glyph, action) in self.actions.iter().map(|a| user_action_spec(*a)) {
-                let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
-                if let Some(h) = self.on_action.clone() {
-                    b = b.on_click(move |_, w, cx| h(action, w, cx));
+                if action == UserTurnAction::Copy {
+                    let morph = copy_morph(&id, self.copied, &p, window, cx);
+                    let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs);
+                    if let Some(h) = self.on_action.clone() {
+                        b = b.on_click(move |_, w, cx| h(action, w, cx));
+                    }
+                    acts = acts.child(b);
+                } else {
+                    let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                    if let Some(h) = self.on_action.clone() {
+                        b = b.on_click(move |_, w, cx| h(action, w, cx));
+                    }
+                    acts = acts.child(b);
                 }
-                acts = acts.child(b);
             }
             if acts_opacity <= 0.001 {
                 acts = acts.invisible();
@@ -371,11 +412,20 @@ impl RenderOnce for UserTurn {
             let row_opacity = tween((id.clone(), "acts-bottom"), if flags.hovered { 1.0f32 } else { BOTTOM_IDLE }, Tween::FAST, window, cx);
             let mut row = h_flex().gap(px(ACTS_GAP)).opacity(row_opacity);
             for (name, glyph, action) in self.actions.iter().map(|a| user_action_spec(*a)) {
-                let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
-                if let Some(h) = self.on_action.clone() {
-                    b = b.on_click(move |_, w, cx| h(action, w, cx));
+                if action == UserTurnAction::Copy {
+                    let morph = copy_morph(&id, self.copied, &p, window, cx);
+                    let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs);
+                    if let Some(h) = self.on_action.clone() {
+                        b = b.on_click(move |_, w, cx| h(action, w, cx));
+                    }
+                    row = row.child(b);
+                } else {
+                    let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                    if let Some(h) = self.on_action.clone() {
+                        b = b.on_click(move |_, w, cx| h(action, w, cx));
+                    }
+                    row = row.child(b);
                 }
-                row = row.child(b);
             }
             col = col.child(row);
         }
@@ -390,6 +440,7 @@ pub struct AssistantTurn {
     markdown: SharedString,
     streaming: bool,
     footer: Vec<SharedString>,
+    copied: bool,
     actions: Vec<AssistantTurnAction>,
     actions_bottom: bool,
     on_action: Option<AssistantHandler>,
@@ -402,7 +453,7 @@ pub struct AssistantTurn {
 
 /// An assistant turn rendering `markdown`.
 pub fn assistant_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> AssistantTurn {
-    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, footer: Vec::new(), actions: AssistantTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None, span: None, on_span: None }
+    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, footer: Vec::new(), copied: false, actions: AssistantTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None, span: None, on_span: None }
 }
 
 impl AssistantTurn {
@@ -426,6 +477,16 @@ impl AssistantTurn {
     /// this.
     pub fn age(mut self, age: impl Into<SharedString>) -> Self {
         self.footer.push(age.into());
+        self
+    }
+
+    /// Whether the copy button shows its success check. The flag is the
+    /// caller's transient state — the library owns no timers — so the app
+    /// sets it on the copy intent and clears it after [`COPY_HOLD`], the way
+    /// the code block header holds its check for the same 1.2 s. Default
+    /// `false` keeps the copy glyph.
+    pub fn copied(mut self, copied: bool) -> Self {
+        self.copied = copied;
         self
     }
 
@@ -653,11 +714,20 @@ impl RenderOnce for AssistantTurn {
             .bg(p.surface_1)
             .opacity(tb_opacity);
         for (name, glyph, action) in self.actions.iter().map(|a| assistant_action_spec(*a)) {
-            let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
-            if let Some(h) = self.on_action.clone() {
-                b = b.on_click(move |_, w, cx| h(action, w, cx));
+            if action == AssistantTurnAction::Copy {
+                let morph = copy_morph(&id, self.copied, &p, window, cx);
+                let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs);
+                if let Some(h) = self.on_action.clone() {
+                    b = b.on_click(move |_, w, cx| h(action, w, cx));
+                }
+                toolbar = toolbar.child(b);
+            } else {
+                let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                if let Some(h) = self.on_action.clone() {
+                    b = b.on_click(move |_, w, cx| h(action, w, cx));
+                }
+                toolbar = toolbar.child(b);
             }
-            toolbar = toolbar.child(b);
         }
         if tb_opacity <= 0.001 {
             toolbar = toolbar.invisible();
@@ -740,11 +810,20 @@ impl RenderOnce for AssistantTurn {
             let row_opacity = tween((id.clone(), "tb-bottom"), if flags.hovered { 1.0f32 } else { BOTTOM_IDLE }, Tween::FAST, window, cx);
             let mut row = h_flex().mt(px(BOTTOM_TOP)).gap(px(ACTS_GAP)).opacity(row_opacity);
             for (name, glyph, action) in self.actions.iter().map(|a| assistant_action_spec(*a)) {
-                let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
-                if let Some(h) = self.on_action.clone() {
-                    b = b.on_click(move |_, w, cx| h(action, w, cx));
+                if action == AssistantTurnAction::Copy {
+                    let morph = copy_morph(&id, self.copied, &p, window, cx);
+                    let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs);
+                    if let Some(h) = self.on_action.clone() {
+                        b = b.on_click(move |_, w, cx| h(action, w, cx));
+                    }
+                    row = row.child(b);
+                } else {
+                    let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                    if let Some(h) = self.on_action.clone() {
+                        b = b.on_click(move |_, w, cx| h(action, w, cx));
+                    }
+                    row = row.child(b);
                 }
-                row = row.child(b);
             }
             turn = turn.child(row);
         }
@@ -767,7 +846,7 @@ impl RenderOnce for AssistantTurn {
 mod tests {
     use super::{
         assistant_turn, footer_items, format_age, turn_selected_text, turn_span_selected_text,
-        user_turn, AssistantTurnAction, UserTurnAction,
+        user_turn, AssistantTurnAction, UserTurnAction, COPY_HOLD,
     };
     use crate::protocol::TurnMeta;
     use crate::transcript::{MessageSelection, SelectionEndpoint, SelectionKey, TextSelection};
@@ -864,6 +943,16 @@ mod tests {
         assert_eq!(format_age(now - 90_000, now), "1m ago");
         assert_eq!(format_age(now - 2 * 3_600_000, now), "2h ago");
         assert_eq!(format_age(now - 3 * 86_400_000, now), "3d ago");
+    }
+
+    #[test]
+    fn copy_buttons_rest_on_the_copy_glyph_until_the_caller_confirms() {
+        assert!(!user_turn("t", "hi").copied);
+        assert!(!assistant_turn("t", "hi").copied);
+        assert!(user_turn("t", "hi").copied(true).copied);
+        assert!(assistant_turn("t", "hi").copied(true).copied);
+        // One hold for both rails and the code block header.
+        assert_eq!(COPY_HOLD, std::time::Duration::from_millis(1200));
     }
 
     #[test]

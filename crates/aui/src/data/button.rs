@@ -100,6 +100,7 @@ pub struct Button {
     id: ElementId,
     label: Option<SharedString>,
     icon: Option<IconName>,
+    icon_content: Option<AnyElement>,
     icon_size: Option<Pixels>,
     trailing: Option<AnyElement>,
     variant: ButtonVariant,
@@ -116,6 +117,7 @@ pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Butto
         id: id.into(),
         label: Some(label.into()),
         icon: None,
+        icon_content: None,
         icon_size: None,
         trailing: None,
         variant: ButtonVariant::Secondary,
@@ -133,6 +135,18 @@ pub fn icon_button(id: impl Into<ElementId>, glyph: IconName) -> Button {
     let mut b = button(id, "");
     b.label = None;
     b.icon = Some(glyph);
+    b.square = true;
+    b
+}
+
+/// A square icon button with caller-built content in place of the glyph —
+/// an [`IconMorph`](aui_motion::IconMorph), for example. The content fills
+/// the button's glyph box and inherits its text colour, so it hovers, focuses
+/// and presses exactly like the glyph it replaces.
+pub fn icon_content_button(id: impl Into<ElementId>, content: impl IntoElement) -> Button {
+    let mut b = button(id, "");
+    b.label = None;
+    b.icon_content = Some(content.into_any_element());
     b.square = true;
     b
 }
@@ -338,7 +352,9 @@ impl RenderOnce for Button {
         } else if look.shadow {
             inner = inner.shadow(p.shadow(1));
         }
-        if let Some(glyph) = self.icon {
+        if let Some(content) = self.icon_content {
+            inner = inner.child(content);
+        } else if let Some(glyph) = self.icon {
             inner = inner.child(icon(glyph).size(glyph_size).color(text));
         }
         if let Some(label) = self.label.filter(|l| !l.is_empty()) {

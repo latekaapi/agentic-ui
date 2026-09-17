@@ -3,7 +3,6 @@
 //! fold row) and the unified diff block with the per-line note affordance
 //! and the note editor.
 
-use std::time::Duration;
 
 use std::ops::Range;
 
@@ -41,8 +40,6 @@ const GUTTER_W: f32 = 22.0;
 const FOLD_H: f32 = 24.0;
 const FOLD_GAP: f32 = 6.0;
 const FOLD_GLYPH: f32 = 11.0;
-/// The copy check stays for 1.2 s.
-const COPIED_HOLD: Duration = Duration::from_millis(1200);
 /// `.df{font:11.5px/1.65 mono}`; `.hunk{padding:2px 12px;font-size:11px}`; `.ln{padding-right:8px}`;
 /// `.gutter{width:36px;padding-right:8px}`; `.g2{width:20px;padding-right:8px}`.
 const DIFF_TEXT: f32 = 11.5;
@@ -176,7 +173,7 @@ impl CodeBlock {
     }
 }
 
-/// The copy ↔ check morph, keyed per block; the check holds for 1.2 s.
+/// The copy ↔ check morph, keyed per block; the check holds for [`COPY_HOLD`](super::turns::COPY_HOLD), the same hold the turn rails use.
 fn copy_button(id: &ElementId, p: &Palette, on_copy: Option<CodeHandler>, window: &mut Window, cx: &mut App) -> impl IntoElement {
     let copied = window.use_keyed_state((id.clone(), "copied"), cx, |_, _| false);
     let is_copied = *copied.read(cx);
@@ -205,7 +202,7 @@ fn copy_button(id: &ElementId, p: &Palette, on_copy: Option<CodeHandler>, window
             });
             let state = state.clone();
             cx.spawn(async move |cx| {
-                cx.background_executor().timer(COPIED_HOLD).await;
+                cx.background_executor().timer(super::turns::COPY_HOLD).await;
                 state.update(cx, |c, cx| {
                     *c = false;
                     cx.notify();

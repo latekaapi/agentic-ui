@@ -188,6 +188,8 @@ Shared data-display primitives every card is built from (`base.css`): buttons, c
   - `pub fn glyph_ok() -> Glyph`
 - **fn** `icon_button` — A square icon button (`.btn.icon`), secondary by default; call `Button::ghost` for the quiet header / row kind.
   - `pub fn icon_button(id: impl Into<ElementId>, glyph: IconName) -> Button`
+- **fn** `icon_content_button` — A square icon button with caller-built content in place of the glyph — an `IconMorph`, for example. [...]
+  - `pub fn icon_content_button(id: impl Into<ElementId>, content: impl IntoElement) -> Button`
 - **fn** `kbd` — A keycap such as `esc` or `⌘K`.
   - `pub fn kbd(keys: impl Into<SharedString>) -> Kbd`
 - **fn** `pill` — A quiet pill.
@@ -1077,6 +1079,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn actions(self, actions: &[AssistantTurnAction]) -> Self` — The toolbar buttons, in draw order. Defaults to `AssistantTurnAction::ALL`; pass a smaller slice to hide actions that have no meaning for the consumer (a turn without pinning keeps `&[Copy, Retry, Fork]`). [...]
   - `pub fn actions_bottom(self, bottom: bool) -> Self` — In-flow action row under the prose instead of the hover toolbar.
   - `pub fn age(self, age: impl Into<SharedString>) -> Self` — The how-long-ago cell at the end of the footer, formatted by `format_age` on state change (once per card, not once per frame). [...]
+  - `pub fn copied(self, copied: bool) -> Self` — Whether the copy button shows its success check. The flag is the caller’s transient state — the library owns no timers — so the app sets it on the copy intent and clears it after `COPY_HOLD`, the way the code block header holds its check for the same 1.2 s. [...]
   - `pub fn footer(self, cells: Vec<SharedString>) -> Self` — The footer cells, already formatted, for a caller that keeps them.
   - `pub fn meta(self, meta: TurnMeta) -> Self` — The footer: model · duration · tokens · cost.
   - `pub fn on_action(self, f: impl Fn(AssistantTurnAction, &mut Window, &mut App) + 'static) -> Self` — Toolbar handler.
@@ -1234,6 +1237,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn actions_bottom(self, bottom: bool) -> Self` — In-flow action row under the bubble instead of the hover rail.
   - `pub fn age(self, age: impl Into<SharedString>) -> Self` — The how-long-ago caption under the bubble, formatted by `format_age` on state change (once per card, not once per frame). [...]
   - `pub fn attachments(self, attachments: Vec<Attachment>) -> Self` — Attachments shown above the bubble.
+  - `pub fn copied(self, copied: bool) -> Self` — Whether the copy button shows its success check. The flag is the caller’s transient state — the library owns no timers — so the app sets it on the copy intent and clears it after `COPY_HOLD`, the way the code block header holds its check for the same 1.2 s. [...]
   - `pub fn on_action(self, f: impl Fn(UserTurnAction, &mut Window, &mut App) + 'static) -> Self` — Hover-action handler.
   - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Link-click handler, passed through to the markdown body.
   - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents, passed straight through to the inner `markdown(...)`: drags and word / paragraph picks arrive as `Some`, plain clicks elsewhere in a cell arrive as `None` (clearing).
@@ -1286,6 +1290,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub const CARET_MARGIN_LEFT: f32 = 1.0;`
 - **const** `CARET_W` — `.caret{width:2px;height:15px;background:var(--accent);vertical-align:-3px; margin-left:1px;animation:blink 1s steps(2) infinite}` — the streaming caret’s geometry, shared by every turn that can strea [...]
   - `pub const CARET_W: f32 = 2.0;`
+- **const** `COPY_HOLD` — How long the copy button’s success check holds before the copy glyph returns: 1.2 s, the same hold the code block header uses. [...]
+  - `pub const COPY_HOLD: Duration;`
 - **const** `GROUP_PREVIEW` — Collapsed preview rows before the `+k more` row (the image3 idiom: two rows, then the overflow count).
   - `pub const GROUP_PREVIEW: usize = 2;`
 - **const** `SHELL_FOLD` — Shell output folds after this many lines (the card shows six, then `14 more lines`).
