@@ -110,7 +110,9 @@ struct MinimalApp {
 
 A `Session` is `id`, `agent`, `model`, `mode`, `cwd`, `branch`, `environment` and
 an ordered `Vec<Turn>`. A `Turn` is either `Turn::User { text, attachments,
-mentions }` or `Turn::Assistant { blocks, meta }`, and every card in the
+mentions, timestamp }` or `Turn::Assistant { blocks, meta, timestamp }` — the
+timestamp is `None` when the adapter never reported one, and turns render
+their how-long-ago caption from it with `format_age` — and every card in the
 transcript is one `Block` variant — `Text`, `Thinking`, `Activity`, `ToolCall`,
 `Approval`, `Question`, `Plan`, `Todo`, `Code`, `Diff` and the rest.
 

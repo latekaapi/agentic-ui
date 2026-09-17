@@ -124,6 +124,7 @@ pub struct UserTurn {
     id: ElementId,
     markdown: SharedString,
     attachments: Vec<Attachment>,
+    age: Option<SharedString>,
     actions: Vec<UserTurnAction>,
     actions_bottom: bool,
     on_action: Option<UserHandler>,
@@ -137,13 +138,22 @@ pub struct UserTurn {
 /// A user turn; `markdown` may carry mentions as inline code (`` `@src/checkout` ``),
 /// which render as mention chips.
 pub fn user_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> UserTurn {
-    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), actions: UserTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None, span: None, on_span: None }
+    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), age: None, actions: UserTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None, span: None, on_span: None }
 }
 
 impl UserTurn {
     /// Attachments shown above the bubble.
     pub fn attachments(mut self, attachments: Vec<Attachment>) -> Self {
         self.attachments = attachments;
+        self
+    }
+
+    /// The how-long-ago caption under the bubble, formatted by
+    /// [`format_age`] on state change (once per card, not once per frame).
+    /// `None` — the default — draws no caption, which is what a turn with no
+    /// reported [`Turn::timestamp`](aui_protocol::Turn::timestamp) wants.
+    pub fn age(mut self, age: impl Into<SharedString>) -> Self {
+        self.age = Some(age.into());
         self
     }
 
@@ -346,6 +356,17 @@ impl RenderOnce for UserTurn {
                     body
                 }),
         );
+        if let Some(age) = self.age {
+            col = col.child(
+                div()
+                    .font_family(scale::FONT_MONO)
+                    .text_px(scale::FS_11)
+                    .line_height(relative(1.0))
+                    .medium()
+                    .text_color(p.ink_4)
+                    .child(age),
+            );
+        }
         if bottom && !self.actions.is_empty() {
             let row_opacity = tween((id.clone(), "acts-bottom"), if flags.hovered { 1.0f32 } else { BOTTOM_IDLE }, Tween::FAST, window, cx);
             let mut row = h_flex().gap(px(ACTS_GAP)).opacity(row_opacity);
@@ -394,6 +415,17 @@ impl AssistantTurn {
     /// The footer: model · duration · tokens · cost.
     pub fn meta(mut self, meta: TurnMeta) -> Self {
         self.footer = footer_items(&meta);
+        self
+    }
+
+    /// The how-long-ago cell at the end of the footer, formatted by
+    /// [`format_age`] on state change (once per card, not once per frame).
+    /// It joins the footer with the same `·` separator; on a footer that is
+    /// otherwise empty it draws alone. A turn with no reported
+    /// [`Turn::timestamp`](aui_protocol::Turn::timestamp) simply never calls
+    /// this.
+    pub fn age(mut self, age: impl Into<SharedString>) -> Self {
+        self.footer.push(age.into());
         self
     }
 
@@ -543,6 +575,24 @@ fn shape_last_line_width(window: &Window, text: SharedString, font_size: Pixels,
             let index = layout.runs.get(boundary.run_ix)?.glyphs.get(boundary.glyph_ix)?.index;
             Some(layout.width - layout.x_for_index(index))
         }
+    }
+}
+
+/// `now`, `5m ago`, `2h ago`, `3d ago`: the how-long-ago label for a
+/// turn's [`Turn::timestamp`](aui_protocol::Turn::timestamp).
+///
+/// The sibling of the harness sidebar's `elapsed_at`: the same quantisation
+/// against the same explicit-clock discipline — the caller reads its clock
+/// once per frame and hands both instants in, so one frame formats once — and
+/// the same saturation (a stamp from the future reads `now`), with the `ago`
+/// the turn caption needs.
+pub fn format_age(sent_ms: u64, now_ms: u64) -> SharedString {
+    let seconds = now_ms.saturating_sub(sent_ms) / 1000;
+    match seconds {
+        s if s < 60 => "now".into(),
+        s if s < 3_600 => format!("{}m ago", s / 60).into(),
+        s if s < 86_400 => format!("{}h ago", s / 3_600).into(),
+        s => format!("{}d ago", s / 86_400).into(),
     }
 }
 
@@ -716,8 +766,8 @@ impl RenderOnce for AssistantTurn {
 #[cfg(test)]
 mod tests {
     use super::{
-        assistant_turn, footer_items, turn_selected_text, turn_span_selected_text, user_turn,
-        AssistantTurnAction, UserTurnAction,
+        assistant_turn, footer_items, format_age, turn_selected_text, turn_span_selected_text,
+        user_turn, AssistantTurnAction, UserTurnAction,
     };
     use crate::protocol::TurnMeta;
     use crate::transcript::{MessageSelection, SelectionEndpoint, SelectionKey, TextSelection};
@@ -803,6 +853,24 @@ mod tests {
             range: 0..7,
         };
         assert_eq!(turn_selected_text("Hello", &selection), None);
+    }
+
+    #[test]
+    fn age_labels_are_quantised_against_the_given_clock() {
+        let now = 1_786_320_000_000;
+        assert_eq!(format_age(now, now), "now");
+        // A stamp from the future saturates rather than going negative.
+        assert_eq!(format_age(now + 60_000, now), "now");
+        assert_eq!(format_age(now - 90_000, now), "1m ago");
+        assert_eq!(format_age(now - 2 * 3_600_000, now), "2h ago");
+        assert_eq!(format_age(now - 3 * 86_400_000, now), "3d ago");
+    }
+
+    #[test]
+    fn turns_draw_no_age_until_the_caller_passes_one() {
+        assert!(user_turn("t", "hi").age.is_none());
+        assert!(assistant_turn("t", "hi").footer.is_empty());
+        assert_eq!(assistant_turn("t", "hi").age("2m ago").footer.last().map(SharedString::as_ref), Some("2m ago"));
     }
 
     /// A turn whose usage the wire never reported draws no token cell at all,

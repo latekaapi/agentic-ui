@@ -300,6 +300,7 @@ pub fn tool_calls() -> Vec<Block> {
 fn opening_marker_turn() -> Turn {
     Turn::Assistant {
         id: "t0".into(),
+        timestamp: None,
         blocks: vec![Block::Marker {
             kind: MarkerKind::SessionStarted,
             text: "Today · 09:14 · session started · Claude Code v2.1.174".into(),
@@ -311,6 +312,7 @@ fn opening_marker_turn() -> Turn {
 fn user_turn() -> Turn {
     Turn::User {
         id: "t1".into(),
+        timestamp: Some(1_786_320_000_000),
         text: "Tighten address validation in @src/checkout and add coverage for CA and GB \
                postcodes. Keep the existing copy."
             .into(),
@@ -337,6 +339,7 @@ fn user_turn() -> Turn {
 fn work_turn() -> Turn {
     Turn::Assistant {
         id: "t2".into(),
+        timestamp: Some(1_786_320_045_000),
         blocks: vec![
             Block::text(
                 "I'm checking the existing form flow, then I'll patch the validator and run \
@@ -376,6 +379,7 @@ fn work_turn() -> Turn {
 fn decision_turn() -> Turn {
     Turn::Assistant {
         id: "t3".into(),
+        timestamp: None,
         blocks: vec![question(), plan(), todo()],
         meta: TurnMeta {
             model: "opus 4.6".into(),
@@ -391,6 +395,7 @@ fn decision_turn() -> Turn {
 fn approval_turn() -> Turn {
     Turn::Assistant {
         id: "t4".into(),
+        timestamp: None,
         blocks: vec![
             Block::text(
                 "The pg native module needs a system library before the e2e run. I need \
@@ -412,6 +417,7 @@ fn approval_turn() -> Turn {
 fn marker_turn() -> Turn {
     Turn::Assistant {
         id: "t5".into(),
+        timestamp: None,
         blocks: vec![
             Block::Marker {
                 kind: MarkerKind::ContextCompacted,
@@ -433,6 +439,7 @@ fn marker_turn() -> Turn {
 fn wrap_up_turn() -> Turn {
     Turn::Assistant {
         id: "t6".into(),
+        timestamp: None,
         blocks: vec![
             Block::Summary {
                 title: "address validation tightened".into(),
@@ -840,12 +847,14 @@ fn sub_agent_call() -> Block {
             turns: vec![
                 Turn::User {
                     id: "sa-1".into(),
+        timestamp: None,
                     text: "Find the canonical CA and GB postcode formats.".into(),
                     attachments: Vec::new(),
                     mentions: Vec::new(),
                 },
                 Turn::Assistant {
                     id: "sa-2".into(),
+        timestamp: None,
                     blocks: vec![Block::text(
                         "CA is A1A 1A1 with an optional space; GB is an outward and an inward \
                          part, e.g. SW1A 1AA.",

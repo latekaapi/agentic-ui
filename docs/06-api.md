@@ -962,6 +962,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn error_card(id: impl Into<ElementId>, title: impl Into<SharedString>, detail: impl Into<SharedString>) -> ErrorCard`
 - **fn** `footer_items` — `2.4k tokens` / `$0.04` / `3.1 s` formatting for the footer.
   - `pub fn footer_items(meta: &TurnMeta) -> Vec<SharedString>`
+- **fn** `format_age` — `now`, `5m ago`, `2h ago`, `3d ago`: the how-long-ago label for a turn’s `Turn::timestamp`.
+  - `pub fn format_age(sent_ms: u64, now_ms: u64) -> SharedString`
 - **fn** `format_duration` — `12.4 s`, `1 m 12 s`, `0.3 s`.
   - `pub fn format_duration(ms: u64) -> SharedString`
 - **fn** `generic_item_card` — The kind name, the item’s status and the server’s `fallbackText`.
@@ -1074,6 +1076,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
 - **struct** `AssistantTurn` — The assistant’s turn. Build with `assistant_turn`.
   - `pub fn actions(self, actions: &[AssistantTurnAction]) -> Self` — The toolbar buttons, in draw order. Defaults to `AssistantTurnAction::ALL`; pass a smaller slice to hide actions that have no meaning for the consumer (a turn without pinning keeps `&[Copy, Retry, Fork]`). [...]
   - `pub fn actions_bottom(self, bottom: bool) -> Self` — In-flow action row under the prose instead of the hover toolbar.
+  - `pub fn age(self, age: impl Into<SharedString>) -> Self` — The how-long-ago cell at the end of the footer, formatted by `format_age` on state change (once per card, not once per frame). [...]
   - `pub fn footer(self, cells: Vec<SharedString>) -> Self` — The footer cells, already formatted, for a caller that keeps them.
   - `pub fn meta(self, meta: TurnMeta) -> Self` — The footer: model · duration · tokens · cost.
   - `pub fn on_action(self, f: impl Fn(AssistantTurnAction, &mut Window, &mut App) + 'static) -> Self` — Toolbar handler.
@@ -1229,6 +1232,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
 - **struct** `UserTurn` — The person’s turn. Build with `user_turn`.
   - `pub fn actions(self, actions: &[UserTurnAction]) -> Self` — The action buttons, in draw order. Defaults to `UserTurnAction::ALL`; pass a smaller slice (or an empty one) to hide actions that have no meaning for the consumer. [...]
   - `pub fn actions_bottom(self, bottom: bool) -> Self` — In-flow action row under the bubble instead of the hover rail.
+  - `pub fn age(self, age: impl Into<SharedString>) -> Self` — The how-long-ago caption under the bubble, formatted by `format_age` on state change (once per card, not once per frame). [...]
   - `pub fn attachments(self, attachments: Vec<Attachment>) -> Self` — Attachments shown above the bubble.
   - `pub fn on_action(self, f: impl Fn(UserTurnAction, &mut Window, &mut App) + 'static) -> Self` — Hover-action handler.
   - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Link-click handler, passed through to the markdown body.
@@ -2160,6 +2164,7 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
   - `pub fn blocks(&self) -> &[Block]` — The blocks of an assistant turn; empty for a user turn.
   - `pub fn blocks_mut(&mut self) -> Option<&mut Vec<Block>>` — Mutable blocks of an assistant turn, or `None` for a user turn.
   - `pub fn id(&self) -> &str` — The turn’s id, whichever variant it is.
+  - `pub fn timestamp(&self) -> Option<u64>` — When the turn was sent (user) or started (assistant), as Unix milliseconds, or `None` when the adapter never reported one.
 - **enum** `UploadState` — Where an attachment is in its upload.
   - variants: `Ready`, `Uploading`, `Failed`
 - **enum** `WorkbenchView` — The panes the workbench can show.

@@ -21,6 +21,15 @@ pub enum Turn {
         attachments: Vec<Attachment>,
         /// Structured mentions parsed out of `text`, in order of appearance.
         mentions: Vec<Mention>,
+        /// When the turn was sent, as Unix milliseconds. `None` when the
+        /// adapter never reported one — an older capture, or a turn the app
+        /// built by hand.
+        ///
+        /// Additive: defaults to `None` when it is absent from serialized
+        /// data, and is skipped on the wire while it is `None`, so old
+        /// payloads keep decoding and new ones stay small.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timestamp: Option<u64>,
     },
     /// One assistant reply, made of transcript blocks.
     Assistant {
@@ -30,6 +39,13 @@ pub enum Turn {
         blocks: Vec<Block>,
         /// Footer facts: model, duration, tokens, cost.
         meta: TurnMeta,
+        /// When the turn started, as Unix milliseconds. `None` when the
+        /// adapter never reported one — see the user variant's `timestamp`.
+        ///
+        /// Additive: defaults to `None` when it is absent from serialized
+        /// data, and is skipped on the wire while it is `None`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timestamp: Option<u64>,
     },
 }
 
@@ -38,6 +54,14 @@ impl Turn {
     pub fn id(&self) -> &str {
         match self {
             Turn::User { id, .. } | Turn::Assistant { id, .. } => id,
+        }
+    }
+
+    /// When the turn was sent (user) or started (assistant), as Unix
+    /// milliseconds, or `None` when the adapter never reported one.
+    pub fn timestamp(&self) -> Option<u64> {
+        match self {
+            Turn::User { timestamp, .. } | Turn::Assistant { timestamp, .. } => *timestamp,
         }
     }
 

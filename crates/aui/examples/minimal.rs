@@ -84,7 +84,7 @@ struct MinimalApp {
 
 /// A user turn is the one shape this example builds twice.
 fn user_turn_data(id: impl Into<String>, text: impl Into<String>) -> Turn {
-    Turn::User { id: id.into(), text: text.into(), attachments: Vec::new(), mentions: Vec::new() }
+    Turn::User { id: id.into(), text: text.into(), attachments: Vec::new(), mentions: Vec::new(), timestamp: None }
 }
 
 impl MinimalApp {
@@ -107,6 +107,7 @@ impl MinimalApp {
             id: "t1".into(),
             blocks: vec![Block::Text { text: SEED_REPLY.into(), streaming: false }],
             meta: TurnMeta { model: "Opus 4.6".into(), duration_ms: 2_100, tokens_in: 1_840, tokens_out: 96, reasoning_tokens: 0, cost_usd: 0.014 },
+            timestamp: None,
         });
         let (focus_root, focus_approval) = (cx.focus_handle(), cx.focus_handle());
         let mut this = Self { session, revealed: 0, composer, sidebar_open: true, right_open: false, run: 0, focus_root, focus_approval, focus_pending_approval: false, focus_composer: true, tasks: Vec::new() };
@@ -130,7 +131,7 @@ impl MinimalApp {
         let run = self.run;
         // Every one of these is a `Delta` a real adapter would emit over its wire.
         self.session.apply(Delta::TurnStarted { turn: user_turn_data(format!("u{run}"), text) });
-        self.session.apply(Delta::TurnStarted { turn: Turn::Assistant { id: format!("a{run}"), blocks: Vec::new(), meta: TurnMeta::default() } });
+        self.session.apply(Delta::TurnStarted { turn: Turn::Assistant { id: format!("a{run}"), blocks: Vec::new(), meta: TurnMeta::default(), timestamp: None } });
         self.session.apply(Delta::BlockAdded {
             turn_id: format!("a{run}"),
             block: Block::approval(

@@ -2,7 +2,7 @@
 //! `design/src/cards/transcript/31-turns.html` at 760×680.
 
 use aui::protocol::{Attachment, AttachmentKind, TurnMeta, UploadState};
-use aui::transcript::{assistant_turn, user_turn, AssistantTurnAction, TextSelection};
+use aui::transcript::{assistant_turn, format_age, user_turn, AssistantTurnAction, TextSelection};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::v_flex;
@@ -93,6 +93,14 @@ byte-identical. Snapshot tests (`pnpm test -u --filter checkout` regenerates the
 "##;
 
 const USER_TEXT: &str = "Tighten address validation in `@src/checkout` and add coverage for CA and GB postcodes. Keep the existing copy.";
+
+/// The card's clock: every age caption on this card formats against it once,
+/// the way an app reads its own clock once per frame.
+const NOW_MS: u64 = 1_786_320_000_000;
+/// The user prompt went out five minutes before the card's clock.
+const USER_SENT_MS: u64 = NOW_MS - 5 * 60_000;
+/// The assistant reply started two and a half minutes before the clock.
+const ASSISTANT_SENT_MS: u64 = NOW_MS - 150_000;
 const ASSISTANT_TEXT: &str = "I'm checking the existing form flow, then I'll patch the validator and run the focused tests.\n\n\
 Found the country-specific branch in `validateAddress`. Two things stand out:\n\n\
 - An empty country currently returns `true`, which lets a blank address through.\n\
@@ -129,6 +137,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(div().w_full().flex().justify_end().child(
             user_turn("card31-user", USER_TEXT)
                 .attachments(attachments)
+                .age(format_age(USER_SENT_MS, NOW_MS))
                 .selection(current.as_ref())
                 .on_selection_change(track_selection(selection.clone())),
         ))
@@ -136,12 +145,14 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             assistant_turn("card31-assistant", ASSISTANT_TEXT)
                 .streaming(true)
                 .meta(TurnMeta { model: "opus 4.6".into(), duration_ms: 3100, tokens_in: 1800, tokens_out: 600, reasoning_tokens: 0, cost_usd: 0.04 })
+                .age(format_age(ASSISTANT_SENT_MS, NOW_MS))
                 .selection(current.as_ref())
                 .on_selection_change(track_selection(selection.clone())),
         )
         .child(div().w_full().flex().justify_end().child(
             user_turn("card31-user-bottom", USER_TEXT)
                 .actions_bottom(true)
+                .age(format_age(NOW_MS, NOW_MS))
                 .selection(current.as_ref())
                 .on_selection_change(track_selection(selection.clone())),
         ))
@@ -175,6 +186,12 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .ui(scale::FS_12)
                 .text_color(p.ink_3)
                 .child("Reduced action set: this turn passes .actions(&[Copy, Retry]), so Fork and Pin stay hidden — the same filter drives the hover toolbar and the bottom row."),
+        )
+        .child(
+            div()
+                .ui(scale::FS_12)
+                .text_color(p.ink_3)
+                .child("How-long-ago captions: the user bubble carries one underneath (5m ago, now), the assistant footer one as its last cell (2m ago). Both format once per card with format_age against the card's clock; a turn with no reported timestamp draws no caption at all."),
         )
         .child(
             div()

@@ -62,7 +62,7 @@ fn text_delta_appends_to_the_streaming_block() {
     let mut session = Session::new("s1", aui_protocol::Provider::Claude, "opus 4.6", "~/work");
 
     assert!(session.apply(Delta::TurnStarted {
-        turn: Turn::Assistant { id: "t1".into(), blocks: Vec::new(), meta: TurnMeta::default() },
+        turn: Turn::Assistant { id: "t1".into(), blocks: Vec::new(), meta: TurnMeta::default(), timestamp: None },
     }));
     assert!(session.apply(Delta::BlockAdded {
         turn_id: "t1".into(),
@@ -113,6 +113,7 @@ fn deltas_for_unknown_turns_and_blocks_are_ignored() {
         id: "t1".into(),
         blocks: vec![Block::text("done")],
         meta: TurnMeta::default(),
+        timestamp: None,
     });
     // Out-of-range index, and a text delta aimed at a non-text block.
     assert!(!session.apply(Delta::TextDelta {
@@ -182,6 +183,7 @@ fn thinking_delta_appends_to_the_trace() {
     let mut session = Session::new("s1", aui_protocol::Provider::Muse, "muse-spark-1.3", "~/work");
     session.turns.push(Turn::Assistant {
         id: "t1".into(),
+        timestamp: None,
         blocks: vec![Block::Thinking {
             text: "Weighing ".into(),
             elapsed_ms: 0,
@@ -216,6 +218,7 @@ fn thinking_delta_appends_to_the_trace() {
         id: "t2".into(),
         blocks: vec![Block::text("prose")],
         meta: TurnMeta::default(),
+        timestamp: None,
     });
     assert!(!session.apply(Delta::ThinkingDelta {
         turn_id: "t2".into(),
@@ -250,6 +253,7 @@ fn tool_output_delta_merges_partial_lines() {
         id: "t1".into(),
         blocks: vec![shell_call(Vec::new())],
         meta: TurnMeta::default(),
+        timestamp: None,
     });
     let mut push = |text: &str| {
         session.apply(Delta::ToolOutputDelta {
@@ -278,6 +282,7 @@ fn tool_output_delta_ignores_bodies_with_nowhere_to_put_it() {
         id: "t1".into(),
         blocks: vec![Block::text("not a tool call")],
         meta: TurnMeta::default(),
+        timestamp: None,
     });
     assert!(!session.apply(Delta::ToolOutputDelta {
         turn_id: "t1".into(),
@@ -299,6 +304,7 @@ fn tool_output_delta_ignores_bodies_with_nowhere_to_put_it() {
     // A non-shell tool body has nowhere to put the chunk either.
     session.turns.push(Turn::Assistant {
         id: "t2".into(),
+        timestamp: None,
         blocks: vec![Block::ToolCall {
             id: "tc2".into(),
             kind: aui_protocol::ToolKind::Read,
@@ -324,11 +330,13 @@ fn removal_deltas_take_things_out_and_ignore_the_rest() {
         id: "t1".into(),
         blocks: vec![Block::text("one"), Block::text("two")],
         meta: TurnMeta::default(),
+        timestamp: None,
     });
     session.turns.push(Turn::Assistant {
         id: "t2".into(),
         blocks: Vec::new(),
         meta: TurnMeta::default(),
+        timestamp: None,
     });
 
     assert!(!session.apply(Delta::BlockRemoved { turn_id: "t1".into(), block_index: 5 }));
@@ -498,4 +506,56 @@ fn sample_tool_groups_fold_sample_calls() {
             other => panic!("expected a tool group, got {other:?}"),
         }
     }
+}
+
+#[test]
+fn turn_timestamp_is_additive_and_round_trips() {
+    // Old payloads carry no `timestamp`: they decode with `None`.
+    let user: Turn = serde_json::from_value(serde_json::json!({
+        "kind": "user",
+        "id": "t1",
+        "text": "hi",
+        "attachments": [],
+        "mentions": [],
+    }))
+    .expect("decode");
+    assert_eq!(user.timestamp(), None);
+    let assistant: Turn = serde_json::from_value(serde_json::json!({
+        "kind": "assistant",
+        "id": "t2",
+        "blocks": [],
+        "meta": {
+            "model": "",
+            "duration_ms": 0,
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "cost_usd": 0.0,
+        },
+    }))
+    .expect("decode");
+    assert_eq!(assistant.timestamp(), None);
+
+    // New payloads carry it through JSON and back.
+    let stamped = Turn::User {
+        id: "t1".into(),
+        text: "hi".into(),
+        attachments: Vec::new(),
+        mentions: Vec::new(),
+        timestamp: Some(1_786_320_000_000),
+    };
+    assert_eq!(stamped.timestamp(), Some(1_786_320_000_000));
+    let json = serde_json::to_value(&stamped).expect("serialize");
+    assert_eq!(json["timestamp"].as_u64(), Some(1_786_320_000_000));
+    let back: Turn = serde_json::from_value(json).expect("deserialize");
+    assert_eq!(back, stamped);
+
+    // `None` stays off the wire.
+    let plain = Turn::Assistant {
+        id: "t2".into(),
+        blocks: Vec::new(),
+        meta: TurnMeta::default(),
+        timestamp: None,
+    };
+    let json = serde_json::to_value(&plain).expect("serialize");
+    assert!(json.get("timestamp").is_none(), "absent timestamp was drawn: {json}");
 }
