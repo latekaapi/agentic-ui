@@ -253,6 +253,9 @@ fn action_tray(
 
 type SelectHandler = std::rc::Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 type ActionHandler = std::rc::Rc<dyn Fn(&SharedString, RowAction, &mut Window, &mut App)>;
+/// Hover enter/leave with the session id: the hover card's arm. See
+/// [`crate::util::TrackInteraction::track_interaction_reported`].
+pub(crate) type HoverHandler = std::rc::Rc<dyn Fn(&SharedString, bool, &mut Window, &mut App)>;
 
 /// The full session row. Build with [`session_row`].
 #[derive(IntoElement)]
@@ -780,6 +783,7 @@ pub struct CompactSessionRow {
     pulse_phase: Option<f32>,
     on_select: Option<SelectHandler>,
     on_action: Option<ActionHandler>,
+    on_hover: Option<HoverHandler>,
 }
 
 /// A compact row for `session`; children nest beneath with a hairline rail.
@@ -794,6 +798,7 @@ pub fn compact_session_row(id: impl Into<ElementId>, session: SessionSummary) ->
         pulse_phase: None,
         on_select: None,
         on_action: None,
+        on_hover: None,
     }
 }
 
@@ -844,6 +849,15 @@ impl CompactSessionRow {
         self.on_action = Some(std::rc::Rc::new(f));
         self
     }
+
+    /// Hover enter/leave with the session id. Shares the row's single
+    /// `on_hover` slot with the interaction state (a second handler would
+    /// replace the tracking), so the caller learns about the pointer even
+    /// when nothing re-renders.
+    pub fn on_hover(mut self, f: impl Fn(&SharedString, bool, &mut Window, &mut App) + 'static) -> Self {
+        self.on_hover = Some(std::rc::Rc::new(f));
+        self
+    }
 }
 
 impl RenderOnce for CompactSessionRow {
@@ -881,7 +895,7 @@ impl RenderOnce for CompactSessionRow {
         // No `w_full`: at full width the 8 px margins overflow the column and
         // the shell clips them, leaving ~0 px on the right. As a flex item the
         // row stretches to the column minus its margins, so both gutters stay 8.
-        let mut row = h_flex()
+        let row_base = h_flex()
             .id(id.clone())
             .relative()
             .flex_1()
@@ -898,9 +912,15 @@ impl RenderOnce for CompactSessionRow {
             .bg(bg)
             .ui(SR_TEXT)
             .text_color(text)
-            .cursor_pointer()
-            .track_interaction(&state)
-            .child(
+            .cursor_pointer();
+        let mut row = match self.on_hover.clone() {
+            Some(report) => {
+                let key = s.id.clone();
+                row_base.track_interaction_reported(&state, move |hovered, w, cx| report(&key, hovered, w, cx))
+            }
+            None => row_base.track_interaction(&state),
+        };
+        row = row.child(
                 div()
                     .flex_none()
                     .w(px(if self.nested { COL_GAP } else { LEADING_BOX }))
@@ -941,6 +961,9 @@ impl RenderOnce for CompactSessionRow {
             }
             if let Some(h) = self.on_action.clone() {
                 r = r.on_action(move |k, a, w, cx| h(k, a, w, cx));
+            }
+            if let Some(h) = self.on_hover.clone() {
+                r = r.on_hover(move |k, hovered, w, cx| h(k, hovered, w, cx));
             }
             col = col.child(r);
         }

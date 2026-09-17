@@ -31,11 +31,26 @@ pub fn interaction_flags(id: impl Into<ElementId>, window: &mut Window, cx: &mut
 pub trait TrackInteraction: gpui::StatefulInteractiveElement + gpui::InteractiveElement + Sized {
     /// Updates `state` from hover, mouse-down and mouse-up events.
     fn track_interaction(self, state: &Entity<Interaction>) -> Self {
+        self.track_interaction_reported(state, |_, _, _| {})
+    }
+
+    /// Like [`Self::track_interaction`], plus a hover report: `report`
+    /// fires on every hover enter/leave beside the state update, so a caller
+    /// that owns hover-driven UI (a detail card's delay arm) learns about
+    /// the pointer even when nothing re-renders. A gpui element carries a
+    /// single `on_hover` slot, so the report must share it rather than add
+    /// a second handler.
+    fn track_interaction_reported(
+        self,
+        state: &Entity<Interaction>,
+        report: impl Fn(bool, &mut Window, &mut App) + 'static,
+    ) -> Self {
         let hover = state.clone();
         let down = state.clone();
         let up = state.clone();
         let up_out = state.clone();
-        self.on_hover(move |hovered, _, cx| {
+        self.on_hover(move |hovered, window, cx| {
+            report(*hovered, window, cx);
             hover.update(cx, |s, cx| {
                 if s.hovered != *hovered {
                     s.hovered = *hovered;

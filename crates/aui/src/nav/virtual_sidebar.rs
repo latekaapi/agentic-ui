@@ -110,7 +110,7 @@ use gpui::{div, list, prelude::*, px, AnyElement, App, Bounds, ElementId, IntoEl
 
 use super::views::{
     fold_row, project_head_element, session_row_element, BoundsHandler, EditorBuilder, GroupActionHandler, PlainHandler, RowActionHandler,
-    SelectHandler, ToggleHandler,
+    RowHoverHandler, SelectHandler, ToggleHandler,
 };
 use crate::nav::{date_group_header, group_header, group_row, GroupAction, Grouping, RowAction, SessionSummary};
 
@@ -338,6 +338,7 @@ pub struct VirtualSidebarView {
     on_view_options: Option<PlainHandler>,
     on_action: Option<RowActionHandler>,
     on_group_action: Option<GroupActionHandler>,
+    on_hover: Option<RowHoverHandler>,
     on_selected_prepainted: Option<BoundsHandler>,
     on_current_prepainted: Option<BoundsHandler>,
     on_group_menu_prepainted: Option<BoundsHandler>,
@@ -365,6 +366,7 @@ pub fn virtual_sidebar_view(id: impl Into<ElementId>, grouping: impl Into<Rc<Gro
         on_view_options: None,
         on_action: None,
         on_group_action: None,
+        on_hover: None,
         on_selected_prepainted: None,
         on_current_prepainted: None,
         on_group_menu_prepainted: None,
@@ -437,6 +439,15 @@ impl VirtualSidebarView {
     /// A row's hover action was clicked.
     pub fn on_action(mut self, f: impl Fn(&SharedString, RowAction, &mut Window, &mut App) + 'static) -> Self {
         self.on_action = Some(Rc::new(f));
+        self
+    }
+
+    /// A session row's hover state changed; the arguments are the session id
+    /// and whether the pointer entered. Fires from the row's own hover
+    /// events, so the caller learns about the pointer even when nothing
+    /// re-renders — what arms the hover detail's delay.
+    pub fn on_row_hover(mut self, f: impl Fn(&SharedString, bool, &mut Window, &mut App) + 'static) -> Self {
+        self.on_hover = Some(Rc::new(f));
         self
     }
 
@@ -520,6 +531,7 @@ fn render_flat_row(
     on_view_options: &Option<PlainHandler>,
     on_action: &Option<RowActionHandler>,
     on_group_action: &Option<GroupActionHandler>,
+    on_hover: &Option<RowHoverHandler>,
     on_selected_prepainted: &Option<BoundsHandler>,
     on_current_prepainted: &Option<BoundsHandler>,
     on_group_menu_prepainted: &Option<BoundsHandler>,
@@ -604,6 +616,7 @@ fn render_flat_row(
                 editing,
                 on_select,
                 on_action,
+                on_hover,
                 on_selected_prepainted,
                 pulse_phase,
                 window,
@@ -639,6 +652,7 @@ impl RenderOnce for VirtualSidebarView {
             on_view_options,
             on_action,
             on_group_action,
+            on_hover,
             on_selected_prepainted,
             on_current_prepainted,
             on_group_menu_prepainted,
@@ -668,6 +682,7 @@ impl RenderOnce for VirtualSidebarView {
                     &on_view_options,
                     &on_action,
                     &on_group_action,
+                    &on_hover,
                     &on_selected_prepainted,
                     &on_current_prepainted,
                     &on_group_menu_prepainted,
