@@ -379,7 +379,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn date_group_header(label: impl Into<SharedString>) -> DateGroupHeader`
 - **fn** `dense_field` — The dense single-line field for `CompactSessionRow::editor`: the row-title size, no appearance and no border, fixed to one line. [...]
   - `pub fn dense_field(state: &Entity<TextareaState>) -> Textarea`
-- **fn** `detail_keys` — Horizontal detail preview used by tests: the keys this card would draw, in order, for `data` — title first when set, then each set field.
+- **fn** `detail_keys` — Horizontal detail preview used by tests: the blocks this card would draw, in order, for `data` — title first when set, then the ask, then either the attention box (waiting with pending words) or the r [...]
   - `pub fn detail_keys(data: &SessionDetailData) -> Vec<&'static str>`
 - **fn** `ensure_row_visible` — Steer the list so row `ix` is visible, moving the least distance that shows it whole: a row above the viewport lands on the top edge, one below just clears the bottom edge, and a fully visible row cha [...]
   - `pub fn ensure_row_visible(state: &ListState, ix: usize)`
@@ -538,17 +538,21 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn new(kind: RowStatusKind, detail: impl Into<SharedString>) -> Self` — A status of `kind` with `detail`’s variable words.
   - `pub fn text(&self) -> SharedString` — The sentence the status line draws: the verb plus `detail` where the state carries one. `Asked` wraps a non-empty detail in double quotes; the other suffixed states join with `·`.
 - **struct** `SessionDetail` — The hover detail card. Build with `session_detail`.
-  - `pub fn ask(self, ask: impl Into<SharedString>) -> Self` — The full ask.
-  - `pub fn branch(self, branch: impl Into<SharedString>) -> Self` — The branch name.
+  - `pub fn ask(self, ask: impl Into<SharedString>) -> Self` — The owner’s last message: quoted, muted, up to two lines.
+  - `pub fn branch(self, branch: impl Into<SharedString>) -> Self` — The branch name, on the meta row.
   - `pub fn data(&self) -> SessionDetailData` — The data behind this card, for tests and tooling.
-  - `pub fn project(self, project: impl Into<SharedString>) -> Self` — The project name.
-  - `pub fn reply(self, reply: impl Into<SharedString>) -> Self` — The full latest reply.
-  - `pub fn status(self, kind: RowStatusKind, detail: impl Into<SharedString>) -> Self` — The status with its detail; the library owns the colour and weight.
-  - `pub fn title(self, title: impl Into<SharedString>) -> Self` — The full title, wrapped, never truncated.
-  - `pub fn turns(self, turns: usize) -> Self` — The turn count, drawn as `1 turn` / `N turns`.
-  - `pub fn updated(self, updated: impl Into<SharedString>) -> Self` — When it last changed, in the caller’s words.
+  - `pub fn pending_approval(self, command: impl Into<SharedString>) -> Self` — The pending approval’s exact command: with a `RowStatusKind::NeedsApproval` status this replaces the reply line with the attention box, ahead of the pending question.
+  - `pub fn pending_question(self, question: impl Into<SharedString>) -> Self` — The pending question’s prompt: with an `RowStatusKind::Asked` status this replaces the reply line with the attention box.
+  - `pub fn project(self, project: impl Into<SharedString>) -> Self` — The project name: merges with the workspace into the footer.
+  - `pub fn reply(self, reply: impl Into<SharedString>) -> Self` — The latest reply: its first line, in the state colour — unless the session waits on the owner, when the attention box replaces it.
+  - `pub fn status(self, kind: RowStatusKind, detail: impl Into<SharedString>) -> Self` — The status with its detail; the library owns the colour and weight. [...]
+  - `pub fn title(self, title: impl Into<SharedString>) -> Self` — The full title, wrapping, never truncated.
+  - `pub fn turns(self, turns: usize) -> Self` — The turn count, drawn as a bare number on the meta row.
+  - `pub fn updated(self, updated: impl Into<SharedString>) -> Self` — When it last changed, in the caller’s words (`12m ago`).
+  - `pub fn workspace(self, workspace: impl Into<SharedString>) -> Self` — The workspace path: merges with the project into the footer.
 - **struct** `SessionDetailData` — The hover detail’s caller-supplied content. Build with `session_detail`; every field is optional, and only set fields draw.
-  - fields: `title`, `ask`, `reply`, `status`, `project`, `branch`, `turns`, `updated`
+  - fields: `title`, `ask`, `reply`, `status`, `project`, `branch`, `turns`, `updated`,
+    `workspace`, `pending_question`, `pending_approval`
 - **struct** `SessionRow` — The full session row. Build with `session_row`.
   - `pub fn actions(self, actions: Vec<RowAction>) -> Self` — Which actions the tray carries; `RowAction::ALL` when unset.
   - `pub fn activity_max(self, max: f32) -> Self` — Max width of the activity sentence (defaults to the branch max).
@@ -723,12 +727,16 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub const NAV_LABEL_X: f32 = 32.0;`
 - **const** `RAIL_WIDTH` — `.rail{width:48px;padding:8px 0;gap:4px}`.
   - `pub const RAIL_WIDTH: f32 = 48.0;`
+- **const** `SESSION_DETAIL_ASK_LINES` — How many newline-separated lines the quoted ask keeps; further lines are dropped with an ellipsis (gpui has no multi-line ellipsis).
+  - `pub const SESSION_DETAIL_ASK_LINES: usize = 2;`
+- **const** `SESSION_DETAIL_ATTENTION_LINES` — How many newline-separated lines the attention box keeps; further lines are dropped with an ellipsis.
+  - `pub const SESSION_DETAIL_ATTENTION_LINES: usize = 3;`
 - **const** `SESSION_DETAIL_DELAY` — How long the app waits after hover before showing the detail: the motion token `slow` (280 ms) — long enough that a pointer travelling past rows never flashes the card, short enough that an intentiona [...]
   - `pub const SESSION_DETAIL_DELAY: Duration;`
 - **const** `SESSION_DETAIL_GAP` — The gap between the sidebar’s right edge and the side-seated detail card, and the margin it keeps to the window on every side: the `SP_2` spacing token, the same gap `crate::overlay::anchored_menu` ha [...]
   - `pub const SESSION_DETAIL_GAP: f32 = scale::SP_2; // 4f32`
-- **const** `SESSION_DETAIL_WIDTH` — Width of the detail card: wide enough for a full ask at the sidebar’s narrow end, narrow enough to sit beside a 260 px sidebar.
-  - `pub const SESSION_DETAIL_WIDTH: f32 = 300.0;`
+- **const** `SESSION_DETAIL_WIDTH` — Width of the detail card: the mockup’s 320 px — wide enough for a full ask at the sidebar’s narrow end, narrow enough to sit beside it.
+  - `pub const SESSION_DETAIL_WIDTH: f32 = 320.0;`
 - **const** `SIDEBAR_OVERDRAW` — The measured-but-unpainted runway above and below the sidebar viewport.
   - `pub const SIDEBAR_OVERDRAW: f32 = 120.0;`
 - **const** `SIDEBAR_WIDTH` — `.side{width:256px}`.

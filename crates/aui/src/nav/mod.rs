@@ -17,7 +17,8 @@ mod virtual_sidebar;
 
 pub use detail::{
     anchored_session_detail, anchored_session_detail_at_sidebar, detail_keys, session_detail, session_detail_side_origin,
-    SessionDetail, SessionDetailData, SESSION_DETAIL_DELAY, SESSION_DETAIL_GAP, SESSION_DETAIL_WIDTH,
+    SessionDetail, SessionDetailData, SESSION_DETAIL_ASK_LINES, SESSION_DETAIL_ATTENTION_LINES, SESSION_DETAIL_DELAY,
+    SESSION_DETAIL_GAP, SESSION_DETAIL_WIDTH,
 };
 pub use folder_drop::{folder_drop_card, FolderDropCard};
 pub use project_mark::{project_mark, ProjectMark};

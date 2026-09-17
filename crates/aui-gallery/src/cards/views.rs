@@ -4,7 +4,7 @@
 
 use aui::keys::{Cancel, Confirm, SelectNext, SelectPrev, MENU_CONTEXT};
 use aui::nav::{
-    anchored_session_detail_at_sidebar, nav_item, session_detail, sidebar_search, sidebar_view, view_menu, view_submenu, view_submenu_rows,
+    nav_item, session_detail, sidebar_search, sidebar_view, view_menu, view_submenu, view_submenu_rows, SESSION_DETAIL_WIDTH,
     DateGroup, Grouping, MenuRow, ProjectGroup, RowAction, RowStatusKind, SessionSummary, StatusGroup,
 };
 use aui::nav::{ActivityKind, MetaItem};
@@ -34,11 +34,6 @@ const OPTION_B_NARROW: f32 = 260.0;
 const OPTION_B_WIDE: f32 = 420.0;
 /// Six three-line rows plus the project head: the verbs sit on one rhythm.
 const OPTION_B_H: f32 = 480.0;
-/// The hover-detail demo: a 260 px list with the 300 px card seated at the
-/// list's own right edge, top-aligned with the hovered row — the same seat
-/// the app gives the hover card.
-const DETAIL_DEMO_LIST_W: f32 = 260.0;
-const DETAIL_DEMO_H: f32 = 300.0;
 /// The gap between the card's main row and the width states.
 const ROW_GAP: f32 = 26.0;
 /// `.nav{padding:10px 8px 6px}`.
@@ -283,98 +278,61 @@ fn option_b_panel(p: &Palette, title: &'static str, id: &'static str, width: f32
     sized_column(p, title, body, None, width, OPTION_B_H)
 }
 
-/// The hovered row whose bounds the detail demo seats at: the same
-/// `on_selected_prepainted` hook an app uses for its hovered row.
-const DETAIL_ROW_ID: &str = "obd-auth";
-
-/// What the demo card remembers: the hovered row's bounds and the list
-/// panel's own bounds, if measured — the two inputs of the side seat.
-#[derive(Clone, PartialEq)]
-struct DetailDemo {
-    trigger: Option<Bounds<Pixels>>,
-    edge: Option<Bounds<Pixels>>,
-}
-
-/// The hover detail beside a 260 px list: the selected row's bounds seat an
-/// [`anchored_session_detail_at_sidebar`] at the list's right edge,
-/// top-aligned with the row, sliding up near the window bottom. The card
-/// shows only what the caller sets — here every field, so all eight keys
-/// draw. The card rides outside the clipped list panel, like the app's card
-/// rides outside the sidebar.
-fn detail_demo(p: &Palette, state: &Entity<DetailDemo>, cx: &mut App) -> Div {
-    let group = ProjectGroup::new("detail-demo", "Sessions", "2").open(vec![
-        SessionSummary::new("obd-checkout", "checkout-flow-v2", AgentState::Running, "14m")
-            .pulse()
-            .repo("acme-web")
-            .branch("feature/checkout-flow-v2")
-            .status(RowStatusKind::Working, "14m"),
-        SessionSummary::new(DETAIL_ROW_ID, "auth-session-refresh", AgentState::Waiting, "8m")
-            .pulse()
-            .attention("Which bucket for staging?")
-            .status(RowStatusKind::Asked, "Which bucket for staging?"),
-    ]);
-    let trigger_state = state.clone();
-    let view = sidebar_view("view-detail-demo", Grouping::Project(vec![group]))
-        .caption("Hover detail")
-        .selected(DETAIL_ROW_ID)
-        .on_selected_prepainted(move |_, bounds, _, cx| {
-            let next = Some(bounds);
-            trigger_state.update(cx, |s, cx| {
-                if s.trigger != next {
-                    s.trigger = next;
-                    cx.notify();
-                }
-            });
-        });
-    let card = session_detail("detail-demo-card")
+/// The hover detail in its three states: one 320 px card per state, built
+/// with the same [`session_detail`] fields the app fills — settled with the
+/// green reply line, working with a long wrapping title and the accent reply
+/// line, and a question wait with the warning attention box in place of the
+/// reply line (a reply is set, and the box still wins).
+fn detail_demo(p: &Palette) -> Div {
+    let settled = session_detail("detail-demo-settled")
+        .title("cart-recovery-email")
+        .ask("Draft the cart recovery email")
+        .reply("Drafted three recovery variants for review")
+        .status(RowStatusKind::Settled, "12m · 5 turns")
+        .project("acme-web")
+        .branch("feature/cart-recovery")
+        .turns(5)
+        .updated("12m ago")
+        .workspace("~/Projects/acme-web");
+    let working = session_detail("detail-demo-working")
+        .title("checkout-flow-v2 — EU payment regression matrix")
+        .ask("Run the checkout regression suite")
+        .reply("Running checkout regression tests…")
+        .status(RowStatusKind::Working, "14m")
+        .project("acme-web")
+        .branch("feature/checkout-flow-v2")
+        .turns(3)
+        .updated("14m ago")
+        .workspace("~/Projects/acme-web");
+    let asked = session_detail("detail-demo-asked")
         .title("auth-session-refresh")
-        .ask("Refresh the session tokens for the staging deploy")
-        .reply("Which bucket should I use for staging?")
+        .ask("Refresh the session tokens")
+        .reply("Loaded the auth client; one question left")
         .status(RowStatusKind::Asked, "Which bucket for staging?")
+        .pending_question("Which bucket for staging?")
         .project("acme-web")
         .branch("feature/auth-refresh")
-        .turns(5)
-        .updated("8m ago");
-    let panel = v_flex()
-        .w(px(DETAIL_DEMO_LIST_W))
-        .h(px(DETAIL_DEMO_H))
-        .flex_none()
-        .overflow_hidden()
-        .rounded(px(scale::R_LG))
-        .border_1()
-        .border_color(p.line)
-        .bg(p.surface_1)
-        .child(view.into_any_element());
-    // The list's own right edge, measured off the laid-out panel the way the
-    // app measures its sidebar pane — the side seat's other input.
-    let edge_state = state.clone();
-    let mut row = h_flex()
-        .w_full()
-        .items_start()
-        .child(
-            div().w(px(DETAIL_DEMO_LIST_W)).flex_none().on_children_prepainted(move |bounds, _, cx| {
-                if let Some(first) = bounds.first() {
-                    let next = Some(*first);
-                    edge_state.update(cx, |s, cx| {
-                        if s.edge != next {
-                            s.edge = next;
-                            cx.notify();
-                        }
-                    });
-                }
-            }).child(panel),
+        .turns(4)
+        .updated("8m ago")
+        .workspace("~/Projects/acme-web");
+    let mut row = h_flex().w_full().items_start().gap(px(COLUMN_GAP));
+    for (caption, card) in [
+        ("Settled", settled),
+        ("Working · long title wraps", working),
+        ("Asked a question", asked),
+    ] {
+        row = row.child(
+            v_flex()
+                .flex_none()
+                .w(px(SESSION_DETAIL_WIDTH))
+                .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.ink_3).child(caption))
+                .child(card.into_any_element()),
         );
-    if let (Some(trigger), Some(edge)) = (state.read(cx).trigger, state.read(cx).edge) {
-        row = row.child(anchored_session_detail_at_sidebar(
-            trigger,
-            edge.origin.x + edge.size.width,
-            card,
-        ));
     }
     v_flex()
         .w_full()
         .flex_none()
-        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.ink_3).child("Hover detail · every field set"))
+        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.ink_3).child("Hover detail · three states"))
         .child(row)
 }
 
@@ -849,16 +807,14 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(option_b_panel(&p, "Option B · 260 px", "view-option-b-narrow", OPTION_B_NARROW))
         .child(option_b_panel(&p, "Option B · 420 px", "view-option-b-wide", OPTION_B_WIDE));
 
-    // The hover detail on its own row, so the 300 px card has room at the
-    // 260 px list's right edge: the hovered row seats it through
-    // `popover_layer`, top-aligned with the row.
-    let demo = window.use_keyed_state("card23-detail-demo", cx, |_, _| DetailDemo { trigger: None, edge: None });
+    // The hover detail's three states on their own row, so the three
+    // 320 px cards sit side by side.
 
     v_flex()
         .w_full()
         .child(root)
         .child(div().mt(px(ROW_GAP)).w_full().child(widths))
         .child(div().mt(px(ROW_GAP)).w_full().child(option_b))
-        .child(div().mt(px(ROW_GAP)).w_full().child(detail_demo(&p, &demo, cx)))
+        .child(div().mt(px(ROW_GAP)).w_full().child(detail_demo(&p)))
         .into_any_element()
 }
