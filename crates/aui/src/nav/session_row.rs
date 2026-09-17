@@ -599,10 +599,16 @@ fn context_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> 
                 (true, true) => line.child(div().child(" ")),
                 (true, false) => line.child(div().min_w(px(0.0)).truncate().child(result.clone())),
                 (false, true) => line.child(div().min_w(px(0.0)).truncate().text_color(p.ink_2).child(ask.clone())),
+                // One line, not two `flex_1` halves: each side hugs its
+                // content, so a short ask no longer leaves half the row
+                // empty before the separator. When the row runs out of
+                // room both shrink in proportion to their content with an
+                // ellipsis (`min_w(0)` lets each shrink past its content —
+                // the same shape as the attention and preview lines above).
                 (false, false) => line
-                    .child(div().flex_1().min_w(px(0.0)).truncate().text_color(p.ink_2).child(ask.clone()))
+                    .child(div().min_w(px(0.0)).truncate().text_color(p.ink_2).child(ask.clone()))
                     .child(div().flex_none().child("·"))
-                    .child(div().flex_1().min_w(px(0.0)).truncate().child(result.clone())),
+                    .child(div().min_w(px(0.0)).truncate().child(result.clone())),
             }
             .into_any_element()
         }
