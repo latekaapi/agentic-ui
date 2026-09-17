@@ -4,8 +4,8 @@
 
 use aui::keys::{Cancel, Confirm, SelectNext, SelectPrev, MENU_CONTEXT};
 use aui::nav::{
-    nav_item, sidebar_search, sidebar_view, view_menu, view_submenu, view_submenu_rows, DateGroup, Grouping, MenuRow, ProjectGroup, RowAction,
-    SessionSummary, StatusGroup,
+    anchored_session_detail, nav_item, session_detail, sidebar_search, sidebar_view, view_menu, view_submenu, view_submenu_rows, DateGroup, Grouping,
+    MenuRow, ProjectGroup, RowAction, RowStatusKind, SessionSummary, StatusGroup,
 };
 use aui::nav::{ActivityKind, MetaItem};
 use aui::overlay::popover_layer;
@@ -28,6 +28,16 @@ const WIDTH_STATE_H: f32 = 300.0;
 /// The second-line states panel sits beside the width states at a sidebar's
 /// usual width.
 const SECOND_LINE_WIDTH: f32 = 300.0;
+/// Option B's six states at the sidebar's narrow and wide ends: 260 px and
+/// 420 px, matching the `/tmp/row-mockups` artboards.
+const OPTION_B_NARROW: f32 = 260.0;
+const OPTION_B_WIDE: f32 = 420.0;
+/// Six three-line rows plus the project head: the verbs sit on one rhythm.
+const OPTION_B_H: f32 = 480.0;
+/// The hover-detail demo column: a 260 px list with room for the 300 px card
+/// below the hovered row.
+const DETAIL_DEMO_W: f32 = 340.0;
+const DETAIL_DEMO_H: f32 = 300.0;
 /// The gap between the card's main row and the width states.
 const ROW_GAP: f32 = 26.0;
 /// `.nav{padding:10px 8px 6px}`.
@@ -227,6 +237,116 @@ fn width_state(p: &Palette, title: &'static str, id: &'static str, width: f32) -
     let view = sidebar_view(id, Grouping::Project(project_groups())).caption("Projects").selected("checkout");
     let body = v_flex().w_full().child(view).into_any_element();
     sized_column(p, title, body, None, width, WIDTH_STATE_H)
+}
+
+/// Option B's six states, mirroring `/tmp/row-mockups` `opt-b_*`: title with
+/// trailing time, one context line (approval command, ask, byline or
+/// `project · branch`), and the semibold status verb. Every row is three
+/// lines tall so the verbs sit on one rhythm; long lines truncate with an
+/// ellipsis instead of wrapping.
+fn option_b_sessions() -> Vec<SessionSummary> {
+    vec![
+        SessionSummary::new("ob-checkout", "checkout-flow-v2", AgentState::Running, "14m")
+            .pulse()
+            .repo("acme-web")
+            .branch("feature/checkout-flow-v2")
+            .status(RowStatusKind::Working, "14m"),
+        SessionSummary::new("ob-notifier", "infra/notifier", AgentState::Waiting, "3h")
+            .pulse()
+            .attention("sudo apt install notifierd")
+            .status(RowStatusKind::NeedsApproval, ""),
+        SessionSummary::new("ob-auth", "auth-session-refresh", AgentState::Waiting, "8m")
+            .pulse()
+            .preview("Asked: Refresh the session tokens")
+            .status(RowStatusKind::Asked, "Which bucket for staging?"),
+        SessionSummary::new("ob-cart", "cart-recovery-email", AgentState::Done, "12m")
+            .preview("Asked: Draft the cart recovery email")
+            .status(RowStatusKind::Settled, "12m · 5 turns"),
+        SessionSummary::new("ob-obs", "Observability tiles", AgentState::Failed, "1h")
+            .preview("Asked: Add the observability tiles")
+            .status(RowStatusKind::Failed, "1h"),
+        SessionSummary::new("ob-webhook", "Webhook retry backoff", AgentState::Idle, "2d")
+            .repo("acme-internal")
+            .branch("fix/webhook-retry")
+            .status(RowStatusKind::NoReply, "2d"),
+    ]
+}
+
+/// Option B at one width: the six states above in a panel `width` wide.
+fn option_b_panel(p: &Palette, title: &'static str, id: &'static str, width: f32) -> Div {
+    let group = ProjectGroup::new("option-b", "Sessions", "6").open(option_b_sessions());
+    let view = sidebar_view(id, Grouping::Project(vec![group])).caption("Option B · status verb").selected("ob-checkout");
+    let body = v_flex().w_full().child(view).into_any_element();
+    sized_column(p, title, body, None, width, OPTION_B_H)
+}
+
+/// The hovered row whose bounds the detail demo seats at: the same
+/// `on_selected_prepainted` hook an app uses for its hovered row.
+const DETAIL_ROW_ID: &str = "obd-auth";
+
+/// What the demo card remembers: the hovered row's bounds, if measured.
+#[derive(Clone, PartialEq)]
+struct DetailDemo {
+    trigger: Option<Bounds<Pixels>>,
+}
+
+/// The hover detail beside a 260 px list: the selected row's bounds seat an
+/// [`anchored_session_detail`] below-start of the row through
+/// `popover_layer`, flipping above near the window bottom. The card shows
+/// only what the caller sets — here every field, so all eight keys draw.
+fn detail_demo(p: &Palette, state: &Entity<DetailDemo>, cx: &mut App) -> Div {
+    let group = ProjectGroup::new("detail-demo", "Sessions", "2").open(vec![
+        SessionSummary::new("obd-checkout", "checkout-flow-v2", AgentState::Running, "14m")
+            .pulse()
+            .repo("acme-web")
+            .branch("feature/checkout-flow-v2")
+            .status(RowStatusKind::Working, "14m"),
+        SessionSummary::new(DETAIL_ROW_ID, "auth-session-refresh", AgentState::Waiting, "8m")
+            .pulse()
+            .attention("Which bucket for staging?")
+            .status(RowStatusKind::Asked, "Which bucket for staging?"),
+    ]);
+    let trigger_state = state.clone();
+    let view = sidebar_view("view-detail-demo", Grouping::Project(vec![group]))
+        .caption("Hover detail")
+        .selected(DETAIL_ROW_ID)
+        .on_selected_prepainted(move |_, bounds, _, cx| {
+            let next = Some(bounds);
+            trigger_state.update(cx, |s, cx| {
+                if s.trigger != next {
+                    s.trigger = next;
+                    cx.notify();
+                }
+            });
+        });
+    let card = session_detail("detail-demo-card")
+        .title("auth-session-refresh")
+        .ask("Refresh the session tokens for the staging deploy")
+        .reply("Which bucket should I use for staging?")
+        .status(RowStatusKind::Asked, "Which bucket for staging?")
+        .project("acme-web")
+        .branch("feature/auth-refresh")
+        .turns(5)
+        .updated("8m ago");
+    let mut panel = v_flex()
+        .relative()
+        .w_full()
+        .h(px(DETAIL_DEMO_H))
+        .flex_none()
+        .overflow_hidden()
+        .rounded(px(scale::R_LG))
+        .border_1()
+        .border_color(p.line)
+        .bg(p.surface_1)
+        .child(view.into_any_element());
+    if let Some(trigger) = state.read(cx).trigger {
+        panel = panel.child(anchored_session_detail(trigger, card));
+    }
+    v_flex()
+        .flex_none()
+        .w(px(DETAIL_DEMO_W))
+        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.ink_3).child("Hover detail · every field set"))
+        .child(panel)
 }
 
 /// The second line's four states in one 300 px panel: title only (empty
@@ -691,5 +811,22 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(width_state(&p, "Wide · 520 px", "view-wide", WIDTH_WIDE))
         .child(second_line_state(&p));
 
-    v_flex().w_full().child(root).child(div().mt(px(ROW_GAP)).w_full().child(widths)).into_any_element()
+    // Option B at both mockup widths, plus the hover detail: six three-line
+    // rows at 260 px and 420 px beside the detail card the hovered row seats
+    // through `popover_layer`.
+    let demo = window.use_keyed_state("card23-detail-demo", cx, |_, _| DetailDemo { trigger: None });
+    let option_b = h_flex()
+        .w_full()
+        .items_start()
+        .gap(px(COLUMN_GAP))
+        .child(option_b_panel(&p, "Option B · 260 px", "view-option-b-narrow", OPTION_B_NARROW))
+        .child(option_b_panel(&p, "Option B · 420 px", "view-option-b-wide", OPTION_B_WIDE))
+        .child(detail_demo(&p, &demo, cx));
+
+    v_flex()
+        .w_full()
+        .child(root)
+        .child(div().mt(px(ROW_GAP)).w_full().child(widths))
+        .child(div().mt(px(ROW_GAP)).w_full().child(option_b))
+        .into_any_element()
 }

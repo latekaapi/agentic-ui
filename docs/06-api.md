@@ -363,16 +363,22 @@ The library’s keyboard actions and their default bindings.
 
 Sidebar: session rows in every state, the sidebar and its collapsed rail, the three groupings (status / project / date) with the view-options menu, and the assistant’s role sections (cards 20–23, spec [...]
 
+- **fn** `anchored_session_detail` — Seats a `SessionDetail` at its row: below-start of `trigger` in `crate::overlay::popover_layer`, flipping above near the window bottom and sliding inside — the one seat rule, so the card escapes the s [...]
+  - `pub fn anchored_session_detail(trigger: Bounds<Pixels>, detail: SessionDetail) -> impl IntoElement`
 - **fn** `chevron` — A `.chev` glyph rotated 0° (closed) → 90° (open) on the swap spring, at the default 12 px.
   - `pub fn chevron(id: impl Into<ElementId>, open: bool, color: Hsla, window: &mut Window, cx: &mut App) -> impl IntoElement`
 - **fn** `chevron_sized` — `chevron` at an explicit `size` in design px, for the rows whose CSS narrows the glyph (`.pj .chev` 11 px, the file tree’s `.n .chev` 10 px).
   - `pub fn chevron_sized(id: impl Into<ElementId>, open: bool, color: Hsla, size: f32, window: &mut Window, cx: &mut App) -> impl IntoElement`
 - **fn** `compact_session_row` — A compact row for `session`; children nest beneath with a hairline rail.
   - `pub fn compact_session_row(id: impl Into<ElementId>, session: SessionSummary) -> CompactSessionRow`
+- **fn** `context_line_kind` — Which context line `summary` draws. Presence wins over content: an explicitly set `Byline` or `attention` keeps its kind even when empty, so the kind and the row cannot disagree.
+  - `pub fn context_line_kind(summary: &SessionSummary) -> ContextLineKind`
 - **fn** `date_group_header` — `TODAY`, `YESTERDAY`, `THIS WEEK` with the hairline rule after them.
   - `pub fn date_group_header(label: impl Into<SharedString>) -> DateGroupHeader`
 - **fn** `dense_field` — The dense single-line field for `CompactSessionRow::editor`: the row-title size, no appearance and no border, fixed to one line. [...]
   - `pub fn dense_field(state: &Entity<TextareaState>) -> Textarea`
+- **fn** `detail_keys` — Horizontal detail preview used by tests: the keys this card would draw, in order, for `data` — title first when set, then each set field.
+  - `pub fn detail_keys(data: &SessionDetailData) -> Vec<&'static str>`
 - **fn** `ensure_row_visible` — Steer the list so row `ix` is visible, moving the least distance that shows it whole: a row above the viewport lands on the top edge, one below just clears the bottom edge, and a fully visible row cha [...]
   - `pub fn ensure_row_visible(state: &ListState, ix: usize)`
 - **fn** `flatten_sidebar` — Flatten a grouping into its rows, in render order: the caption first when `caption` is set, then per group the header/head plus — for open groups only — the sessions and (project only) the fold row when rows are held back. [...]
@@ -387,6 +393,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn knowledge_card(id: impl Into<ElementId>, role_id: impl Into<SharedString>, sources: Vec<SharedString>) -> KnowledgeCard`
 - **fn** `nav_item` — `Tasks`, `Automations`, `Inbox`…
   - `pub fn nav_item(id: impl Into<ElementId>, glyph: IconName, label: impl Into<SharedString>) -> NavItem`
+- **fn** `project_branch_text` — `project · branch` for the context line: whichever half the caller set, joined with a middot, or `None` when neither exists.
+  - `pub fn project_branch_text(summary: &SessionSummary) -> Option<SharedString>`
 - **fn** `project_group_row` — A project row: the plain muted name and its count.
   - `pub fn project_group_row(id: impl Into<ElementId>, name: impl Into<SharedString>, count: impl Into<SharedString>, open: bool) -> ProjectGroupRow`
 - **fn** `project_mark` — A rounded square in `colour` with `initial` centred in the theme background colour. Stateless; no click handling — the caller owns the interaction.
@@ -403,6 +411,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn row_index_for_session(rows: &[SidebarRow], grouping: &Grouping, session_id: &SharedString) -> Option<usize>`
 - **fn** `second_line_kind` — Which second line `summary` draws. An explicit `Byline` wins the slot; otherwise the legacy meta tags show, or empty space when there are none — so every row keeps its second line whatever the caller [...]
   - `pub fn second_line_kind(summary: &SessionSummary) -> SecondLineKind`
+- **fn** `session_detail` — Empty detail content; fill with the builder methods on `SessionDetail`.
+  - `pub fn session_detail(id: impl Into<ElementId>) -> SessionDetail`
 - **fn** `session_row` — A row for `session`. Children are rendered beneath it, nested.
   - `pub fn session_row(id: impl Into<ElementId>, session: SessionSummary) -> SessionRow`
 - **fn** `sidebar` — A sidebar rendering `nav`.
@@ -516,6 +526,23 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
 - **struct** `RoleSessionRow` — A session row under a project (`.sess`). Build with `role_session_row`.
   - `pub fn active(self, active: bool) -> Self` — Marks the row as the open session (`.sess.on`).
   - `pub fn on_select(self, f: impl Fn(&str, &mut Window, &mut App) + 'static) -> Self` — Selection intent, carrying the session id.
+- **struct** `RowStatus` — Option B’s status verb line: `kind` picks the vocabulary, colour and weight; `detail` carries the variable words (elapsed, the quoted question, `12m · 5 turns`). [...]
+  - fields: `kind`, `detail`
+  - `pub fn ink(&self, palette: &Palette) -> Hsla` — Ink for the status sentence, from tokens: accent-ink for working, warning for approval/questions, danger for failed, muted otherwise.
+  - `pub fn new(kind: RowStatusKind, detail: impl Into<SharedString>) -> Self` — A status of `kind` with `detail`’s variable words.
+  - `pub fn text(&self) -> SharedString` — The sentence the status line draws: the verb plus `detail` where the state carries one. `Asked` wraps a non-empty detail in double quotes; the other suffixed states join with `·`.
+- **struct** `SessionDetail` — The hover detail card. Build with `session_detail`.
+  - `pub fn ask(self, ask: impl Into<SharedString>) -> Self` — The full ask.
+  - `pub fn branch(self, branch: impl Into<SharedString>) -> Self` — The branch name.
+  - `pub fn data(&self) -> SessionDetailData` — The data behind this card, for tests and tooling.
+  - `pub fn project(self, project: impl Into<SharedString>) -> Self` — The project name.
+  - `pub fn reply(self, reply: impl Into<SharedString>) -> Self` — The full latest reply.
+  - `pub fn status(self, kind: RowStatusKind, detail: impl Into<SharedString>) -> Self` — The status with its detail; the library owns the colour and weight.
+  - `pub fn title(self, title: impl Into<SharedString>) -> Self` — The full title, wrapped, never truncated.
+  - `pub fn turns(self, turns: usize) -> Self` — The turn count, drawn as `1 turn` / `N turns`.
+  - `pub fn updated(self, updated: impl Into<SharedString>) -> Self` — When it last changed, in the caller’s words.
+- **struct** `SessionDetailData` — The hover detail’s caller-supplied content. Build with `session_detail`; every field is optional, and only set fields draw.
+  - fields: `title`, `ask`, `reply`, `status`, `project`, `branch`, `turns`, `updated`
 - **struct** `SessionRow` — The full session row. Build with `session_row`.
   - `pub fn actions(self, actions: Vec<RowAction>) -> Self` — Which actions the tray carries; `RowAction::ALL` when unset.
   - `pub fn activity_max(self, max: f32) -> Self` — Max width of the activity sentence (defaults to the branch max).
@@ -530,8 +557,9 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn text_sizes(self, name: f32, meta: f32) -> Self` — Name and meta sizes (13 / 12 by default; the sidebar card uses 12.5 / 11.5).
 - **struct** `SessionSummary` — One session / worktree as the sidebar shows it.
   - fields: `id`, `name`, `state`, `pulse`, `elapsed`, `repo`, `branch`, `providers`, `meta`,
-    `byline`, `activity`, `unread`, `pinned`, `children`
+    `byline`, `activity`, `attention`, `status`, `unread`, `pinned`, `children`
   - `pub fn activity(self, kind: ActivityKind, text: impl Into<SharedString>) -> Self` — Sets the activity line.
+  - `pub fn attention(self, text: impl Into<SharedString>) -> Self` — Sets option B’s context override: the approval command or pending question, shown verbatim on the context line ahead of `Self::byline`, preview and `project · branch`.
   - `pub fn branch(self, branch: impl Into<SharedString>) -> Self` — Sets the branch tag.
   - `pub fn byline(self, ask: impl Into<SharedString>, result: impl Into<SharedString>) -> Self` — Sets the second line to the two-part byline: what was last asked (`ask`) and what came back (`result`), side by side on the row’s one second line, each truncating with an ellipsis at the row’s width.
   - `pub fn child(self, child: SessionSummary) -> Self` — Adds a child session.
@@ -543,6 +571,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn provider(self, provider: Provider) -> Self` — Adds a provider mark.
   - `pub fn pulse(self) -> Self` — Pulses the dot.
   - `pub fn repo(self, repo: impl Into<SharedString>) -> Self` — Sets the repo tag.
+  - `pub fn status(self, kind: RowStatusKind, detail: impl Into<SharedString>) -> Self` — Sets option B’s status verb line: `kind` picks the vocabulary, colour and weight; `detail` carries the variable words (elapsed, the quoted question, `12m · 5 turns`). [...]
   - `pub fn unread(self) -> Self` — Marks unread.
 - **struct** `Sidebar` — The sidebar. Build with `sidebar`.
   - `pub fn collapsed(self, collapsed: bool) -> Self` — Collapsed (⌘B): renders the `crate::nav::Rail` instead. The width change itself is the caller’s (the shell animates the column).
@@ -631,6 +660,11 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - variants: `Working`, `Waiting`, `Failed`, `Plain`
 - **enum** `Byline` — An explicit second line for a session row, distinct from the `meta` preview tags. Whatever the caller passes, the row keeps its two-line height: with nothing to show the line renders as empty space.
   - variants: `Placeholder`, `Preview`, `TwoLines`
+- **enum** `ContextLineKind` — Option B’s context line: which second line the compact row draws.
+  - variants: `Attention`, `Placeholder`, `Preview`, `Byline`, `Project`, `Meta`, `Empty`
+  - `pub fn lines(self) -> u8` — Slot height in lines: one in every state, so every B row is its title plus context plus status — three lines tall.
+  - `pub fn truncate(self) -> bool` — Every state ellipsizes at the row’s width…
+  - `pub fn wraps(self) -> bool` — …and none wraps onto another line.
 - **enum** `GroupAction` — What a project group row’s hover tray asks for.
   - variants: `New`, `Menu`, `ToggleMore`
 - **enum** `Grouping` — How a `SidebarView` groups its sessions. The variant carries the groups, because each grouping has its own header shape.
@@ -652,6 +686,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn tint(self, colour: Hsla) -> Self` — Draws a `RailItem::Session` tile’s initial in `colour` (the project label) instead of the default ink; the state dot and everything else are unchanged. [...]
 - **enum** `RowAction` — The hover actions on a row.
   - variants: `Terminal`, `Browser`, `Pin`, `Rename`, `Hide`, `Archive`, `More`
+- **enum** `RowStatusKind` — Option B’s status verb: which sentence the status line draws, and in which state colour. [...]
+  - variants: `Working`, `NeedsApproval`, `Asked`, `Settled`, `Failed`, `NoReply`
 - **enum** `SecondLineKind` — Which second line the compact row draws for a summary: the row model behind the uniform two-line height.
   - variants: `Empty`, `Meta`, `Placeholder`, `Preview`, `Byline`
   - `pub fn ink(self, palette: &Palette) -> Hsla` — Ink for the slot’s plain text: the placeholder sits a step dimmer (ink-4, the search-field placeholder tone); everything else reads in the usual second-line ink-3. [...]
@@ -677,6 +713,10 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub const NAV_LABEL_X: f32 = 32.0;`
 - **const** `RAIL_WIDTH` — `.rail{width:48px;padding:8px 0;gap:4px}`.
   - `pub const RAIL_WIDTH: f32 = 48.0;`
+- **const** `SESSION_DETAIL_DELAY` — How long the app waits after hover before showing the detail: the motion token `slow` (280 ms) — long enough that a pointer travelling past rows never flashes the card, short enough that an intentiona [...]
+  - `pub const SESSION_DETAIL_DELAY: Duration;`
+- **const** `SESSION_DETAIL_WIDTH` — Width of the detail card: wide enough for a full ask at the sidebar’s narrow end, narrow enough to sit beside a 260 px sidebar.
+  - `pub const SESSION_DETAIL_WIDTH: f32 = 300.0;`
 - **const** `SIDEBAR_OVERDRAW` — The measured-but-unpainted runway above and below the sidebar viewport.
   - `pub const SIDEBAR_OVERDRAW: f32 = 120.0;`
 - **const** `SIDEBAR_WIDTH` — `.side{width:256px}`.

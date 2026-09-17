@@ -32,7 +32,7 @@ use gpui_kit::component::input::Textarea;
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, spinner, status_dot, tag, ButtonSize};
-use crate::nav::{ActivityKind, Byline, MetaItem, SessionSummary};
+use crate::nav::{ActivityKind, Byline, MetaItem, RowStatus, SessionSummary};
 use crate::nav::{LEADING_BOX, NAV_GUTTER, NAV_LABEL_X};
 use crate::util::{indexed_child, interaction_flags, TrackInteraction};
 
@@ -483,13 +483,100 @@ fn activity_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary, si
     Some(meta_line(p, size, Vec::new()).text_color(color).children(glyph).child(text))
 }
 
-/// The compact row's second line: always exactly one line — empty space, the
-/// legacy meta tags, or the explicit [`Byline`] — truncating with an
-/// ellipsis at the row's width, never wrapping.
-fn second_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> AnyElement {
+/// Option B's context line: which second line the compact row draws.
+///
+/// Priority: [`SessionSummary::attention`] (the approval command or pending
+/// question) first, then the [`Byline`] two-liner / preview / placeholder,
+/// then `project · branch`, then the legacy meta tags, else empty space —
+/// and the line keeps its height in every state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextLineKind {
+    /// The approval command or pending question, verbatim.
+    Attention,
+    /// Muted placeholder text.
+    Placeholder,
+    /// One line of preview text.
+    Preview,
+    /// Last ask plus last result on the one line.
+    Byline,
+    /// `project · branch` (or whichever half exists).
+    Project,
+    /// The legacy meta tags (and activity sentence), one truncating line.
+    Meta,
+    /// Nothing to show: empty space keeping the line height.
+    Empty,
+}
+
+/// Which context line `summary` draws. Presence wins over content: an
+/// explicitly set [`Byline`] or `attention` keeps its kind even when empty,
+/// so the kind and the row cannot disagree.
+pub fn context_line_kind(summary: &SessionSummary) -> ContextLineKind {
+    if summary.attention.is_some() {
+        return ContextLineKind::Attention;
+    }
+    match &summary.byline {
+        Some(Byline::Placeholder(_)) => ContextLineKind::Placeholder,
+        Some(Byline::Preview(_)) => ContextLineKind::Preview,
+        Some(Byline::TwoLines { .. }) => ContextLineKind::Byline,
+        None if summary.repo.is_some() || summary.branch.is_some() => ContextLineKind::Project,
+        None if has_non_project_legacy(summary) => ContextLineKind::Meta,
+        None => ContextLineKind::Empty,
+    }
+}
+
+impl ContextLineKind {
+    /// Slot height in lines: one in every state, so every B row is its title
+    /// plus context plus status — three lines tall.
+    pub fn lines(self) -> u8 {
+        1
+    }
+
+    /// Every state ellipsizes at the row's width…
+    pub fn truncate(self) -> bool {
+        true
+    }
+
+    /// …and none wraps onto another line.
+    pub fn wraps(self) -> bool {
+        false
+    }
+}
+
+/// Legacy second-line content other than `repo` / `branch`: meta items,
+/// provider marks, the pin, or the activity sentence. Checked after the
+/// `project · branch` arm of [`context_line_kind`], so the two cannot both
+/// claim a row that only carries tags.
+fn has_non_project_legacy(s: &SessionSummary) -> bool {
+    !s.meta.is_empty() || !s.providers.is_empty() || s.pinned || s.activity.is_some()
+}
+
+/// `project · branch` for the context line: whichever half the caller set,
+/// joined with a middot, or `None` when neither exists.
+pub fn project_branch_text(summary: &SessionSummary) -> Option<SharedString> {
+    match (&summary.repo, &summary.branch) {
+        (Some(repo), Some(branch)) => Some(format!("{repo} · {branch}").into()),
+        (Some(repo), None) => Some(repo.clone()),
+        (None, Some(branch)) => Some(branch.clone()),
+        (None, None) => None,
+    }
+}
+
+/// Option B's status verb line is always 12 px semibold.
+const STATUS_TEXT: f32 = 12.0;
+
+/// The compact row's context (second) line: always exactly one line —
+/// attention, byline, `project · branch`, legacy meta, or empty space —
+/// truncating with an ellipsis at the row's width, never wrapping.
+fn context_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> AnyElement {
+    if let Some(text) = &s.attention {
+        let shown = if text.trim().is_empty() { SharedString::from(" ") } else { text.clone() };
+        return meta_line(p, SR_META_TEXT, Vec::new())
+            .text_color(p.ink_2)
+            .child(div().min_w(px(0.0)).truncate().child(shown))
+            .into_any_element();
+    }
     match &s.byline {
         Some(Byline::Placeholder(text)) => {
-            // A blank still keeps the line: see the empty-space arm below.
             let shown = if text.is_empty() { SharedString::from(" ") } else { text.clone() };
             meta_line(p, SR_META_TEXT, Vec::new())
                 .text_color(SecondLineKind::Placeholder.ink(p))
@@ -516,14 +603,16 @@ fn second_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> A
             }
             .into_any_element()
         }
-        None if !has_legacy_second_line(s) => {
-            // Empty space, not a collapsed row: a blank keeps the line's
-            // height (code blocks use the same `" "` line-box trick), so a
-            // session with nothing to show is exactly as tall as its
-            // neighbours.
-            meta_line(p, SR_META_TEXT, Vec::new()).child(div().child(" ")).into_any_element()
-        }
         None => {
+            if let Some(text) = project_branch_text(s) {
+                return meta_line(p, SR_META_TEXT, Vec::new())
+                    .text_color(p.ink_3)
+                    .child(div().min_w(px(0.0)).truncate().child(text))
+                    .into_any_element();
+            }
+            if !has_non_project_legacy(s) {
+                return meta_line(p, SR_META_TEXT, Vec::new()).child(div().child(" ")).into_any_element();
+            }
             let mut items = Vec::new();
             if let Some(activity) = &s.activity {
                 let color = match activity.kind {
@@ -532,7 +621,7 @@ fn second_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> A
                     ActivityKind::Failed => p.danger,
                 };
                 if activity.kind == ActivityKind::Working {
-                    items.push(spinner((id.clone(), "activity-spinner")).size(px(ACTIVITY_SPINNER)).into_any_element());
+                    items.push(spinner((id.clone(), "context-spinner")).size(px(ACTIVITY_SPINNER)).into_any_element());
                 }
                 items.push(div().min_w(px(0.0)).truncate().text_color(color).child(activity.text.clone()).into_any_element());
             }
@@ -543,6 +632,26 @@ fn second_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> A
             }
             meta_line(p, SR_META_TEXT, meta).into_any_element()
         }
+    }
+}
+
+/// Option B's status (third) line: always exactly one line — the semibold
+/// state-coloured verb, or empty space when the caller set no
+/// [`RowStatus`] — truncating with an ellipsis, never wrapping. The caller
+/// supplies the variable words; the library owns the colour and weight.
+fn status_line(p: &aui_tokens::Palette, status: &Option<RowStatus>) -> AnyElement {
+    match status {
+        Some(status) => div()
+            .w_full()
+            .min_w(px(0.0))
+            .overflow_hidden()
+            .ui(STATUS_TEXT)
+            .semibold()
+            .text_color(status.ink(p))
+            .whitespace_nowrap()
+            .child(div().min_w(px(0.0)).truncate().child(status.text()))
+            .into_any_element(),
+        None => meta_line(p, STATUS_TEXT, Vec::new()).child(div().child(" ")).into_any_element(),
     }
 }
 
@@ -761,10 +870,13 @@ impl RenderOnce for CompactSessionRow {
                 .child(title)
                 .child(div().flex_none().text_role(TextRole::MonoSmall).font_weight(gpui::FontWeight::MEDIUM).text_color(p.ink_3).child(s.elapsed.clone())),
         );
-        // The second line always keeps its line: empty space, the legacy
-        // meta tags, or the explicit byline — so every row is two lines
-        // tall whatever the caller passes.
-        lines = lines.child(second_line(&p, &id, &s));
+        // Option B: title, context, status — three lines, each keeping its
+        // line when empty, so every row is the same height in every state.
+        // The context line carries the approval/question override, the
+        // byline, `project · branch`, or legacy meta; the status line is
+        // the semibold verb (or empty space when unset).
+        lines = lines.child(context_line(&p, &id, &s));
+        lines = lines.child(status_line(&p, &s.status));
 
         // No `w_full`: at full width the 8 px margins overflow the column and
         // the shell clips them, leaving ~0 px on the right. As a flex item the
@@ -931,6 +1043,102 @@ mod tests {
                 SecondLineKind::Preview.ink(&p),
                 "placeholder differs from preview in {theme:?}"
             );
+        }
+    }
+
+    /// Option B's context priority: attention first, then the byline the
+    /// owner kept, then preview, then `project · branch`, then legacy meta,
+    /// else empty space that still holds the line.
+    #[test]
+    fn context_line_priority_is_attention_byline_preview_project_meta_empty() {
+        assert_eq!(context_line_kind(&summary("none")), ContextLineKind::Empty);
+        assert_eq!(
+            context_line_kind(&summary("meta").meta(MetaItem::Text("PR #2491 open".into()))),
+            ContextLineKind::Meta
+        );
+        assert_eq!(context_line_kind(&summary("proj").repo("acme-web").branch("main")), ContextLineKind::Project);
+        assert_eq!(context_line_kind(&summary("proj-only").branch("main")), ContextLineKind::Project);
+        assert_eq!(context_line_kind(&summary("prev").preview("Fixed it")), ContextLineKind::Preview);
+        assert_eq!(context_line_kind(&summary("ph").placeholder("Working…")), ContextLineKind::Placeholder);
+        assert_eq!(context_line_kind(&summary("bl").byline("ask", "result")), ContextLineKind::Byline);
+        // Attention wins over everything on the context line.
+        assert_eq!(
+            context_line_kind(&summary("att").byline("ask", "result").preview("x").repo("p").attention("sudo apt install notifierd")),
+            ContextLineKind::Attention
+        );
+        // The byline survives: TwoLines still wins over preview-shaped and
+        // project-shaped fallbacks.
+        assert_eq!(
+            context_line_kind(&summary("both").preview("new words").byline("ask", "result")),
+            ContextLineKind::Byline
+        );
+        assert_eq!(
+            context_line_kind(&summary("bp").repo("acme-web").byline("ask", "result")),
+            ContextLineKind::Byline
+        );
+        // `project · branch` joins with a middot.
+        assert_eq!(project_branch_text(&summary("none")), None);
+        assert_eq!(
+            project_branch_text(&summary("pb").repo("acme-web").branch("feature/checkout-flow-v2")),
+            Some("acme-web · feature/checkout-flow-v2".into())
+        );
+    }
+
+    /// Option B's status vocabulary: the caller supplies the variable words,
+    /// the library owns the sentence, colour and weight.
+    #[test]
+    fn status_vocabulary_and_colours_come_from_tokens() {
+        use crate::nav::{RowStatus, RowStatusKind};
+        for theme in [ThemeKind::Dark, ThemeKind::Light] {
+            let p: Palette = Palette::for_kind(theme);
+            let text = |kind: RowStatusKind, detail: &str| RowStatus::new(kind, detail).text();
+            assert_eq!(text(RowStatusKind::Working, "14m"), "Working · 14m");
+            assert_eq!(text(RowStatusKind::NeedsApproval, ""), "Needs approval");
+            assert_eq!(text(RowStatusKind::Asked, "Which bucket for staging?"), "Asked: \"Which bucket for staging?\"");
+            assert_eq!(text(RowStatusKind::Settled, "12m · 5 turns"), "Settled · 12m · 5 turns");
+            assert_eq!(text(RowStatusKind::Failed, "1h"), "Failed · 1h");
+            assert_eq!(text(RowStatusKind::NoReply, ""), "No reply yet");
+            assert_eq!(text(RowStatusKind::NoReply, "2d"), "No reply yet · 2d");
+            assert_eq!(RowStatus::new(RowStatusKind::Working, "14m").ink(&p), p.accent_ink, "working ink in {theme:?}");
+            assert_eq!(
+                RowStatus::new(RowStatusKind::NeedsApproval, "").ink(&p),
+                p.warning,
+                "approval ink in {theme:?}"
+            );
+            assert_eq!(RowStatus::new(RowStatusKind::Asked, "q").ink(&p), p.warning, "asked ink in {theme:?}");
+            assert_eq!(RowStatus::new(RowStatusKind::Settled, "x").ink(&p), p.ink_3, "settled ink in {theme:?}");
+            assert_eq!(RowStatus::new(RowStatusKind::Failed, "x").ink(&p), p.danger, "failed ink in {theme:?}");
+            assert_eq!(RowStatus::new(RowStatusKind::NoReply, "").ink(&p), p.ink_3, "no-reply ink in {theme:?}");
+        }
+    }
+
+    /// Option B rows are three lines tall in every state: title plus one
+    /// context line plus one status line, each truncating, none wrapping —
+    /// including the empty states that hold their lines as blank space.
+    #[test]
+    fn option_b_rows_share_one_height_in_every_state() {
+        use crate::nav::RowStatusKind;
+        let states = vec![
+            summary("working")
+                .repo("acme-web")
+                .branch("feature/checkout-flow-v2")
+                .status(RowStatusKind::Working, "14m"),
+            summary("approval").attention("sudo apt install notifierd").status(RowStatusKind::NeedsApproval, ""),
+            summary("asked")
+                .preview("Refresh the session tokens")
+                .status(RowStatusKind::Asked, "Which bucket for staging?"),
+            summary("settled")
+                .byline("Draft the cart recovery email", "Drafted three variants")
+                .status(RowStatusKind::Settled, "12m · 5 turns"),
+            summary("failed").byline("Add the observability tiles", "2 tests failed").status(RowStatusKind::Failed, "1h"),
+            summary("empty").repo("acme-internal").branch("fix/webhook-retry").status(RowStatusKind::NoReply, "2d"),
+            summary("blank"),
+        ];
+        for s in &states {
+            let context = context_line_kind(s);
+            assert_eq!(context.lines(), 1, "{context:?} keeps one context line");
+            assert!(context.truncate(), "{context:?} ellipsizes at the row's width");
+            assert!(!context.wraps(), "{context:?} never wraps");
         }
     }
 }
