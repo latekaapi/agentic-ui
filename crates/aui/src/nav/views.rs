@@ -18,7 +18,7 @@ use gpui::{
 };
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{icon_button, status_dot, tag, ButtonSize};
+use crate::data::{icon_button, tag, ButtonSize};
 use crate::nav::{compact_session_row, group_header, group_row, project_mark, RowAction, SessionSummary};
 use crate::nav::{LEADING_BOX, NAV_GUTTER, NAV_LABEL_X};
 use crate::util::{interaction_flags, TrackInteraction};
@@ -72,6 +72,9 @@ const BRANCH_DROP_BELOW: f32 = 40.0;
 /// The current project's mark: a 2 px accent bar down the row's left edge,
 /// inside the row's own margin so it lines up with nothing else moving.
 const CURRENT_BAR_W: f32 = 2.0;
+/// How far the running state's left-edge bar dims at the pulse's end: full
+/// at the ring's birth, this much gone as it fades.
+const STATE_BAR_FADE: f32 = 0.55;
 /// The bar stops short of the row's rounded corners at top and bottom.
 const CURRENT_BAR_INSET: f32 = 4.0;
 /// The hover tray: the same right/top inset the session row's tray uses, so
@@ -178,7 +181,8 @@ pub struct ProjectGroup {
     pub mark: Option<(SharedString, gpui::Hsla)>,
     /// The trailing mono text before the count (the branch).
     pub trailing: Option<SharedString>,
-    /// The rolled-up agent state: a status dot after the name.
+    /// The rolled-up agent state: an accent bar at the row's left edge, in
+    /// the state colour.
     pub state: Option<aui_tokens::AgentState>,
     /// Draw the collapse chevron in the leading box (off: the row is a plain
     /// label whose first glyph starts at the leading centre).
@@ -245,8 +249,9 @@ impl ProjectGroup {
         self
     }
 
-    /// Sets the rolled-up agent state: a status dot after the name, pulsing
-    /// while a session runs.
+    /// Sets the rolled-up agent state: an accent bar at the row's left edge
+    /// in the state colour, breathing with the shared pulse while a session
+    /// runs.
     pub fn state(mut self, state: aui_tokens::AgentState) -> Self {
         self.state = Some(state);
         self
@@ -948,8 +953,9 @@ impl ProjectGroupRow {
         self
     }
 
-    /// Sets the rolled-up agent state: a status dot after the name, pulsing
-    /// while a session runs.
+    /// Sets the rolled-up agent state: an accent bar at the row's left edge
+    /// in the state colour, breathing with the shared pulse while a session
+    /// runs.
     pub fn state(mut self, state: aui_tokens::AgentState) -> Self {
         self.state = Some(state);
         self
@@ -1239,10 +1245,38 @@ impl RenderOnce for ProjectGroupRow {
                     .child(self.name),
             )
         };
-        if self.current && self.current_bar {
-            // Inside the row's margin, so the bar marks this row without
-            // shifting anything in it: the row is `relative`, the bar
-            // absolute at its left edge.
+        // One left-edge slot, shared by the current-project bar and the
+        // rolled-up state: a bar in the state colour when a state is set
+        // (running is the more urgent signal on a group that is both
+        // current and running), else the accent bar for a current group.
+        // Inside the row's margin and absolute, so it marks the row without
+        // shifting anything in it — the labels stay at `NAV_LABEL_X`.
+        let state_bar = self.state.map(|state| {
+            let color = p.agent_state(state);
+            let mut bar = div()
+                .absolute()
+                .left_0()
+                .top(px(CURRENT_BAR_INSET))
+                .bottom(px(CURRENT_BAR_INSET))
+                .w(px(CURRENT_BAR_W))
+                .rounded(px(CURRENT_BAR_W))
+                .bg(color);
+            // The shared pulse, sampled like the session dots: full at the
+            // ring's birth, dim as it fades. No phase (reduced motion, or no
+            // driver) rests solid, the way dots rest plain.
+            if state == aui_tokens::AgentState::Running {
+                if let Some(phase) = self.pulse_phase {
+                    bar = bar.opacity(1.0 - STATE_BAR_FADE * phase);
+                }
+            }
+            bar
+        });
+        if let Some(bar) = state_bar {
+            row = row.child(bar);
+        } else if self.current && self.current_bar {
+            // Kept for a current group with no rolled-up state (the state
+            // bar above took the slot otherwise): the same geometry in the
+            // accent colour.
             row = row.child(
                 div()
                     .absolute()
@@ -1253,14 +1287,6 @@ impl RenderOnce for ProjectGroupRow {
                     .rounded(px(CURRENT_BAR_W))
                     .bg(p.accent),
             );
-        }
-        if let Some(state) = self.state {
-            let pulse = state == aui_tokens::AgentState::Running;
-            let mut dot = status_dot((id.clone(), "state"), state).pulse(pulse);
-            if let Some(phase) = self.pulse_phase {
-                dot = dot.phase(phase);
-            }
-            row = row.child(dot);
         }
         row = row.child(div().flex_1());
         // The tray covers this end of the row, so the branch and the count

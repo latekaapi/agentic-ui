@@ -110,8 +110,8 @@ fn status_groups() -> Vec<StatusGroup> {
 }
 
 /// The project grouping of column two: plain rows, a trailing branch, one
-/// running group with its dot, and the closed muted "Other workspaces"
-/// group.
+/// running group with its left-edge state bar (accent, breathing with the
+/// shared pulse), and the closed muted "Other workspaces" group.
 fn project_groups() -> Vec<ProjectGroup> {
     vec![
         ProjectGroup::new("acme-web", "acme-web", "5")
@@ -137,7 +137,9 @@ fn project_groups() -> Vec<ProjectGroup> {
         // A branch far longer than the column fits: it must give way (truncate)
         // while the project name keeps its readable minimum.
         ProjectGroup::new("orca", "orca", "2").trailing("feature/projects-2026-09-13-long").open(vec![notifier()]),
-        ProjectGroup::new("acme-internal", "acme-internal", "4"),
+        // A group waiting on the person: the same left-edge slot in the
+        // warning colour, resting solid.
+        ProjectGroup::new("acme-internal", "acme-internal", "4").state(AgentState::Waiting),
         ProjectGroup::new("other", "Other workspaces", "3").muted(),
     ]
 }
