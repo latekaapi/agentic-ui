@@ -3,7 +3,7 @@
 //!
 //! The sidebar row truncates, so hovering a row shows the whole picture in
 //! issue order, top to bottom: the full title wrapping with the relative
-//! time (`12m`) right-aligned in the header's first line; the owner's last
+//! time (`12m`) right-aligned in the header's first line; the user's last
 //! message quoted and muted; the latest reply's first line in the state
 //! colour (which carries the status, so there is no separate status row);
 //! one inline meta row (branch, turn count, updated) that truncates
@@ -11,7 +11,7 @@
 //! Caller-supplied and optional per field: only the fields the app sets are
 //! drawn, and a field the app does not have leaves no empty row behind.
 //!
-//! The one state that stands out is waiting on the owner: a pending question
+//! The one state that stands out is waiting on the user: a pending question
 //! or approval replaces the reply line with the highlighted attention box —
 //! warning-tinted border and fill, a small icon, `Asked:` / `Needs approval:`
 //! in semibold, then the question/command text wrapping up to three lines.
@@ -79,13 +79,13 @@ pub const SESSION_DETAIL_ATTENTION_LINES: usize = 3;
 pub struct SessionDetailData {
     /// Full title, wrapping, never truncated.
     pub title: Option<SharedString>,
-    /// The owner's last message, quoted and muted, up to two lines.
+    /// The user's last message, quoted and muted, up to two lines.
     pub ask: Option<SharedString>,
     /// The latest reply: its first line draws in the state colour — unless
-    /// the session waits on the owner, when the attention box replaces it.
+    /// the session waits on the user, when the attention box replaces it.
     pub reply: Option<SharedString>,
     /// Status with its detail; picks the reply line's colour and, when the
-    /// session waits on the owner, the attention box's label.
+    /// session waits on the user, the attention box's label.
     pub status: Option<RowStatus>,
     /// Project name: merges with [`Self::workspace`] into the footer.
     pub project: Option<SharedString>,
@@ -151,14 +151,14 @@ impl SessionDetail {
         self
     }
 
-    /// The owner's last message: quoted, muted, up to two lines.
+    /// The user's last message: quoted, muted, up to two lines.
     pub fn ask(mut self, ask: impl Into<SharedString>) -> Self {
         self.ask = Some(ask.into());
         self
     }
 
     /// The latest reply: its first line, in the state colour — unless the
-    /// session waits on the owner, when the attention box replaces it.
+    /// session waits on the user, when the attention box replaces it.
     pub fn reply(mut self, reply: impl Into<SharedString>) -> Self {
         self.reply = Some(reply.into());
         self

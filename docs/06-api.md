@@ -538,13 +538,13 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn new(kind: RowStatusKind, detail: impl Into<SharedString>) -> Self` — A status of `kind` with `detail`’s variable words.
   - `pub fn text(&self) -> SharedString` — The sentence the status line draws: the verb plus `detail` where the state carries one. `Asked` wraps a non-empty detail in double quotes; the other suffixed states join with `·`.
 - **struct** `SessionDetail` — The hover detail card. Build with `session_detail`.
-  - `pub fn ask(self, ask: impl Into<SharedString>) -> Self` — The owner’s last message: quoted, muted, up to two lines.
+  - `pub fn ask(self, ask: impl Into<SharedString>) -> Self` — The user’s last message: quoted, muted, up to two lines.
   - `pub fn branch(self, branch: impl Into<SharedString>) -> Self` — The branch name, on the meta row.
   - `pub fn data(&self) -> SessionDetailData` — The data behind this card, for tests and tooling.
   - `pub fn pending_approval(self, command: impl Into<SharedString>) -> Self` — The pending approval’s exact command: with a `RowStatusKind::NeedsApproval` status this replaces the reply line with the attention box, ahead of the pending question.
   - `pub fn pending_question(self, question: impl Into<SharedString>) -> Self` — The pending question’s prompt: with an `RowStatusKind::Asked` status this replaces the reply line with the attention box.
   - `pub fn project(self, project: impl Into<SharedString>) -> Self` — The project name: merges with the workspace into the footer.
-  - `pub fn reply(self, reply: impl Into<SharedString>) -> Self` — The latest reply: its first line, in the state colour — unless the session waits on the owner, when the attention box replaces it.
+  - `pub fn reply(self, reply: impl Into<SharedString>) -> Self` — The latest reply: its first line, in the state colour — unless the session waits on the user, when the attention box replaces it.
   - `pub fn status(self, kind: RowStatusKind, detail: impl Into<SharedString>) -> Self` — The status with its detail; the library owns the colour and weight. [...]
   - `pub fn title(self, title: impl Into<SharedString>) -> Self` — The full title, wrapping, never truncated.
   - `pub fn turns(self, turns: usize) -> Self` — The turn count, drawn as a bare number on the meta row.

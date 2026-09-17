@@ -21,7 +21,7 @@ use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
 /// ([`LEADING_BOX`]), and the label gap after it — so every label and title
 /// starts at [`NAV_LABEL_X`]. On the 4/8 grid: the leading centre lands at
 /// 8 + 10 = 18 px from the column edge and the labels at 8 + 20 + 4 = 32 px
-/// (the owner's Claude frame: glyph centre ≈ 36 at 2×, labels ≈ 64 at 2×).
+/// (the Claude frame: glyph centre ≈ 36 at 2×, labels ≈ 64 at 2×).
 /// Rows that keep an 8 px ground margin ([`crate::nav::session_row`]'s
 /// `SR_MARGIN_X`, the project row's `PJ_MARGIN_X`) carry the gutter in that
 /// margin and start their content flush; margin-free rows (`NavItem`, the

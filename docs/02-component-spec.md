@@ -75,8 +75,9 @@ Conventions used below: **anatomy** (parts, left to right / top to bottom), **si
 ## 2. Sidebar
 
 ### 2.1 Worktree / session rows (cards 20, 23)
-- Row: grid 14 px | 1fr | auto; padding 9 10; margin 2 8; radius 8. Line 1: status dot 7 px (pulse ring when running/waiting), name 12.5–13 px 500 ink, elapsed mono 11 ink-3 right. Line 2 (meta, 12 px ink-3, nowrap, truncates): repo tag, branch tag, provider marks 13 px. Optional line 3: live activity sentence (spinner 10 px + text, ink-2) or the waiting reason in warning or the failure in danger.
-- Selected: surface-3 ground (no accent wash). Hover: surface-2; the elapsed time fades out and four xs ghost actions fade in (terminal, browser, pin, more) on a surface-2 tray. Unread: 3 px accent bar at the left edge.
+- Row: grid 14 px | 1fr | auto; padding 9 10; margin 2 8; radius 8. Line 1: status dot 7 px (pulse ring when running/waiting), name 12.5–13 px 500 ink, elapsed mono 11 ink-3 right. Line 2 is an explicit `Byline` and every row keeps the same height: `TwoLines` (a status line — live activity, waiting reason in warning, failure in danger — over an ink-3 context line of repo/branch/provider), `Preview` (one muted line), or `Placeholder` (an empty line that holds the height). A pending question or approval draws first, ahead of the byline.
+- Hovering a row for `SESSION_DETAIL_DELAY` opens the hover detail card (`session_detail`, 320 px) at the row's right edge: full title + relative time, the user's last message quoted, the latest reply's first line in the state colour (an attention box for a pending question/approval), one meta row, and a project/workspace footer. Rows report hover enter/leave with their session id and measured bounds (`on_hover`, `on_hover_bounds`) so the caller can arm and seat the card; it closes on leave, scroll or click.
+- Selected: surface-3 ground (no accent wash). Hover: surface-2; the elapsed time fades out and four xs ghost actions fade in (terminal, browser, pin, more) on a surface-2 tray. Unread: 3 px accent bar at the left edge. The current project row carries a 2 px accent bar down its left edge (`current_bar`); `current` alone only restyles the label.
 - Children nest at +22 px with a 1 px line rail on the left; names 12 px.
 - Compact session row (`sr`, used in project and date views): min 30 px, padding 4 10 4 12, one line + optional meta line.
 
@@ -102,7 +103,7 @@ Conventions used below: **anatomy** (parts, left to right / top to bottom), **si
 ### 3.2 Turns (card 31)
 - User turn: right-aligned, max 72% width, surface-3, radius 12/12/4/12, padding 9 13, 13 px/1.5. Attachments strip above (30 px chips with 18 px icon tile). Mention chips inside text: surface-3 ground, accent-ink mono 12. A reported timestamp draws a mono 11 ink-4 how-long-ago caption under the bubble (`5m ago`, via `format_age`). Hover reveals edit / copy / re-send xs ghost buttons to the left; copy morphs to a success check for 1.2 s (`COPY_HOLD`, the code block's hold and colour) on the caller's flag.
 - Assistant turn: full pane width, no bubble, 13.5 px/1.65 ink. Streaming: chunks fade + 3 px rise (StreamReveal); caret 2 × 15 px accent blinking 1 s steps(2). Hover toolbar (copy, retry, fork, bookmark) appears above-right at opacity 1 with 4 px rise, never shifting layout; copy morphs to a success check for 1.2 s (`COPY_HOLD`) on the caller's flag, the code block's morph. Footer meta mono 11 ink-4: model · duration · tokens · cost · age (a reported timestamp appends `2m ago` via `format_age`; no timestamp draws no cell).
-- Inline code: mono 12 on surface-2, radius 4. Lists 18 px indent.
+- Inline code: mono 12 on surface-2, radius 4. Lists 18 px indent. Text selection spans blocks: markdown reports a `MessageSelection` through `span_selection` / `on_selection_change`, and `message_selected_text` extracts the covered text for copy.
 
 ### 3.3 Thinking block (card 32)
 - Card radius 8, 1 px line, surface-1. Header 34 px: brain icon (accent-ink while thinking, ink-3 after), "Thinking" shimmer 500, elapsed mono 11 right, chevron.

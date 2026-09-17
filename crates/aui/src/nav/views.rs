@@ -33,7 +33,7 @@ const PJ_PAD_RIGHT: f32 = 10.0;
 /// The label gap after the leading box: `NAV_LABEL_X - NAV_GUTTER -
 /// LEADING_BOX`, so a chevron in the box puts the name at `NAV_LABEL_X`.
 const PJ_LEAD_GAP: f32 = NAV_LABEL_X - NAV_GUTTER - LEADING_BOX;
-/// The plain name's left pad (owner round 5): with no chevron or mark the
+/// The plain name's left pad: with no chevron or mark the
 /// name starts at the leading centre (`NAV_GUTTER + LEADING_BOX / 2`), the
 /// one vertical line the nav icons and the session dots sit on — not at the
 /// column margin (where it sat left of the icons) and not at `NAV_LABEL_X`
@@ -1224,7 +1224,7 @@ impl RenderOnce for ProjectGroupRow {
         // glyph starts at the leading centre. With `chevron` (or an explicit
         // mark, which other consumers may pass), the box is taken and the
         // label follows at `NAV_LABEL_X`. Every project reads the same muted
-        // treatment — `current` alone changes nothing (owner round 5); only
+        // treatment — `current` alone changes nothing; only
         // `current_bar` marks the row, without moving it.
         let leading_box = self.chevron || (self.mark.is_some() && !self.muted);
         let mut row = {

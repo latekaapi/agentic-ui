@@ -4,9 +4,29 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.1.0] - 2026-09-06
+## 0.1.0 — unreleased
 
 ### Added
+
+- Sidebar session rows gained an explicit two-line byline: `Byline::TwoLines`
+  (a status line over an ink-3 context line), `Byline::Preview`, or
+  `Byline::Placeholder`, so every row keeps the same height whether or not it
+  has anything to show. Rows report hover enter/leave with their session id
+  and measured bounds (`on_hover`, `on_hover_bounds`) so the caller can arm
+  and seat a hover card.
+- A sidebar hover detail card (`session_detail`, 320 px): the full title with
+  relative time, the user's last message quoted, the latest reply's first
+  line in the state colour, an attention box for a pending question or
+  approval, one meta row, and a project/workspace footer. It opens after
+  `SESSION_DETAIL_DELAY` of hover and closes on leave, scroll or click.
+- The current project row marks its rolled-up agent state with a 2 px accent
+  bar down its left edge (`ProjectGroupRow::current_bar`).
+- Transcript turns carry timestamps with how-long-ago captions (`5m ago`, via
+  `format_age`), and the turn copy buttons morph to a success check for 1.2 s
+  (`COPY_HOLD`) on the caller's flag.
+- Transcript text selection spans blocks: markdown reports a
+  `MessageSelection` through `span_selection` / `on_selection_change`, and
+  `message_selected_text` extracts the covered text for copy.
 
 - Workspace scaffold, `aui-tokens` (colour, space, radius, type, shadow and
   motion tokens; light and dark themes generated for the `gpui-kit` theme

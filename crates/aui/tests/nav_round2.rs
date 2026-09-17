@@ -1,4 +1,4 @@
-//! Owner round 2: the folded project row.
+//! The folded project row.
 //!
 //! `painted_quads` only sees solid fills, the pointer is inert under
 //! `#[gpui::test]` and headless windows have no rasterizer — so text, the
