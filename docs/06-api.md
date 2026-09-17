@@ -440,6 +440,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn actions(self, actions: Vec<RowAction>) -> Self` — The hover action tray, off by default on a compact row.
   - `pub fn editor(self, editor: impl IntoElement) -> Self` — Replace the name with a field the caller owns: an inline rename.
   - `pub fn on_action(self, f: impl Fn(&SharedString, RowAction, &mut Window, &mut App) + 'static) -> Self` — Hover-action click.
+  - `pub fn on_hover(self, f: impl Fn(&SharedString, bool, &mut Window, &mut App) + 'static) -> Self` — Hover enter/leave with the session id. Shares the row’s single `on_hover` slot with the interaction state (a second handler would replace the tracking), so the caller learns about the pointer even whe [...]
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — Row click.
   - `pub fn pulse_phase(self, phase: f32) -> Self` — Samples the status dot’s pulse ring at `phase` instead of mounting the looping animation: no frame is requested, so the ring only moves when the caller re-renders (a view on its own timer). [...]
   - `pub fn selected(self, selected: bool) -> Self` — Selected: surface-3 ground and ink text.
@@ -484,7 +485,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn muted(self) -> Self` — Mutes the row (`Archived`, `Other workspaces`).
   - `pub fn new(id: impl Into<SharedString>, name: impl Into<SharedString>, count: impl Into<SharedString>) -> Self` — A closed, unmuted project.
   - `pub fn open(self, sessions: Vec<SessionSummary>) -> Self` — Opens the project and gives it its sessions.
-  - `pub fn state(self, state: AgentState) -> Self` — Sets the rolled-up agent state: a status dot after the name, pulsing while a session runs.
+  - `pub fn state(self, state: AgentState) -> Self` — Sets the rolled-up agent state: an accent bar at the row’s left edge in the state colour, breathing with the shared pulse while a session runs.
   - `pub fn trailing(self, text: impl Into<SharedString>) -> Self` — Sets the trailing mono text before the count (the branch).
 - **struct** `ProjectGroupRow` — A project row (`.pj`). Build with `project_group_row`.
   - `pub fn chevron(self, chevron: bool) -> Self` — Draws the collapse chevron in the leading box; the label follows at `NAV_LABEL_X`. Off by default: the row is a plain label whose first glyph starts at the leading centre.
@@ -496,7 +497,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn on_menu_prepainted(self, group_id: impl Into<SharedString>, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Reports the tray `…` button’s bounds, keyed by `group_id`, once per frame — what a group-row menu seats at. The library stores nothing.
   - `pub fn on_toggle(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Toggle click.
   - `pub fn pulse_phase(self, phase: f32) -> Self` — Samples the state dot’s pulse ring at `phase` instead of mounting the looping animation: no frame is requested, so the ring only moves when the caller re-renders (a view on its own timer). [...]
-  - `pub fn state(self, state: AgentState) -> Self` — Sets the rolled-up agent state: a status dot after the name, pulsing while a session runs.
+  - `pub fn state(self, state: AgentState) -> Self` — Sets the rolled-up agent state: an accent bar at the row’s left edge in the state colour, breathing with the shared pulse while a session runs.
   - `pub fn trailing(self, text: impl Into<SharedString>) -> Self` — Sets the trailing mono text before the count (the branch).
 - **struct** `ProjectMark` — A project mark. Build with `project_mark`.
   - `pub fn size(self, size: impl Into<Pixels>) -> Self` — Overrides the square’s side: 14 for menu rows and the palette, 18 for the header and group rows, 22 for the rail. The initial scales with it.
@@ -620,6 +621,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn on_current_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with the `current` project group row’s bounds. See `Self::on_selected_prepainted`.
   - `pub fn on_group_action(self, f: impl Fn(&SharedString, GroupAction, &mut Window, &mut App) + 'static) -> Self` — A project group row’s hover action was clicked; the arguments are the group id and what the tray button asked for.
   - `pub fn on_group_menu_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with every rendered project group row’s tray `…` button bounds, keyed by group id — what a group-row menu seats at. See `Self::on_selected_prepainted`.
+  - `pub fn on_row_hover(self, f: impl Fn(&SharedString, bool, &mut Window, &mut App) + 'static) -> Self` — A session row’s hover state changed; the arguments are the session id and whether the pointer entered. [...]
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A row was clicked; the argument is the session id.
   - `pub fn on_selected_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with the selected session row’s bounds. The library stores nothing; the app decides what to do with the bounds (for example, seating a trigger menu at the row).
   - `pub fn on_toggle(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A group header or project row was clicked; the argument is the group id.
@@ -648,6 +650,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn on_group_action(self, f: impl Fn(&SharedString, GroupAction, &mut Window, &mut App) + 'static) -> Self` — A project group row’s hover action was clicked; the arguments are the group id and what the tray button asked for.
   - `pub fn on_group_menu_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with every built project group row’s tray `…` button bounds, keyed by group id — what a group-row menu seats at. See `Self::on_selected_prepainted`.
   - `pub fn on_row_built(self, f: impl Fn(usize) + 'static) -> Self` — Debug/testing hook: fires with the flattened index each time the list builds a row (visible rows plus the overdraw runway, plus any measure pass), so a test or the gallery can prove only visible rows are built. [...]
+  - `pub fn on_row_hover(self, f: impl Fn(&SharedString, bool, &mut Window, &mut App) + 'static) -> Self` — A session row’s hover state changed; the arguments are the session id and whether the pointer entered. [...]
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A row was clicked; the argument is the session id.
   - `pub fn on_selected_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with the selected session row’s bounds. [...]
   - `pub fn on_toggle(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A group header or project row was clicked; the argument is the group id.
@@ -1358,6 +1361,7 @@ Small helpers shared by the components: per-element interaction state (hover / p
 
 - **trait** `TrackInteraction` — Wires hover / press tracking into a stateful element.
   - `fn track_interaction(self, state: &Entity<Interaction>) -> Self` — Updates `state` from hover, mouse-down and mouse-up events.
+  - `fn track_interaction_reported(self, state: &Entity<Interaction>, report: impl Fn(bool, &mut Window, &mut App) + 'static) -> Self` — Like `Self::track_interaction`, plus a hover report: `report` fires on every hover enter/leave beside the state update, so a caller that owns hover-driven UI (a detail card’s delay arm) learns about the pointer even when nothing re-renders. [...]
 
 - **type** `ClickHandler` — A click handler stored by a component builder.
   - `pub type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;`
