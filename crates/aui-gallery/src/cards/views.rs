@@ -4,8 +4,8 @@
 
 use aui::keys::{Cancel, Confirm, SelectNext, SelectPrev, MENU_CONTEXT};
 use aui::nav::{
-    anchored_session_detail, nav_item, session_detail, sidebar_search, sidebar_view, view_menu, view_submenu, view_submenu_rows, DateGroup, Grouping,
-    MenuRow, ProjectGroup, RowAction, RowStatusKind, SessionSummary, StatusGroup,
+    anchored_session_detail_at_sidebar, nav_item, session_detail, sidebar_search, sidebar_view, view_menu, view_submenu, view_submenu_rows,
+    DateGroup, Grouping, MenuRow, ProjectGroup, RowAction, RowStatusKind, SessionSummary, StatusGroup,
 };
 use aui::nav::{ActivityKind, MetaItem};
 use aui::overlay::popover_layer;
@@ -34,9 +34,10 @@ const OPTION_B_NARROW: f32 = 260.0;
 const OPTION_B_WIDE: f32 = 420.0;
 /// Six three-line rows plus the project head: the verbs sit on one rhythm.
 const OPTION_B_H: f32 = 480.0;
-/// The hover-detail demo column: a 260 px list with room for the 300 px card
-/// below the hovered row.
-const DETAIL_DEMO_W: f32 = 340.0;
+/// The hover-detail demo: a 260 px list with the 300 px card seated at the
+/// list's own right edge, top-aligned with the hovered row — the same seat
+/// the app gives the hover card.
+const DETAIL_DEMO_LIST_W: f32 = 260.0;
 const DETAIL_DEMO_H: f32 = 300.0;
 /// The gap between the card's main row and the width states.
 const ROW_GAP: f32 = 26.0;
@@ -286,16 +287,20 @@ fn option_b_panel(p: &Palette, title: &'static str, id: &'static str, width: f32
 /// `on_selected_prepainted` hook an app uses for its hovered row.
 const DETAIL_ROW_ID: &str = "obd-auth";
 
-/// What the demo card remembers: the hovered row's bounds, if measured.
+/// What the demo card remembers: the hovered row's bounds and the list
+/// panel's own bounds, if measured — the two inputs of the side seat.
 #[derive(Clone, PartialEq)]
 struct DetailDemo {
     trigger: Option<Bounds<Pixels>>,
+    edge: Option<Bounds<Pixels>>,
 }
 
 /// The hover detail beside a 260 px list: the selected row's bounds seat an
-/// [`anchored_session_detail`] below-start of the row through
-/// `popover_layer`, flipping above near the window bottom. The card shows
-/// only what the caller sets — here every field, so all eight keys draw.
+/// [`anchored_session_detail_at_sidebar`] at the list's right edge,
+/// top-aligned with the row, sliding up near the window bottom. The card
+/// shows only what the caller sets — here every field, so all eight keys
+/// draw. The card rides outside the clipped list panel, like the app's card
+/// rides outside the sidebar.
 fn detail_demo(p: &Palette, state: &Entity<DetailDemo>, cx: &mut App) -> Div {
     let group = ProjectGroup::new("detail-demo", "Sessions", "2").open(vec![
         SessionSummary::new("obd-checkout", "checkout-flow-v2", AgentState::Running, "14m")
@@ -330,9 +335,8 @@ fn detail_demo(p: &Palette, state: &Entity<DetailDemo>, cx: &mut App) -> Div {
         .branch("feature/auth-refresh")
         .turns(5)
         .updated("8m ago");
-    let mut panel = v_flex()
-        .relative()
-        .w_full()
+    let panel = v_flex()
+        .w(px(DETAIL_DEMO_LIST_W))
         .h(px(DETAIL_DEMO_H))
         .flex_none()
         .overflow_hidden()
@@ -341,14 +345,37 @@ fn detail_demo(p: &Palette, state: &Entity<DetailDemo>, cx: &mut App) -> Div {
         .border_color(p.line)
         .bg(p.surface_1)
         .child(view.into_any_element());
-    if let Some(trigger) = state.read(cx).trigger {
-        panel = panel.child(anchored_session_detail(trigger, card));
+    // The list's own right edge, measured off the laid-out panel the way the
+    // app measures its sidebar pane — the side seat's other input.
+    let edge_state = state.clone();
+    let mut row = h_flex()
+        .w_full()
+        .items_start()
+        .child(
+            div().w(px(DETAIL_DEMO_LIST_W)).flex_none().on_children_prepainted(move |bounds, _, cx| {
+                if let Some(first) = bounds.first() {
+                    let next = Some(*first);
+                    edge_state.update(cx, |s, cx| {
+                        if s.edge != next {
+                            s.edge = next;
+                            cx.notify();
+                        }
+                    });
+                }
+            }).child(panel),
+        );
+    if let (Some(trigger), Some(edge)) = (state.read(cx).trigger, state.read(cx).edge) {
+        row = row.child(anchored_session_detail_at_sidebar(
+            trigger,
+            edge.origin.x + edge.size.width,
+            card,
+        ));
     }
     v_flex()
+        .w_full()
         .flex_none()
-        .w(px(DETAIL_DEMO_W))
         .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.ink_3).child("Hover detail · every field set"))
-        .child(panel)
+        .child(row)
 }
 
 /// The second line's four states in one 300 px panel: title only (empty
@@ -813,22 +840,25 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(width_state(&p, "Wide · 520 px", "view-wide", WIDTH_WIDE))
         .child(second_line_state(&p));
 
-    // Option B at both mockup widths, plus the hover detail: six three-line
-    // rows at 260 px and 420 px beside the detail card the hovered row seats
-    // through `popover_layer`.
-    let demo = window.use_keyed_state("card23-detail-demo", cx, |_, _| DetailDemo { trigger: None });
+    // Option B at both mockup widths: six three-line rows at 260 px and
+    // 420 px.
     let option_b = h_flex()
         .w_full()
         .items_start()
         .gap(px(COLUMN_GAP))
         .child(option_b_panel(&p, "Option B · 260 px", "view-option-b-narrow", OPTION_B_NARROW))
-        .child(option_b_panel(&p, "Option B · 420 px", "view-option-b-wide", OPTION_B_WIDE))
-        .child(detail_demo(&p, &demo, cx));
+        .child(option_b_panel(&p, "Option B · 420 px", "view-option-b-wide", OPTION_B_WIDE));
+
+    // The hover detail on its own row, so the 300 px card has room at the
+    // 260 px list's right edge: the hovered row seats it through
+    // `popover_layer`, top-aligned with the row.
+    let demo = window.use_keyed_state("card23-detail-demo", cx, |_, _| DetailDemo { trigger: None, edge: None });
 
     v_flex()
         .w_full()
         .child(root)
         .child(div().mt(px(ROW_GAP)).w_full().child(widths))
         .child(div().mt(px(ROW_GAP)).w_full().child(option_b))
+        .child(div().mt(px(ROW_GAP)).w_full().child(detail_demo(&p, &demo, cx)))
         .into_any_element()
 }

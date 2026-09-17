@@ -365,6 +365,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
 
 - **fn** `anchored_session_detail` — Seats a `SessionDetail` at its row: below-start of `trigger` in `crate::overlay::popover_layer`, flipping above near the window bottom and sliding inside — the one seat rule, so the card escapes the s [...]
   - `pub fn anchored_session_detail(trigger: Bounds<Pixels>, detail: SessionDetail) -> impl IntoElement`
+- **fn** `anchored_session_detail_at_sidebar` — Seats a `SessionDetail` beside the sidebar at its row: the card’s left edge sits at the sidebar pane’s right edge plus `SESSION_DETAIL_GAP` with its top at the hovered row’s top, in `crate::overlay::popover_layer` so it escapes the sidebar’s clipping and paints above everything. [...]
+  - `pub fn anchored_session_detail_at_sidebar(row: Bounds<Pixels>, sidebar_right: Pixels, detail: SessionDetail) -> impl IntoElement`
 - **fn** `chevron` — A `.chev` glyph rotated 0° (closed) → 90° (open) on the swap spring, at the default 12 px.
   - `pub fn chevron(id: impl Into<ElementId>, open: bool, color: Hsla, window: &mut Window, cx: &mut App) -> impl IntoElement`
 - **fn** `chevron_sized` — `chevron` at an explicit `size` in design px, for the rows whose CSS narrows the glyph (`.pj .chev` 11 px, the file tree’s `.n .chev` 10 px).
@@ -413,6 +415,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn second_line_kind(summary: &SessionSummary) -> SecondLineKind`
 - **fn** `session_detail` — Empty detail content; fill with the builder methods on `SessionDetail`.
   - `pub fn session_detail(id: impl Into<ElementId>) -> SessionDetail`
+- **fn** `session_detail_side_origin` — Where a side-seated detail card’s top-left goes: the sidebar pane’s right edge plus `SESSION_DETAIL_GAP`, top-aligned with the hovered row — regardless of where in the row the pointer is, so the card never overlaps the sidebar. [...]
+  - `pub fn session_detail_side_origin(row: Bounds<Pixels>, sidebar_right: Pixels, window: Bounds<Pixels>, card: Size<Pixels>) -> Point<Pixels>`
 - **fn** `session_row` — A row for `session`. Children are rendered beneath it, nested.
   - `pub fn session_row(id: impl Into<ElementId>, session: SessionSummary) -> SessionRow`
 - **fn** `sidebar` — A sidebar rendering `nav`.
@@ -441,6 +445,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn editor(self, editor: impl IntoElement) -> Self` — Replace the name with a field the caller owns: an inline rename.
   - `pub fn on_action(self, f: impl Fn(&SharedString, RowAction, &mut Window, &mut App) + 'static) -> Self` — Hover-action click.
   - `pub fn on_hover(self, f: impl Fn(&SharedString, bool, &mut Window, &mut App) + 'static) -> Self` — Hover enter/leave with the session id. Shares the row’s single `on_hover` slot with the interaction state (a second handler would replace the tracking), so the caller learns about the pointer even whe [...]
+  - `pub fn on_hover_bounds(self, f: impl Fn(&SharedString, bool, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Hover enter/leave with the session id and the row’s own window bounds, measured in prepaint. [...]
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — Row click.
   - `pub fn pulse_phase(self, phase: f32) -> Self` — Samples the status dot’s pulse ring at `phase` instead of mounting the looping animation: no frame is requested, so the ring only moves when the caller re-renders (a view on its own timer). [...]
   - `pub fn selected(self, selected: bool) -> Self` — Selected: surface-3 ground and ink text.
@@ -622,6 +627,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn on_group_action(self, f: impl Fn(&SharedString, GroupAction, &mut Window, &mut App) + 'static) -> Self` — A project group row’s hover action was clicked; the arguments are the group id and what the tray button asked for.
   - `pub fn on_group_menu_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with every rendered project group row’s tray `…` button bounds, keyed by group id — what a group-row menu seats at. See `Self::on_selected_prepainted`.
   - `pub fn on_row_hover(self, f: impl Fn(&SharedString, bool, &mut Window, &mut App) + 'static) -> Self` — A session row’s hover state changed; the arguments are the session id and whether the pointer entered. [...]
+  - `pub fn on_row_hover_bounds(self, f: impl Fn(&SharedString, bool, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — A session row’s hover state changed, with the row’s own window bounds measured in prepaint; the arguments are the session id, whether the pointer entered, and the row’s rect. [...]
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A row was clicked; the argument is the session id.
   - `pub fn on_selected_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with the selected session row’s bounds. The library stores nothing; the app decides what to do with the bounds (for example, seating a trigger menu at the row).
   - `pub fn on_toggle(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A group header or project row was clicked; the argument is the group id.
@@ -651,6 +657,7 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn on_group_menu_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with every built project group row’s tray `…` button bounds, keyed by group id — what a group-row menu seats at. See `Self::on_selected_prepainted`.
   - `pub fn on_row_built(self, f: impl Fn(usize) + 'static) -> Self` — Debug/testing hook: fires with the flattened index each time the list builds a row (visible rows plus the overdraw runway, plus any measure pass), so a test or the gallery can prove only visible rows are built. [...]
   - `pub fn on_row_hover(self, f: impl Fn(&SharedString, bool, &mut Window, &mut App) + 'static) -> Self` — A session row’s hover state changed; the arguments are the session id and whether the pointer entered. [...]
+  - `pub fn on_row_hover_bounds(self, f: impl Fn(&SharedString, bool, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — A session row’s hover state changed, with the row’s own window bounds measured in prepaint; the arguments are the session id, whether the pointer entered, and the row’s rect. [...]
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A row was clicked; the argument is the session id.
   - `pub fn on_selected_prepainted(self, f: impl Fn(&SharedString, Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self` — Fires once per frame with the selected session row’s bounds. [...]
   - `pub fn on_toggle(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — A group header or project row was clicked; the argument is the group id.
@@ -718,6 +725,8 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub const RAIL_WIDTH: f32 = 48.0;`
 - **const** `SESSION_DETAIL_DELAY` — How long the app waits after hover before showing the detail: the motion token `slow` (280 ms) — long enough that a pointer travelling past rows never flashes the card, short enough that an intentiona [...]
   - `pub const SESSION_DETAIL_DELAY: Duration;`
+- **const** `SESSION_DETAIL_GAP` — The gap between the sidebar’s right edge and the side-seated detail card, and the margin it keeps to the window on every side: the `SP_2` spacing token, the same gap `crate::overlay::anchored_menu` ha [...]
+  - `pub const SESSION_DETAIL_GAP: f32 = scale::SP_2; // 4f32`
 - **const** `SESSION_DETAIL_WIDTH` — Width of the detail card: wide enough for a full ask at the sidebar’s narrow end, narrow enough to sit beside a 260 px sidebar.
   - `pub const SESSION_DETAIL_WIDTH: f32 = 300.0;`
 - **const** `SIDEBAR_OVERDRAW` — The measured-but-unpainted runway above and below the sidebar viewport.

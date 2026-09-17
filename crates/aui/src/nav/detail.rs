@@ -16,16 +16,22 @@
 //! // on_hover(false) | on_scroll | on_click → hovered = None
 //! ```
 //!
-//! Seat it with [`anchored_session_detail`]: below-start of the row's bounds
-//! in [`crate::overlay::popover_layer`], flipping above near the window
-//! bottom and sliding inside — the same seat every trigger menu uses. The
-//! card never takes focus (no focus handle, no key context) and never covers
-//! the row itself, so the row's own click still lands.
+//! Seat it beside the sidebar with [`anchored_session_detail_at_sidebar`]:
+//! the card's left edge at the sidebar pane's right edge plus
+//! [`SESSION_DETAIL_GAP`], top-aligned with the hovered row, sliding up near
+//! the window bottom — in [`crate::overlay::popover_layer`], so it escapes
+//! the sidebar's clipping and never covers the rows. ([`anchored_session_detail`]
+//! keeps the older below-start seat.) The card never takes focus (no focus
+//! handle, no key context) and never covers the row itself, so the row's own
+//! click still lands.
 
 use std::time::Duration;
 
 use aui_tokens::{durations, scale, ActiveAui, AuiStyled};
-use gpui::{div, prelude::*, px, AnyElement, App, Bounds, ElementId, IntoElement, Pixels, SharedString, Window};
+use gpui::{
+    div, point, prelude::*, px, Anchor, AnyElement, App, Bounds, ElementId, IntoElement, Pixels, Point, SharedString,
+    Size, Window,
+};
 use gpui_kit::base::v_flex;
 
 use crate::nav::{RowStatus, RowStatusKind};
@@ -261,6 +267,61 @@ pub fn anchored_session_detail(trigger: Bounds<Pixels>, detail: SessionDetail) -
     anchored_menu(trigger, MenuSide::Below, MenuAlign::Start, detail)
 }
 
+/// The gap between the sidebar's right edge and the side-seated detail card,
+/// and the margin it keeps to the window on every side: the `SP_2` spacing
+/// token, the same gap [`crate::overlay::anchored_menu`] hangs its menus off.
+pub const SESSION_DETAIL_GAP: f32 = scale::SP_2;
+
+/// Where a side-seated detail card's top-left goes: the sidebar pane's right
+/// edge plus [`SESSION_DETAIL_GAP`], top-aligned with the hovered row —
+/// regardless of where in the row the pointer is, so the card never overlaps
+/// the sidebar. A row near the window bottom shifts up just enough to keep
+/// the whole card inside with the same margin, and never above the window's
+/// top; a card taller than the window rests at the top margin.
+///
+/// `row` is the hovered row's bounds in window coordinates (what the row's
+/// hover report carries), `sidebar_right` the laid-out sidebar pane's right
+/// edge, `window` the window bounds, `card` the card's measured size. Pure,
+/// so the seat is unit-testable without a window; the element below trusts
+/// gpui's fit to apply the same slide at layout.
+pub fn session_detail_side_origin(
+    row: Bounds<Pixels>,
+    sidebar_right: Pixels,
+    window: Bounds<Pixels>,
+    card: Size<Pixels>,
+) -> Point<Pixels> {
+    let gap = px(SESSION_DETAIL_GAP);
+    let x = sidebar_right + gap;
+    let top = f32::from(row.origin.y);
+    let margin = f32::from(gap);
+    let window_top = f32::from(window.origin.y) + margin;
+    let window_bottom = f32::from(window.origin.y) + f32::from(window.size.height) - margin;
+    let y = top.max(window_top).min((window_bottom - f32::from(card.height)).max(window_top));
+    point(x, px(y))
+}
+
+/// Seats a [`SessionDetail`] beside the sidebar at its row: the card's left
+/// edge sits at the sidebar pane's right edge plus [`SESSION_DETAIL_GAP`]
+/// with its top at the hovered row's top, in [`crate::overlay::popover_layer`]
+/// so it escapes the sidebar's clipping and paints above everything. The
+/// slide-only fit (`snap_to_window_with_margin`) shifts a bottom row's card
+/// up just enough to stay inside with the same margin — never flipping over
+/// the sidebar the way [`anchored_menu`]'s anchor switch would.
+///
+/// `row` is the hovered row's bounds and `sidebar_right` the laid-out pane's
+/// right edge, both in window coordinates; the card's contents are unchanged.
+pub fn anchored_session_detail_at_sidebar(
+    row: Bounds<Pixels>,
+    sidebar_right: Pixels,
+    detail: SessionDetail,
+) -> impl IntoElement {
+    let gap = px(SESSION_DETAIL_GAP);
+    let at = point(sidebar_right + gap, row.origin.y);
+    crate::overlay::popover_layer(
+        gpui::anchored().anchor(Anchor::TopLeft).position(at).snap_to_window_with_margin(gap).child(detail),
+    )
+}
+
 /// Horizontal detail preview used by tests: the keys this card would draw,
 /// in order, for `data` — title first when set, then each set field.
 pub fn detail_keys(data: &SessionDetailData) -> Vec<&'static str> {
@@ -320,5 +381,69 @@ mod tests {
     #[test]
     fn hover_delay_is_the_slow_token() {
         assert_eq!(SESSION_DETAIL_DELAY, durations::SLOW);
+    }
+
+    /// The side gap is the `SP_2` spacing token, not a literal.
+    #[test]
+    fn side_gap_is_the_spacing_token() {
+        assert_eq!(SESSION_DETAIL_GAP, scale::SP_2);
+    }
+
+    fn window_800x600() -> Bounds<Pixels> {
+        Bounds::new(gpui::point(px(0.0), px(0.0)), gpui::size(px(800.0), px(600.0)))
+    }
+
+    fn row_at(y: f32, h: f32) -> Bounds<Pixels> {
+        Bounds::new(gpui::point(px(8.0), px(y)), gpui::size(px(236.0), px(h)))
+    }
+
+    /// The seat ignores the pointer: the row reports the same bounds
+    /// wherever in it the pointer sits, so rows at the same height seat
+    /// identically — the card's left at the sidebar edge plus the gap, its
+    /// top at the row's top.
+    #[test]
+    fn side_seat_ignores_pointer_x_and_aligns_to_the_row() {
+        let window = window_800x600();
+        let card = gpui::size(px(SESSION_DETAIL_WIDTH), px(200.0));
+        let row = row_at(140.0, 62.0);
+        let at = session_detail_side_origin(row, px(252.0), window, card);
+        assert_eq!(at, gpui::point(px(256.0), px(140.0)));
+        // Same height, different x-extent: still the same seat.
+        let shifted = Bounds::new(gpui::point(px(100.0), px(140.0)), gpui::size(px(60.0), px(62.0)));
+        assert_eq!(session_detail_side_origin(shifted, px(252.0), window, card), at);
+    }
+
+
+    /// A row near the bottom shifts up just enough to stay inside the window
+    /// with the same margin.
+    #[test]
+    fn side_seat_near_the_bottom_shifts_up_and_stays_inside() {
+        let window = window_800x600();
+        let card = gpui::size(px(SESSION_DETAIL_WIDTH), px(200.0));
+        // Row top 500 with a 200 px card would end at 700 past the 596 margin.
+        let at = session_detail_side_origin(row_at(500.0, 62.0), px(252.0), window, card);
+        assert_eq!(at, gpui::point(px(256.0), px(396.0)));
+        assert!(f32::from(at.y) + 200.0 <= 600.0 - SESSION_DETAIL_GAP);
+    }
+
+    /// The seat never climbs above the window's top, even for a card taller
+    /// than the window.
+    #[test]
+    fn side_seat_never_passes_the_window_top() {
+        let window = window_800x600();
+        let tall = gpui::size(px(SESSION_DETAIL_WIDTH), px(900.0));
+        let at = session_detail_side_origin(row_at(500.0, 62.0), px(252.0), window, tall);
+        assert_eq!(at, gpui::point(px(256.0), px(SESSION_DETAIL_GAP)));
+    }
+
+    /// A narrow and a wide sidebar seat the card at their own right edge.
+    #[test]
+    fn side_seat_follows_narrow_and_wide_sidebars() {
+        let window = window_800x600();
+        let card = gpui::size(px(SESSION_DETAIL_WIDTH), px(200.0));
+        let narrow = session_detail_side_origin(row_at(140.0, 62.0), px(180.0), window, card);
+        assert_eq!(narrow, gpui::point(px(184.0), px(140.0)));
+        let wide = session_detail_side_origin(row_at(140.0, 62.0), px(400.0), window, card);
+        assert_eq!(wide, gpui::point(px(404.0), px(140.0)));
     }
 }

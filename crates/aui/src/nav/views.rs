@@ -105,6 +105,10 @@ pub(crate) type BoundsHandler = Rc<dyn Fn(&SharedString, Bounds<Pixels>, &mut Wi
 /// the row's own hover events, so the caller learns about the pointer even
 /// when nothing re-renders.
 pub(crate) type RowHoverHandler = Rc<dyn Fn(&SharedString, bool, &mut Window, &mut App)>;
+/// Hover enter/leave with the session id and the row's own window bounds,
+/// measured in prepaint: the hover card's arm and seat.
+pub(crate) type RowHoverBoundsHandler =
+    Rc<dyn Fn(&SharedString, bool, Bounds<Pixels>, &mut Window, &mut App)>;
 
 /// Builds the inline rename editor fresh for one build of the renaming row.
 ///
@@ -335,6 +339,7 @@ pub struct SidebarView {
     on_action: Option<RowActionHandler>,
     on_group_action: Option<GroupActionHandler>,
     on_hover: Option<RowHoverHandler>,
+    on_hover_bounds: Option<RowHoverBoundsHandler>,
     on_selected_prepainted: Option<BoundsHandler>,
     on_current_prepainted: Option<BoundsHandler>,
     on_group_menu_prepainted: Option<BoundsHandler>,
@@ -362,6 +367,7 @@ pub fn sidebar_view(id: impl Into<ElementId>, grouping: impl Into<Rc<Grouping>>)
         on_action: None,
         on_group_action: None,
         on_hover: None,
+        on_hover_bounds: None,
         on_selected_prepainted: None,
         on_current_prepainted: None,
         on_group_menu_prepainted: None,
@@ -451,6 +457,19 @@ impl SidebarView {
         self
     }
 
+    /// A session row's hover state changed, with the row's own window bounds
+    /// measured in prepaint; the arguments are the session id, whether the
+    /// pointer entered, and the row's rect. Supersedes [`Self::on_row_hover`]:
+    /// when set, rows report through this alone — what arms the hover
+    /// detail's delay and seats its card from the row instead of the pointer.
+    pub fn on_row_hover_bounds(
+        mut self,
+        f: impl Fn(&SharedString, bool, Bounds<Pixels>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_hover_bounds = Some(Rc::new(f));
+        self
+    }
+
     /// Fires once per frame with the selected session row's bounds. The
     /// library stores nothing; the app decides what to do with the bounds
     /// (for example, seating a trigger menu at the row).
@@ -501,6 +520,7 @@ pub(crate) fn session_row_element(
     on_select: &Option<SelectHandler>,
     on_action: &Option<RowActionHandler>,
     on_hover: &Option<RowHoverHandler>,
+    on_hover_bounds: &Option<RowHoverBoundsHandler>,
     on_selected_prepainted: &Option<BoundsHandler>,
     pulse_phase: Option<f32>,
     window: &mut Window,
@@ -526,7 +546,12 @@ pub(crate) fn session_row_element(
     if let Some(h) = on_action.clone() {
         row = row.on_action(move |k, a, w, cx| h(k, a, w, cx));
     }
-    if let Some(h) = on_hover.clone() {
+    // The bounds-carrying report supersedes the plain one: when set, the
+    // row reports its own rect with the hover, which is what seats a hover
+    // card from the row instead of the pointer.
+    if let Some(h) = on_hover_bounds.clone() {
+        row = row.on_hover_bounds(move |k, hovered, bounds, w, cx| h(k, hovered, bounds, w, cx));
+    } else if let Some(h) = on_hover.clone() {
         row = row.on_hover(move |k, hovered, w, cx| h(k, hovered, w, cx));
     }
     // Only the selected row gets the wrapper, so the intent fires once
@@ -561,6 +586,7 @@ fn rows<'a>(
     on_select: &Option<SelectHandler>,
     on_action: &Option<RowActionHandler>,
     on_hover: &Option<RowHoverHandler>,
+    on_hover_bounds: &Option<RowHoverBoundsHandler>,
     on_selected_prepainted: &Option<BoundsHandler>,
     pulse_phase: Option<f32>,
     window: &mut Window,
@@ -578,6 +604,7 @@ fn rows<'a>(
             on_select,
             on_action,
             on_hover,
+            on_hover_bounds,
             on_selected_prepainted,
             pulse_phase,
             window,
@@ -726,6 +753,7 @@ impl RenderOnce for SidebarView {
             on_action,
             on_group_action,
             on_hover,
+            on_hover_bounds,
             on_selected_prepainted,
             on_current_prepainted,
             on_group_menu_prepainted,
@@ -761,6 +789,7 @@ impl RenderOnce for SidebarView {
                         &on_select,
                         &on_action,
                         &on_hover,
+                        &on_hover_bounds,
                         &on_selected_prepainted,
                         pulse_phase,
                         window,
@@ -791,6 +820,7 @@ impl RenderOnce for SidebarView {
                         &on_select,
                         &on_action,
                         &on_hover,
+                        &on_hover_bounds,
                         &on_selected_prepainted,
                         pulse_phase,
                         window,
@@ -856,6 +886,7 @@ impl RenderOnce for SidebarView {
                             &on_select,
                             &on_action,
                             &on_hover,
+                            &on_hover_bounds,
                             &on_selected_prepainted,
                             pulse_phase,
                             window,
@@ -875,6 +906,7 @@ impl RenderOnce for SidebarView {
                             &on_select,
                             &on_action,
                             &on_hover,
+                            &on_hover_bounds,
                             &on_selected_prepainted,
                             pulse_phase,
                             window,

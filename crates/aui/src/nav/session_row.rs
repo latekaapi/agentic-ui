@@ -26,7 +26,9 @@
 use aui_icons::{icon, provider_mark, IconName};
 use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
-use gpui::{div, prelude::*, px, AnyElement, App, Div, ElementId, Entity, IntoElement, SharedString, Window};
+use gpui::{
+    div, prelude::*, px, AnyElement, App, Bounds, Div, ElementId, Entity, IntoElement, Pixels, SharedString, Window,
+};
 use gpui_kit::base::input::TextareaState;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::base::{h_flex, v_flex};
@@ -256,6 +258,32 @@ type ActionHandler = std::rc::Rc<dyn Fn(&SharedString, RowAction, &mut Window, &
 /// Hover enter/leave with the session id: the hover card's arm. See
 /// [`crate::util::TrackInteraction::track_interaction_reported`].
 pub(crate) type HoverHandler = std::rc::Rc<dyn Fn(&SharedString, bool, &mut Window, &mut App)>;
+/// Hover enter/leave with the session id and the row's own window bounds,
+/// measured in prepaint: the hover card's arm and seat. The bounds travel
+/// with the report, so the caller seats the card from the row instead of the
+/// pointer. See [`CompactSessionRow::on_hover_bounds`].
+pub(crate) type HoverBoundsHandler =
+    std::rc::Rc<dyn Fn(&SharedString, bool, Bounds<Pixels>, &mut Window, &mut App)>;
+/// The row's last prepaint bounds, shared between its bounds wrapper and its
+/// hover report (see [`CompactSessionRow::on_hover_bounds`]).
+type RowBoundsCell = std::rc::Rc<std::cell::RefCell<Option<Bounds<Pixels>>>>;
+/// Wrap a finished row for [`CompactSessionRow::on_hover_bounds`]: a plain
+/// full-width column reporting its first child's bounds into `cell` — the
+/// same shape the selected-row bounds intent wears, so the row stretches
+/// inside it exactly as it stretches in the group. No cell, no wrapper, and
+/// rows without the handler build exactly as before.
+fn wrap_hover_bounds(row: impl IntoElement, cell: &Option<RowBoundsCell>) -> AnyElement {
+    match cell.clone() {
+        Some(capture) => div()
+            .w_full()
+            .on_children_prepainted(move |bounds, _, _| {
+                *capture.borrow_mut() = bounds.first().copied();
+            })
+            .child(row)
+            .into_any_element(),
+        None => row.into_any_element(),
+    }
+}
 
 /// The full session row. Build with [`session_row`].
 #[derive(IntoElement)]
@@ -790,6 +818,7 @@ pub struct CompactSessionRow {
     on_select: Option<SelectHandler>,
     on_action: Option<ActionHandler>,
     on_hover: Option<HoverHandler>,
+    on_hover_bounds: Option<HoverBoundsHandler>,
 }
 
 /// A compact row for `session`; children nest beneath with a hairline rail.
@@ -805,6 +834,7 @@ pub fn compact_session_row(id: impl Into<ElementId>, session: SessionSummary) ->
         on_select: None,
         on_action: None,
         on_hover: None,
+        on_hover_bounds: None,
     }
 }
 
@@ -864,6 +894,19 @@ impl CompactSessionRow {
         self.on_hover = Some(std::rc::Rc::new(f));
         self
     }
+
+    /// Hover enter/leave with the session id and the row's own window bounds,
+    /// measured in prepaint. Supersedes [`Self::on_hover`]: when set, the row
+    /// reports through this alone, so a hover card seats from the row's rect
+    /// instead of the pointer. Rows without this handler build exactly as
+    /// before — no wrapper, no extra prepaint.
+    pub fn on_hover_bounds(
+        mut self,
+        f: impl Fn(&SharedString, bool, Bounds<Pixels>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_hover_bounds = Some(std::rc::Rc::new(f));
+        self
+    }
 }
 
 impl RenderOnce for CompactSessionRow {
@@ -919,12 +962,30 @@ impl RenderOnce for CompactSessionRow {
             .ui(SR_TEXT)
             .text_color(text)
             .cursor_pointer();
-        let mut row = match self.on_hover.clone() {
-            Some(report) => {
+        // The bounds-carrying hover report: the row's own rect travels with the
+        // enter/leave, so the caller seats a hover card from the row instead
+        // of the pointer. The cell is filled by the full-width wrapper
+        // [`wrap_hover_bounds`] applies to the finished row below — a hover
+        // needs a paint, and the paint's prepaint fills it first, so the
+        // bounds are always there when the report fires.
+        let hover_bounds = self.on_hover_bounds.clone();
+        let bounds_cell: Option<RowBoundsCell> =
+            hover_bounds.as_ref().map(|_| std::rc::Rc::new(std::cell::RefCell::new(None)));
+        let mut row = match (hover_bounds, self.on_hover.clone()) {
+            (Some(report), _) => {
+                let key = s.id.clone();
+                let cell = bounds_cell.clone().expect("cell made with the bounds report");
+                row_base.track_interaction_reported(&state, move |hovered, w, cx| {
+                    if let Some(bounds) = *cell.borrow() {
+                        report(&key, hovered, bounds, w, cx);
+                    }
+                })
+            }
+            (None, Some(report)) => {
                 let key = s.id.clone();
                 row_base.track_interaction_reported(&state, move |hovered, w, cx| report(&key, hovered, w, cx))
             }
-            None => row_base.track_interaction(&state),
+            (None, None) => row_base.track_interaction(&state),
         };
         row = row.child(
                 div()
@@ -955,7 +1016,7 @@ impl RenderOnce for CompactSessionRow {
             row = row.on_click(move |_, w, cx| on_select(&key, w, cx));
         }
         if s.children.is_empty() {
-            return row.into_any_element();
+            return wrap_hover_bounds(row, &bounds_cell).into_any_element();
         }
         let mut col = v_flex().w_full().child(row);
         for (i, child) in s.children.into_iter().enumerate() {
@@ -971,9 +1032,12 @@ impl RenderOnce for CompactSessionRow {
             if let Some(h) = self.on_hover.clone() {
                 r = r.on_hover(move |k, hovered, w, cx| h(k, hovered, w, cx));
             }
+            if let Some(h) = self.on_hover_bounds.clone() {
+                r = r.on_hover_bounds(move |k, hovered, bounds, w, cx| h(k, hovered, bounds, w, cx));
+            }
             col = col.child(r);
         }
-        col.into_any_element()
+        wrap_hover_bounds(col, &bounds_cell).into_any_element()
     }
 }
 
