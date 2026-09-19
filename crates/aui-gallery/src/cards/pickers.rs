@@ -3,7 +3,8 @@
 //! wearing the plan pill and an image chip.
 //!
 //! There is no design HTML behind this card — these components come from the
-//! harness spec (§3.4, §3.5, §3.6, §3.10), not from `design/src` — so it is
+//! the reference consumer's spec (§3.4, §3.5, §3.6, §3.10), not from
+//! `design/src` — so it is
 //! composed to the same rules rather than measured against a reference.
 
 use aui::composer::{

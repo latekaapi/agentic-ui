@@ -83,9 +83,9 @@ cargo run -p aui --example minimal
 
 ## Reference consumer
 
-[Harness](https://github.com/latekaapi/harness) (placeholder link) is a
-macOS agent-development app built on `aui` and is this library's real-world
-proving ground: everything in `aui` exists because that app needed it.
+[Baaz](https://github.com/latekaapi/baaz) is a macOS chat client for Meta's
+Muse Code agent, built on `aui`, and is this library's real-world proving
+ground: everything in `aui` exists because that app needed it.
 Reading its usage of the shell, transcript and workbench components is a
 faster way to see idiomatic `aui` than the minimal example alone.
 

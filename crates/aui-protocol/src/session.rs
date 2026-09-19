@@ -16,7 +16,7 @@ pub struct Session {
     pub model: String,
     /// How tool calls are gated for this session.
     pub mode: PermissionMode,
-    /// Client-side plan-mode overlay; MSP has no plan mode — see harness spec §3.1.
+    /// Client-side plan-mode overlay; MSP has no plan mode — see the reference consumer's spec §3.1.
     ///
     /// Plan mode is not a wire value: the client turns it on, remembers the
     /// previous [`PermissionMode`], sets [`PermissionMode::DenyUnmatched`] for
@@ -109,7 +109,7 @@ pub enum Provider {
 /// client selects a preconfigured mode and can never construct one.
 ///
 /// Plan mode is **not** a member: it is a client-side overlay carried by
-/// [`Session::plan`]. See the harness spec §3.6.
+/// [`Session::plan`]. See the reference consumer's spec §3.6.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PermissionMode {
@@ -127,7 +127,7 @@ pub enum PermissionMode {
 }
 
 impl PermissionMode {
-    /// The picker label, from harness spec §3.6.
+    /// The picker label, from the reference consumer's spec §3.6.
     pub fn label(&self) -> &'static str {
         match self {
             PermissionMode::AllowAll => "Full access",

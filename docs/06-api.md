@@ -2204,7 +2204,7 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
 - **enum** `PermissionMode` — How the session gates tool calls that need permission.
   - variants: `AllowAll`, `OnRequest`, `PromptUnmatched`, `DenyUnmatched`
   - `pub fn description(&self) -> &'static str` — The one-line description shown under the label in the mode picker.
-  - `pub fn label(&self) -> &'static str` — The picker label, from harness spec §3.6.
+  - `pub fn label(&self) -> &'static str` — The picker label, from the reference consumer’s spec §3.6.
 - **enum** `PlanState` — Whether a proposed plan has been decided.
   - variants: `Proposed`, `Accepted`, `Rejected`, `Editing`
 - **enum** `Provider` — The agent CLIs the harness can drive.
