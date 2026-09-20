@@ -53,7 +53,7 @@ pub use grid::{
 pub use keys::{encode, KeyInput, KeyModifiers, KeyModes, SpecialKey};
 pub use parser::{BlockParser, ManualClock};
 #[cfg(feature = "pty")]
-pub use pty::{login_shell, Pty, ZSH_INTEGRATION};
+pub use pty::{bash_integration, generate_nonce, login_shell, zsh_integration, Pty, PtyConfig};
 #[cfg(feature = "tui")]
 pub use tui_grid::{TuiGrid, TuiRow, TuiTerm};
 pub use view::{block_terminal_view, tui_view, BlockTerminalView, TerminalIntent, TerminalState, TuiView};
