@@ -304,8 +304,15 @@ impl Perform {
         self.phase = Phase::Prompt;
     }
 
-    /// `OSC 133;B` — the prompt is drawn; the command line follows.
+    /// `OSC 133;B` — the prompt is drawn; the command line follows. A `B`
+    /// that arrives while a block is already in `Phase::Output` (a nested
+    /// line editor such as `vared` that the shell integration did not
+    /// silence) is ignored rather than rewinding the phase: rewinding would
+    /// swallow the rest of the output into the block's command text.
     fn mark_command(&mut self) {
+        if self.phase == Phase::Output {
+            return;
+        }
         self.command.clear();
         self.phase = Phase::Command;
     }
@@ -750,6 +757,26 @@ mod tests {
         p.feed(c());
         p.feed(b"hi\n");
         assert_eq!(p.blocks()[0].command, "echo hi");
+    }
+
+    #[test]
+    fn a_stray_b_inside_a_running_command_stays_in_the_output() {
+        // A nested line editor (vared, recursive-edit) that the shell
+        // integration did not silence: the B must not rewind the phase and
+        // swallow the rest of the output into the command text.
+        let (mut p, _) = parser();
+        p.feed(a());
+        p.feed(b());
+        p.feed(b"vared-demo");
+        p.feed(c());
+        p.feed(b"BEFORE-VARED\n");
+        p.feed(b());
+        p.feed(b"AFTER-VARED\n");
+        p.feed(b"\x1b]133;D;0\x07");
+        assert_eq!(p.blocks().len(), 1);
+        assert_eq!(p.blocks()[0].command, "vared-demo");
+        assert_eq!(p.blocks()[0].output, vec!["BEFORE-VARED".to_string(), "AFTER-VARED".to_string()]);
+        assert_eq!(p.blocks()[0].state, BlockState::Done);
     }
 
     #[test]

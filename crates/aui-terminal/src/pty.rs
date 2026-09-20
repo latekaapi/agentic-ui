@@ -57,13 +57,21 @@ const NONCE_PLACEHOLDER: &str = "__AUI_NONCE__";
 /// widget: that widget runs when the line editor starts — after every
 /// `precmd`, after the prompt has been drawn — which is exactly where the
 /// marker belongs. Because `B` no longer lives in `PS1`, no theme can
-/// overwrite it and hook order no longer matters.
+/// overwrite it.
 ///
-/// The widget is installed lazily on the first `precmd`: the wrapper
-/// `.zshenv` runs before the user's own rc files, so only then can this
-/// snippet see and wrap whatever `zle-line-init` the user defined. Any
-/// previously-defined widget is chained, never destroyed. The widget is
-/// installed once, not on every prompt.
+/// The widget binding is re-asserted on every `precmd`: the wrapper `.zshenv`
+/// runs before the user's own rc files, and a user `precmd` (zsh-vi-mode's
+/// precmd init, zinit turbo/`wait` plugins, zsh-defer) can bind its own
+/// `zle-line-init` after ours at any time. Each `precmd` therefore checks
+/// whether the currently bound `zle-line-init` is still ours; if it is not,
+/// whatever is bound now is captured as the "original" and ours is installed
+/// in front of it. Whatever the user defined is chained, never destroyed.
+///
+/// `B` is emitted only while the shell is at its own prompt: the `precmd`
+/// that emits `A` sets a flag, and the widget emits `B` only when the flag is
+/// set (clearing it), so a nested line editor inside a running command
+/// (`vared`, `zle recursive-edit`) stays silent. When the widget stays silent
+/// it still chains to the original.
 ///
 /// `PROMPT_SP` is switched off as well: it is the reverse-video `%` and the
 /// row of padding zsh prints to show a command whose output had no trailing
@@ -79,19 +87,28 @@ _aui_osc133_precmd() {
     unset _AUI_RUNNING
   fi
   printf '\033]133;A;k=__AUI_NONCE__\007'
+  # At the shell's own prompt now: the next line-editor start owns the B.
+  _AUI_AT_PROMPT=1
   _aui_osc133_install_zle 2>/dev/null
 }
 
 _aui_osc133_preexec() {
   _AUI_RUNNING=1
+  # A command is running now, so a later line-editor start (vared,
+  # recursive-edit) is nested output, not a new prompt.
+  unset _AUI_AT_PROMPT
   printf '\033]133;C;k=__AUI_NONCE__\007'
 }
 
 # The prompt-end marker, emitted where the line editor starts: after every
-# precmd, after the prompt has been drawn. Hook order is irrelevant here, and
-# no theme can overwrite it the way a PS1-embedded marker could be.
+# precmd, after the prompt has been drawn. Only between A and C: a nested
+# line editor inside a running command stays silent (but still chains).
+# No theme can overwrite it the way a PS1-embedded marker could be.
 _aui_osc133_zle_line_init() {
-  printf '\033]133;B;k=__AUI_NONCE__\007'
+  if [[ -n ${_AUI_AT_PROMPT-} ]]; then
+    unset _AUI_AT_PROMPT
+    printf '\033]133;B;k=__AUI_NONCE__\007'
+  fi
   # Chain whatever the user's own rc files defined; destroy nothing. The
   # direct call is the fallback for contexts with no active line editor.
   if (( ${+widgets[_aui_orig_zle_line_init]} )); then
@@ -104,21 +121,41 @@ _aui_osc133_zle_line_init() {
   return 0
 }
 
-# Installed lazily on the first precmd: the wrapper .zshenv runs before the
-# user's .zshrc, so only now is every rc file done and whatever the user
-# defined visible. Installed once, never on every prompt.
+# Re-asserted on every precmd: the wrapper .zshenv runs before the user's
+# rc files, so a user precmd that binds its own zle-line-init afterwards
+# (vi-mode init, turbo/wait plugins, zsh-defer) would otherwise silently
+# overwrite ours. When the bound widget is already ours there is nothing to
+# do — which is also what keeps us from wrapping ourselves.
 _aui_osc133_install_zle() {
-  [[ -n ${_AUI_ZLE_INSTALLED-} ]] && return 0
-  _AUI_ZLE_INSTALLED=1
   # Only an interactive shell has a line editor to wrap.
   [[ -o interactive ]] || return 0
-  # The function first: copying it keeps a real function behind the
-  # preserved name, so the chain also works where no line editor is
-  # active. A widget bound to another name is aliased instead.
-  if typeset -f zle-line-init >/dev/null; then
-    functions[_aui_orig_zle_line_init]=$functions[zle-line-init]
-  elif (( ${+widgets[zle-line-init]} )); then
-    zle -A zle-line-init _aui_orig_zle_line_init 2>/dev/null || return 0
+  local _aui_cur=""
+  if (( ${+widgets[zle-line-init]} )); then
+    _aui_cur=${widgets[zle-line-init]}
+  fi
+  [[ $_aui_cur == "user:_aui_osc133_zle_line_init" ]] && return 0
+  # Capture whatever is bound now as the original. The widget alias first:
+  # aliasing keeps a real widget behind the preserved name, so the chain
+  # also works where no line editor is active. A bare function with no
+  # widget bound is copied instead — unless it is ourselves.
+  if (( ${+widgets[zle-line-init]} )); then
+    zle -A zle-line-init _aui_orig_zle_line_init 2>/dev/null || {
+      typeset -f zle-line-init >/dev/null && functions[_aui_orig_zle_line_init]=$functions[zle-line-init]
+    }
+    # A user:* widget is backed by a plain function: keep a copy of that too,
+    # so the chain also runs where no line editor is active.
+    local _aui_fn=${_aui_cur#user:}
+    if [[ $_aui_cur == user:* ]] && typeset -f "$_aui_fn" >/dev/null; then
+      functions[_aui_orig_zle_line_init]=${functions[$_aui_fn]}
+    fi
+  elif typeset -f zle-line-init >/dev/null; then
+    if [[ $functions[zle-line-init] != ${functions[_aui_osc133_zle_line_init]-} ]]; then
+      functions[_aui_orig_zle_line_init]=$functions[zle-line-init]
+    fi
+  else
+    # Nothing left to chain to: drop a stale original so the widget is silent.
+    zle -D _aui_orig_zle_line_init 2>/dev/null || true
+    unfunction _aui_orig_zle_line_init 2>/dev/null || true
   fi
   zle -N zle-line-init _aui_osc133_zle_line_init 2>/dev/null || true
 }
@@ -139,31 +176,61 @@ unsetopt PROMPT_SP
 /// `bash --rcfile <generated> -i` (no `-l`: bash ignores `--rcfile` for
 /// login shells). The rcfile itself does the chaining: it sources the user's
 /// own files first — the login files in bash's documented order
-/// (`~/.bash_profile`, else `~/.bash_login`, else `~/.profile`), then
-/// `~/.bashrc`, exactly once each — so their prompt setup and PATH win, and
-/// installs the hooks afterwards so they observe the final prompt. The hooks
-/// are the bash equivalents of the zsh ones: a `PROMPT_COMMAND` entry plays
-/// `precmd` (`D` closes the finished command, `A` opens the next block, `B`
-/// is re-attached to whatever `PS1` the user's setup just built), and a
-/// `DEBUG` trap plays `preexec` (`C` starts the output). The trap also fires
-/// for the prompt command itself, so it ignores everything that runs while
-/// `PROMPT_COMMAND` is executing and everything this snippet defines.
+/// (`~/.bash_profile`, else `~/.bash_login`, else `~/.profile`, else
+/// `~/.bashrc` as the fallback, exactly what a real login bash does) — so
+/// their prompt setup and PATH win, and installs the hooks afterwards so
+/// they observe the final prompt. A `.bash_profile` that sources `.bashrc`
+/// itself therefore still runs `.bashrc` exactly once. Limitation: this
+/// shell is not a login shell, so a user file guarded by `shopt -q
+/// login_shell` is skipped here; the wrapper deliberately does not fake it.
+/// The hooks are the bash equivalents of the zsh ones: a `PROMPT_COMMAND`
+/// entry plays `precmd` (`D` closes the finished command, `A` opens the next
+/// block, `B` is re-attached to whatever `PS1` the user's setup just built),
+/// and a `DEBUG` trap plays `preexec` (`C` starts the output). The trap also
+/// fires for the prompt command itself, so it ignores everything that runs
+/// while `PROMPT_COMMAND` is executing and everything this snippet defines.
+/// The user's own `DEBUG` trap, captured after their files are sourced, is
+/// chained from ours (ours first, theirs after).
 ///
 /// `PROMPT_COMMAND` brackets the user's own: the status capture runs first
 /// (so `$?` is still the command's) and the marker re-attachment runs after
-/// theirs. The `B` marker is wrapped in `\[…\]` so readline does not count it
-/// towards the prompt's width, and the re-attachment matches it literally so
-/// a static `PS1` does not grow one copy per prompt.
+/// theirs. On bash ≥ 5.1 `PROMPT_COMMAND` may be an array (bash-preexec 0.5
+/// uses it); that form is bracketed element-wise so later elements cannot
+/// slip past the re-attachment. (There is no bash 5 on this machine, so the
+/// array branch is code-correctness, not something executed here.) The `B`
+/// marker is wrapped in `\[…\]` so readline does not count it towards the
+/// prompt's width, and the re-attachment matches it literally so a static
+/// `PS1` does not grow one copy per prompt.
 const BASH_TEMPLATE: &str = r#"
 # OSC 133 shell integration for the aui block terminal (bash).
 # The shell runs as `bash --rcfile <this> -i` (never `-l`: bash ignores
 # --rcfile for login shells), so this file chains the user's own files
-# itself, in bash's documented order, before installing the hooks below.
+# itself, in bash's documented login order, before installing the hooks
+# below. `.bashrc` is the fallback of that chain — exactly what a real login
+# bash does — so a `.bash_profile` that sources `.bashrc` itself still runs
+# it once. Limitation: this shell is not a login shell, so a user file
+# guarded by the login-shell check is skipped here; that state is
+# deliberately not faked.
 if [ -f "$HOME/.bash_profile" ]; then . "$HOME/.bash_profile"
 elif [ -f "$HOME/.bash_login" ]; then . "$HOME/.bash_login"
 elif [ -f "$HOME/.profile" ]; then . "$HOME/.profile"
+else
+  [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"
 fi
-[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"
+
+# The DEBUG trap the user had after their files were sourced, if any, so the
+# preexec below can chain it (ours first, theirs after) instead of
+# clobbering it.
+_AUI_USER_DEBUG_TRAP=""
+_aui_osc133_debug_line=$(trap -p DEBUG 2>/dev/null || true)
+if [ -n "$_aui_osc133_debug_line" ]; then
+  case "$_aui_osc133_debug_line" in
+    *"_aui_osc133_preexec"*) ;;
+    "trap -- "*) _AUI_USER_DEBUG_TRAP=${_aui_osc133_debug_line#trap -- }
+      _AUI_USER_DEBUG_TRAP=${_AUI_USER_DEBUG_TRAP% DEBUG};;
+  esac
+fi
+unset _aui_osc133_debug_line
 
 # The prompt-end marker; \[...\] keeps it out of readline's width arithmetic.
 _AUI_OSC133_B=$'\[\033]133;B;k=__AUI_NONCE__\007\]'
@@ -189,6 +256,9 @@ _aui_osc133_precmd() {
 }
 
 _aui_osc133_preexec() {
+  # Saved first: the guards and the marker below clobber both, and the
+  # user's trap chained at the end should see what the trapped command saw.
+  local _aui_status=$? _aui_cmd_arg=$_
   # The DEBUG trap also fires for the prompt command itself; only real
   # commands open a block.
   [ -n "${_AUI_IN_PROMPT-}" ] && return 0
@@ -199,12 +269,31 @@ _aui_osc133_preexec() {
     _AUI_RUNNING=1
     printf '\033]133;C;k=__AUI_NONCE__\007'
   fi
+  # Chain the user's own DEBUG trap, if they had one: ours first, theirs
+  # after. Guarded against re-entry while it runs, since its own commands
+  # would otherwise re-enter this handler. `$BASH_COMMAND` still names the
+  # trapped command; `$?` and `$_` are restored best-effort below.
+  if [ -n "${_AUI_USER_DEBUG_TRAP-}" ] && [ -z "${_AUI_IN_PREEXEC-}" ]; then
+    _AUI_IN_PREEXEC=1
+    _="$_aui_cmd_arg"
+    (exit "$_aui_status")
+    eval "${_AUI_USER_DEBUG_TRAP}"
+    unset _AUI_IN_PREEXEC
+  fi
 }
 
-trap '_aui_osc133_preexec' DEBUG
 # This brackets the user's own PROMPT_COMMAND: the status capture runs first
-# and the marker re-attachment runs after theirs.
-PROMPT_COMMAND="_aui_osc133_begin${PROMPT_COMMAND:+; $PROMPT_COMMAND}; _aui_osc133_precmd"
+# and the marker re-attachment runs after theirs. PROMPT_COMMAND is an array
+# on bash >= 5.1 (bash-preexec 0.5 uses it): bracket that form element-wise
+# so later elements cannot slip past the re-attachment.
+if declare -p PROMPT_COMMAND 2>/dev/null | grep -q 'declare -a'; then
+  PROMPT_COMMAND=(_aui_osc133_begin "${PROMPT_COMMAND[@]}" _aui_osc133_precmd)
+else
+  PROMPT_COMMAND="_aui_osc133_begin${PROMPT_COMMAND:+; $PROMPT_COMMAND}; _aui_osc133_precmd"
+fi
+# Last: installing this earlier would fire it (and the user's chained trap)
+# for the setup lines above.
+trap '_aui_osc133_preexec' DEBUG
 "#;
 
 /// A nonce is an opaque token the markers can safely carry: non-empty,
@@ -554,34 +643,32 @@ impl Pty {
         }
     }
 
-    /// Writes the one chained file — `.zshenv` — which sources the user's
-    /// own `.zshenv` from `user_dir`, installs [`zsh_integration`], and then
-    /// runs `restore` (putting `ZDOTDIR` back to its original value so the
-    /// shell's children see the real one). The user's files are read, never
-    /// written.
+    /// Writes the one chained file — `.zshenv` — which runs `restore`
+    /// (putting `ZDOTDIR` back to its original value) BEFORE sourcing the
+    /// user's own `.zshenv` from `user_dir`, and then installs
+    /// [`zsh_integration`]. The user's files are read, never written.
     ///
-    /// Restoring here is safe because hook order no longer matters: `B` is
-    /// emitted from a `zle-line-init` widget rather than from `PS1`, so the
-    /// hooks work wherever they sit in `precmd_functions`. zsh therefore
-    /// reads the user's own `.zprofile`/`.zshrc`/`.zlogin` completely
-    /// normally from their real directory — including the XDG layout where
-    /// the user's `.zshenv` moves `ZDOTDIR` itself.
-    ///
-    /// That XDG move is respected: the restore only fires while `ZDOTDIR`
-    /// still points at this wrapper. When the user's own `.zshenv` set
-    /// `ZDOTDIR` elsewhere, their directory wins and the rest of startup
-    /// loads from there. Anything that stops zsh reaching a later startup
-    /// file (`emulate sh`, `unsetopt RCS`, `exec fish`, …) cannot strand the
-    /// restore either, because it already ran — `zsh -c` included.
+    /// Restoring first is what makes the user's own `.zshenv` see their real
+    /// `ZDOTDIR`: the standard XDG idiom inside it — `source
+    /// "$ZDOTDIR/exports.zsh"`, or `${ZDOTDIR:-$HOME}/…` — would otherwise
+    /// resolve into this throwaway wrapper and fail. At that point `ZDOTDIR`
+    /// is by definition still the wrapper, so the guard is evaluated there;
+    /// its right-hand side is quoted so it compares literally rather than as
+    /// a glob pattern (a `$TMPDIR` containing `[` or `*` must not change the
+    /// outcome). A user `.zshenv` that sets `ZDOTDIR` itself then wins
+    /// naturally and `.zshrc` loads from their directory. Anything that stops
+    /// zsh reaching a later startup file (`emulate sh`, `unsetopt RCS`,
+    /// `exec fish`, …) cannot strand the restore either, because it already
+    /// ran — `zsh -c` included.
     fn write_zdotdir_for(nonce: &str, user_dir: &str, restore: &str) -> std::io::Result<TempDir> {
         let dir = TempDir::new("aui-zdotdir")?;
         let snippet = zsh_integration(nonce);
         let user = sh_quote(&format!("{user_dir}/.zshenv"));
         let body = format!(
             "__aui_wrapper_zdotdir=$ZDOTDIR\n\
+             if [[ ${{ZDOTDIR-}} == \"$__aui_wrapper_zdotdir\" ]]; then\n  {restore}\nfi\n\
              [[ -f {user} ]] && source {user}\n\
              {snippet}\n\
-             if [[ ${{ZDOTDIR-}} == $__aui_wrapper_zdotdir ]]; then\n  {restore}\nfi\n\
              unset __aui_wrapper_zdotdir"
         );
         std::fs::write(dir.path().join(".zshenv"), body)?;
@@ -663,6 +750,9 @@ struct TempDir(PathBuf);
 
 impl TempDir {
     fn new(prefix: &str) -> std::io::Result<Self> {
+        // A crashed or SIGKILLed app leaks its wrappers, because `Drop` below
+        // never runs: sweep this crate's own stale ones on every spawn.
+        Self::sweep_stale();
         // A counter as well as the clock: parallel tests share one process,
         // and two wrappers created in the same nanosecond must not share one
         // directory — since the nonce era they carry different bytes.
@@ -673,6 +763,36 @@ impl TempDir {
             std::env::temp_dir().join(format!("{prefix}-{}-{nanos}-{n}", std::process::id()));
         std::fs::create_dir_all(&path)?;
         Ok(Self(path))
+    }
+
+    /// Removes this crate's own wrapper directories older than 24 h
+    /// (`aui-zdotdir-*`, `aui-bashrc-*`). Defensive and never fatal:
+    /// anything that cannot be read or removed is left alone, and entries
+    /// owned by another user simply fail to remove and are ignored.
+    fn sweep_stale() {
+        const MAX_AGE_SECS: u64 = 24 * 60 * 60;
+        let tmp = std::env::temp_dir();
+        let entries = match std::fs::read_dir(&tmp) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        let now = std::time::SystemTime::now();
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !name.starts_with("aui-zdotdir-") && !name.starts_with("aui-bashrc-") {
+                continue;
+            }
+            let old_enough = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| now.duration_since(t).ok())
+                .map(|d| d.as_secs() > MAX_AGE_SECS)
+                .unwrap_or(false);
+            if old_enough {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
     }
 
     fn path(&self) -> &Path {
@@ -761,8 +881,8 @@ mod tests {
 
     /// Every emitted zsh marker carries the nonce, and the details that make
     /// the snippet work on a real machine are still there: `B` from a
-    /// chained `zle-line-init` widget (never from `PS1`), lazy one-shot
-    /// widget installation from the first `precmd`, `unsetopt PROMPT_SP`.
+    /// chained `zle-line-init` widget (never from `PS1`), re-asserted on
+    /// every `precmd`, gated on the at-prompt flag, `unsetopt PROMPT_SP`.
     #[test]
     fn zsh_snippet_marks_every_boundary_and_keeps_the_three_details() {
         let snippet = zsh_integration("abc123");
@@ -770,7 +890,9 @@ mod tests {
         assert!(snippet.contains("_aui_osc133_zle_line_init"), "{snippet}");
         assert!(snippet.contains("zle -N zle-line-init _aui_osc133_zle_line_init"), "{snippet}");
         assert!(snippet.contains("_aui_osc133_install_zle"), "{snippet}");
-        assert!(snippet.contains("_AUI_ZLE_INSTALLED"), "{snippet}");
+        assert!(!snippet.contains("_AUI_ZLE_INSTALLED"), "no one-shot guard:\n{snippet}");
+        assert!(snippet.contains("_AUI_AT_PROMPT"), "the B gate:\n{snippet}");
+        assert!(snippet.contains("user:_aui_osc133_zle_line_init"), "re-assert check:\n{snippet}");
         assert!(!snippet.contains("_AUI_OSC133_B"), "no PS1 marker variable:\n{snippet}");
         assert!(!snippet.contains("PS1="), "nothing rewrites PS1:\n{snippet}");
         assert!(snippet.contains("add-zsh-hook -d precmd _aui_osc133_precmd"), "{snippet}");
@@ -780,9 +902,9 @@ mod tests {
         assert!(snippet.contains("unsetopt PROMPT_SP"), "{snippet}");
     }
 
-    /// The wrapper is a single `.zshenv`: it sources the user's own
-    /// `.zshenv`, installs the hooks, then restores `ZDOTDIR` — guarded so
-    /// a user's `.zshenv` that moved `ZDOTDIR` itself (the XDG pattern)
+    /// The wrapper is a single `.zshenv`: it restores `ZDOTDIR` first, then
+    /// sources the user's own `.zshenv`, then installs the hooks — guarded
+    /// so a user's `.zshenv` that moved `ZDOTDIR` itself (the XDG pattern)
     /// wins. No other wrapper file exists: they were the source of both
     /// the hook-ordering and the stranded-restore defects.
     #[test]
@@ -797,12 +919,18 @@ mod tests {
         assert_eq!(entries, vec![".zshenv".to_string()], "{entries:?}");
         let body = std::fs::read_to_string(dir.path().join(".zshenv")).expect(".zshenv");
         let source = "[[ -f '/tmp/au i-home/.zshenv' ]] && source '/tmp/au i-home/.zshenv'";
-        let hook = body.find("add-zsh-hook precmd").expect("hooks");
+        let guard = body.find("__aui_wrapper_zdotdir").expect("guard");
         let restore_at = body.find(restore).expect("restore");
+        let source_at = body.find(source).expect("user file");
+        let hook = body.find("add-zsh-hook precmd").expect("hooks");
         assert!(body.contains(source), "{body}");
-        assert!(body.find(source).unwrap() < hook, "user file first:\n{body}");
-        assert!(hook < restore_at, "restore after the hooks:\n{body}");
-        assert!(body.contains("__aui_wrapper_zdotdir"), "{body}");
+        assert!(restore_at < source_at, "restore before the user file:\n{body}");
+        assert!(source_at < hook, "user file before the hooks:\n{body}");
+        assert!(guard < restore_at, "guard saved before the restore:\n{body}");
+        assert!(
+            body.contains("== \"$__aui_wrapper_zdotdir\""),
+            "the comparison is quoted, not a glob:\n{body}"
+        );
         assert!(body.contains("k=test-nonce"), "{body}");
     }
 
@@ -870,23 +998,29 @@ mod tests {
     }
 
     /// The generated bash `--rcfile` chains the user's login files in bash's
-    /// documented order and `~/.bashrc` unconditionally — the shell runs as
-    /// `bash --rcfile <this> -i`, never `-l` — then installs
-    /// `PROMPT_COMMAND` / `DEBUG` hooks whose markers all carry the nonce.
+    /// documented order with `~/.bashrc` as the fallback — the shell runs as
+    /// `bash --rcfile <this> -i`, never `-l` — then captures the user's
+    /// `DEBUG` trap and installs `PROMPT_COMMAND` / `DEBUG` hooks whose
+    /// markers all carry the nonce.
     #[test]
     fn bash_rcfile_sources_user_files_then_installs_hooks() {
         let dir = Pty::write_bash_rc("bash-nonce").expect("the rcfile writes");
         let body = std::fs::read_to_string(dir.path().join(BASH_RC_NAME)).expect("the rcfile");
-        assert!(!body.contains("shopt -q login_shell"), "no login gate:\n{body}");
+        assert!(body.contains("login shell"), "the login-shell limitation is documented:\n{body}");
         let profile = body.find(".bash_profile").expect("profile chain");
         let login = body.find(".bash_login").expect("profile chain");
-        let dot_profile = body.find(".profile").expect("profile chain");
+        let dot_profile = body.find(".profile\"").expect("profile chain");
         assert!(profile < login && login < dot_profile, "documented order:\n{body}");
         assert!(body.contains("[ -f \"$HOME/.bashrc\" ] && . \"$HOME/.bashrc\""), "{body}");
         let rc = body.find("[ -f \"$HOME/.bashrc\" ]").unwrap();
-        assert!(dot_profile < rc, "bashrc after the login chain:\n{body}");
+        let els = body.find("\nelse").expect("fallback");
+        assert!(dot_profile < els && els < rc, "bashrc is the fallback of the chain:\n{body}");
+        let capture = body.find("trap -p DEBUG").expect("DEBUG capture");
+        assert!(rc < capture, "capture runs after the user's files:\n{body}");
         let hooks = body.find("PROMPT_COMMAND=").expect("PROMPT_COMMAND");
-        assert!(rc < hooks, "hooks install after the user's files:\n{body}");
+        assert!(capture < hooks, "hooks install after the capture:\n{body}");
+        assert!(body.contains("declare -p PROMPT_COMMAND"), "array PROMPT_COMMAND:\n{body}");
+        assert!(body.contains("_AUI_USER_DEBUG_TRAP"), "DEBUG chaining:\n{body}");
         assert!(body.contains("trap '_aui_osc133_preexec' DEBUG"), "{body}");
         assert_eq!(body.matches("k=bash-nonce").count(), 4, "{body}");
         assert!(body.contains("\\[") && body.contains("\\]"), "{body}");
@@ -1170,6 +1304,187 @@ mod tests {
             let out = run_zsh(&home, dir.path(), &args);
             assert!(out.contains("ZDOTDIR=unset"), "{label}: ZDOTDIR stays unset:\n{out}");
         }
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// Runs the real bash with `HOME` at the scratch home and `--rcfile` at
+    /// the generated file, and returns the combined stdout/stderr.
+    fn run_bash(home: &Path, rcfile: &Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("/bin/bash")
+            .env("HOME", home)
+            .arg("--rcfile")
+            .arg(rcfile)
+            .args(args)
+            .output()
+            .expect("bash runs");
+        let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+        text.push_str(&String::from_utf8_lossy(&out.stderr));
+        text
+    }
+
+    /// The user's own `.zshenv` sees the user's real `ZDOTDIR`: the XDG idiom
+    /// `source "$ZDOTDIR/exports.zsh"` loads the USER's file, not the
+    /// wrapper's. Fails against the old order (source while `ZDOTDIR` still
+    /// points at the wrapper). Ignored: it needs a real zsh.
+    #[test]
+    #[ignore]
+    fn a_real_zsh_zshenv_sees_the_users_zdotdir() {
+        let zsh = "/bin/zsh";
+        if !Path::new(zsh).exists() {
+            eprintln!("skipped: no {zsh}");
+            return;
+        }
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let home = std::env::temp_dir().join(format!(
+            "aui-l3-zshenv-{}-{stamp}-{}",
+            std::process::id(),
+            scratch_counter(),
+        ));
+        std::fs::create_dir_all(&home).expect("home dir");
+        std::fs::write(home.join(".zshenv"), "source \"$ZDOTDIR/exports.zsh\"\n").expect("user file");
+        std::fs::write(home.join("exports.zsh"), "export AUI_ZENV_SENTINEL=zshenv-ok\n")
+            .expect("user file");
+        let home_str = home.to_string_lossy().into_owned();
+        let dir = Pty::write_zdotdir_for(
+            "zshenv-nonce",
+            &home_str,
+            &format!("export ZDOTDIR={}", sh_quote(&home_str)),
+        )
+        .expect("the wrapper writes");
+        let out = run_zsh(&home, dir.path(), &["-c", "echo SENTINEL=${AUI_ZENV_SENTINEL-unset}"]);
+        assert!(!out.contains("no such file"), "the user file sources cleanly:\n{out}");
+        assert!(out.contains("SENTINEL=zshenv-ok"), "the USER's exports.zsh loads:\n{out}");
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// A user precmd that binds its own `zle-line-init` AFTER aui's must not
+    /// destroy the `B` marker: the next precmd re-asserts the chain in front
+    /// of theirs, and their widget still runs. Fails against the install-once
+    /// guard (no `B` at all after the overwrite). Ignored: needs a real zsh.
+    #[test]
+    #[ignore]
+    fn a_real_zsh_reasserts_the_zle_chain_over_a_late_user_widget() {
+        let zsh = "/bin/zsh";
+        if !Path::new(zsh).exists() {
+            eprintln!("skipped: no {zsh}");
+            return;
+        }
+        let (home, dir, _) = scratch_home(
+            &[(
+                ".zshrc",
+                "zle-line-init() { touch \"$HOME/late-widget-ran\"; }\n\
+                 install_late_widget() { zle -N zle-line-init; }\n\
+                 precmd_functions+=(install_late_widget)\n",
+            )],
+            "late-nonce",
+            "unset ZDOTDIR",
+            "latezle",
+        );
+        // Two prompt cycles with the user's installer running between them,
+        // the way every real prompt cycle runs.
+        let out = run_zsh(
+            &home,
+            dir.path(),
+            &[
+                "-i",
+                "-c",
+                "[[ -f $HOME/.zshrc ]] && source $HOME/.zshrc; \
+                 _aui_osc133_precmd >/dev/null; install_late_widget; _aui_osc133_precmd >/dev/null; \
+                 echo BOUND=$widgets[zle-line-init]; _aui_osc133_zle_line_init",
+            ],
+        );
+        assert!(
+            out.contains("BOUND=user:_aui_osc133_zle_line_init"),
+            "ours is re-asserted over the later user install:\n{out}"
+        );
+        assert!(
+            out.contains("\x1b]133;B;k=late-nonce\x07"),
+            "the rebound widget still emits B:\n{out:?}"
+        );
+        assert!(home.join("late-widget-ran").exists(), "the user's own widget still runs:\n{out}");
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// A nested line editor inside a running command emits no `B`: only the
+    /// prompt's own editor start (between `A` and `C`) does. Fails against
+    /// the unconditional widget. Ignored: it needs a real zsh.
+    #[test]
+    #[ignore]
+    fn a_real_zsh_emits_no_b_from_a_nested_line_editor() {
+        let zsh = "/bin/zsh";
+        if !Path::new(zsh).exists() {
+            eprintln!("skipped: no {zsh}");
+            return;
+        }
+        let (home, dir, _) = scratch_home(&[], "vared-nonce", "unset ZDOTDIR", "vared");
+        // A prompt cycle (A, B), then a command (C) with two nested editor
+        // starts (vared, recursive-edit): exactly one B must come out.
+        let out = run_zsh(
+            &home,
+            dir.path(),
+            &[
+                "-i",
+                "-c",
+                "_aui_osc133_precmd >/dev/null; _aui_osc133_zle_line_init; \
+                 _aui_osc133_preexec >/dev/null; _aui_osc133_zle_line_init; \
+                 _aui_osc133_zle_line_init; echo DONE",
+            ],
+        );
+        assert!(out.contains("DONE"), "the script ran:\n{out:?}");
+        assert_eq!(
+            out.matches("\x1b]133;B;k=vared-nonce\x07").count(),
+            1,
+            "one B for the prompt, none for the nested editors:\n{out:?}"
+        );
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// A `.bash_profile` that sources `.bashrc` itself runs `.bashrc`
+    /// exactly once (fallback, not addition), and a user `DEBUG` trap
+    /// installed in `.bashrc` still fires. Fails against the old template
+    /// (count 2, user trap clobbered). Ignored: it needs a real bash.
+    #[test]
+    #[ignore]
+    fn a_real_bash_sources_bashrc_once_and_chains_the_debug_trap() {
+        let bash = "/bin/bash";
+        if !Path::new(bash).exists() {
+            eprintln!("skipped: no {bash}");
+            return;
+        }
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let home = std::env::temp_dir().join(format!(
+            "aui-l3-bash-{}-{stamp}-{}",
+            std::process::id(),
+            scratch_counter(),
+        ));
+        std::fs::create_dir_all(&home).expect("home dir");
+        std::fs::write(home.join(".bash_profile"), ". \"$HOME/.bashrc\"\n").expect("user file");
+        std::fs::write(
+            home.join(".bashrc"),
+            "echo bashrc-ran >> \"$HOME/bashrc.count\"\n\
+             trap 'echo user-debug-fired >> \"$HOME/debug.log\"' DEBUG\n",
+        )
+        .expect("user file");
+        let dir = Pty::write_bash_rc("bashfix3").expect("the rcfile writes");
+        let out = run_bash(&home, &dir.path().join(BASH_RC_NAME), &["-i", "-c", "echo HELLO"]);
+        assert!(out.contains("HELLO"), "the command ran:\n{out}");
+        let count = std::fs::read_to_string(home.join("bashrc.count")).unwrap_or_default();
+        assert_eq!(
+            count.lines().filter(|l| *l == "bashrc-ran").count(),
+            1,
+            ".bashrc runs exactly once:\n{out}"
+        );
+        let debug = std::fs::read_to_string(home.join("debug.log")).unwrap_or_default();
+        assert!(
+            debug.contains("user-debug-fired"),
+            "the user's DEBUG trap still fires:\n{out}"
+        );
         std::fs::remove_dir_all(&home).ok();
     }
 
