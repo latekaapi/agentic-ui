@@ -176,13 +176,38 @@ trap '_aui_osc133_preexec' DEBUG
 PROMPT_COMMAND="_aui_osc133_begin${PROMPT_COMMAND:+; $PROMPT_COMMAND}; _aui_osc133_precmd"
 "#;
 
+/// A nonce is an opaque token the markers can safely carry: non-empty,
+/// at most 128 characters, ASCII alphanumerics plus `-` and `_` only.
+/// Anything else could break out of the quoted shell strings the nonce is
+/// spliced into, so every public entry point that takes a nonce panics on
+/// one that is not. See [`assert_valid_nonce`].
+const NONCE_MAX_LEN: usize = 128;
+
+/// Panics unless `nonce` is something the markers can safely carry:
+/// non-empty, at most [`NONCE_MAX_LEN`] characters, ASCII alphanumerics
+/// plus `-` and `_` only. The nonce is spliced into `$'...'` ANSI-C
+/// strings and `printf` format literals in generated shell source, so a
+/// quote or other metacharacter would inject code into a file the shell
+/// sources on every login.
+fn assert_valid_nonce(nonce: &str) {
+    assert!(
+        !nonce.is_empty()
+            && nonce.len() <= NONCE_MAX_LEN
+            && nonce.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+        "aui-terminal: invalid nonce {nonce:?}: use 1-128 ASCII alphanumerics, '-' or '_'"
+    );
+}
+
 /// The zsh half of OSC 133 shell integration, with `nonce` baked into every
 /// marker it emits (`A`, `B`, `C` and `D` all carry `k=<nonce>`).
 ///
 /// See [`ZSH_TEMPLATE`] for what the snippet does and why; the only
 /// difference is that this one is ready to source. It is written into the
 /// throwaway `ZDOTDIR` by [`Pty`], after the user's own files.
+///
+/// Panics if `nonce` is not a safe token (see [`assert_valid_nonce`]).
 pub fn zsh_integration(nonce: &str) -> String {
+    assert_valid_nonce(nonce);
     ZSH_TEMPLATE.replace(NONCE_PLACEHOLDER, nonce)
 }
 
@@ -193,7 +218,10 @@ pub fn zsh_integration(nonce: &str) -> String {
 /// difference is that this one is ready to source. It is written out as the
 /// generated `--rcfile` by [`Pty`], which already sources the user's own
 /// files inside it.
+///
+/// Panics if `nonce` is not a safe token (see [`assert_valid_nonce`]).
 pub fn bash_integration(nonce: &str) -> String {
+    assert_valid_nonce(nonce);
     BASH_TEMPLATE.replace(NONCE_PLACEHOLDER, nonce)
 }
 
@@ -201,10 +229,16 @@ pub fn bash_integration(nonce: &str) -> String {
 /// carries as `k=<nonce>`, so a program that prints a bare `OSC 133` cannot
 /// forge a block boundary.
 ///
-/// Randomness is a mix of the process id, a nanosecond timestamp and a
-/// counter — no extra dependencies for a token that only has to be unique
-/// per session, not unguessable across machines.
+/// The 16 bytes come from the operating system's random source
+/// (`/dev/urandom`), so the nonce is unguessable to a program running
+/// inside the terminal that might otherwise forge a block boundary. If the
+/// random source cannot be read, it falls back to a mix of the process id,
+/// a nanosecond timestamp and a counter — unique per session, but
+/// guessable, so the fallback is a last resort, not the norm.
 pub fn generate_nonce() -> String {
+    if let Some(nonce) = os_random_nonce() {
+        return nonce;
+    }
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -212,6 +246,20 @@ pub fn generate_nonce() -> String {
         .unwrap_or(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("{:x}{:x}{:x}", std::process::id(), nanos, n)
+}
+
+/// Reads 16 bytes from the OS random source and hex-encodes them, or
+/// returns `None` when the source cannot be read. Kept on `std` only so
+/// this crate needs no randomness dependency for one token.
+fn os_random_nonce() -> Option<String> {
+    use std::io::Read;
+    let mut bytes = [0u8; 16];
+    std::fs::File::open("/dev/urandom").ok()?.read_exact(&mut bytes).ok()?;
+    let mut out = String::with_capacity(32);
+    for b in bytes {
+        out.push_str(&format!("{b:02x}"));
+    }
+    Some(out)
 }
 
 /// How to spawn a shell: which shell, where, which extra environment, and the
@@ -252,8 +300,12 @@ impl PtyConfig {
     }
 
     /// Pins the nonce, e.g. to replay a fixed session in a test.
+    ///
+    /// Panics if `nonce` is not a safe token (see [`assert_valid_nonce`]).
     pub fn with_nonce(mut self, nonce: impl Into<String>) -> Self {
-        self.nonce = nonce.into();
+        let nonce = nonce.into();
+        assert_valid_nonce(&nonce);
+        self.nonce = nonce;
         self
     }
 
@@ -304,7 +356,11 @@ impl Pty {
 
     /// A pty that has not been spawned yet, with a pinned nonce — e.g. to
     /// replay a fixed session in a test.
+    ///
+    /// Panics if `nonce` is not a safe token (see [`assert_valid_nonce`]).
     pub fn with_nonce(nonce: impl Into<String>) -> Self {
+        let nonce = nonce.into();
+        assert_valid_nonce(&nonce);
         Self {
             master: None,
             writer: None,
@@ -314,7 +370,7 @@ impl Pty {
             size: PtySize { rows: DEFAULT_ROWS, cols: DEFAULT_COLS, pixel_width: 0, pixel_height: 0 },
             zdotdir: None,
             bash_dir: None,
-            nonce: nonce.into(),
+            nonce,
             extra_env: Vec::new(),
             exited: false,
         }
@@ -469,19 +525,41 @@ impl Pty {
 
     /// Writes the four chained files — `.zshenv`, `.zprofile`, `.zshrc` and
     /// `.zlogin` — each of which sources the user's own file from `user_dir`
-    /// first, then runs `restore` (putting `ZDOTDIR` back to its original
-    /// value so children of the shell see the real one), and only then
-    /// installs the hooks, so the hooks land last and survive
+    /// first and then installs the hooks, so the hooks land last and survive
     /// powerlevel10k's instant prompt. The user's files are read, never
     /// written.
+    ///
+    /// `restore` (putting `ZDOTDIR` back to its original value so children
+    /// of the shell see the real one) runs only where it cannot divert the
+    /// startup sequence that is still in flight: zsh re-reads `$ZDOTDIR`
+    /// *between* startup files, so restoring in `.zshenv` would make zsh
+    /// load the user's `.zprofile`, `.zshrc` and `.zlogin` instead of this
+    /// wrapper's — installing the hooks at the earliest point in startup,
+    /// before any theme hook the user's `.zshrc` adds later. `.zshenv` and
+    /// `.zprofile` therefore never restore; `.zshrc` restores only for a
+    /// non-login shell (a login shell still has `.zlogin` to read from the
+    /// wrapper); `.zlogin` — which zsh reads last — always restores.
     fn write_zdotdir_for(nonce: &str, user_dir: &str, restore: &str) -> std::io::Result<TempDir> {
         let dir = TempDir::new("aui-zdotdir")?;
         let snippet = zsh_integration(nonce);
-        for name in ["zshenv", "zprofile", "zshrc", "zlogin"] {
+        for name in ["zshenv", "zprofile"] {
             let user = sh_quote(&format!("{user_dir}/.{name}"));
-            let body = format!("[[ -f {user} ]] && source {user}\n{restore}\n{snippet}");
+            let body = format!("[[ -f {user} ]] && source {user}\n{snippet}");
             std::fs::write(dir.path().join(format!(".{name}")), body)?;
         }
+        let user = sh_quote(&format!("{user_dir}/.zshrc"));
+        std::fs::write(
+            dir.path().join(".zshrc"),
+            format!(
+                "[[ -f {user} ]] && source {user}\n{snippet}\n\
+                 if [[ -o login ]]; then\n  :\nelse\n  {restore}\nfi"
+            ),
+        )?;
+        let user = sh_quote(&format!("{user_dir}/.zlogin"));
+        std::fs::write(
+            dir.path().join(".zlogin"),
+            format!("[[ -f {user} ]] && source {user}\n{snippet}\n{restore}"),
+        )?;
         Ok(dir)
     }
 
@@ -672,23 +750,96 @@ mod tests {
         assert!(snippet.contains("unsetopt PROMPT_SP"));
     }
 
-    /// Every chained file sources the user's own file first, restores
-    /// `ZDOTDIR`, and only then installs the hooks — in that order.
+    /// `.zshenv` and `.zprofile` source the user's own file and install the
+    /// hooks but never restore `ZDOTDIR`: zsh re-reads `$ZDOTDIR` between
+    /// startup files, so restoring there would divert the rest of startup
+    /// to the user's directory and the wrapper's later files would never
+    /// run. `.zshrc` restores only for a non-login shell, `.zlogin` always.
     #[test]
-    fn zdotdir_chains_four_files_that_source_restore_then_hook() {
-        let dir =
-            Pty::write_zdotdir_for("test-nonce", "/tmp/au i-home", "export ZDOTDIR='/tmp/au i-home'")
-                .expect("the wrapper writes");
-        for name in ["zshenv", "zprofile", "zshrc", "zlogin"] {
+    fn zdotdir_defers_restore_so_the_wrapper_survives_startup() {
+        let restore = "export ZDOTDIR='/tmp/au i-home'";
+        let dir = Pty::write_zdotdir_for("test-nonce", "/tmp/au i-home", restore)
+            .expect("the wrapper writes");
+        for name in ["zshenv", "zprofile"] {
             let body = std::fs::read_to_string(dir.path().join(format!(".{name}"))).expect("four files");
             let source = format!("[[ -f '/tmp/au i-home/.{name}' ]] && source '/tmp/au i-home/.{name}'");
-            let restore = body.find("export ZDOTDIR='/tmp/au i-home'").expect("restore");
             let hook = body.find("add-zsh-hook precmd").expect("hooks");
             assert!(body.contains(&source), "{body}");
-            assert!(body.find(&source).unwrap() < restore, "{body}");
-            assert!(restore < hook, "{body}");
+            assert!(body.find(&source).unwrap() < hook, "{body}");
+            assert!(!body.contains(restore), "no early restore in .{name}:\n{body}");
             assert!(body.contains("k=test-nonce"), "{body}");
         }
+        let body = std::fs::read_to_string(dir.path().join(".zshrc")).expect("zshrc");
+        let source = "[[ -f '/tmp/au i-home/.zshrc' ]] && source '/tmp/au i-home/.zshrc'";
+        let hook = body.find("add-zsh-hook precmd").expect("hooks");
+        let guard = body.find("[[ -o login ]]").expect("login guard");
+        let restore_at = body.find(restore).expect("conditional restore");
+        assert!(body.contains(source), "{body}");
+        assert!(body.find(source).unwrap() < hook, "{body}");
+        assert!(hook < guard && guard < restore_at, "{body}");
+        assert!(body.contains("k=test-nonce"), "{body}");
+        let body = std::fs::read_to_string(dir.path().join(".zlogin")).expect("zlogin");
+        let source = "[[ -f '/tmp/au i-home/.zlogin' ]] && source '/tmp/au i-home/.zlogin'";
+        let hook = body.find("add-zsh-hook precmd").expect("hooks");
+        let restore_at = body.find(restore).expect("restore");
+        assert!(body.contains(source), "{body}");
+        assert!(body.find(source).unwrap() < hook, "{body}");
+        assert!(hook < restore_at, "{body}");
+        assert!(!body.contains("[[ -o login ]]"), "{body}");
+        assert!(body.contains("k=test-nonce"), "{body}");
+    }
+
+    /// A nonce with a quote, a metacharacter, or nothing at all must not
+    /// reach the generated shell source: it would break out of the quoted
+    /// strings it is spliced into.
+    #[test]
+    #[should_panic(expected = "invalid nonce")]
+    fn zsh_integration_rejects_a_nonce_with_a_quote() {
+        zsh_integration("abc'; touch /tmp/pwned; echo '");
+    }
+
+    /// The same boundary on the bash side: command substitution in the
+    /// nonce must not reach the generated `--rcfile`.
+    #[test]
+    #[should_panic(expected = "invalid nonce")]
+    fn bash_integration_rejects_a_nonce_with_metacharacters() {
+        bash_integration("$(touch /tmp/pwned)");
+    }
+
+    /// The pinned-nonce constructors are the same boundary: they panic on
+    /// an empty nonce rather than emitting unmarked markers.
+    #[test]
+    #[should_panic(expected = "invalid nonce")]
+    fn pty_config_with_nonce_rejects_an_empty_nonce() {
+        PtyConfig::new("/bin/zsh", std::env::temp_dir()).with_nonce("");
+    }
+
+    /// A nonce that is too long to be a token is rejected as well.
+    #[test]
+    #[should_panic(expected = "invalid nonce")]
+    fn pty_with_nonce_rejects_an_overlong_nonce() {
+        Pty::with_nonce("a".repeat(129));
+    }
+
+    /// Generated nonces are 32 hex characters, and valid nonces — including
+    /// `-` and `_` — pass every boundary untouched.
+    #[test]
+    fn generated_nonces_are_hex_and_valid_nonces_pass() {
+        for _ in 0..10 {
+            let nonce = generate_nonce();
+            assert_eq!(nonce.len(), 32, "{nonce}");
+            assert!(nonce.bytes().all(|b| b.is_ascii_hexdigit()), "{nonce}");
+        }
+        let a = generate_nonce();
+        let b = generate_nonce();
+        assert_ne!(a, b);
+        assert!(zsh_integration("abc-123_XYZ").contains("k=abc-123_XYZ"));
+        assert!(bash_integration("abc-123_XYZ").contains("k=abc-123_XYZ"));
+        assert_eq!(
+            PtyConfig::new("/bin/zsh", std::env::temp_dir()).with_nonce("pinned_1-A").nonce,
+            "pinned_1-A"
+        );
+        assert_eq!(Pty::with_nonce("pinned_1-A").nonce(), "pinned_1-A");
     }
 
     /// When `ZDOTDIR` was unset, the wrapper sources from `$HOME` and
@@ -811,6 +962,62 @@ mod tests {
     #[ignore]
     fn a_real_bash_reports_a_nonced_block() {
         real_shell_reports_a_nonced_block("/bin/bash");
+    }
+
+    /// With a user `.zshrc` registering its own precmd hook, the aui hook
+    /// ends up later in `precmd_functions` — for login and non-login
+    /// interactive shells — and `ZDOTDIR` holds the user's real directory
+    /// by the time the shell is interactive. Ignored: it needs a real zsh
+    /// and does not run in the gate.
+    #[test]
+    #[ignore]
+    fn a_real_zsh_registers_the_aui_hook_after_the_users() {
+        let zsh = "/bin/zsh";
+        if !Path::new(zsh).exists() {
+            eprintln!("skipped: no {zsh}");
+            return;
+        }
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let user_dir =
+            std::env::temp_dir().join(format!("aui-l3-user-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&user_dir).expect("user dir");
+        std::fs::write(user_dir.join(".zshrc"), "user_hook() { :; }\nprecmd_functions+=(user_hook)\n")
+            .expect("user zshrc");
+        for name in ["zshenv", "zprofile", "zlogin"] {
+            std::fs::write(user_dir.join(format!(".{name}")), "").expect("user file");
+        }
+        let user_dir = user_dir.to_string_lossy().into_owned();
+        let restore = format!("export ZDOTDIR={}", sh_quote(&user_dir));
+        let dir = Pty::write_zdotdir_for("abc123XYZ", &user_dir, &restore).expect("the wrapper writes");
+        for login in [false, true] {
+            let mut cmd = std::process::Command::new(zsh);
+            cmd.env("ZDOTDIR", dir.path());
+            if login {
+                cmd.arg("-l");
+            }
+            cmd.arg("-i")
+                .arg("-c")
+                .arg("print -l ${precmd_functions}; echo ZDOTDIR=$ZDOTDIR");
+            let out = cmd.output().expect("zsh runs");
+            assert!(out.status.success(), "login={login}: zsh failed: {out:?}");
+            let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+            let hooks: Vec<&str> = stdout.lines().collect();
+            let user_at = hooks.iter().position(|l| *l == "user_hook");
+            let aui_at = hooks.iter().position(|l| *l == "_aui_osc133_precmd");
+            assert!(user_at.is_some() && aui_at.is_some(), "login={login}: both hooks register:\n{stdout}");
+            assert!(
+                aui_at.unwrap() > user_at.unwrap(),
+                "login={login}: the aui hook registers last:\n{stdout}"
+            );
+            assert!(
+                stdout.contains(&format!("ZDOTDIR={user_dir}")),
+                "login={login}: ZDOTDIR is restored:\n{stdout}"
+            );
+        }
+        std::fs::remove_dir_all(&user_dir).ok();
     }
 
     /// Boots `shell` under a [`PtyConfig`], echoes a sentinel environment
