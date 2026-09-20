@@ -1385,7 +1385,7 @@ Small helpers shared by the components: per-element interaction state (hover / p
 
 ### `aui::workbench`
 
-Workbench: the block terminal and TUI pane, browser with annotator, diff review, git and PR forms, file tree and document panes, sources and citations (cards 50–55, spec §5).
+Workbench: the block terminal, terminal tabs and dock, and TUI pane, browser with annotator, diff review, git and PR forms, file tree and document panes, sources and citations (cards 50–55, spec §5).
 
 - **fn** `agent_action_pill` — The pill shown over the page while an agent drives it; `text` shimmers.
   - `pub fn agent_action_pill(id: impl Into<ElementId>, text: impl Into<SharedString>) -> AgentActionPill`
@@ -1439,6 +1439,10 @@ Workbench: the block terminal and TUI pane, browser with annotator, diff review,
   - `pub fn source_hover_card(id: impl Into<ElementId>, title: impl Into<SharedString>, quote: impl Into<SharedString>, highlight: Range<usize>, page: u32) -> SourceHoverCard`
 - **fn** `sources_card` — The sources card for `tiers`.
   - `pub fn sources_card(id: impl Into<ElementId>, tiers: Vec<SourceTier>) -> SourcesCard`
+- **fn** `terminal_dock` — The dock frame: `header` (usually `terminal_tabs`) seated on the left of the header cell, and the terminal `body` below — or the centred empty state when `body` is `None`. [...]
+  - `pub fn terminal_dock(id: impl Into<ElementId>, header: impl IntoElement, body: Option<impl IntoElement>) -> TerminalDock`
+- **fn** `terminal_tabs` — A strip over `tabs` with `active` selected. The strip takes the free width of its row and scrolls horizontally; it never wraps. [...]
+  - `pub fn terminal_tabs(id: impl Into<ElementId>, tabs: Vec<TermTab>, active: usize) -> TerminalTabs`
 - **fn** `tui_pane` — A pane over the TUI’s `lines` (ANSI escapes allowed; bold via SGR 1).
   - `pub fn tui_pane(id: impl Into<ElementId>, lines: Vec<String>) -> TuiPane`
 
@@ -1586,6 +1590,20 @@ Workbench: the block terminal and TUI pane, browser with annotator, diff review,
   - `pub fn output(self, lines: Vec<String>) -> Self` — Output lines.
 - **struct** `TermPrompt` — The prompt row’s state.
   - fields: `text`, `context`
+- **struct** `TermTab` — One terminal tab: the data `terminal_tabs` draws.
+  - fields: `id`, `title`, `agent`, `busy`
+  - `pub fn agent(self, provider: Provider) -> Self` — Marks the tab as agent-owned (draws the provider mark).
+  - `pub fn busy(self, busy: bool) -> Self` — Whether a command is running (draws the busy dot).
+  - `pub fn new(id: impl Into<SharedString>, title: impl Into<SharedString>) -> Self` — A tab with a title and nothing running.
+- **struct** `TerminalDock` — The bottom-dock frame. Build with `terminal_dock`.
+  - `pub fn hint(self, hint: impl Into<SharedString>) -> Self` — The hint text at the right of the header cell.
+  - `pub fn maximized(self, maximized: bool) -> Self` — Whether the dock is at its maximized height. Flips the maximize button between expand (chevron-up) and restore (chevron-down); the host still owns the height itself.
+  - `pub fn on_action(self, f: impl Fn(TerminalDockAction, &mut Window, &mut App) + 'static) -> Self` — Called with every intent the frame emits.
+  - `pub fn on_resize(self, f: impl Fn(f32, &mut Window, &mut App) + 'static) -> Self` — The resize drag moved; set the host height from the delta.
+  - `pub fn on_resize_end(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The resize drag ended. Disarm the drag and persist the height.
+  - `pub fn on_resize_start(self, f: impl Fn(f32, &mut Window, &mut App) + 'static) -> Self` — The resize drag started; the argument is the grab position in window pixels (the `resize_handle` contract). Arm the drag and remember the start height.
+- **struct** `TerminalTabs` — The terminal tab strip. Build with `terminal_tabs`.
+  - `pub fn on_action(self, f: impl Fn(TerminalTabsAction, &mut Window, &mut App) + 'static) -> Self` — Called with every intent the strip emits.
 - **struct** `TuiPane` — The TUI pane. Build with `tui_pane`.
   - `pub fn footer(self, text: impl Into<SharedString>) -> Self` — The dim hint line under the input.
   - `pub fn hint_key(self, key: impl Into<SharedString>) -> Self` — Keycaps pinned top-right (`⌘⇧D`).
@@ -1643,6 +1661,10 @@ Workbench: the block terminal and TUI pane, browser with annotator, diff review,
   - variants: `Text`, `Mono`
 - **enum** `TerminalAction` — What a block asks for.
   - variants: `Copy`, `Ask`, `Unfold`
+- **enum** `TerminalDockAction` — What the dock frame asks the host to do.
+  - variants: `Maximize`, `Close`, `NewTerminal`
+- **enum** `TerminalTabsAction` — What the tab strip asks the host to do. Indices count into the tab list the strip was built with.
+  - variants: `Select`, `Close`, `New`
 
 - **const** `ANSWER_MARGIN` — `.a{margin-bottom:14px}` — the gap between the answer and the sources card.
   - `pub const ANSWER_MARGIN: f32 = 14.0;`
