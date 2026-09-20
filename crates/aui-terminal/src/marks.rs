@@ -80,6 +80,11 @@ pub struct Mark {
     pub exit: Option<i32>,
     /// When the session accepted the marker; blocks read durations off this.
     pub at: Instant,
+    /// Monotonic sequence number minted by [`MarkScanner::push_mark`] when
+    /// the mark is accepted. Never renumbered; a block's `id` is the `seq`
+    /// of the mark that opened it, so identity comes from the event, not
+    /// from geometry, and two blocks sharing a start anchor never collide.
+    pub seq: u64,
 }
 
 /// Who started a [`Block`]: the human at the keyboard, or an agent driving
@@ -128,10 +133,12 @@ pub struct Block {
     /// Who started the block. The assembler always leaves [`BlockAuthor::Human`];
     /// the host upgrades agent blocks afterwards.
     pub author: BlockAuthor,
-    /// Monotonic id assigned when the block is first assembled, never reused.
-    /// Rebuilds carry host-set state across by this id, not by index —
-    /// pruning shifts positional indices — so a host can hold it as a stable
-    /// reference.
+    /// The sequence number of the mark that OPENED the block (the `A` mark,
+    /// the `C` mark when no `A` came, or the lone `D` for a `D`-only block).
+    /// Minted at the event and never reused, so rebuilds carry host-set
+    /// state across by this id — not by index, which pruning shifts, and
+    /// not by start anchor, which two live blocks may share — and a host
+    /// can hold it as a stable reference.
     pub id: u64,
 }
 
@@ -186,6 +193,16 @@ pub enum ScanSegment {
         /// Exit status for [`MarkKind::CommandDone`]; `None` otherwise.
         exit: Option<i32>,
     },
+    /// One alt-screen switch sequence (`ESC[?1049h/l`, `ESC[?1047h/l` or
+    /// `ESC[?47h/l`). Entering alt-screen swaps to a grid with no scrollback
+    /// and exiting restores the main grid, so a transition is always a slice
+    /// boundary: the session snapshots its accounting on entry and resumes
+    /// on exit, and a `clear` sharing the pump is accounted as its own
+    /// slice. Feed `raw` to the emulator verbatim like [`ScanSegment::Emit`].
+    AltSwitch {
+        /// The switch sequence's raw bytes.
+        raw: Vec<u8>,
+    },
 }
 
 /// Incremental, nonce-checked OSC 133 scanner over the session's byte stream.
@@ -203,12 +220,30 @@ pub struct MarkScanner {
     pending: Vec<u8>,
     /// Accepted marks, in stream order.
     marks: Vec<Mark>,
+    /// Next [`Mark::seq`]: minted in [`MarkScanner::push_mark`], never
+    /// renumbered, so block ids are unique for the session's life.
+    next_seq: u64,
+}
+
+/// Alt-screen switch sequences: a transition is always a slice boundary.
+const ALT_SWITCHES: &[&[u8]] = &[
+    b"\x1b[?1049h",
+    b"\x1b[?1049l",
+    b"\x1b[?1047h",
+    b"\x1b[?1047l",
+    b"\x1b[?47h",
+    b"\x1b[?47l",
+];
+
+/// Length of the alt-screen switch sequence at the start of `seq`, if any.
+fn alt_switch_len(seq: &[u8]) -> Option<usize> {
+    ALT_SWITCHES.iter().find_map(|s| seq.starts_with(s).then_some(s.len()))
 }
 
 impl MarkScanner {
     /// A scanner expecting `nonce`. Empty matches nothing (see the type docs).
     pub fn new(nonce: impl Into<String>) -> Self {
-        Self { nonce: nonce.into(), pending: Vec::new(), marks: Vec::new() }
+        Self { nonce: nonce.into(), pending: Vec::new(), marks: Vec::new(), next_seq: 0 }
     }
 
     /// Pins (or re-pins) the expected nonce. Marks accepted so far are kept.
@@ -222,8 +257,12 @@ impl MarkScanner {
     }
 
     /// Records a mark the session attributed to the emulator's current line.
-    /// The session calls this once per [`ScanSegment::Marker`].
-    pub fn push_mark(&mut self, mark: Mark) {
+    /// The session calls this once per [`ScanSegment::Marker`]. The mark's
+    /// identity is minted here: any `seq` on the way in is overwritten with
+    /// the next monotonic sequence number.
+    pub fn push_mark(&mut self, mut mark: Mark) {
+        mark.seq = self.next_seq;
+        self.next_seq += 1;
         self.marks.push(mark);
     }
 
@@ -238,9 +277,12 @@ impl MarkScanner {
     }
 
     /// Splits `bytes` into emulator-ready segments, honouring the bytes held
-    /// from the previous chunk. Concatenating every [`ScanSegment::Emit`]
-    /// payload with every [`ScanSegment::Marker::raw`], in order, reproduces
-    /// the input stream exactly.
+    /// from the previous chunk. Besides complete OSC 133 markers the feed is
+    /// also split at alt-screen switch sequences, so a transition is always
+    /// a slice boundary. Concatenating every [`ScanSegment::Emit`] payload
+    /// with every [`ScanSegment::Marker::raw`] and every
+    /// [`ScanSegment::AltSwitch::raw`], in order, reproduces the input
+    /// stream exactly.
     pub fn split_feed(&mut self, bytes: &[u8]) -> Vec<ScanSegment> {
         let mut buf = std::mem::take(&mut self.pending);
         buf.extend_from_slice(bytes);
@@ -254,6 +296,17 @@ impl MarkScanner {
                 break;
             };
             let esc = pos + rel;
+            if let Some(len) = alt_switch_len(&buf[esc..]) {
+                // A transition is always a slice boundary: isolate the
+                // switch so no counted advance ever spans it.
+                if text_start < esc {
+                    segments.push(ScanSegment::Emit(buf[text_start..esc].to_vec()));
+                }
+                segments.push(ScanSegment::AltSwitch { raw: buf[esc..esc + len].to_vec() });
+                pos = esc + len;
+                text_start = pos;
+                continue;
+            }
             if buf[esc..].starts_with(&[ESC, OSC_INTRO]) {
                 match osc_end(&buf[esc..]) {
                     Some(len) => {
@@ -398,10 +451,13 @@ struct Open {
     b_line: Option<i32>,
     /// The `C` line, once seen.
     c_line: Option<i32>,
+    /// The sequence number of the mark that opened the block: its identity.
+    seq: u64,
 }
 
 /// Closes `open` at the `D` mark (`line`, `at`, `exit`), reading the command
-/// text off `command_text`.
+/// text off `command_text`. The id is the opening mark's sequence number,
+/// minted when the mark was accepted — never matched on geometry.
 fn close(open: &Open, line: i32, at: Instant, exit: i32, command_text: &dyn Fn(i32, i32) -> String) -> Block {
     let b = open.b_line.unwrap_or(open.a_line);
     let c = open.c_line.unwrap_or(b);
@@ -415,12 +471,14 @@ fn close(open: &Open, line: i32, at: Instant, exit: i32, command_text: &dyn Fn(i
         started: open.a_at,
         ended: Some(at),
         author: BlockAuthor::Human,
-        // Placeholder: the session's rebuild assigns the real monotonic id.
-        id: 0,
+        id: open.seq,
     }
 }
 
 /// Folds `marks` (stream order) into blocks, oldest first.
+///
+/// Each block's `id` is the sequence number of the mark that opened it, so
+/// identity is minted at the event and shared start anchors never collide.
 ///
 /// `tail` is the absolute line of the live cursor: a block with a `C` but no
 /// `D` yet stays open with `output` running to it and `exit`/`ended` left as
@@ -446,7 +504,8 @@ pub fn assemble_blocks(
                     }
                     // Without a `C` nothing ran: the prompt line is dropped.
                 }
-                open = Some(Open { a_line: mark.line, a_at: mark.at, b_line: None, c_line: None });
+                open =
+                    Some(Open { a_line: mark.line, a_at: mark.at, b_line: None, c_line: None, seq: mark.seq });
             }
             MarkKind::PromptEnd => {
                 if let Some(cur) = open.as_mut() {
@@ -456,7 +515,13 @@ pub fn assemble_blocks(
                 }
             }
             MarkKind::OutputStart => {
-                let cur = open.get_or_insert(Open { a_line: mark.line, a_at: mark.at, b_line: None, c_line: None });
+                let cur = open.get_or_insert(Open {
+                    a_line: mark.line,
+                    a_at: mark.at,
+                    b_line: None,
+                    c_line: None,
+                    seq: mark.seq,
+                });
                 if cur.c_line.is_none() {
                     cur.c_line = Some(mark.line);
                 }
@@ -468,6 +533,7 @@ pub fn assemble_blocks(
                     a_at: mark.at,
                     b_line: Some(mark.line),
                     c_line: Some(mark.line),
+                    seq: mark.seq,
                 });
                 blocks.push(close(&cur, mark.line, mark.at, exit, command_text));
             }
@@ -486,8 +552,7 @@ pub fn assemble_blocks(
                 started: cur.a_at,
                 ended: None,
                 author: BlockAuthor::Human,
-                // Placeholder: the session's rebuild assigns the real monotonic id.
-                id: 0,
+                id: cur.seq,
             });
         }
     }
@@ -513,18 +578,31 @@ mod tests {
             .iter()
             .filter_map(|s| match s {
                 ScanSegment::Marker { kind, exit, .. } => Some((*kind, *exit)),
-                ScanSegment::Emit(_) => None,
+                ScanSegment::Emit(_) | ScanSegment::AltSwitch { .. } => None,
             })
             .collect()
     }
 
-    /// The raw bytes round-trip: emits plus marker raws reproduce the input.
+    /// Only the alt-screen switches in a segment list.
+    fn switches_in(segments: &[ScanSegment]) -> Vec<Vec<u8>> {
+        segments
+            .iter()
+            .filter_map(|s| match s {
+                ScanSegment::AltSwitch { raw } => Some(raw.clone()),
+                ScanSegment::Emit(_) | ScanSegment::Marker { .. } => None,
+            })
+            .collect()
+    }
+
+    /// The raw bytes round-trip: emits plus marker and switch raws reproduce
+    /// the input.
     fn round_trip(segments: &[ScanSegment]) -> Vec<u8> {
         let mut out = Vec::new();
         for s in segments {
             match s {
                 ScanSegment::Emit(raw) => out.extend_from_slice(raw),
                 ScanSegment::Marker { raw, .. } => out.extend_from_slice(raw),
+                ScanSegment::AltSwitch { raw } => out.extend_from_slice(raw),
             }
         }
         out
@@ -602,9 +680,22 @@ mod tests {
         assert_eq!(markers_in(&segments), vec![(MarkKind::CommandDone, Some(1))]);
     }
 
-    /// Marks at fixed lines and times, for assembly tests.
+    /// Marks at fixed lines and times, for assembly tests. Sequence numbers
+    /// are dealt out in order, the way [`MarkScanner::push_mark`] mints them.
     fn mark(line: i32, kind: MarkKind, exit: Option<i32>) -> Mark {
-        Mark { line, kind, exit, at: Instant::now() }
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        Mark {
+            line,
+            kind,
+            exit,
+            at: Instant::now(),
+            seq: SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        }
+    }
+
+    /// A mark with an explicit sequence number, for identity tests.
+    fn mark_seq(seq: u64, line: i32, kind: MarkKind, exit: Option<i32>) -> Mark {
+        Mark { line, kind, exit, at: Instant::now(), seq }
     }
 
     fn no_text(_a: i32, _b: i32) -> String {
@@ -680,5 +771,72 @@ mod tests {
         ];
         let blocks = assemble_blocks(&marks, 6, &|a, b| format!("lines {a}..{b}"));
         assert_eq!(blocks[0].command, "lines 2..4");
+    }
+
+    #[test]
+    fn push_mark_mints_monotonic_sequence_numbers() {
+        let mut s = scanner();
+        for _ in 0..3 {
+            s.push_mark(Mark { line: 0, kind: MarkKind::PromptStart, exit: None, at: Instant::now(), seq: 999 });
+        }
+        let seqs: Vec<u64> = s.marks().iter().map(|m| m.seq).collect();
+        assert_eq!(seqs.len(), 3);
+        assert!(seqs.windows(2).all(|w| w[0] + 1 == w[1]), "seqs not monotonic: {seqs:?}");
+    }
+
+    #[test]
+    fn block_ids_come_from_the_opening_mark_not_the_anchor() {
+        // A stray `D` and a real prompt on the SAME line: geometry collides,
+        // sequence numbers do not.
+        let marks = vec![
+            mark_seq(0, 5, MarkKind::CommandDone, Some(0)),
+            mark_seq(1, 5, MarkKind::PromptStart, None),
+            mark_seq(2, 5, MarkKind::PromptEnd, None),
+            mark_seq(3, 7, MarkKind::OutputStart, None),
+            mark_seq(4, 9, MarkKind::CommandDone, Some(0)),
+        ];
+        let blocks = assemble_blocks(&marks, 9, &no_text);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].prompt.0, blocks[1].prompt.0, "precondition: shared start anchor");
+        assert_eq!(blocks[0].id, 0, "stray-D block takes the D's seq");
+        assert_eq!(blocks[1].id, 1, "real block takes the A's seq, not the anchor");
+        assert_ne!(blocks[0].id, blocks[1].id);
+    }
+
+    #[test]
+    fn alt_screen_switches_split_the_feed() {
+        let mut s = scanner();
+        let bytes = b"\x1b[H\x1b[2J\x1b[3J\x1b[?1049hvim\x1b[?1049l";
+        let segments = feed(&mut s, bytes);
+        assert_eq!(switches_in(&segments), vec![b"\x1b[?1049h".to_vec(), b"\x1b[?1049l".to_vec()]);
+        assert!(markers_in(&segments).is_empty());
+        assert_eq!(round_trip(&segments), bytes);
+        // Every switch flavour is isolated, even mid-line.
+        for raw in [
+            b"\x1b[?1049h".as_slice(),
+            b"\x1b[?1049l".as_slice(),
+            b"\x1b[?1047h".as_slice(),
+            b"\x1b[?1047l".as_slice(),
+            b"\x1b[?47h".as_slice(),
+            b"\x1b[?47l".as_slice(),
+        ] {
+            let mut s = scanner();
+            let mut bytes = b"ab".to_vec();
+            bytes.extend_from_slice(raw);
+            bytes.extend_from_slice(b"cd");
+            let segments = feed(&mut s, &bytes);
+            assert_eq!(switches_in(&segments), vec![raw.to_vec()], "not isolated: {raw:?}");
+            assert_eq!(round_trip(&segments), bytes);
+        }
+    }
+
+    #[test]
+    fn a_switch_split_across_chunks_is_reported_once() {
+        let mut s = scanner();
+        let first = feed(&mut s, b"cmd\x1b[?104");
+        assert!(switches_in(&first).is_empty(), "partial switch reported early");
+        let second = feed(&mut s, b"9hvim");
+        assert_eq!(switches_in(&second), vec![b"\x1b[?1049h".to_vec()]);
+        assert_eq!([round_trip(&first), round_trip(&second)].concat(), b"cmd\x1b[?1049hvim");
     }
 }
