@@ -50,49 +50,37 @@ const NONCE_PLACEHOLDER: &str = "__AUI_NONCE__";
 
 /// The zsh half of OSC 133 shell integration, before the nonce is filled in.
 ///
-/// Two `precmd` hooks, deliberately split, bracketing the user's own the way
-/// the bash side brackets `PROMPT_COMMAND`:
+/// Two `precmd` hooks, deliberately split:
 ///
 /// 1. `_aui_osc133_status` stays FIRST in `precmd_functions`. It captures
 ///    `$?` for the `D` marker before any user precmd can clobber it.
-/// 2. `_aui_osc133_precmd` keeps itself LAST in `precmd_functions`. On every
-///    invocation, if it is not the final element it removes itself and
-///    appends itself to the end. `precmd_functions` is an array of names,
-///    not a chain of wrappers, so re-appending an already-present name is
-///    idempotent and — unlike wrapping the `zle-line-init` widget, which
-///    this replaces — cannot form a cycle. (That widget is gone entirely:
-///    wrapping it let a user wrapper and our wrapper capture each other and
-///    recurse to zsh's nesting limit on every prompt after the first.)
+/// 2. `_aui_osc133_precmd` emits `D` (closing the finished command, with the
+///    status above) and `A` (opening the next block). Its position does not
+///    matter: `A` only marks where the prompt began, and if a theme redraws
+///    the prompt after us that anchor can be off by the prompt's height —
+///    accepted per D44, which already treats grid anchors as approximate.
 ///
-/// Running last means every user precmd, including a theme that rebuilds
-/// `PS1` from scratch, has already run; the hook then emits `A` and
-/// re-attaches the `B` marker to the end of whatever `PS1` resulted. The
-/// re-attachment matches the marker literally first, so a static `PS1` does
-/// not grow one copy per prompt. When a user hook registered after ours, the
-/// first prompt can miss `B`; the hook order converges after one prompt.
+/// The command text does not come from the prompt at all. There is
+/// deliberately no `B` marker anywhere in this snippet: every attempt to
+/// bracket the prompt lost to a real plugin — a theme rebuilding `PS1` in
+/// its own precmd wipes a trailing marker, a wrapped `zle-line-init` cycles,
+/// a per-precmd rebind wins outright, and keeping our precmd last loses to
+/// powerlevel10k keeping its own last (zsh iterates a snapshot of
+/// `precmd_functions`). Instead the shell hands us the command line
+/// directly: `preexec` receives it as `$1`, and every `preexec` hook
+/// receives the same `$1`, so `_aui_osc133_preexec` needs no ordering fight
+/// either — it carries the text as a payload on the `C` marker it emits
+/// itself (`cmd=<encoded>;enc=<b64|raw>`, base64 via the `base64` CLI, raw
+/// sanitised fallback without it).
 ///
-/// `B` is emitted only while the shell is at its own prompt: the `precmd`
-/// that emits `A` sets `_AUI_AT_PROMPT`, `preexec` unsets it when a command
-/// starts running, and the `PS1`-embedded marker is conditional on it (which
-/// needs `PROMPT_SUBST` below), so a prompt redraw in the middle of a
-/// running command stays silent. A redraw at the same prompt (`zle
-/// reset-prompt`, e.g. powerlevel10k's transient prompt) can still emit a
-/// second `B`; the parser ignores a `B` that arrives while already reading
-/// the command line.
-///
-/// `PROMPT_SP` is switched off as well: it is the reverse-video `%` and the
-/// row of padding zsh prints to show a command whose output had no trailing
+/// `PROMPT_SP` is switched off: it is the reverse-video `%` and the row of
+/// padding zsh prints to show a command whose output had no trailing
 /// newline, and it would land in the block's output as a line of noise.
+/// Nothing here touches `PS1`, `PROMPT_SUBST` or any line-editor widget, so
+/// a prompt containing `$(...)` or backticks still prints literally.
 const ZSH_TEMPLATE: &str = r#"
 # OSC 133 shell integration for the aui block terminal.
 autoload -Uz add-zsh-hook
-
-# The prompt-end marker, drawn as part of PS1. %{...%} keeps it out of the
-# line editor's width arithmetic; the ${...:+...} conditional (needs
-# PROMPT_SUBST below) emits the marker only while the shell is at its own
-# prompt. The inner double quotes matter: an unquoted %{ inside ${...+...}
-# misparses, leaking a literal brace into the prompt.
-_AUI_OSC133_B='${_AUI_AT_PROMPT:+"%{'$'\033]133;B;k=__AUI_NONCE__\007''%}"}'
 
 # Status capture. Stays FIRST in precmd_functions so $? is still the
 # command's exit status: a user precmd running before us would clobber it.
@@ -105,37 +93,38 @@ _aui_osc133_status() {
   return 0
 }
 
-# Block markers. Keeps itself LAST in precmd_functions (see the module docs
-# for why an array slot cannot cycle the way widget wrapping did): every
-# user precmd has already run, so re-attach B after whatever PS1 they left.
+# Block markers. Position in precmd_functions does not matter: A only marks
+# where the prompt began (off by the prompt's height when a theme redraws
+# after us — accepted per D44), and D carries the status captured above.
 _aui_osc133_precmd() {
-  if [[ ${precmd_functions[-1]:-} != _aui_osc133_precmd ]]; then
-    precmd_functions=(${precmd_functions:#_aui_osc133_precmd})
-    precmd_functions+=(_aui_osc133_precmd)
-  fi
   local _aui_status=${_AUI_STATUS:-0}
   if [[ -n ${_AUI_RUNNING-} ]]; then
     printf '\033]133;D;%s;k=__AUI_NONCE__\007' "$_aui_status"
     unset _AUI_RUNNING
   fi
   printf '\033]133;A;k=__AUI_NONCE__\007'
-  # At the shell's own prompt now: the prompt about to be drawn owns the B.
-  _AUI_AT_PROMPT=1
-  # Re-attach the marker to whatever prompt setup just built; the quoted
-  # check matches literally, so a static PS1 keeps exactly one copy.
-  [[ $PS1 == *"$_AUI_OSC133_B"* ]] || PS1+="$_AUI_OSC133_B"
 }
 
+# The shell hands us the command line as $1: no screen geometry, no prompt
+# bracketing, no ordering fight — every preexec hook gets the same $1. The
+# payload is base64 (newlines, `;`, BEL and UTF-8 pass through untouched);
+# without `base64` on PATH it falls back to a sanitised literal with control
+# characters and `;` stripped, and `enc=` says which one it is.
 _aui_osc133_preexec() {
   _AUI_RUNNING=1
-  # A command is running now, so a prompt redraw before it finishes
-  # (vared, recursive-edit) expands to no B, not a new prompt.
-  unset _AUI_AT_PROMPT
-  printf '\033]133;C;k=__AUI_NONCE__\007'
+  local _aui_raw=$1 _aui_cmd _aui_enc
+  if command -v base64 >/dev/null 2>&1; then
+    _aui_cmd=$(printf '%s' "$_aui_raw" | base64 | tr -d '\n')
+    _aui_enc=b64
+  else
+    _aui_cmd=$(printf '%s' "$_aui_raw" | tr -d ';[:cntrl:]')
+    _aui_enc=raw
+  fi
+  printf '\033]133;C;k=__AUI_NONCE__;cmd=%s;enc=%s\007' "$_aui_cmd" "$_aui_enc"
 }
 
 # Deleted before re-adding, so sourcing this twice keeps one registration
-# (and the status hook first, the marker hook last).
+# (and the status hook first).
 add-zsh-hook -d precmd _aui_osc133_status 2>/dev/null
 add-zsh-hook -d precmd _aui_osc133_precmd 2>/dev/null
 add-zsh-hook precmd _aui_osc133_status
@@ -143,8 +132,6 @@ add-zsh-hook precmd _aui_osc133_precmd
 add-zsh-hook -d preexec _aui_osc133_preexec 2>/dev/null
 add-zsh-hook preexec _aui_osc133_preexec
 
-# The B marker above is conditional on parameter expansion in the prompt.
-setopt PROMPT_SUBST
 # No partial-line marker: the block terminal draws the boundaries itself.
 unsetopt PROMPT_SP
 "#;
@@ -164,10 +151,10 @@ unsetopt PROMPT_SP
 /// login_shell` is skipped here; the wrapper deliberately does not fake it.
 /// The hooks are the bash equivalents of the zsh ones: a `PROMPT_COMMAND`
 /// entry plays `precmd` (`D` closes the finished command, `A` opens the next
-/// block, `B` is re-attached to whatever `PS1` the user's setup just built),
-/// and a `DEBUG` trap plays `preexec` (`C` starts the output). The trap also
-/// fires for the prompt command itself, so it ignores everything that runs
-/// while `PROMPT_COMMAND` is executing and everything this snippet defines.
+/// block), and a `DEBUG` trap plays `preexec` (`C` starts the output,
+/// carrying the command line as a payload). The trap also fires for the
+/// prompt command itself, so it ignores everything that runs while
+/// `PROMPT_COMMAND` is executing and everything this snippet defines.
 /// The user's own `DEBUG` trap, captured after their files are sourced, is
 /// chained from ours (ours first, theirs after). The capture lets the shell
 /// do the unquoting via `eval` rather than hand-stripping quotes off
@@ -176,15 +163,19 @@ unsetopt PROMPT_SP
 /// top level — a function body cannot see the DEBUG trap, so the check runs
 /// inline — and captured the same way, then ours is reinstalled around it.
 ///
+/// Like the zsh side, there is deliberately no `B` marker: the shell hands
+/// us the command line directly (`$BASH_COMMAND`), so the `C` payload needs
+/// no prompt bracketing and no ordering fight — every `DEBUG` trap sees the
+/// same `$BASH_COMMAND`. Nothing here touches `PS1`.
+///
 /// `PROMPT_COMMAND` brackets the user's own: the status capture runs first
-/// (so `$?` is still the command's) and the marker re-attachment runs after
-/// theirs. On bash ≥ 5.1 `PROMPT_COMMAND` may be an array (bash-preexec 0.5
-/// uses it); that form is bracketed element-wise so later elements cannot
-/// slip past the re-attachment. (There is no bash 5 on this machine, so the
-/// array branch is code-correctness, not something executed here.) The `B`
-/// marker is wrapped in `\[…\]` so readline does not count it towards the
-/// prompt's width, and the re-attachment matches it literally so a static
-/// `PS1` does not grow one copy per prompt.
+/// (so `$?` is still the command's) and the marker hook runs after theirs.
+/// The join strips trailing `;` and whitespace off the user's value first:
+/// a `PROMPT_COMMAND` ending in `;` would otherwise produce `;;` — `syntax
+/// error near ;;` on every prompt, with no markers at all. On bash ≥ 5.1
+/// `PROMPT_COMMAND` may be an array (bash-preexec 0.5 uses it); that form is
+/// bracketed element-wise. (There is no bash 5 on this machine, so the
+/// array branch is code-correctness, not something executed here.)
 const BASH_TEMPLATE: &str = r#"
 # OSC 133 shell integration for the aui block terminal (bash).
 # The shell runs as `bash --rcfile <this> -i` (never `-l`: bash ignores
@@ -223,9 +214,6 @@ if [ -n "$_aui_osc133_dbg_line" ]; then
 fi
 unset _aui_osc133_dbg_line _aui_osc133_dbg_rest
 
-# The prompt-end marker; \[...\] keeps it out of readline's width arithmetic.
-_AUI_OSC133_B=$'\[\033]133;B;k=__AUI_NONCE__\007\]'
-
 # Captures the command's exit status first: this entry runs before the rest of
 # PROMPT_COMMAND so `$?` is still the command's.
 _aui_osc133_begin() {
@@ -257,6 +245,9 @@ _aui_osc133_rechain() {
   esac
 }
 
+# Position after the user's PROMPT_COMMAND does not matter: A only marks
+# where the prompt began (off by the prompt's height when their setup draws
+# after us — accepted per D44), and D carries the status captured above.
 _aui_osc133_precmd() {
   local _aui_status=${_AUI_STATUS:-0}
   if [ -n "${_AUI_RUNNING-}" ]; then
@@ -264,9 +255,6 @@ _aui_osc133_precmd() {
     unset _AUI_RUNNING
   fi
   printf '\033]133;A;k=__AUI_NONCE__\007'
-  # Re-attach the marker to whatever prompt setup just built; the quoted
-  # pattern matches literally.
-  PS1="${PS1//"$_AUI_OSC133_B"/}${_AUI_OSC133_B}"
   unset _AUI_STATUS _AUI_IN_PROMPT
 }
 
@@ -282,12 +270,30 @@ _aui_osc133_preexec() {
   esac
   if [ -z "${_AUI_RUNNING-}" ]; then
     _AUI_RUNNING=1
-    printf '\033]133;C;k=__AUI_NONCE__\007'
+    # The shell hands us the command line as $BASH_COMMAND: no screen
+    # geometry, no prompt bracketing, no ordering fight. Base64 so newlines,
+    # `;`, BEL and UTF-8 pass through untouched; without `base64` on PATH a
+    # sanitised literal with control characters and `;` stripped, and `enc=`
+    # says which one it is.
+    local _aui_raw="$BASH_COMMAND" _aui_cmd _aui_enc
+    if command -v base64 >/dev/null 2>&1; then
+      _aui_cmd=$(printf '%s' "$_aui_raw" | base64 | tr -d '\n')
+      _aui_enc=b64
+    else
+      _aui_cmd=$(printf '%s' "$_aui_raw" | tr -d ';[:cntrl:]')
+      _aui_enc=raw
+    fi
+    printf '\033]133;C;k=__AUI_NONCE__;cmd=%s;enc=%s\007' "$_aui_cmd" "$_aui_enc"
+    unset _aui_raw _aui_cmd _aui_enc
   fi
   # Chain the user's own DEBUG trap, if they had one: ours first, theirs
   # after. Guarded against re-entry while it runs, since its own commands
   # would otherwise re-enter this handler. `$BASH_COMMAND` still names the
-  # trapped command; `$?` and `$_` are restored best-effort below.
+  # trapped command; `$?` is restored best-effort below.
+  # Known limitation: `$_` cannot be restored for the chained trap. The
+  # assignment above runs before the user's body, but the audit measured the
+  # user's trap still seeing `[]` where a baseline (no chaining) sees `[3]`:
+  # do not rely on `$_` inside a chained DEBUG trap.
   if [ -n "${_AUI_USER_DEBUG_TRAP-}" ] && [ -z "${_AUI_IN_PREEXEC-}" ]; then
     _AUI_IN_PREEXEC=1
     _="$_aui_cmd_arg"
@@ -298,17 +304,34 @@ _aui_osc133_preexec() {
 }
 
 # This brackets the user's own PROMPT_COMMAND: the status capture runs first
-# and the marker re-attachment runs after theirs. PROMPT_COMMAND is an array
-# on bash >= 5.1 (bash-preexec 0.5 uses it): bracket that form element-wise
-# so later elements cannot slip past the re-attachment. Between theirs and
-# ours sits the late-trap check: it must run inline at the top level (not
-# inside a function) because a function body cannot see the DEBUG trap, and
-# for the same reason only this top level may reinstall ours.
+# (so `$?` is still the command's) and the marker hook runs after theirs.
+# The user's value is joined with trailing `;` and whitespace stripped first:
+# a PROMPT_COMMAND ending in `;` would otherwise produce `;;` — a syntax
+# error on every prompt, with no markers at all. PROMPT_COMMAND is an array
+# on bash >= 5.1 (bash-preexec 0.5 uses it): bracket that form element-wise.
+# Between theirs and ours sits the late-trap check: it must run inline at
+# the top level (not inside a function) because a function body cannot see
+# the DEBUG trap, and for the same reason only this top level may reinstall
+# ours.
 _aui_osc133_rechain_inline='if _aui_osc133_rechain "$(trap -p DEBUG 2>/dev/null)"; then trap '\''_aui_osc133_preexec'\'' DEBUG; fi'
 if declare -p PROMPT_COMMAND 2>/dev/null | grep -q 'declare -a'; then
   PROMPT_COMMAND=(_aui_osc133_begin "${PROMPT_COMMAND[@]}" "$_aui_osc133_rechain_inline" _aui_osc133_precmd)
 else
-  PROMPT_COMMAND="_aui_osc133_begin${PROMPT_COMMAND:+; $PROMPT_COMMAND}; ${_aui_osc133_rechain_inline}; _aui_osc133_precmd"
+  _aui_user_pc="${PROMPT_COMMAND-}"
+  while :; do
+    case "$_aui_user_pc" in
+      *';'|*' '|*$'\t'|*$'\n')
+        _aui_user_pc="${_aui_user_pc%?}"
+        ;;
+      *) break;;
+    esac
+  done
+  if [ -n "$_aui_user_pc" ]; then
+    PROMPT_COMMAND="_aui_osc133_begin; $_aui_user_pc; $_aui_osc133_rechain_inline; _aui_osc133_precmd"
+  else
+    PROMPT_COMMAND="_aui_osc133_begin; $_aui_osc133_rechain_inline; _aui_osc133_precmd"
+  fi
+  unset _aui_user_pc
 fi
 unset _aui_osc133_rechain_inline
 # Last: installing this earlier would fire it (and the user's chained trap)
@@ -339,7 +362,8 @@ fn assert_valid_nonce(nonce: &str) {
 }
 
 /// The zsh half of OSC 133 shell integration, with `nonce` baked into every
-/// marker it emits (`A`, `B`, `C` and `D` all carry `k=<nonce>`).
+/// marker it emits (`A`, `C` and `D` all carry `k=<nonce>`; `C` also carries
+/// the command line as `cmd=<encoded>;enc=<b64|raw>`).
 ///
 /// See [`ZSH_TEMPLATE`] for what the snippet does and why; the only
 /// difference is that this one is ready to source. It is written into the
@@ -352,7 +376,8 @@ pub fn zsh_integration(nonce: &str) -> String {
 }
 
 /// The bash half of OSC 133 shell integration, with `nonce` baked into every
-/// marker it emits (`A`, `B`, `C` and `D` all carry `k=<nonce>`).
+/// marker it emits (`A`, `C` and `D` all carry `k=<nonce>`; `C` also carries
+/// the command line as `cmd=<encoded>;enc=<b64|raw>`).
 ///
 /// See [`BASH_TEMPLATE`] for what the snippet does and why; the only
 /// difference is that this one is ready to source. It is written out as the
@@ -901,14 +926,15 @@ mod tests {
 
     /// Every emitted zsh marker carries the nonce, and the details that make
     /// the snippet work on a real machine are still there: a status hook
-    /// that stays first in `precmd_functions`, a marker hook that keeps
-    /// itself last, `B` re-attached to `PS1` (matched literally first),
-    /// gated on the at-prompt flag, `unsetopt PROMPT_SP` — and no
-    /// `zle-line-init` widget anywhere.
+    /// that stays first in `precmd_functions`, a `C` marker carrying the
+    /// command line as a base64 payload (`cmd=`/`enc=`, from `$1`, whose
+    /// position-independent delivery needs no ordering fight), `unsetopt
+    /// PROMPT_SP` — and no `B` emission, no `PS1` touch, no `PROMPT_SUBST`,
+    /// no `_AUI_AT_PROMPT` guard and no `zle-line-init` widget anywhere.
     #[test]
-    fn zsh_snippet_marks_every_boundary_from_hooks_that_reorder_themselves() {
+    fn zsh_snippet_marks_every_boundary_without_touching_the_prompt() {
         let snippet = zsh_integration("abc123");
-        assert_eq!(snippet.matches("k=abc123").count(), 4, "{snippet}");
+        assert_eq!(snippet.matches("k=abc123").count(), 3, "{snippet}");
         assert!(!snippet.contains("zle-line-init"), "no widget wrapping:\n{snippet}");
         assert!(!snippet.contains("_aui_osc133_install_zle"), "no installer:\n{snippet}");
         assert!(!snippet.contains("_aui_orig_zle_line_init"), "no saved widget:\n{snippet}");
@@ -918,14 +944,15 @@ mod tests {
             snippet.contains("precmd_functions=(_aui_osc133_status"),
             "the status hook stays first:\n{snippet}"
         );
-        assert!(
-            snippet.contains("precmd_functions+=(_aui_osc133_precmd)"),
-            "the marker hook keeps itself last:\n{snippet}"
-        );
-        assert!(snippet.contains("_AUI_OSC133_B"), "the PS1 marker variable:\n{snippet}");
-        assert!(snippet.contains("PS1+="), "the marker is re-attached to PS1:\n{snippet}");
-        assert!(snippet.contains("_AUI_AT_PROMPT"), "the B gate:\n{snippet}");
-        assert!(snippet.contains("PROMPT_SUBST"), "the gate needs prompt substitution:\n{snippet}");
+        assert!(!snippet.contains("133;B"), "no B emission:\n{snippet}");
+        assert!(!snippet.contains("_AUI_OSC133_B"), "no PS1 marker variable:\n{snippet}");
+        assert!(!snippet.contains("PS1+=") && !snippet.contains("PS1="), "PS1 untouched:\n{snippet}");
+        assert!(!snippet.contains("_AUI_AT_PROMPT"), "no at-prompt guard:\n{snippet}");
+        assert!(!snippet.contains("PROMPT_SUBST"), "no prompt substitution:\n{snippet}");
+        assert!(snippet.contains("local _aui_raw=$1"), "preexec takes $1:\n{snippet}");
+        assert!(snippet.contains("cmd=%s;enc=%s"), "the C payload:\n{snippet}");
+        assert!(snippet.contains("command -v base64"), "the base64 probe:\n{snippet}");
+        assert!(snippet.contains("tr -d ';[:cntrl:]'"), "the raw fallback:\n{snippet}");
         assert!(snippet.contains("add-zsh-hook -d precmd _aui_osc133_status"), "{snippet}");
         assert!(snippet.contains("add-zsh-hook precmd _aui_osc133_status"), "{snippet}");
         assert!(snippet.contains("add-zsh-hook -d precmd _aui_osc133_precmd"), "{snippet}");
@@ -1064,8 +1091,18 @@ mod tests {
             body.contains("trap '_aui_osc133_preexec' DEBUG"),
             "our trap installs (rc time and re-chain):\n{body}"
         );
-        assert_eq!(body.matches("k=bash-nonce").count(), 4, "{body}");
-        assert!(body.contains("\\[") && body.contains("\\]"), "{body}");
+        assert_eq!(body.matches("k=bash-nonce").count(), 3, "A, C and D carry the nonce:\n{body}");
+        assert!(!body.contains("133;B"), "no B emission:\n{body}");
+        assert!(!body.contains("_AUI_OSC133_B"), "no prompt marker variable:\n{body}");
+        assert!(!body.contains("PS1="), "PS1 untouched:\n{body}");
+        assert!(body.contains("_aui_raw=\"$BASH_COMMAND\""), "preexec takes $BASH_COMMAND:\n{body}");
+        assert!(body.contains("cmd=%s;enc=%s"), "the C payload:\n{body}");
+        assert!(body.contains("command -v base64"), "the base64 probe:\n{body}");
+        assert!(body.contains("_aui_user_pc"), "the trailing-`;` strip:\n{body}");
+        assert!(
+            body.contains("cannot be restored for the chained trap"),
+            "the `$_` limitation is documented:\n{body}"
+        );
     }
 
     /// Every session mints its own nonce, and a `Pty` cannot exist without
@@ -1102,9 +1139,9 @@ mod tests {
         let mut parser = BlockParser::new();
 
         // Type a line only once the shell has drawn a prompt — counting the
-        // `B` markers in the raw stream is the only reliable signal, because
+        // `A` markers in the raw stream is the only reliable signal, because
         // a command sent before zle is listening is lost to the tty.
-        let prompt_end = format!("\x1b]133;B;k={}\x07", pty.nonce());
+        let prompt_end = format!("\x1b]133;A;k={}\x07", pty.nonce());
         let script: [&[u8]; 2] = [b"echo hi\n", b"false\n"];
         let deadline = Instant::now() + TEST_TIMEOUT;
         let mut raw: Vec<u8> = Vec::new();
@@ -1354,13 +1391,14 @@ mod tests {
     }
 
     /// Drives `commands` (one per prompt) through a live zsh and returns the
-    /// raw pty bytes. Each command is sent only after the next prompt's `B`
+    /// raw pty bytes. Each command is sent only after the next prompt's `A`
     /// has arrived, so no line is lost to a line editor that is not
-    /// listening yet.
+    /// listening yet. (`A` is the prompt sync now: our snippets no longer
+    /// emit `B` at all.)
     fn drive_live_zsh(home: &Path, zdotdir: &Path, nonce: &str, commands: &[&str]) -> Vec<u8> {
         let mut sh = LiveZsh::spawn(home, zdotdir);
-        let prompt_end = format!("\x1b]133;B;k={nonce}\x07");
-        let needle = prompt_end.as_bytes().to_vec();
+        let prompt_start = format!("\x1b]133;A;k={nonce}\x07");
+        let needle = prompt_start.as_bytes().to_vec();
         assert!(sh.wait_for(&needle, 1, Duration::from_secs(15)), "the shell never drew its first prompt");
         for (i, cmd) in commands.iter().enumerate() {
             if !sh.send_and_wait(cmd, &needle, i + 2, Duration::from_secs(10)) {
@@ -1377,24 +1415,123 @@ mod tests {
     }
 
     /// Counts one full marker in the raw pty bytes. `mid` is the marker
-    /// middle: `A`, `B`, `C`, or `D;0` (`D` carries the exit status, and
-    /// every command these tests type exits zero).
+    /// middle: `A`, or `D;0` (`D` carries the exit status, and every command
+    /// these tests type exits zero). `C` carries a payload, so it is counted
+    /// by [`count_c_markers`] instead. (Our snippets no longer emit `B`.)
     fn count_marker(raw: &[u8], nonce: &str, mid: &str) -> usize {
         let marker = format!("\x1b]133;{mid};k={nonce}\x07");
         raw.windows(marker.len()).filter(|w| *w == marker.as_bytes()).count()
     }
 
+    /// Counts `C` markers in the raw pty bytes: ours carry
+    /// `;cmd=…;enc=…`, so the match is on the marker head.
+    fn count_c_markers(raw: &[u8], nonce: &str) -> usize {
+        let head = format!("\x1b]133;C;k={nonce}");
+        raw.windows(head.len()).filter(|w| *w == head.as_bytes()).count()
+    }
+
+    /// Drives `commands` through a live zsh like [`drive_live_zsh`], but
+    /// synced on effect instead of prompt counts: after sending a line it
+    /// waits for a NEW `C` marker (execution started) and then for the next
+    /// `A` (the next prompt is up) before typing again. A line lost to a
+    /// line editor that is not listening yet — a slow theme's first render,
+    /// e.g. real powerlevel10k — shows as no new `C` and is resent (up to
+    /// three tries); resending is safe exactly because no `C` means the line
+    /// never executed. Every wait asserts loudly: nothing here fails silent
+    /// into an empty capture.
+    fn drive_live_zsh_on_c(home: &Path, zdotdir: &Path, nonce: &str, commands: &[&str]) -> Vec<u8> {
+        let mut sh = LiveZsh::spawn(home, zdotdir);
+        let prompt = format!("\x1b]133;A;k={nonce}\x07");
+        let needle = prompt.as_bytes().to_vec();
+        assert!(
+            sh.wait_for(&needle, 1, Duration::from_secs(30)),
+            "the shell never drew its first prompt"
+        );
+        // A slow theme keeps rendering after its first prompt; typing into
+        // that window is lost to the tty, so let it settle first.
+        std::thread::sleep(Duration::from_secs(2));
+        sh.drain();
+        for cmd in commands {
+            // Baselines from before the send: the command's own `D`/`A`
+            // can arrive in the same drain batch as its `C`, so a baseline
+            // taken after `C` would already contain the new prompt.
+            let c0 = count_c_markers(&sh.raw, nonce);
+            let a0 = sh.count(&needle);
+            let mut started = false;
+            for _ in 0..3 {
+                sh.writer.write_all(cmd.as_bytes()).expect("pty write");
+                sh.writer.flush().expect("pty flush");
+                let deadline = Instant::now() + Duration::from_secs(15);
+                while Instant::now() < deadline {
+                    sh.drain();
+                    if count_c_markers(&sh.raw, nonce) > c0 {
+                        started = true;
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                if started {
+                    break;
+                }
+            }
+            assert!(started, "command {cmd:?} never started executing");
+            // A theme's first precmds can stall on one-off startup work
+            // (powerlevel10k's gitstatus daemon), so this wait is generous —
+            // and on timeout it reports the raw tail, not just the command.
+            let deadline = Instant::now() + Duration::from_secs(45);
+            loop {
+                sh.drain();
+                if sh.count(&needle) > a0 {
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    let tail = sh.raw.len().saturating_sub(2048);
+                    panic!(
+                        "no prompt after {cmd:?}; raw tail:\n{:?}",
+                        String::from_utf8_lossy(&sh.raw[tail..])
+                    );
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        // Let the last prompt settle, then take the shell down: killing it
+        // cannot lose a marker we already waited for.
+        std::thread::sleep(Duration::from_millis(300));
+        sh.drain();
+        let raw = std::mem::take(&mut sh.raw);
+        sh.shutdown();
+        raw
+    }
+
+    /// Asserts no `B` marker for `nonce` appears in the raw pty bytes: our
+    /// snippets no longer emit one, from any hook or prompt position.
+    fn assert_no_b_markers(raw: &[u8], nonce: &str) {
+        let head = format!("\x1b]133;B;k={nonce}\x07");
+        assert!(
+            !raw.windows(head.len()).any(|w| w == head.as_bytes()),
+            "no B markers expected"
+        );
+    }
+
+    /// Parses the raw pty bytes the way the block terminal does: a
+    /// nonce-checked [`BlockParser`], fed whole. Returns the finished
+    /// blocks, oldest first.
+    fn live_blocks(raw: &[u8], nonce: &str) -> Vec<aui::workbench::TermBlock> {
+        let mut parser =
+            BlockParser::with_clock(crate::parser::ManualClock::started()).with_nonce(nonce.to_string());
+        parser.feed(raw);
+        parser.blocks().to_vec()
+    }
+
     /// The powerlevel10k / zsh-vi-mode pattern: a user `.zshenv` whose init
     /// precmd wraps `zle-line-init` AFTER our integration installed (their
-    /// saved `orig` points at whatever is bound then). There is no widget
-    /// left to capture on our side, so the user's wrapper must run exactly
-    /// once per prompt — and `A B C D` must appear on every cycle. Fails
-    /// against the widget wrapper (the two wrappers capture each other and
-    /// the user's runs hundreds of times per prompt). Ignored: it needs a
-    /// real interactive zsh.
+    /// saved `orig` points at whatever is bound then). Nothing we do touches
+    /// the widget, so the user's wrapper must run exactly once per prompt —
+    /// and every block must still carry its command, from the `C` payload.
+    /// Ignored: it needs a real interactive zsh.
     #[test]
     #[ignore]
-    fn a_real_zsh_p10k_wrap_pattern_runs_once_per_prompt_with_all_markers() {
+    fn a_real_zsh_p10k_wrap_pattern_runs_once_per_prompt_with_commands() {
         let zsh = "/bin/zsh";
         if !Path::new(zsh).exists() {
             eprintln!("skipped: no {zsh}");
@@ -1421,16 +1558,20 @@ mod tests {
         let cmds = ["echo cmd1\n", "echo cmd2\n", "echo cmd3\n", "echo cmd4\n", "echo cmd5\n"];
         let raw = drive_live_zsh(&home, dir.path(), nonce, &cmds);
         // Six prompts (the initial one plus one per command), six widgets.
-        let a = count_marker(&raw, nonce, "A");
-        let b = count_marker(&raw, nonce, "B");
-        let c = count_marker(&raw, nonce, "C");
-        let d = count_marker(&raw, nonce, "D;0");
-        assert_eq!(a, 6, "one A per prompt");
-        assert_eq!(b, 6, "one B per prompt");
-        assert_eq!(c, 5, "one C per typed command");
-        assert_eq!(d, 5, "one D per typed command");
+        assert_eq!(count_marker(&raw, nonce, "A"), 6, "one A per prompt");
+        assert_no_b_markers(&raw, nonce);
+        assert_eq!(count_c_markers(&raw, nonce), 5, "one C per typed command");
+        assert_eq!(count_marker(&raw, nonce, "D;0"), 5, "one D per typed command");
         let wrapped = std::fs::read_to_string(home.join("wrapper.count")).unwrap_or_default();
-        assert_eq!(wrapped.lines().count(), b, "the user's wrapper runs exactly once per prompt");
+        assert_eq!(wrapped.lines().count(), 6, "the user's wrapper runs exactly once per prompt");
+        let blocks = live_blocks(&raw, nonce);
+        for (i, want) in ["echo cmd1", "echo cmd2", "echo cmd3", "echo cmd4", "echo cmd5"]
+            .iter()
+            .enumerate()
+        {
+            assert_eq!(blocks[i].command, *want, "block {i} carries its command");
+            assert_eq!(blocks[i].state, BlockState::Done, "block {i} done");
+        }
         std::fs::remove_dir_all(&home).ok();
     }
 
@@ -1526,14 +1667,13 @@ mod tests {
         std::fs::remove_dir_all(&home).ok();
     }
 
-    /// A user precmd that rebinds `zle-line-init` on EVERY precmd: there is
-    /// no widget left to rebind on our side, so `B` must still be emitted on
-    /// every cycle. Fails against the widget approach (their rebind wins
-    /// every cycle: `A C D A C D`, no `B` ever). Ignored: needs a real
+    /// A user precmd that rebinds `zle-line-init` on EVERY precmd: nothing
+    /// we do touches the widget, so the blocks still carry their commands
+    /// from the `C` payload, rebind or not. Ignored: needs a real
     /// interactive zsh.
     #[test]
     #[ignore]
-    fn a_real_zsh_every_precmd_rebind_still_gets_b() {
+    fn a_real_zsh_every_precmd_rebind_keeps_commands() {
         let zsh = "/bin/zsh";
         if !Path::new(zsh).exists() {
             eprintln!("skipped: no {zsh}");
@@ -1558,114 +1698,340 @@ mod tests {
         let cmds = ["echo cmd1\n", "echo cmd2\n", "echo cmd3\n", "echo cmd4\n", "echo cmd5\n"];
         let raw = drive_live_zsh(&home, dir.path(), nonce, &cmds);
         assert_eq!(count_marker(&raw, nonce, "A"), 6, "one A per prompt");
-        assert_eq!(count_marker(&raw, nonce, "B"), 6, "one B per prompt, rebind or not");
-        assert_eq!(count_marker(&raw, nonce, "C"), 5, "one C per typed command");
+        assert_no_b_markers(&raw, nonce);
+        assert_eq!(count_c_markers(&raw, nonce), 5, "one C per typed command");
         assert_eq!(count_marker(&raw, nonce, "D;0"), 5, "one D per typed command");
+        let blocks = live_blocks(&raw, nonce);
+        for (i, want) in ["echo cmd1", "echo cmd2", "echo cmd3", "echo cmd4", "echo cmd5"]
+            .iter()
+            .enumerate()
+        {
+            assert_eq!(blocks[i].command, *want, "block {i} carries its command");
+        }
         std::fs::remove_dir_all(&home).ok();
     }
 
-    /// A theme that rebuilds `PS1` from scratch in its own precmd,
-    /// registered after ours: `B` still arrives, because our marker hook
-    /// keeps itself last and re-attaches after the theme ran — and `PS1`
-    /// does not grow across prompts, because the re-attachment matches the
-    /// marker literally first. The first prompt can miss `B` (the order
-    /// converges after one prompt). Fails against the widget approach, whose
-    /// `B` never lived in `PS1` at all. Ignored: needs a real zsh.
+    /// A theme registered from `.zshrc` (not `.zshenv`) that rebuilds `PS1`
+    /// from scratch on every precmd — after our hooks installed. The command
+    /// text travels on `C`, so no prompt position can take it from us: every
+    /// block carries its command, including on the FIRST prompt of the
+    /// session (the old `PS1`-marker order converged only after one prompt,
+    /// so that first block came out empty). Ignored: needs a real zsh.
     #[test]
     #[ignore]
-    fn a_real_zsh_theme_rebuilding_ps1_still_gets_b_without_growth() {
+    fn a_real_zsh_theme_from_zshrc_rebuilding_ps1_keeps_first_command() {
         let zsh = "/bin/zsh";
         if !Path::new(zsh).exists() {
             eprintln!("skipped: no {zsh}");
             return;
         }
         let nonce = "themenonce1";
+        // `.zshrc` loads only when `ZDOTDIR` points at the scratch home, so
+        // the user's `.zshenv` moves it there — the XDG pattern — and the
+        // theme registers from `.zshrc`, after our hooks.
         let (home, dir, _) = scratch_home(
-            &[(
-                ".zshenv",
-                "_user_theme() { PS1='t> '; }\n\
-                 _install_theme_late() {\n\
-                   precmd_functions+=(_user_theme)\n\
-                   precmd_functions=(${precmd_functions:#_install_theme_late})\n\
-                 }\n\
-                 precmd_functions+=(_install_theme_late)\n",
-            )],
+            &[
+                (".zshenv", "export ZDOTDIR=\"$HOME\"\n"),
+                (
+                    ".zshrc",
+                    "_user_theme() { PS1='t> '; }\n\
+                     precmd_functions+=(_user_theme)\n",
+                ),
+            ],
             nonce,
             "unset ZDOTDIR",
             "theme",
         );
-        // Ten commands, two PS1 length probes, thirteen prompts: a B on
-        // every prompt once converged (at most one miss, on the cycle where
-        // the late theme lands after the marker) and a PS1 that stops
-        // growing.
-        let mut cmds: Vec<String> =
-            (1..=10).map(|i| format!("echo cmd{i}\n")).collect();
-        cmds.push("print LEN1=${#PS1}\n".to_string());
-        cmds.push("print LEN2=${#PS1}\n".to_string());
-        let cmd_refs: Vec<&str> = cmds.iter().map(String::as_str).collect();
-        let raw = drive_live_zsh(&home, dir.path(), nonce, &cmd_refs);
-        let b = count_marker(&raw, nonce, "B");
-        assert_eq!(count_marker(&raw, nonce, "A"), 13, "one A per prompt");
-        assert!((12..=13).contains(&b), "a B on every prompt once converged: {b}");
-        assert_eq!(count_marker(&raw, nonce, "C"), 12, "one C per typed command");
-        assert_eq!(count_marker(&raw, nonce, "D;0"), 12, "one D per typed command");
-        let lens = prompt_lengths(&raw);
-        assert_eq!(lens.len(), 2, "both length probes reported: {lens:?}");
-        assert_eq!(lens[0], lens[1], "PS1 does not grow across prompts: {lens:?}");
-        assert!(lens[0] > 10, "PS1 carries the attached marker: {lens:?}");
+        let cmds = ["echo cmd1\n", "echo cmd2\n", "echo cmd3\n"];
+        let raw = drive_live_zsh(&home, dir.path(), nonce, &cmds);
+        assert_eq!(count_marker(&raw, nonce, "A"), 4, "one A per prompt");
+        assert_no_b_markers(&raw, nonce);
+        assert_eq!(count_c_markers(&raw, nonce), 3, "one C per typed command");
+        assert_eq!(count_marker(&raw, nonce, "D;0"), 3, "one D per typed command");
+        let blocks = live_blocks(&raw, nonce);
+        assert_eq!(blocks.len(), 3, "{blocks:#?}");
+        for (i, want) in ["echo cmd1", "echo cmd2", "echo cmd3"].iter().enumerate() {
+            assert_eq!(blocks[i].command, *want, "block {i} carries its command");
+            assert_eq!(blocks[i].state, BlockState::Done, "block {i} done");
+        }
         std::fs::remove_dir_all(&home).ok();
     }
 
-    /// Reads back `LEN<n>=<digits>` lines the shell printed.
-    fn prompt_lengths(raw: &[u8]) -> Vec<usize> {
-        let mut out = Vec::new();
-        let text = String::from_utf8_lossy(raw);
-        for line in text.split(['\n', '\r']) {
-            for tag in ["LEN1=", "LEN2="] {
-                if let Some(rest) = line.find(tag).map(|i| &line[i + tag.len()..]) {
-                    let digits: String = rest.chars().take_while(|c| c.is_numeric()).collect();
-                    if let Ok(n) = digits.parse::<usize>() {
-                        out.push(n);
-                    }
-                }
+    /// A cached checkout of the real powerlevel10k, cloned once into the
+    /// temp dir (never `$HOME`) and reused across runs. `None` when the
+    /// clone fails — the acceptance test skips then, and says so.
+    fn ensure_p10k() -> Option<PathBuf> {
+        let cache = std::env::temp_dir().join("aui-p10k-cache");
+        let theme = cache.join("powerlevel10k.zsh-theme");
+        if !theme.exists() {
+            let _ = std::fs::remove_dir_all(&cache);
+            std::fs::create_dir_all(&cache).ok()?;
+            let scratch_home =
+                std::env::temp_dir().join(format!("aui-p10k-clone-home-{}", std::process::id()));
+            std::fs::create_dir_all(&scratch_home).ok()?;
+            let status = std::process::Command::new("git")
+                .env("HOME", &scratch_home)
+                .args(["clone", "--depth", "1", "https://github.com/romkatv/powerlevel10k.git"])
+                .arg(&cache)
+                .status()
+                .ok()?;
+            std::fs::remove_dir_all(&scratch_home).ok()?;
+            if !status.success() || !theme.exists() {
+                return None;
             }
         }
-        out
+        Some(cache)
     }
 
-    /// `B` is emitted only while the shell is at its own prompt: after the
-    /// precmd a prompt expansion of `PS1` carries `B`, and after the preexec
-    /// (a command running: `vared`, `read`, PS2 continuation,
-    /// `recursive-edit`) the same expansion carries none. Fails against the
-    /// widget approach, which never touches `PS1`. Ignored: needs a real
-    /// zsh.
+    /// The acceptance test: real powerlevel10k, transient prompt on, four
+    /// commands with one failure. This is the setup that defeated the
+    /// `PS1`-marker attempt (real p10k keeps its own precmd last by the same
+    /// trick, and zsh iterates a snapshot of `precmd_functions`, so a
+    /// trailing `B` never survived: `A C D` with four empty commands). The
+    /// command text travels on `C` now, so every block carries the correct
+    /// command and exit status. Ignored: it needs a real interactive zsh
+    /// plus a network clone of p10k.
     #[test]
     #[ignore]
-    fn a_real_zsh_b_is_silent_while_a_command_runs() {
+    fn a_real_p10k_with_transient_prompt_carries_commands_and_statuses() {
         let zsh = "/bin/zsh";
         if !Path::new(zsh).exists() {
             eprintln!("skipped: no {zsh}");
             return;
         }
-        let (home, dir, _) = scratch_home(&[], "guardnonce", "unset ZDOTDIR", "guard");
-        // Expand PS1 the way the prompt does (parameter expansion, then
-        // prompt expansion) once at the prompt and once mid-command.
-        let out = run_zsh(
-            &home,
-            dir.path(),
+        let Some(p10k) = ensure_p10k() else {
+            eprintln!("skipped: could not clone powerlevel10k");
+            return;
+        };
+        let p10k_str = p10k.to_string_lossy().into_owned();
+        let nonce = "realp10knonce";
+        // `.zshrc` loads via the XDG move (see the theme test), sourcing the
+        // real theme with the transient prompt on.
+        let (home, dir, _) = scratch_home(
             &[
-                "-i",
-                "-c",
-                "_expand() { local _e=${(e)PS1}; print -r -- \"${(%)_e}\"; }; \
-                 _aui_osc133_precmd >/dev/null; _expand; \
-                 _aui_osc133_preexec >/dev/null; _expand; echo DONE",
+                (".zshenv", "export ZDOTDIR=\"$HOME\"\n"),
+                (
+                    ".zshrc",
+                    &format!(
+                        "export POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD=true\n\
+                         export POWERLEVEL9K_TRANSIENT_PROMPT=always\n\
+                         source \"{p10k_str}/powerlevel10k.zsh-theme\"\n"
+                    ),
+                ),
             ],
+            nonce,
+            "unset ZDOTDIR",
+            "realp10k",
         );
-        assert!(out.contains("DONE"), "the script ran:\n{out:?}");
-        assert_eq!(
-            out.matches("\x1b]133;B;k=guardnonce\x07").count(),
-            1,
-            "one B at the prompt, none while the command runs:\n{out:?}"
+        assert!(home.join(".zshrc").exists(), "the theme registers from .zshrc");
+        let cmds = ["echo p10k-1\n", "echo p10k-2\n", "false\n", "echo p10k-4\n"];
+        // Effect-synced: a slow theme's first render eats prompt-count
+        // syncs and silently loses typed lines.
+        let raw = drive_live_zsh_on_c(&home, dir.path(), nonce, &cmds);
+        assert_no_b_markers(&raw, nonce);
+        let blocks = live_blocks(&raw, nonce);
+        // p10k's instant prompt prints before the first `A`, which closes
+        // that noise as its own unattributed (empty-command) block — the
+        // same noise the older live tests look their commands up past. The
+        // four typed commands must each be present, in order, with the
+        // correct text, status and output.
+        let typed: Vec<_> = blocks.iter().filter(|b| !b.command.is_empty()).collect();
+        assert_eq!(typed.len(), 4, "{blocks:#?}");
+        let wants = [
+            ("echo p10k-1", BlockState::Done, vec!["p10k-1".to_string()]),
+            ("echo p10k-2", BlockState::Done, vec!["p10k-2".to_string()]),
+            ("false", BlockState::Failed, vec![]),
+            ("echo p10k-4", BlockState::Done, vec!["p10k-4".to_string()]),
+        ];
+        for (i, (cmd, state, output)) in wants.iter().enumerate() {
+            assert_eq!(typed[i].command, *cmd, "block {i} carries its command");
+            assert_eq!(typed[i].state, *state, "block {i} status");
+            // p10k re-enables `PROMPT_SP`, so its `%`-and-padding row can
+            // land in a block's output: assert containment, not equality.
+            // (`false` prints nothing itself; only its status matters.)
+            for line in output {
+                assert!(
+                    typed[i].output.contains(line),
+                    "block {i} output contains {line:?}: {:#?}",
+                    typed[i].output
+                );
+            }
+        }
+        assert!(typed[2].duration.ends_with("exit 1"), "{:?}", typed[2].duration);
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// A user prompt containing `$(...)` and backticks must still print
+    /// LITERALLY: nothing here sets `PROMPT_SUBST`, so the bytes on the wire
+    /// are the prompt text, not its execution. (The `PS1`-marker attempt
+    /// forced the option on and executed such prompts.) Ignored: it needs a
+    /// real interactive zsh.
+    #[test]
+    #[ignore]
+    fn a_real_zsh_prompt_with_substitutions_prints_literally() {
+        let zsh = "/bin/zsh";
+        if !Path::new(zsh).exists() {
+            eprintln!("skipped: no {zsh}");
+            return;
+        }
+        let nonce = "literalnonce1";
+        // Via `.zshrc` (the XDG move): the system `/etc/zshrc` runs after
+        // `.zshenv` and would clobber a `PS1` set there.
+        let (home, dir, _) = scratch_home(
+            &[
+                (".zshenv", "export ZDOTDIR=\"$HOME\"\n"),
+                (".zshrc", "PS1='[$(echo EXEC) `echo BACK`] $ '\n"),
+            ],
+            nonce,
+            "unset ZDOTDIR",
+            "literal",
+        );
+        let raw = drive_live_zsh(&home, dir.path(), nonce, &["echo lit-1\n"]);
+        let text = String::from_utf8_lossy(&raw);
+        assert!(
+            text.contains("$(echo EXEC)"),
+            "the dollar-paren form prints literally:\n{text:?}"
+        );
+        assert!(text.contains("`echo BACK`"), "the backtick form prints literally:\n{text:?}");
+        let executed = text
+            .split(['\n', '\r'])
+            .any(|line| line.trim() == "EXEC" || line.trim() == "BACK");
+        assert!(!executed, "nothing executed the substitutions:\n{text:?}");
+        let blocks = live_blocks(&raw, nonce);
+        assert_eq!(blocks.len(), 1, "{blocks:#?}");
+        assert_eq!(blocks[0].command, "echo lit-1");
+        assert_eq!(blocks[0].state, BlockState::Done);
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// A user who turns `PROMPT_SUBST` back off gets a clean prompt and
+    /// correct commands: the old snippet forced the option on, so opting out
+    /// printed a literal `${_AUI_AT_PROMPT:+"` and prefixed every captured
+    /// command with `"}`. Ignored: it needs a real interactive zsh.
+    #[test]
+    #[ignore]
+    fn a_real_zsh_unsetopt_prompt_subst_stays_clean_and_correct() {
+        let zsh = "/bin/zsh";
+        if !Path::new(zsh).exists() {
+            eprintln!("skipped: no {zsh}");
+            return;
+        }
+        let nonce = "suboffnonce1";
+        // Via `.zshrc` (the XDG move): the system `/etc/zshrc` runs after
+        // `.zshenv` and would clobber a `PS1` set there.
+        let (home, dir, _) = scratch_home(
+            &[
+                (".zshenv", "export ZDOTDIR=\"$HOME\"\n"),
+                (".zshrc", "unsetopt PROMPT_SUBST\nPS1='plain> '\n"),
+            ],
+            nonce,
+            "unset ZDOTDIR",
+            "suboff",
+        );
+        let raw = drive_live_zsh(&home, dir.path(), nonce, &["echo sub-1\n", "echo sub-2\n"]);
+        let text = String::from_utf8_lossy(&raw);
+        assert!(!text.contains("_AUI_AT_PROMPT"), "no guard debris in the prompt:\n{text:?}");
+        assert!(text.contains("plain> "), "the prompt renders:\n{text:?}");
+        let blocks = live_blocks(&raw, nonce);
+        assert_eq!(blocks.len(), 2, "{blocks:#?}");
+        assert_eq!(blocks[0].command, "echo sub-1");
+        assert_eq!(blocks[1].command, "echo sub-2");
+        assert_eq!(blocks[0].state, BlockState::Done);
+        assert_eq!(blocks[1].state, BlockState::Done);
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// Payload fidelity through a live zsh: a semicolon, a two-line `for`
+    /// loop (the newline rides base64), both quote kinds, a `%`, an emoji —
+    /// each captured exactly — and a 5 KB command, truncated to the first
+    /// 4 KB in the documented way. Ignored: it needs a real interactive zsh.
+    #[test]
+    #[ignore]
+    fn a_real_zsh_c_payload_keeps_semicolons_newlines_quotes_and_emoji() {
+        let zsh = "/bin/zsh";
+        if !Path::new(zsh).exists() {
+            eprintln!("skipped: no {zsh}");
+            return;
+        }
+        let nonce = "fidelity0001";
+        let (home, dir, _) = scratch_home(&[], nonce, "unset ZDOTDIR", "fidelity");
+        let big = format!("echo {}\n", "y".repeat(5000));
+        let for_loop = "for i in 1 2; do\necho loop-$i\ndone\n";
+        let owned = [
+            "echo 'sq'; echo \"dq\"\n".to_string(),
+            for_loop.to_string(),
+            "echo 100% done ✓ 🎉\n".to_string(),
+            big,
+        ];
+        let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+        let raw = drive_live_zsh(&home, dir.path(), nonce, &refs);
+        assert_no_b_markers(&raw, nonce);
+        let blocks = live_blocks(&raw, nonce);
+        assert_eq!(blocks.len(), 4, "{blocks:#?}");
+        assert_eq!(blocks[0].command, "echo 'sq'; echo \"dq\"");
+        assert_eq!(blocks[0].output, vec!["sq".to_string(), "dq".to_string()]);
+        assert_eq!(blocks[1].command, "for i in 1 2; do\necho loop-$i\ndone");
+        assert_eq!(blocks[1].output, vec!["loop-1".to_string(), "loop-2".to_string()]);
+        assert_eq!(blocks[2].command, "echo 100% done ✓ 🎉");
+        // 5005 bytes typed (`echo ` + 5000 `y`s): the decoder keeps the
+        // first 4096 bytes (see `MAX_CMD_LEN`).
+        let full = format!("echo {}", "y".repeat(5000));
+        assert_eq!(blocks[3].command.len(), 4096, "truncated to the cap");
+        assert_eq!(blocks[3].command, &full[..4096]);
+        for (i, b) in blocks.iter().enumerate() {
+            assert_eq!(b.state, BlockState::Done, "block {i} done");
+        }
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// A user `PROMPT_COMMAND` ending in `;` (plus trailing whitespace)
+    /// still gets markers: the join strips that tail first, so there is no
+    /// `syntax error near ;;` and no silent loss of every marker. Ignored:
+    /// it needs a real bash.
+    #[test]
+    #[ignore]
+    fn a_real_bash_prompt_command_with_trailing_semicolon_still_marks() {
+        let bash = "/bin/bash";
+        if !Path::new(bash).exists() {
+            eprintln!("skipped: no {bash}");
+            return;
+        }
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let home = std::env::temp_dir().join(format!(
+            "aui-l3-bashsemi-{}-{stamp}-{}",
+            std::process::id(),
+            scratch_counter(),
+        ));
+        std::fs::create_dir_all(&home).expect("home dir");
+        std::fs::write(home.join(".bash_profile"), "PROMPT_COMMAND='echo pc-ok; ;  '\n")
+            .expect("user file");
+        let dir = Pty::write_bash_rc("bashsemi01").expect("the rcfile writes");
+        let out = run_bash_with_stdin(
+            &home,
+            &dir.path().join(BASH_RC_NAME),
+            "echo BASH-SEMICOLON-DONE\n",
+        );
+        assert!(out.contains("BASH-SEMICOLON-DONE"), "the command ran:\n{out}");
+        assert!(!out.contains("syntax error"), "no `;;` join breakage:\n{out}");
+        assert!(
+            out.contains("\x1b]133;A;k=bashsemi01\x07"),
+            "the A marker arrives:\n{out:?}"
+        );
+        assert!(
+            out.contains("\x1b]133;C;k=bashsemi01;cmd="),
+            "the C marker with its payload arrives:\n{out:?}"
+        );
+        assert!(
+            out.contains("\x1b]133;D;0;k=bashsemi01\x07"),
+            "the D marker arrives:\n{out:?}"
+        );
+        let blocks = live_blocks(out.as_bytes(), "bashsemi01");
+        assert!(
+            blocks.iter().any(|b| b.command == "echo BASH-SEMICOLON-DONE"),
+            "the block carries the typed command: {blocks:#?}"
         );
         std::fs::remove_dir_all(&home).ok();
     }
@@ -1792,8 +2158,8 @@ mod tests {
             "ours is reinstalled at the next prompt:\n{out}"
         );
         assert!(
-            out.contains("\x1b]133;C;k=bashlate4\x07"),
-            "our preexec runs (the chain is back):\n{out:?}"
+            out.contains("\x1b]133;C;k=bashlate4;cmd="),
+            "our preexec runs with its payload (the chain is back):\n{out:?}"
         );
         let late = std::fs::read_to_string(home.join("late.log")).unwrap_or_default();
         assert!(
@@ -1835,7 +2201,7 @@ mod tests {
         pty.spawn_config(&config).expect("the shell spawns");
         assert_eq!(pty.nonce(), config.nonce(), "the session carries the config nonce");
         let mut parser = BlockParser::new();
-        let prompt_end = format!("\x1b]133;B;k={}\x07", config.nonce());
+        let prompt_end = format!("\x1b]133;A;k={}\x07", config.nonce());
         let deadline = Instant::now() + TEST_TIMEOUT;
         let mut raw: Vec<u8> = Vec::new();
         let mut sent = false;

@@ -13,11 +13,17 @@
 //! (see `pty.rs`, which is the specification when in doubt):
 //!
 //! ```text
-//! OSC 133 ; A ; k=<nonce> BEL          prompt start
-//! OSC 133 ; B ; k=<nonce> BEL          prompt end / command start
-//! OSC 133 ; C ; k=<nonce> BEL          pre-exec: output begins
-//! OSC 133 ; D ; <exit> ; k=<nonce> BEL command done, with exit status
+//! OSC 133 ; A ; k=<nonce> BEL                             prompt start
+//! OSC 133 ; B ; k=<nonce> BEL                             prompt end / command start
+//! OSC 133 ; C ; k=<nonce> ; cmd=<b64|raw> ; enc=<b64|raw> BEL  pre-exec: output begins
+//! OSC 133 ; D ; <exit> ; k=<nonce> BEL                    command done, with exit status
 //! ```
+//!
+//! Our own snippets no longer emit `B` (see `pty.rs` for why the prompt
+//! cannot be bracketed): the command text travels on `C` as `cmd=`,
+//! base64-encoded (`enc=b64`) or a sanitised literal (`enc=raw`) when
+//! `base64` is missing from `PATH`. A nonced `B` from an emitter that is
+//! not ours is still parsed — the fallback scrape needs it.
 //!
 //! [`MarkScanner`] splits each chunk the session feeds the emulator into
 //! [`ScanSegment`]s: raw bytes that pass through verbatim, and complete
@@ -70,7 +76,7 @@ pub enum MarkKind {
 /// them lazily); that imprecision is accepted per D44. Anchors below the
 /// evicted floor are pruned, and the text of evicted lines is gone: only the
 /// retained window reads back.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Mark {
     /// Absolute grid line where the marker was seen.
     pub line: i32,
@@ -80,6 +86,12 @@ pub struct Mark {
     pub exit: Option<i32>,
     /// When the session accepted the marker; blocks read durations off this.
     pub at: Instant,
+    /// The command text carried on [`MarkKind::OutputStart`], decoded from
+    /// the `C` marker's `cmd=` payload (see [`decode_command`]). `None` when
+    /// the emitter sent none (an OSC 133 emitter that is not ours) or when
+    /// the payload was rejected; the block then falls back to the grid
+    /// scrape. `None` for the other kinds.
+    pub command: Option<String>,
 }
 
 /// Who started a [`Block`]: the human at the keyboard, or an agent driving
@@ -117,9 +129,14 @@ pub struct Block {
     pub end: i32,
     /// Exit status; `None` while the block is still running.
     pub exit: Option<i32>,
-    /// The command text read off the grid between `B` and `C`, trimmed.
-    /// Includes the prompt's own text: the grid does not record where the
-    /// prompt ends and the echo begins, so the split is approximate.
+    /// The block's command text. Our own shell integration carries it as a
+    /// payload on the `C` marker (see [`Mark::command`]), which is exact:
+    /// the shell hands us the command line, so no screen geometry is
+    /// involved. Only when the payload is absent (an OSC 133 emitter that is
+    /// not ours) is the text read off the grid between `B` and `C` instead —
+    /// and that scrape includes the prompt's own text, because the grid does
+    /// not record where the prompt ends and the echo begins, so the split is
+    /// approximate.
     pub command: String,
     /// When the block started (the `A` mark, or the `C` mark when no `A` came).
     pub started: Instant,
@@ -185,6 +202,10 @@ pub enum ScanSegment {
         kind: MarkKind,
         /// Exit status for [`MarkKind::CommandDone`]; `None` otherwise.
         exit: Option<i32>,
+        /// Decoded command text for [`MarkKind::OutputStart`] (see
+        /// [`Mark::command`]); `None` otherwise, or when the `C` marker
+        /// carried no usable payload.
+        command: Option<String>,
     },
 }
 
@@ -262,8 +283,8 @@ impl MarkScanner {
                         }
                         let raw = buf[esc..esc + len].to_vec();
                         match parse_133(&raw, &self.nonce) {
-                            Some((kind, exit)) => {
-                                segments.push(ScanSegment::Marker { raw, kind, exit });
+                            Some((kind, exit, command)) => {
+                                segments.push(ScanSegment::Marker { raw, kind, exit, command });
                             }
                             None => segments.push(ScanSegment::Emit(raw)),
                         }
@@ -323,11 +344,103 @@ fn osc_end(seq: &[u8]) -> Option<usize> {
     None
 }
 
-/// Parses one complete OSC sequence. Returns the kind and exit status when
-/// it is an OSC 133 marker whose `k=` equals `nonce`; anything else —
-/// another OSC number, a missing or mismatched `k=` — returns `None` and the
-/// caller passes the bytes through untouched.
-fn parse_133(raw: &[u8], nonce: &str) -> Option<(MarkKind, Option<i32>)> {
+/// The most command text a decoded `C` payload may contribute to a block:
+/// 4 KB, truncating at a character boundary. Generous for a command line,
+/// and a bound so a hostile emitter cannot grow blocks without limit.
+pub(crate) const MAX_CMD_LEN: usize = 4096;
+
+/// Decodes the command payload of a `C` marker: `cmd` is the raw `cmd=`
+/// value, `enc` the raw `enc=` value. Our own snippets emit `enc=b64` with a
+/// base64 command line (so newlines, `;`, BEL and UTF-8 pass through
+/// untouched), or `enc=raw` with a sanitised literal when `base64` is not on
+/// `PATH`. Either encoding carries no `;` by construction, so splitting the
+/// marker body on `;` never cuts a value in half.
+///
+/// A missing `cmd=` is "no command text", not an error: returns `None` and
+/// the block falls back to the grid scrape. An `enc=b64` value that is not
+/// valid base64 is rejected the same way — never panicked over. Anything
+/// longer than [`MAX_CMD_LEN`] bytes is truncated to the first
+/// [`MAX_CMD_LEN`] bytes at a character boundary.
+pub(crate) fn decode_command(cmd: Option<&str>, enc: Option<&str>) -> Option<String> {
+    let raw = cmd?;
+    let bytes = match enc {
+        Some("b64") => decode_base64(raw)?,
+        // `raw`, missing, or unknown: a literal. Lenient on purpose — the
+        // text is still better than the scrape when it is present.
+        _ => raw.as_bytes().to_vec(),
+    };
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    if text.len() > MAX_CMD_LEN {
+        let mut end = MAX_CMD_LEN;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
+    Some(text)
+}
+
+/// Decodes standard-alphabet base64 (what the `base64` CLI emits) without
+/// trusting the input: any whitespace, control, non-alphabet byte, or
+/// misplaced padding returns `None` rather than panicking.
+fn decode_base64(s: &str) -> Option<Vec<u8>> {
+    if s.is_empty() {
+        return Some(Vec::new());
+    }
+    if !s.len().is_multiple_of(4) {
+        return None;
+    }
+    let bytes = s.as_bytes();
+    let val = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    };
+    // Padding (`=`, at most two) may only close the final quantum: once it
+    // starts, only more padding may follow.
+    let mut pad = 0usize;
+    for &c in bytes {
+        if c == b'=' {
+            pad += 1;
+        } else if pad > 0 || val(c).is_none() {
+            return None;
+        }
+    }
+    if pad > 2 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    // Exact: the length check above leaves no remainder.
+    for quad in bytes.as_chunks::<4>().0 {
+        let mut n: u32 = 0;
+        for &c in quad {
+            n <<= 6;
+            if c != b'=' {
+                n |= u32::from(val(c)?);
+            }
+        }
+        out.push((n >> 16) as u8);
+        if quad[2] != b'=' {
+            out.push((n >> 8) as u8);
+        }
+        if quad[3] != b'=' {
+            out.push(n as u8);
+        }
+    }
+    Some(out)
+}
+
+/// Parses one complete OSC sequence. Returns the kind, exit status and (for
+/// `C`) decoded command text when it is an OSC 133 marker whose `k=` equals
+/// `nonce`; anything else — another OSC number, a missing or mismatched
+/// `k=` — returns `None` and the caller passes the bytes through untouched.
+///
+/// A `C` whose payload is missing or rejected still returns its kind: the
+/// boundary is valid, only the command text falls back to the scrape.
+fn parse_133(raw: &[u8], nonce: &str) -> Option<(MarkKind, Option<i32>, Option<String>)> {
     let mut body = raw.strip_prefix(&[ESC, OSC_INTRO])?;
     if body.last() == Some(&BEL) {
         body = &body[..body.len() - 1];
@@ -360,16 +473,32 @@ fn parse_133(raw: &[u8], nonce: &str) -> Option<(MarkKind, Option<i32>)> {
     let exit = (kind == MarkKind::CommandDone).then(|| {
         params[1..]
             .iter()
-            // Skip the kind letter (a single ASCII letter) and the nonce, but
-            // keep single-digit statuses: length alone cannot tell `D` from `3`.
+            // Skip the kind letter (a single ASCII letter), the nonce and
+            // the command payload — but keep single-digit statuses: length
+            // alone cannot tell `D` from `3` (and a raw `cmd=123` is text,
+            // not a status).
             .filter(|p| {
-                !(p.len() == 1 && p[0].is_ascii_alphabetic()) && p.strip_prefix(b"k=").is_none()
+                !(p.len() == 1 && p[0].is_ascii_alphabetic())
+                    && p.strip_prefix(b"k=").is_none()
+                    && p.strip_prefix(b"cmd=").is_none()
+                    && p.strip_prefix(b"enc=").is_none()
             })
             .filter_map(|p| std::str::from_utf8(p).ok()?.trim().parse::<i32>().ok())
             .next()
             .unwrap_or(0)
     });
-    Some((kind, exit))
+    let command = (kind == MarkKind::OutputStart).then(|| {
+        let cmd = params
+            .iter()
+            .find_map(|p| p.strip_prefix(b"cmd="))
+            .and_then(|c| std::str::from_utf8(c).ok());
+        let enc = params
+            .iter()
+            .find_map(|p| p.strip_prefix(b"enc="))
+            .and_then(|e| std::str::from_utf8(e).ok());
+        decode_command(cmd, enc)
+    });
+    Some((kind, exit, command.flatten()))
 }
 
 /// Offset of a trailing incomplete introducer in `tail`, if it ends with one:
@@ -398,10 +527,23 @@ struct Open {
     b_line: Option<i32>,
     /// The `C` line, once seen.
     c_line: Option<i32>,
+    /// The command text the `C` marker carried, once seen.
+    cmd: Option<String>,
+}
+
+/// The block's command text: the `C` payload when the emitter sent one,
+/// else the grid scrape between `B` and `C`.
+fn block_command(open: &Open, command_text: &dyn Fn(i32, i32) -> String) -> String {
+    if let Some(cmd) = open.cmd.as_deref() {
+        return cmd.to_string();
+    }
+    let b = open.b_line.unwrap_or(open.a_line);
+    let c = open.c_line.unwrap_or(b);
+    command_text(b, c)
 }
 
 /// Closes `open` at the `D` mark (`line`, `at`, `exit`), reading the command
-/// text off `command_text`.
+/// text off `command_text` unless the `C` marker carried a payload.
 fn close(open: &Open, line: i32, at: Instant, exit: i32, command_text: &dyn Fn(i32, i32) -> String) -> Block {
     let b = open.b_line.unwrap_or(open.a_line);
     let c = open.c_line.unwrap_or(b);
@@ -411,7 +553,7 @@ fn close(open: &Open, line: i32, at: Instant, exit: i32, command_text: &dyn Fn(i
         output: (c, line),
         end: line,
         exit: Some(exit),
-        command: command_text(b, c),
+        command: block_command(open, command_text),
         started: open.a_at,
         ended: Some(at),
         author: BlockAuthor::Human,
@@ -425,11 +567,19 @@ fn close(open: &Open, line: i32, at: Instant, exit: i32, command_text: &dyn Fn(i
 /// `tail` is the absolute line of the live cursor: a block with a `C` but no
 /// `D` yet stays open with `output` running to it and `exit`/`ended` left as
 /// `None`. `command_text(a, b)` supplies the trimmed grid text of absolute
-/// lines `a..b` for the echoed command. A prompt abandoned without a `C`
-/// (no command ran) produces no block. A `D` with no `C` reports the command
-/// with an empty output, mirroring `BlockParser`; an `A` that arrives while
-/// a block is still running closes it as exit 0, exactly as the prompt-first
-/// fallback in `BlockParser` does.
+/// lines `a..b` for the echoed command — but only as a fallback: a block
+/// whose `C` marker carried a command payload (see [`Mark::command`]) reads
+/// it from there instead. A prompt abandoned without a `C` (no command ran)
+/// produces no block. A `D` with no `C` reports the command with an empty
+/// output, mirroring `BlockParser`; an `A` that arrives while a block is
+/// still running closes it as exit 0, exactly as the prompt-first fallback
+/// in `BlockParser` does.
+///
+/// A nonced `B` from an OSC 133 emitter that is not ours is still honoured
+/// for the fallback scrape — but our own snippets no longer emit one (see
+/// `pty.rs`): the payload above replaced it. The existing guards stay: a
+/// `B` that arrives after the block's `C` (or while already reading the
+/// command line) is ignored rather than rewinding the phase.
 pub fn assemble_blocks(
     marks: &[Mark],
     tail: i32,
@@ -446,7 +596,13 @@ pub fn assemble_blocks(
                     }
                     // Without a `C` nothing ran: the prompt line is dropped.
                 }
-                open = Some(Open { a_line: mark.line, a_at: mark.at, b_line: None, c_line: None });
+                open = Some(Open {
+                    a_line: mark.line,
+                    a_at: mark.at,
+                    b_line: None,
+                    c_line: None,
+                    cmd: None,
+                });
             }
             MarkKind::PromptEnd => {
                 if let Some(cur) = open.as_mut() {
@@ -456,9 +612,16 @@ pub fn assemble_blocks(
                 }
             }
             MarkKind::OutputStart => {
-                let cur = open.get_or_insert(Open { a_line: mark.line, a_at: mark.at, b_line: None, c_line: None });
+                let cur = open.get_or_insert(Open {
+                    a_line: mark.line,
+                    a_at: mark.at,
+                    b_line: None,
+                    c_line: None,
+                    cmd: None,
+                });
                 if cur.c_line.is_none() {
                     cur.c_line = Some(mark.line);
+                    cur.cmd = mark.command.clone();
                 }
             }
             MarkKind::CommandDone => {
@@ -468,6 +631,7 @@ pub fn assemble_blocks(
                     a_at: mark.at,
                     b_line: Some(mark.line),
                     c_line: Some(mark.line),
+                    cmd: None,
                 });
                 blocks.push(close(&cur, mark.line, mark.at, exit, command_text));
             }
@@ -482,7 +646,7 @@ pub fn assemble_blocks(
                 output: (c, tail),
                 end: tail,
                 exit: None,
-                command: command_text(b, c),
+                command: block_command(&cur, command_text),
                 started: cur.a_at,
                 ended: None,
                 author: BlockAuthor::Human,
@@ -604,7 +768,12 @@ mod tests {
 
     /// Marks at fixed lines and times, for assembly tests.
     fn mark(line: i32, kind: MarkKind, exit: Option<i32>) -> Mark {
-        Mark { line, kind, exit, at: Instant::now() }
+        Mark { line, kind, exit, at: Instant::now(), command: None }
+    }
+
+    /// Marks at fixed lines and times carrying a `C` command payload.
+    fn mark_cmd(line: i32, kind: MarkKind, exit: Option<i32>, command: &str) -> Mark {
+        Mark { line, kind, exit, at: Instant::now(), command: Some(command.to_string()) }
     }
 
     fn no_text(_a: i32, _b: i32) -> String {
@@ -680,5 +849,144 @@ mod tests {
         ];
         let blocks = assemble_blocks(&marks, 6, &|a, b| format!("lines {a}..{b}"));
         assert_eq!(blocks[0].command, "lines 2..4");
+    }
+
+    /// The `C` payload beats the scrape: with no `B` at all (what our own
+    /// snippets emit now) the block still carries the exact command.
+    #[test]
+    fn a_c_payload_is_preferred_over_the_grid_scrape() {
+        let marks = vec![
+            mark(2, MarkKind::PromptStart, None),
+            mark_cmd(4, MarkKind::OutputStart, None, "echo exact; echo semi"),
+            mark(6, MarkKind::CommandDone, Some(0)),
+        ];
+        let blocks = assemble_blocks(&marks, 6, &|a, b| format!("lines {a}..{b}"));
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].command, "echo exact; echo semi");
+    }
+
+    /// …and the running block (a `C` with no `D` yet) reads it too.
+    #[test]
+    fn a_running_block_reads_the_c_payload() {
+        let marks =
+            vec![mark(2, MarkKind::PromptStart, None), mark_cmd(4, MarkKind::OutputStart, None, "sleep 9")];
+        let blocks = assemble_blocks(&marks, 10, &|_, _| "scrape".to_string());
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].running());
+        assert_eq!(blocks[0].command, "sleep 9");
+    }
+
+    /// A `C` with no payload (a foreign emitter) still falls back to the
+    /// scrape between `B` and `C`.
+    #[test]
+    fn a_c_without_payload_falls_back_to_the_scrape() {
+        let marks = vec![
+            mark(2, MarkKind::PromptStart, None),
+            mark(2, MarkKind::PromptEnd, None),
+            mark(4, MarkKind::OutputStart, None),
+            mark(6, MarkKind::CommandDone, Some(0)),
+        ];
+        let blocks = assemble_blocks(&marks, 6, &|a, b| format!("lines {a}..{b}"));
+        assert_eq!(blocks[0].command, "lines 2..4");
+    }
+
+    /// The full payload round trip through the scanner: base64 in, exact
+    /// text (semicolon, newline, quote, emoji) on the mark.
+    #[test]
+    fn a_c_payload_survives_the_scanner() {
+        let mut s = scanner();
+        // `printf 'a;b\n"x" ✓' | base64`
+        let cmd = "YTtiCiJ4IiDinJM=";
+        let bytes = format!("\x1b]133;C;k=n9_abc-XY;cmd={cmd};enc=b64\x07");
+        let segments = feed(&mut s, bytes.as_bytes());
+        let cmds: Vec<_> = segments
+            .iter()
+            .filter_map(|seg| match seg {
+                ScanSegment::Marker { command, .. } => Some(command.clone()),
+                ScanSegment::Emit(_) => None,
+            })
+            .collect();
+        assert_eq!(cmds, vec![Some("a;b\n\"x\" ✓".to_string())]);
+        assert_eq!(round_trip(&segments), bytes.as_bytes());
+    }
+
+    /// A `C` with no `cmd=` is still a boundary — only the command text is
+    /// absent, and the block falls back to the scrape.
+    #[test]
+    fn a_c_without_cmd_is_still_a_boundary() {
+        let mut s = scanner();
+        let bytes = b"\x1b]133;C;k=n9_abc-XY\x07";
+        let segments = feed(&mut s, bytes);
+        assert_eq!(markers_in(&segments), vec![(MarkKind::OutputStart, None)]);
+        let cmds: Vec<_> = segments
+            .iter()
+            .filter_map(|seg| match seg {
+                ScanSegment::Marker { command, .. } => Some(command.clone()),
+                ScanSegment::Emit(_) => None,
+            })
+            .collect();
+        assert_eq!(cmds, vec![None]);
+    }
+
+    /// Invalid base64 is rejected, not panicked over — and the boundary
+    /// still lands, with the command falling back to the scrape.
+    #[test]
+    fn an_invalid_base64_payload_is_rejected_not_panicked_over() {
+        let mut s = scanner();
+        for bad in ["!!!not-b64!!!", "abc", "AB=C", "A==="] {
+            let bytes = format!("\x1b]133;C;k=n9_abc-XY;cmd={bad};enc=b64\x07");
+            let segments = feed(&mut s, bytes.as_bytes());
+            assert_eq!(markers_in(&segments), vec![(MarkKind::OutputStart, None)], "for {bad:?}");
+            let cmds: Vec<_> = segments
+                .iter()
+                .filter_map(|seg| match seg {
+                    ScanSegment::Marker { command, .. } => Some(command.clone()),
+                    ScanSegment::Emit(_) => None,
+                })
+                .collect();
+            assert_eq!(cmds, vec![None], "for {bad:?}");
+        }
+    }
+
+    /// A raw (`enc=raw`) payload is taken literally — the fallback our
+    /// snippets use when `base64` is missing from `PATH`.
+    #[test]
+    fn a_raw_payload_is_taken_literally() {
+        let mut s = scanner();
+        let bytes = b"\x1b]133;C;k=n9_abc-XY;cmd=echo plain;enc=raw\x07";
+        let segments = feed(&mut s, bytes);
+        let cmds: Vec<_> = segments
+            .iter()
+            .filter_map(|seg| match seg {
+                ScanSegment::Marker { command, .. } => Some(command.clone()),
+                ScanSegment::Emit(_) => None,
+            })
+            .collect();
+        assert_eq!(cmds, vec![Some("echo plain".to_string())]);
+    }
+
+    /// A raw payload that looks numeric is command text, not an exit status:
+    /// `D` parsing must skip `cmd=`/`enc=` or a `cmd=123` would read as one.
+    #[test]
+    fn a_numeric_looking_payload_is_not_an_exit_status() {
+        let mut s = scanner();
+        let bytes = b"\x1b]133;D;1;k=n9_abc-XY;cmd=123;enc=raw\x07";
+        let segments = feed(&mut s, bytes);
+        assert_eq!(markers_in(&segments), vec![(MarkKind::CommandDone, Some(1))]);
+    }
+
+    /// The decoder caps the payload at 4 KB (first bytes, char boundary):
+    /// a hostile emitter cannot grow blocks without limit.
+    #[test]
+    fn an_oversized_payload_is_capped_at_4_kb() {
+        // 5000 `x`s: 1666 full `xxx` quanta (`eHh4` each) plus a final
+        // 2-byte `xx` quantum (`eHg=`), 6668 chars total. The block keeps
+        // the first 4096 bytes.
+        let long = "x".repeat(5000);
+        let b64 = "eHh4".repeat(1666) + "eHg=";
+        assert_eq!(b64.len(), 6668);
+        let decoded = decode_command(Some(&b64), Some("b64")).expect("decodes");
+        assert_eq!(decoded.len(), MAX_CMD_LEN);
+        assert_eq!(decoded, long[..MAX_CMD_LEN]);
     }
 }

@@ -10,6 +10,12 @@
 //! | `OSC 133 ; A ST` | a prompt is about to be drawn — the previous block ends here, and the next block's clock starts |
 //! | `OSC 133 ; B ST` | the prompt is done; what follows is the command line |
 //! | `OSC 133 ; C ST` | the command is running; what follows is its output |
+//!
+//! Our own snippets carry the command line on `C` as
+//! `; cmd=<encoded> ; enc=<b64|raw>` (see `pty.rs`): the payload wins over
+//! the scraped text between `B` and `C`, which survives only as the fallback
+//! for an OSC 133 emitter that is not ours. A nonced `B` from such an
+//! emitter is still parsed — only our own emission is gone.
 //! | `OSC 133 ; D ; <exit> ST` | the command finished with this status |
 //!
 //! Every marker the integrated shell emits also carries `; k=<nonce>`, a
@@ -321,9 +327,19 @@ impl Perform {
         self.phase = Phase::Command;
     }
 
-    /// `OSC 133;C` — the command is running; its output follows.
-    fn mark_output(&mut self) {
-        let command = std::mem::take(&mut self.command).trim_end().to_string();
+    /// `OSC 133;C` — the command is running; its output follows. `payload`
+    /// is the decoded `cmd=` text when the emitter sent one (see
+    /// [`decode_command`](crate::marks::decode_command)): it wins over the
+    /// scraped text between `B` and `C`, which is only the fallback for an
+    /// OSC 133 emitter that is not ours.
+    fn mark_output(&mut self, payload: Option<String>) {
+        let command = match payload {
+            Some(cmd) => {
+                self.command.clear();
+                cmd
+            }
+            None => std::mem::take(&mut self.command).trim_end().to_string(),
+        };
         self.open_block(command);
         self.phase = Phase::Output;
     }
@@ -405,7 +421,24 @@ impl vte::Perform for Perform {
         match params.get(1).and_then(|p| p.first()).copied() {
             Some(b'A') => self.mark_prompt(),
             Some(b'B') => self.mark_command(),
-            Some(b'C') => self.mark_output(),
+            Some(b'C') => {
+                // The shell hands us the command line on `C` as
+                // `cmd=<encoded>;enc=<b64|raw>`; either encoding carries no
+                // `;` by construction, so the `;`-split params above never
+                // cut a value in half. Missing or rejected means "no command
+                // text", not an error: the block falls back to the scrape.
+                let cmd = params
+                    .iter()
+                    .skip(1)
+                    .find_map(|p| p.strip_prefix(b"cmd="))
+                    .and_then(|c| std::str::from_utf8(c).ok());
+                let enc = params
+                    .iter()
+                    .skip(1)
+                    .find_map(|p| p.strip_prefix(b"enc="))
+                    .and_then(|e| std::str::from_utf8(e).ok());
+                self.mark_output(crate::marks::decode_command(cmd, enc));
+            }
             Some(b'D') => {
                 let exit = params
                     .get(2)
@@ -842,6 +875,51 @@ mod tests {
         assert_eq!(p.blocks()[0].command, "echo hi");
         assert_eq!(p.blocks()[0].state, BlockState::Done);
         assert_eq!(p.blocks()[0].output, vec!["hi".to_string()]);
+    }
+
+    /// The `C` payload wins over the scrape: with no `B` at all (what our
+    /// own snippets emit now) the block still carries the exact command —
+    /// semicolon, newline and all, straight through base64.
+    #[test]
+    fn a_c_payload_is_preferred_over_the_scrape() {
+        let (mut p, _) = parser();
+        p.feed(a());
+        p.feed(b"some prompt $ ");
+        // `echo a;b` + newline + `echo "q"` base64-encoded.
+        p.feed(b"\x1b]133;C;cmd=ZWNobyBhO2IKZWNobyAicSI=;enc=b64\x07");
+        p.feed(b"out\n");
+        p.feed(b"\x1b]133;D;0\x07");
+        assert_eq!(p.blocks().len(), 1);
+        assert_eq!(p.blocks()[0].command, "echo a;b\necho \"q\"");
+        assert_eq!(p.blocks()[0].output, vec!["out".to_string()]);
+    }
+
+    /// A `C` with no payload (a foreign emitter) still reads the scrape
+    /// between `B` and `C` — the parsing is kept, only our emission is gone.
+    #[test]
+    fn a_c_without_payload_still_reads_the_scrape() {
+        let (mut p, _) = parser();
+        p.feed(a());
+        p.feed(b());
+        p.feed(b"echo legacy");
+        p.feed(c());
+        p.feed(b"legacy\n");
+        p.feed(b"\x1b]133;D;0\x07");
+        assert_eq!(p.blocks()[0].command, "echo legacy");
+    }
+
+    /// Invalid base64 on `C` is rejected, not panicked over: the boundary
+    /// lands and the command falls back to the scrape.
+    #[test]
+    fn an_invalid_c_payload_falls_back_to_the_scrape() {
+        let (mut p, _) = parser();
+        p.feed(a());
+        p.feed(b());
+        p.feed(b"echo fallback");
+        p.feed(b"\x1b]133;C;cmd=!!!;enc=b64\x07");
+        p.feed(b"fallback\n");
+        p.feed(b"\x1b]133;D;0\x07");
+        assert_eq!(p.blocks()[0].command, "echo fallback");
     }
 
     /// With no nonce set, behaviour is exactly as before: bare markers and

@@ -849,13 +849,13 @@ fn feed_with_marks(faced: &mut Inner, bytes: &[u8], state: &MarkState) {
                     start += len;
                 }
             }
-            ScanSegment::Marker { raw, kind, exit } => {
+            ScanSegment::Marker { raw, kind, exit, command } => {
                 advance_counted(faced, state, &raw);
                 let evicted = state.evicted.load(Ordering::Acquire);
                 let line =
                     absolute_line(&faced.term, evicted, faced.term.grid().cursor.point.line);
                 let at = std::time::Instant::now();
-                state.scanner.lock().unwrap().push_mark(Mark { line, kind, exit, at });
+                state.scanner.lock().unwrap().push_mark(Mark { line, kind, exit, command, at });
             }
         }
     }
