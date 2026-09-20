@@ -1451,28 +1451,26 @@ mod tests {
         // that window is lost to the tty, so let it settle first.
         std::thread::sleep(Duration::from_secs(2));
         sh.drain();
-        for cmd in commands {
+        for &cmd in commands {
             // Baselines from before the send: the command's own `D`/`A`
             // can arrive in the same drain batch as its `C`, so a baseline
             // taken after `C` would already contain the new prompt.
             let c0 = count_c_markers(&sh.raw, nonce);
             let a0 = sh.count(&needle);
+            // Exactly-once delivery (see `send_line_exactly_once`): resending
+            // a whole line duplicated the command whenever the first copy was
+            // merely unread rather than lost, and type-ahead then ran it
+            // twice — five typed blocks for four typed commands.
+            send_line_exactly_once(&mut sh, cmd);
             let mut started = false;
-            for _ in 0..3 {
-                sh.writer.write_all(cmd.as_bytes()).expect("pty write");
-                sh.writer.flush().expect("pty flush");
-                let deadline = Instant::now() + Duration::from_secs(15);
-                while Instant::now() < deadline {
-                    sh.drain();
-                    if count_c_markers(&sh.raw, nonce) > c0 {
-                        started = true;
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-                if started {
+            let deadline = Instant::now() + Duration::from_secs(15);
+            while Instant::now() < deadline {
+                sh.drain();
+                if count_c_markers(&sh.raw, nonce) > c0 {
+                    started = true;
                     break;
                 }
+                std::thread::sleep(Duration::from_millis(20));
             }
             assert!(started, "command {cmd:?} never started executing");
             // A theme's first precmds can stall on one-off startup work
@@ -1501,6 +1499,108 @@ mod tests {
         let raw = std::mem::take(&mut sh.raw);
         sh.shutdown();
         raw
+    }
+
+    /// Sends one command line so the shell executes it EXACTLY once, however
+    /// slow the theme's startup is. The text goes first WITHOUT its newline;
+    /// the newline follows only after the line editor echoes the text back,
+    /// which proves the editor holds the line. Every text send is preceded by
+    /// `^U` (zle `unix-line-discard`, a no-op on an empty buffer), which wipes
+    /// whatever of ours the editor may already hold — and with no newline
+    /// queued nothing can execute early, so a retry can never queue a second
+    /// executable copy behind an unread first one.
+    fn send_line_exactly_once(sh: &mut LiveZsh, cmd: &str) {
+        let text = cmd.trim_end_matches(|c| c == '\r' || c == '\n');
+        let echo_base = sh.raw.len();
+        let mut echoed = false;
+        for _ in 0..3 {
+            sh.writer.write_all(b"\x15").expect("pty write");
+            sh.writer.write_all(text.as_bytes()).expect("pty write");
+            sh.writer.flush().expect("pty flush");
+            // Generous: under a full parallel gate ten live shells share the
+            // box and one prompt cycle can stall for tens of seconds, while
+            // the fast path still resolves in milliseconds.
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while Instant::now() < deadline {
+                sh.drain();
+                if line_echoed(&sh.raw[echo_base..], text) {
+                    echoed = true;
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            if echoed {
+                break;
+            }
+        }
+        if !echoed {
+            let tail = sh.raw.len().saturating_sub(512);
+            panic!(
+                "command {cmd:?} never reached the line editor; raw tail:\n{:?}",
+                String::from_utf8_lossy(&sh.raw[tail..])
+            );
+        }
+        // Exactly one newline for one execution.
+        sh.writer.write_all(b"\n").expect("pty write");
+        sh.writer.flush().expect("pty flush");
+    }
+
+    /// Whether the line editor has echoed `text`: `tail` is raw pty bytes
+    /// since before the send, stripped of escape sequences (a highlighting
+    /// theme wraps tokens in SGR, so the contiguous text only shows after
+    /// stripping) and carriage returns.
+    fn line_echoed(tail: &[u8], text: &str) -> bool {
+        strip_escapes_for_echo(&String::from_utf8_lossy(tail)).contains(text)
+    }
+
+    /// Strips ANSI escape sequences and carriage returns for echo matching
+    /// (see [`line_echoed`]): CSI sequences, OSC sequences, and other
+    /// `ESC`-led bytes carry no echoed text.
+    fn strip_escapes_for_echo(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let mut chars = s.chars();
+        while let Some(c) = chars.next() {
+            if c == '\r' {
+                continue;
+            }
+            if c != '\x1b' {
+                out.push(c);
+                continue;
+            }
+            match chars.next() {
+                Some('[') => {
+                    // CSI: parameter and intermediate bytes, then the final byte.
+                    for c in chars.by_ref() {
+                        if ('@'..='~').contains(&c) {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    // OSC: runs to BEL or ESC \.
+                    let mut prev = '\0';
+                    for c in chars.by_ref() {
+                        if c == '\x07' || (prev == '\x1b' && c == '\\') {
+                            break;
+                        }
+                        prev = c;
+                    }
+                }
+                Some(_) | None => {}
+            }
+        }
+        out
+    }
+
+    /// The echo matcher sees through a highlighting theme's SGR wrapping:
+    /// zle redisplays the typed line with escapes around tokens, so the
+    /// contiguous command text only shows after stripping.
+    #[test]
+    fn line_echo_is_found_through_highlighting_escapes() {
+        let raw = b"\r\x1b[1mecho\x1b[0m p10k-1\r\n".to_vec();
+        assert!(line_echoed(&raw, "echo p10k-1"));
+        assert!(!line_echoed(&raw, "echo p10k-2"));
+        assert!(!line_echoed(b"prompt> ", "echo p10k-1"));
     }
 
     /// Asserts no `B` marker for `nonce` appears in the raw pty bytes: our
