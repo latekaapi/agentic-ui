@@ -69,7 +69,7 @@ const NOTE_ACTIONS_GAP: f32 = 6.0;
 const COUNT_PILL_H: f32 = 16.0;
 
 /// Actions on a code block header.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodeBlockAction {
     /// Toggle soft wrap.
     Wrap,
@@ -79,6 +79,37 @@ pub enum CodeBlockAction {
     Copy,
     /// Show the folded lines.
     Unfold,
+    /// The host-supplied header action was pressed. It carries everything
+    /// the host needs to act on the block — its index, language and code —
+    /// without the library knowing why.
+    HostAction {
+        /// The block's index in the host's list, as passed to
+        /// [`CodeBlock::host_action`].
+        index: usize,
+        /// The fence language, when the block is tagged.
+        language: Option<SharedString>,
+        /// The block text.
+        code: SharedString,
+    },
+}
+
+/// The description of a [`CodeBlock::host_action`] control.
+///
+/// Tokens and the shared button component draw it; the host owns what a
+/// press does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeBlockHostButton {
+    /// The button label.
+    pub label: SharedString,
+    /// The leading glyph.
+    pub icon: IconName,
+}
+
+impl CodeBlockHostButton {
+    /// A header action with `label` and a leading `icon`.
+    pub fn new(label: impl Into<SharedString>, icon: IconName) -> Self {
+        Self { label: label.into(), icon }
+    }
 }
 
 type CodeHandler = std::rc::Rc<dyn Fn(CodeBlockAction, &mut Window, &mut App)>;
@@ -92,6 +123,7 @@ pub struct CodeBlock {
     code: SharedString,
     start_line: u32,
     hidden_lines: usize,
+    host_action: Option<(usize, CodeBlockHostButton)>,
     on_action: Option<CodeHandler>,
     selection_key: Option<SelectionKey>,
     selection: Option<Range<usize>>,
@@ -102,7 +134,42 @@ pub struct CodeBlock {
 
 /// A block showing `code` from `path`.
 pub fn code_block(id: impl Into<ElementId>, path: impl Into<SharedString>, code: impl Into<SharedString>) -> CodeBlock {
-    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, hidden_lines: 0, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None, on_span: None }
+    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, hidden_lines: 0, host_action: None, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None, on_span: None }
+}
+
+/// The command a fenced block carries, if it is runnable.
+///
+/// - `sh`, `bash`, `zsh`, `shell` and `terminal` run whole: the code is
+///   returned unchanged.
+/// - `console`, and an untagged block whose every non-blank line is a
+///   `$ ` prompt, run the prompt lines only: the `$ ` prefixes are
+///   stripped and the recorded output lines are dropped.
+/// - Anything else is not runnable.
+pub fn runnable_command(lang: &str, code: &str) -> Option<String> {
+    const SHELLS: [&str; 5] = ["sh", "bash", "zsh", "shell", "terminal"];
+    if SHELLS.contains(&lang) {
+        return Some(code.to_string());
+    }
+    if lang == "console" {
+        return Some(prompt_lines(code));
+    }
+    if lang.is_empty() {
+        let mut prompts = Vec::new();
+        for line in code.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            prompts.push(line.strip_prefix("$ ")?);
+        }
+        return Some(prompts.join("\n"));
+    }
+    None
+}
+
+/// The `$ ` prompt lines of `code` with their prefixes stripped. Blank
+/// lines and recorded output lines are dropped.
+fn prompt_lines(code: &str) -> String {
+    code.lines().filter_map(|line| line.strip_prefix("$ ")).collect::<Vec<_>>().join("\n")
 }
 
 impl CodeBlock {
@@ -121,6 +188,17 @@ impl CodeBlock {
     /// How many more lines the fold row offers.
     pub fn hidden_lines(mut self, count: usize) -> Self {
         self.hidden_lines = count;
+        self
+    }
+
+    /// An optional host-supplied action at the end of the header row, after
+    /// the Copy control. `index` is the block's index in the host's list;
+    /// pressing the control emits [`CodeBlockAction::HostAction`] with that
+    /// index and the block's language and code, so the host can act on the
+    /// block without the library knowing why. Unset by default; without it
+    /// the header renders exactly as before.
+    pub fn host_action(mut self, index: usize, button: CodeBlockHostButton) -> Self {
+        self.host_action = Some((index, button));
         self
     }
 
@@ -264,16 +342,22 @@ impl RenderOnce for CodeBlock {
             let h = self.on_action.clone();
             move |_: &gpui::ClickEvent, w: &mut Window, cx: &mut App| {
                 if let Some(h) = &h {
-                    h(action, w, cx)
+                    h(action.clone(), w, cx)
                 }
             }
         };
         let ghost = |name: &'static str, glyph: IconName| icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(HEADER_GLYPH));
-        let actions: Vec<gpui::AnyElement> = vec![
+        let mut actions: Vec<gpui::AnyElement> = vec![
             ghost("wrap", IconName::List).on_click(emit(CodeBlockAction::Wrap)).into_any_element(),
             ghost("open", IconName::Edit).on_click(emit(CodeBlockAction::Open)).into_any_element(),
             copy_button(&id, &p, self.on_action.clone(), window, cx).into_any_element(),
         ];
+        // The host action trails Copy. With none set the header builds
+        // exactly as before.
+        if let Some((index, host)) = &self.host_action {
+            let press = CodeBlockAction::HostAction { index: *index, language: self.language.clone(), code: self.code.clone() };
+            actions.push(button((id.clone(), "host-action"), host.label.clone()).xs().ghost().icon(host.icon).on_click(emit(press)).into_any_element());
+        }
         let after: Vec<gpui::AnyElement> = self.language.iter().map(|l| div().text_color(p.ink_3).child(l.clone()).into_any_element()).collect();
         let header = block_header(&p, &id, BlockHeaderArgs { glyph: IconName::File, name: self.path.clone(), after, actions, hovered: flags.hovered }, window, cx);
 
@@ -655,5 +739,67 @@ impl RenderOnce for DiffBlock {
             .track_interaction(&state)
             .child(header)
             .child(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::runnable_command;
+
+    #[test]
+    fn shell_languages_run_whole_and_unchanged() {
+        for lang in ["sh", "bash", "zsh", "shell", "terminal"] {
+            assert_eq!(runnable_command(lang, "npm test -- --watch"), Some("npm test -- --watch".to_string()), "lang `{lang}`");
+        }
+    }
+
+    #[test]
+    fn shell_blocks_keep_surrounding_blank_lines() {
+        assert_eq!(runnable_command("bash", "\n  git status\n\n"), Some("\n  git status\n\n".to_string()));
+    }
+
+    #[test]
+    fn untagged_all_prompt_blocks_strip_the_prefix() {
+        assert_eq!(runnable_command("", "$ git status\n$ git diff --stat"), Some("git status\ngit diff --stat".to_string()));
+    }
+
+    #[test]
+    fn untagged_blocks_ignore_blank_lines_around_prompts() {
+        assert_eq!(runnable_command("", "\n\n$ echo hi\n   \n$ exit\n\n"), Some("echo hi\nexit".to_string()));
+    }
+
+    #[test]
+    fn untagged_blocks_with_recorded_output_are_not_runnable() {
+        assert_eq!(runnable_command("", "$ git status\nOn branch main\n$ git diff"), None);
+    }
+
+    #[test]
+    fn untagged_plain_code_is_not_runnable() {
+        assert_eq!(runnable_command("", "let x = 1;\nprintln!(\"{x}\");"), None);
+    }
+
+    #[test]
+    fn console_blocks_keep_only_the_prompt_lines() {
+        assert_eq!(runnable_command("console", "$ npm test\n42 passing\n$ npm run lint\nclean"), Some("npm test\nnpm run lint".to_string()));
+    }
+
+    #[test]
+    fn console_blocks_ignore_blank_lines() {
+        assert_eq!(runnable_command("console", "\n$ echo hi\n\n"), Some("echo hi".to_string()));
+    }
+
+    #[test]
+    fn other_languages_are_not_runnable() {
+        for lang in ["python", "rust", "typescript", "json", "diff", "text", "Sh", "SHELL"] {
+            assert_eq!(runnable_command(lang, "$ echo hi"), None, "lang `{lang}`");
+        }
+    }
+
+    #[test]
+    fn empty_code_follows_the_language_rule() {
+        assert_eq!(runnable_command("sh", ""), Some(String::new()));
+        assert_eq!(runnable_command("console", ""), Some(String::new()));
+        assert_eq!(runnable_command("", ""), Some(String::new()));
+        assert_eq!(runnable_command("python", ""), None);
     }
 }

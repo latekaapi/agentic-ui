@@ -36,7 +36,7 @@ pub use selectable::{selectable_text, MessageSelection, SelectableText, Selectio
 pub use marker::{marker_row, HandOff, MarkerRow};
 pub use turns::{assistant_turn, footer_items, format_age, turn_selected_text, turn_span_selected_text, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction, COPY_HOLD};
 pub use ansi::{ansi_runs, parse_ansi, AnsiSpan};
-pub use tool_card::{format_duration, tool_card, ToolCard, ToolCardIntent, SHELL_FOLD};
+pub use tool_card::{format_duration, tool_card, ToolCard, ToolCardAction, ToolCardIntent, SHELL_FOLD};
 pub use tool_group::{
     count_label, more_label, preview_hidden, tool_group, ToolGroup, ToolGroupData, ToolGroupIntent,
     GROUP_PREVIEW,
@@ -46,7 +46,7 @@ pub use question::{answered_row, question_card, AnsweredRow, QuestionCard, Quest
 pub use item::{generic_item_card, goal_card, GenericItemCard, GoalCard};
 pub use plan::{plan_card, PlanCard};
 pub use todo::{todo_list, TodoList};
-pub use code::{code_block, diff_block, diff_note, diff_note_inset, CodeBlock, CodeBlockAction, DiffBlock, DiffBlockAction, DiffNote, NoteInsets};
+pub use code::{code_block, diff_block, diff_note, diff_note_inset, runnable_command, CodeBlock, CodeBlockAction, CodeBlockHostButton, DiffBlock, DiffBlockAction, DiffNote, NoteInsets};
 pub use syntax::{syntax_runs, syntax_runs_in, token_color, tokenize_line, tokenize_line_in, ts_language, TokenKind};
 pub use summary::{summary_card, SummaryAction, SummaryCard};
 pub use status::{error_card, jump_pill, needs_you_banner, retry_row, status_row, ErrorCard, JumpPill, NeedsYouBanner, StatusLead, StatusRow};
