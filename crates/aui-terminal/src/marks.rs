@@ -59,14 +59,14 @@ pub enum MarkKind {
 
 /// One shell-integration marker at an absolute grid line.
 ///
-/// `line` counts in grid lines from the oldest retained line (absolute line 0
-/// is the top of the retained scrollback, and larger numbers run toward the
-/// live tail), so a mark stays comparable with the viewport mapping the
-/// session computes from the same base. Two forces can move content under a
-/// recorded line: a resize reflows the grid (the session marks its blocks
-/// stale and rebuilds them lazily), and emitting past the scrollback cap
-/// trims the oldest lines (anchors older than the retained window clamp to
-/// it). Both are accepted imperfection per D44.
+/// `line` is monotonic for the life of the session: the session counts every
+/// line evicted from its retained scrollback window and adds that count to
+/// the grid's own history offset, so absolute lines keep advancing past the
+/// scrollback cap instead of stalling at it. A resize reflows the grid (the
+/// session marks its blocks stale and rebuilds them lazily); that
+/// imprecision is accepted per D44. Anchors below the evicted floor are
+/// pruned, and the text of evicted lines is gone: only the retained window
+/// reads back.
 #[derive(Debug, Clone, Copy)]
 pub struct Mark {
     /// Absolute grid line where the marker was seen.
@@ -125,6 +125,11 @@ pub struct Block {
     /// Who started the block. The assembler always leaves [`BlockAuthor::Human`];
     /// the host upgrades agent blocks afterwards.
     pub author: BlockAuthor,
+    /// Monotonic id assigned when the block is first assembled, never reused.
+    /// Rebuilds carry host-set state across by this id, not by index —
+    /// pruning shifts positional indices — so a host can hold it as a stable
+    /// reference.
+    pub id: u64,
 }
 
 impl Block {
@@ -217,6 +222,16 @@ impl MarkScanner {
     /// The session calls this once per [`ScanSegment::Marker`].
     pub fn push_mark(&mut self, mark: Mark) {
         self.marks.push(mark);
+    }
+
+    /// Drops marks that have fallen out of the retained window: a mark is
+    /// kept when its line is at or past `floor` (the oldest retained absolute
+    /// line) or lies inside one of `keep` (absolute `start..=end` ranges of
+    /// blocks that straddle the boundary). Straddling blocks keep their marks
+    /// so their ranges — and their ids — survive the prune.
+    pub fn prune_before(&mut self, floor: i32, keep: &[(i32, i32)]) {
+        self.marks
+            .retain(|m| m.line >= floor || keep.iter().any(|&(s, e)| s <= m.line && m.line <= e));
     }
 
     /// Splits `bytes` into emulator-ready segments, honouring the bytes held
@@ -397,6 +412,8 @@ fn close(open: &Open, line: i32, at: Instant, exit: i32, command_text: &dyn Fn(i
         started: open.a_at,
         ended: Some(at),
         author: BlockAuthor::Human,
+        // Placeholder: the session's rebuild assigns the real monotonic id.
+        id: 0,
     }
 }
 
@@ -466,6 +483,8 @@ pub fn assemble_blocks(
                 started: cur.a_at,
                 ended: None,
                 author: BlockAuthor::Human,
+                // Placeholder: the session's rebuild assigns the real monotonic id.
+                id: 0,
             });
         }
     }
@@ -631,6 +650,21 @@ mod tests {
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].exit, Some(0));
         assert_eq!(blocks[0].output, (7, 7));
+    }
+
+    #[test]
+    fn an_a_while_a_block_runs_closes_it_as_exit_zero() {
+        let marks = vec![
+            mark(2, MarkKind::PromptStart, None),
+            mark(2, MarkKind::PromptEnd, None),
+            mark(4, MarkKind::OutputStart, None),
+            mark(9, MarkKind::PromptStart, None),
+        ];
+        let blocks = assemble_blocks(&marks, 12, &no_text);
+        assert_eq!(blocks.len(), 1, "the running block closes, the bare prompt makes none");
+        assert_eq!(blocks[0].exit, Some(0));
+        assert_eq!(blocks[0].end, 9);
+        assert_eq!(blocks[0].output, (4, 9));
     }
 
     #[test]
