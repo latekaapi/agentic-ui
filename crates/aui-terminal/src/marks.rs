@@ -60,13 +60,16 @@ pub enum MarkKind {
 /// One shell-integration marker at an absolute grid line.
 ///
 /// `line` is monotonic for the life of the session: the session counts every
-/// line evicted from its retained scrollback window and adds that count to
-/// the grid's own history offset, so absolute lines keep advancing past the
-/// scrollback cap instead of stalling at it. A resize reflows the grid (the
-/// session marks its blocks stale and rebuilds them lazily); that
-/// imprecision is accepted per D44. Anchors below the evicted floor are
-/// pruned, and the text of evicted lines is gone: only the retained window
-/// reads back.
+/// line evicted from its retained scrollback window — overflow trims as well
+/// as `ESC[3J`/`ESC c` drops — and adds that count to the grid's own history
+/// offset, so absolute lines keep advancing past the scrollback cap instead
+/// of stalling at it. The count is exact unless a single burst reached the
+/// emulator's own history cap before the session could count it (see
+/// `TerminalSession::history_desyncs`); monotonicity holds either way. A
+/// resize reflows the grid (the session marks its blocks stale and rebuilds
+/// them lazily); that imprecision is accepted per D44. Anchors below the
+/// evicted floor are pruned, and the text of evicted lines is gone: only the
+/// retained window reads back.
 #[derive(Debug, Clone, Copy)]
 pub struct Mark {
     /// Absolute grid line where the marker was seen.

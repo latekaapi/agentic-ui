@@ -43,9 +43,15 @@ use crate::parser::{finished_label, live_label};
 const SCROLLBACK: usize = 10_000;
 /// Headroom above [`SCROLLBACK`] the emulator is constructed with. Overflow
 /// is trimmed back to [`SCROLLBACK`] on a schedule that keeps every discarded
-/// line counted (see [`feed_with_marks`]): a byte slice of at most this many
-/// bytes can push at most this many lines, so the grid can never discard a
-/// line before the trim step counts it.
+/// line counted (see [`feed_with_marks`]). There is no fixed byte bound:
+/// `ESC[nS`/`ESC[nM` push up to the scroll region's height from a few bytes,
+/// so each raw slice is sized from the live row count
+/// (`slice_bytes / 4 * rows <= SCROLLBACK_SLACK`, floor 64) and re-sized on
+/// every feed so a resize is picked up. If the emulator's own cap
+/// (`SCROLLBACK + SCROLLBACK_SLACK`) is ever reached mid-burst, lines may
+/// have been discarded before the trim step could count them: that is
+/// recorded in [`TerminalSession::history_desyncs`] and the count is then
+/// approximate rather than exact.
 const SCROLLBACK_SLACK: usize = 4_096;
 /// The backend is drained on this cadence — about twice a display frame.
 const POLL_INTERVAL: Duration = Duration::from_millis(8);
@@ -229,6 +235,10 @@ struct MarkState {
     /// Starts at 0 and never decreases; added to the grid's own history
     /// offset so absolute lines stay monotonic past the scrollback cap.
     evicted: AtomicI64,
+    /// Bursts that reached the emulator's own cap before the trim step ran.
+    /// Lines may have been discarded uncounted; the evicted count is then
+    /// approximate (monotonicity is still preserved).
+    desync: AtomicU64,
     /// Next [`Block`] id. Assigned when a block is first assembled and never
     /// reused, so a pruned prefix cannot recycle an id.
     next_block: AtomicU64,
@@ -317,6 +327,7 @@ impl TerminalSession {
                 blocks: Mutex::new(Vec::new()),
                 stale: AtomicBool::new(false),
                 evicted: AtomicI64::new(0),
+                desync: AtomicU64::new(0),
                 next_block: AtomicU64::new(0),
             }),
         }
@@ -549,6 +560,13 @@ impl TerminalSession {
     /// reaches the pasteboard; this counter proves the refusal happened.
     pub fn refused_clipboard_writes(&self) -> usize {
         self.shared.refused_clipboard.load(Ordering::Acquire)
+    }
+
+    /// Bursts that reached the emulator's own history cap before the trim
+    /// step could count them. Zero means the evicted count is exact; after a
+    /// burst the absolutes stay monotonic but the count is approximate.
+    pub fn history_desyncs(&self) -> u64 {
+        self.mark_state.desync.load(Ordering::Acquire)
     }
 
     /// Takes the queued bell/title/exit notifications for the host to drain.
@@ -820,17 +838,19 @@ fn feed_with_marks(faced: &mut Inner, bytes: &[u8], state: &MarkState) {
     for segment in segments {
         match segment {
             ScanSegment::Emit(raw) => {
-                // Slices of at most SCROLLBACK_SLACK bytes: N bytes push at
-                // most N lines into history, so the grid can never discard a
-                // line before the trim step below has counted it.
-                for slice in raw.chunks(SCROLLBACK_SLACK) {
-                    faced.processor.advance(&mut faced.term, slice);
-                    trim_history(&mut faced.term, state);
+                // Row-sized slices: the shortest sequence pushing `k` lines
+                // is `ESC[kS` (three bytes plus digits), so the worst case is
+                // about `rows` lines per four bytes. Size the slice so that
+                // `slice_bytes / 4 * rows <= SCROLLBACK_SLACK`.
+                let mut start = 0;
+                while start < raw.len() {
+                    let len = feed_slice_len(&faced.term).min(raw.len() - start);
+                    advance_counted(faced, state, &raw[start..start + len]);
+                    start += len;
                 }
             }
             ScanSegment::Marker { raw, kind, exit } => {
-                faced.processor.advance(&mut faced.term, &raw);
-                trim_history(&mut faced.term, state);
+                advance_counted(faced, state, &raw);
                 let evicted = state.evicted.load(Ordering::Acquire);
                 let line =
                     absolute_line(&faced.term, evicted, faced.term.grid().cursor.point.line);
@@ -842,10 +862,68 @@ fn feed_with_marks(faced: &mut Inner, bytes: &[u8], state: &MarkState) {
     rebuild_blocks(&faced.term, state);
 }
 
+/// Slice length for one counted advance, from the live row count so a resize
+/// is picked up on the next feed. Never below 64 bytes so a tall window does
+/// not degenerate into per-byte feeding.
+fn feed_slice_len(term: &Term<SessionEventProxy>) -> usize {
+    let rows = term.screen_lines().max(1);
+    (SCROLLBACK_SLACK * 4 / rows).max(64)
+}
+
+/// Advances the emulator by `bytes`, counting every departure from the
+/// retained window: `ESC[3J` (`Grid::clear_history`) and `ESC c`
+/// (`grid.reset()`) shrink history without ever passing through
+/// [`trim_history`], so any shrink across the advance is absorbed into
+/// `evicted` first and the trim's own contribution is then counted on top
+/// without double counting.
+///
+/// Two guards keep the count honest. While the alternate screen is active
+/// (before or after the advance) the grid is swapped, not wiped, so nothing
+/// is counted — exactly the old behaviour. And the absolute tail is never
+/// allowed to regress within one advance: `ESC[2J` scrolls the viewport into
+/// history and homes the cursor inside the same slice that `ESC[3J` then
+/// wipes, so history-size comparison alone undercounts by the cursor-row
+/// displacement; the residual is topped up here so the tail stays monotonic.
+fn advance_counted(faced: &mut Inner, state: &MarkState, bytes: &[u8]) {
+    if faced.term.mode().contains(TermMode::ALT_SCREEN) {
+        faced.processor.advance(&mut faced.term, bytes);
+        trim_history(&mut faced.term, state);
+        return;
+    }
+    let e0 = state.evicted.load(Ordering::Acquire);
+    let h0 = faced.term.grid().history_size() as i64;
+    let r0 = faced.term.grid().cursor.point.line.0 as i64;
+    faced.processor.advance(&mut faced.term, bytes);
+    if faced.term.mode().contains(TermMode::ALT_SCREEN) {
+        trim_history(&mut faced.term, state);
+        return;
+    }
+    let mid = faced.term.grid().history_size();
+    if (mid as i64) < h0 {
+        state.evicted.fetch_add(h0 - (mid as i64), Ordering::AcqRel);
+    }
+    // Safety net: the emulator discards past its own cap
+    // (`SCROLLBACK + SCROLLBACK_SLACK`) before the trim step can count.
+    if mid >= SCROLLBACK + SCROLLBACK_SLACK {
+        state.desync.fetch_add(1, Ordering::AcqRel);
+    }
+    trim_history(&mut faced.term, state);
+    let e1 = state.evicted.load(Ordering::Acquire);
+    let tail_before = e0 + h0 + r0;
+    let tail_after =
+        e1 + faced.term.grid().history_size() as i64 + faced.term.grid().cursor.point.line.0 as i64;
+    if tail_after < tail_before {
+        state.evicted.fetch_add(tail_before - tail_after, Ordering::AcqRel);
+    }
+}
+
 /// Counts what overflowed the retained window and restores the headroom:
 /// afterwards `history_size() <= SCROLLBACK` and the cap is back at
-/// `SCROLLBACK + SCROLLBACK_SLACK`. Every line the grid will ever discard is
-/// counted here first, so [`absolute_line`] stays monotonic.
+/// `SCROLLBACK + SCROLLBACK_SLACK`. Overflow past [`SCROLLBACK`] is counted
+/// here; drops below it (`ESC[3J`, `ESC c`) are counted in
+/// [`advance_counted`]. The evicted count is exact unless the safety net
+/// fired (see [`TerminalSession::history_desyncs`]), but the absolutes stay
+/// monotonic either way.
 fn trim_history(term: &mut Term<SessionEventProxy>, state: &MarkState) {
     let over = term.grid().history_size().saturating_sub(SCROLLBACK);
     if over > 0 {
@@ -862,7 +940,10 @@ fn evicted_floor(state: &MarkState) -> i32 {
 
 /// The absolute grid line for a screen-relative [`Line`]: evicted lines plus
 /// history lines behind plus the line itself. Monotonic for the life of the
-/// session: `evicted` starts at 0 and never decreases.
+/// session: `evicted` starts at 0 and never decreases, and every drop from
+/// the retained window (`ESC[3J`, `ESC c`, overflow) is counted there. Exact
+/// unless [`TerminalSession::history_desyncs`] fired after a burst past the
+/// emulator's own cap.
 fn absolute_line(term: &Term<SessionEventProxy>, evicted: i64, line: Line) -> i32 {
     (evicted + term.grid().history_size() as i64 + line.0 as i64) as i32
 }
@@ -900,31 +981,16 @@ fn rebuild_blocks(term: &Term<SessionEventProxy>, state: &MarkState) {
     let mut stored = state.blocks.lock().unwrap();
     let mut used = vec![false; stored.len()];
     for block in fresh.iter_mut() {
-        let key = (block.prompt, block.command_line, block.output.0, block.end);
+        // Stable identity is the START anchor: the line of the mark that
+        // opened the block (`prompt.0`, the `A` line or the `C` line when no
+        // `A` came). Absolute lines are monotonic, so it cannot change while
+        // the block runs; `end`, `output.1` and `exit` all change at finish
+        // and must not be part of the key.
         let mut found: Option<usize> = None;
         for (i, old) in stored.iter().enumerate() {
-            if !used[i] && (old.prompt, old.command_line, old.output.0, old.end) == key {
+            if !used[i] && old.prompt.0 == block.prompt.0 {
                 found = Some(i);
                 break;
-            }
-        }
-        if found.is_none() {
-            // A prune moved a straddling block's prompt side: fall back to
-            // the end line (stable for finished blocks) or the output start
-            // (stable for the one running block).
-            for (i, old) in stored.iter().enumerate() {
-                if used[i] {
-                    continue;
-                }
-                let same = if block.exit.is_some() {
-                    old.exit.is_some() && old.end == block.end
-                } else {
-                    old.exit.is_none() && old.output.0 == block.output.0
-                };
-                if same {
-                    found = Some(i);
-                    break;
-                }
             }
         }
         match found {
@@ -2812,6 +2878,149 @@ mod tests {
         let chrome = h.session.overlay_chrome();
         assert_eq!(chrome.len(), 1, "tall block missing when scrolled up: {chrome:?}");
         assert_eq!(chrome[0].row, 5, "chrome not clamped to the viewport bottom");
+    }
+
+    /// D1: the final output line and `D` arriving in ONE pump (what a real
+    /// pty delivers) keeps the block's id and host-set author: the carry-over
+    /// keys on the START anchor, which cannot move at finish.
+    #[test]
+    fn finishing_a_block_in_one_pump_keeps_id_and_author() {
+        let h = live_session("l2d1", 80, 24);
+        let mut head = Vec::new();
+        head.extend(marker_bytes(&h.nonce, "A"));
+        head.extend(b"prompt$ ");
+        head.extend(marker_bytes(&h.nonce, "B"));
+        head.extend(b"agent-cmd\r\n");
+        head.extend(marker_bytes(&h.nonce, "C"));
+        head.extend(b"line1\r\n");
+        h.feed(&head);
+        let running = h.session.blocks();
+        assert_eq!(running.len(), 1);
+        assert!(running[0].running());
+        let id = running[0].id;
+        h.session.set_block_author(0, BlockAuthor::Agent);
+        let mut tail = Vec::new();
+        tail.extend(b"line2\r\n");
+        tail.extend(marker_bytes(&h.nonce, "D;0"));
+        h.feed(&tail);
+        let done = h.session.blocks();
+        assert_eq!(done.len(), 1);
+        assert!(!done[0].running());
+        assert_eq!(done[0].id, id, "id changed when the block finished");
+        assert_eq!(done[0].author, BlockAuthor::Agent, "author lost when the block finished");
+    }
+
+    /// D2 (`ESC[3J`): `clear` between two commands keeps the tail monotonic,
+    /// block ends strictly increasing, and a pre-clear cursor reading forward.
+    #[test]
+    fn esc_3j_between_commands_keeps_tail_and_order() {
+        let h = live_session("l2d2a", 80, 24);
+        h.feed(&command_bytes(&h.nonce, "cmd-one", 0, 11_000, "one"));
+        let c1 = h.session.tail_cursor();
+        // The `clear` command's own output is what ncurses >= 6 emits.
+        let mut clear = Vec::new();
+        clear.extend(marker_bytes(&h.nonce, "A"));
+        clear.extend(b"prompt$ ");
+        clear.extend(marker_bytes(&h.nonce, "B"));
+        clear.extend(b"clear\r\n");
+        clear.extend(marker_bytes(&h.nonce, "C"));
+        clear.extend(b"\x1b[H\x1b[2J\x1b[3J");
+        clear.extend(marker_bytes(&h.nonce, "D;0"));
+        h.feed(&clear);
+        let c2 = h.session.tail_cursor();
+        assert!(c2.line >= c1.line, "tail went backwards on ESC[3J: {c1:?} -> {c2:?}");
+        h.feed(&command_bytes(&h.nonce, "cmd-three", 0, 3, "three"));
+        let c3 = h.session.tail_cursor();
+        assert!(c3.line >= c2.line, "tail went backwards after clear: {c2:?} -> {c3:?}");
+        let blocks = h.session.blocks();
+        // The clear wiped the oldest output, so the first block may be pruned;
+        // the survivors must stay strictly ordered with their text intact.
+        assert!(blocks.len() >= 2, "wiped all blocks: {blocks:?}");
+        assert!(
+            blocks.windows(2).all(|w| w[0].end < w[1].end),
+            "ends not strictly increasing: {:?}",
+            blocks.iter().map(|b| b.end).collect::<Vec<_>>()
+        );
+        assert!(
+            blocks.iter().all(|b| b.exit == Some(0)),
+            "a block lost its exit: {blocks:?}"
+        );
+        assert!(
+            blocks.last().expect("a block").command.contains("cmd-three"),
+            "command: {blocks:?}"
+        );
+        let polled = h.session.range_text(c1);
+        assert!(polled.contains("three-fill"), "poll stalled after clear");
+    }
+
+    /// D2 (`ESC c` / RIS): same assertions as the `ESC[3J` case.
+    #[test]
+    fn esc_c_ris_between_commands_keeps_tail_and_order() {
+        let h = live_session("l2d2b", 80, 24);
+        h.feed(&command_bytes(&h.nonce, "cmd-one", 0, 11_000, "one"));
+        let c1 = h.session.tail_cursor();
+        // RIS as the `clear` command's own output.
+        let mut clear = Vec::new();
+        clear.extend(marker_bytes(&h.nonce, "A"));
+        clear.extend(b"prompt$ ");
+        clear.extend(marker_bytes(&h.nonce, "B"));
+        clear.extend(b"clear\r\n");
+        clear.extend(marker_bytes(&h.nonce, "C"));
+        clear.extend(b"\x1bc");
+        clear.extend(marker_bytes(&h.nonce, "D;0"));
+        h.feed(&clear);
+        let c2 = h.session.tail_cursor();
+        assert!(c2.line >= c1.line, "tail went backwards on ESC c: {c1:?} -> {c2:?}");
+        h.feed(&command_bytes(&h.nonce, "cmd-three", 0, 3, "three"));
+        let c3 = h.session.tail_cursor();
+        assert!(c3.line >= c2.line, "tail went backwards after RIS: {c2:?} -> {c3:?}");
+        let blocks = h.session.blocks();
+        assert!(blocks.len() >= 2, "wiped all blocks: {blocks:?}");
+        assert!(
+            blocks.windows(2).all(|w| w[0].end < w[1].end),
+            "ends not strictly increasing: {:?}",
+            blocks.iter().map(|b| b.end).collect::<Vec<_>>()
+        );
+        assert!(
+            blocks.iter().all(|b| b.exit == Some(0)),
+            "a block lost its exit: {blocks:?}"
+        );
+        assert!(
+            blocks.last().expect("a block").command.contains("cmd-three"),
+            "command: {blocks:?}"
+        );
+        let polled = h.session.range_text(c1);
+        assert!(polled.contains("three-fill"), "poll stalled after RIS");
+    }
+
+    /// D3: `ESC[24S` bursts push 24 lines from ~5 bytes, breaking any byte
+    /// bound. Row-sized slices keep the accounting exact; where the safety
+    /// net fires the desync is reported rather than silently wrong.
+    #[test]
+    fn scroll_up_bursts_stay_counted_or_report_desync() {
+        let a = live_session("l2d3a", 80, 24);
+        let b = live_session("l2d3b", 80, 24);
+        for h in [&a, &b] {
+            h.feed(&output_bytes(10_024, "pre"));
+        }
+        let ca = a.session.tail_cursor();
+        let cb = b.session.tail_cursor();
+        assert_eq!(ca, cb);
+        let n = 700usize;
+        a.feed(&"\n".repeat(24 * n).into_bytes());
+        b.feed(&"\x1b[24S".repeat(n).into_bytes());
+        let ta = a.session.tail_cursor();
+        let tb = b.session.tail_cursor();
+        assert!(tb.line > cb.line, "SU tail stalled: {cb:?} -> {tb:?}");
+        if b.session.history_desyncs() == 0 {
+            assert_eq!(
+                ta.line - ca.line,
+                tb.line - cb.line,
+                "same line count, different eviction accounting (hist a={:?} b={:?})",
+                a.session.with_term(|t| (t.grid().history_size(), t.grid().display_offset())),
+                b.session.with_term(|t| (t.grid().history_size(), t.grid().display_offset())),
+            );
+        }
     }
 
     /// Alt screen, finished block: a block that closed before the alternate
