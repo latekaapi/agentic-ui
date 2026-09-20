@@ -12,6 +12,14 @@
 //! | `OSC 133 ; C ST` | the command is running; what follows is its output |
 //! | `OSC 133 ; D ; <exit> ST` | the command finished with this status |
 //!
+//! Every marker the integrated shell emits also carries `; k=<nonce>`, a
+//! per-session token (see [`with_nonce`](BlockParser::with_nonce)): `A ; k=<nonce>`,
+//! `D ; <exit> ; k=<nonce>`, and so on. A [`BlockParser`] with a nonce set
+//! ignores a marker whose `k=` is absent or does not match — no block
+//! boundary, no state change — so a program printing a bare `OSC 133` cannot
+//! forge one. A parser with no nonce behaves exactly as before and accepts
+//! every marker, which is what the gallery's scripted replays rely on.
+//!
 //! `ZSH_INTEGRATION` lives in the `pty` module, behind the `pty` feature.
 //!
 //! Everything else in the stream is passed through untouched, so the SGR
@@ -132,6 +140,21 @@ impl BlockParser {
         Self { vte: vte::Parser::new(), perform: Perform::new(clock) }
     }
 
+    /// A parser that only honours markers carrying `k=<nonce>`.
+    ///
+    /// A marker whose `k=` is absent or does not match is ignored entirely:
+    /// no block boundary, no state change. A parser with no nonce accepts
+    /// every marker, exactly as before.
+    pub fn with_nonce(mut self, nonce: impl Into<String>) -> Self {
+        self.perform.nonce = Some(nonce.into());
+        self
+    }
+
+    /// The nonce this parser enforces, if any (see [`with_nonce`](Self::with_nonce)).
+    pub fn nonce(&self) -> Option<&str> {
+        self.perform.nonce.as_deref()
+    }
+
     /// The clock this parser stamps blocks with.
     pub fn clock(&self) -> &ManualClock {
         &self.perform.clock
@@ -167,6 +190,8 @@ impl Default for BlockParser {
 /// lend `vte::Parser` and this struct out at the same time.
 struct Perform {
     clock: ManualClock,
+    /// When set, only markers carrying `k=<nonce>` are honoured.
+    nonce: Option<String>,
     blocks: Vec<TermBlock>,
     phase: Phase,
     /// Index of the block currently taking output, if any.
@@ -184,6 +209,7 @@ impl Perform {
     fn new(clock: ManualClock) -> Self {
         Self {
             clock,
+            nonce: None,
             blocks: Vec::new(),
             phase: Phase::Idle,
             open: None,
@@ -355,6 +381,15 @@ impl vte::Perform for Perform {
         // clipboard, hyperlinks) carry no visible text and are dropped.
         if params.first().map(|p| *p != b"133".as_slice()).unwrap_or(true) {
             return;
+        }
+        // When a nonce is set, a marker whose `k=` is absent or does not
+        // match is ignored entirely — no block boundary, no state change —
+        // so a program printing a bare `OSC 133` cannot forge one.
+        if let Some(expected) = self.nonce.as_deref() {
+            let got = params.iter().skip(1).find_map(|p| p.strip_prefix(b"k="));
+            if got != Some(expected.as_bytes()) {
+                return;
+            }
         }
         match params.get(1).and_then(|p| p.first()).copied() {
             Some(b'A') => self.mark_prompt(),
@@ -728,5 +763,56 @@ mod tests {
         p.feed(a());
         assert_eq!(p.blocks()[0].state, BlockState::Done);
         assert_eq!(p.blocks()[0].duration, "2.0 s");
+    }
+
+    /// With a nonce set, a marker with the wrong `k=` and a marker with no
+    /// `k=` at all are ignored entirely: no block boundary, no state change.
+    #[test]
+    fn a_nonce_set_parser_ignores_wrong_and_missing_k() {
+        let clock = ManualClock::new(Instant::now());
+        let mut p = BlockParser::with_clock(clock).with_nonce("right-nonce");
+        assert_eq!(p.nonce(), Some("right-nonce"));
+        // Markers alone open no block while their `k=` is missing or wrong:
+        // ignored entirely means no boundary and no state change.
+        p.feed(b"\x1b]133;A\x07");
+        p.feed(b"\x1b]133;B\x07");
+        p.feed(b"\x1b]133;C\x07");
+        assert!(p.blocks().is_empty(), "{:#?}", p.blocks());
+        p.feed(b"\x1b]133;D;0;k=wrong-nonce\x07");
+        assert!(p.blocks().is_empty(), "{:#?}", p.blocks());
+        // The correctly nonced twin of the same session parses normally.
+        p.feed(b"\x1b]133;A;k=right-nonce\x07");
+        p.feed(b"\x1b]133;B;k=right-nonce\x07");
+        p.feed(b"echo hi");
+        p.feed(b"\x1b]133;C;k=right-nonce\x07");
+        p.feed(b"hi\n");
+        p.feed(b"\x1b]133;D;0;k=right-nonce\x07");
+        assert_eq!(p.blocks().len(), 1);
+        assert_eq!(p.blocks()[0].command, "echo hi");
+        assert_eq!(p.blocks()[0].state, BlockState::Done);
+        assert_eq!(p.blocks()[0].output, vec!["hi".to_string()]);
+    }
+
+    /// With no nonce set, behaviour is exactly as before: bare markers and
+    /// `k=`-carrying markers are both honoured, so scripted replays keep
+    /// working unchanged.
+    #[test]
+    fn without_a_nonce_bare_markers_still_split_blocks() {
+        let (mut p, _) = parser();
+        assert_eq!(p.nonce(), None);
+        p.feed(a());
+        p.feed(b());
+        p.feed(b"echo one");
+        p.feed(c());
+        p.feed(b"one\n");
+        p.feed(b"\x1b]133;D;0\x07");
+        assert_eq!(p.blocks().len(), 1);
+        assert_eq!(p.blocks()[0].command, "echo one");
+        assert_eq!(p.blocks()[0].state, BlockState::Done);
+        let (mut q, _) = parser();
+        q.feed(b"\x1b]133;A;k=whatever\x07\x1b]133;B;k=whatever\x07echo two\x1b]133;C;k=whatever\x07two\n\x1b]133;D;0;k=whatever\x07");
+        assert_eq!(q.blocks().len(), 1);
+        assert_eq!(q.blocks()[0].command, "echo two");
+        assert_eq!(q.blocks()[0].state, BlockState::Done);
     }
 }

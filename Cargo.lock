@@ -605,6 +605,7 @@ dependencies = [
  "aui-icons",
  "aui-motion",
  "aui-tokens",
+ "getrandom 0.3.4",
  "gpui-kit",
  "gpui-pre",
  "portable-pty",

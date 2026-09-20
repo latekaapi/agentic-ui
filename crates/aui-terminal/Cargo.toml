@@ -13,7 +13,7 @@ categories = ["gui"]
 [features]
 default = []
 # A real pseudo-terminal running the user's login shell.
-pty = ["dep:portable-pty"]
+pty = ["dep:portable-pty", "dep:getrandom"]
 # The alacritty grid model behind the TUI pane.
 tui = ["dep:alacritty_terminal"]
 
@@ -26,5 +26,6 @@ aui-icons.workspace = true
 aui-motion.workspace = true
 
 vte = "0.15"
+getrandom = { version = "0.3", optional = true }
 portable-pty = { version = "0.8", optional = true }
 alacritty_terminal = { version = "0.26", optional = true }
