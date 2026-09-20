@@ -12,6 +12,7 @@
 //! | `pty` | a real login shell over `portable-pty` (feature `pty`) |
 //! | `tui_grid` | the alacritty grid model behind the TUI pane (feature `tui`) |
 //! | `grid` | [`TerminalSession`] and the [`terminal_grid`] element (feature `tui`) |
+//! | `marks` | nonce-checked OSC 133 [`marks::Mark`]s and [`marks::Block`]s over the grid (feature `tui`) |
 //! | `keys` | the pure key encoder behind the grid (feature `tui`) |
 //! | [`view`] | [`TerminalState`] plus the three gpui elements |
 //!
@@ -35,6 +36,8 @@ pub mod fake;
 pub mod grid;
 #[cfg(feature = "tui")]
 pub mod keys;
+#[cfg(feature = "tui")]
+pub mod marks;
 pub mod parser;
 #[cfg(feature = "pty")]
 pub mod pty;
@@ -51,6 +54,10 @@ pub use grid::{
 };
 #[cfg(feature = "tui")]
 pub use keys::{encode, KeyInput, KeyModifiers, KeyModes, SpecialKey};
+#[cfg(feature = "tui")]
+pub use marks::{
+    assemble_blocks, Block, BlockAuthor, Mark, MarkKind, MarkScanner, ScanSegment, TextCursor,
+};
 pub use parser::{BlockParser, ManualClock};
 #[cfg(feature = "pty")]
 pub use pty::{bash_integration, generate_nonce, login_shell, zsh_integration, Pty, PtyConfig};

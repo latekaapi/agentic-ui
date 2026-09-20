@@ -17,7 +17,7 @@
 
 use std::path::Path;
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering},
     mpsc, Arc, Mutex,
 };
 use std::thread::JoinHandle;
@@ -34,9 +34,25 @@ use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Processor, R
 
 use crate::backend::{TermEvent, TerminalBackend};
 use crate::keys::KeyModes;
+use crate::marks::{
+    assemble_blocks, Block, BlockAuthor, Mark, MarkScanner, ScanSegment, TextCursor,
+};
+use crate::parser::{finished_label, live_label};
 
 /// Lines of scrollback behind the visible screen (decision D44).
 const SCROLLBACK: usize = 10_000;
+/// Headroom above [`SCROLLBACK`] the emulator is constructed with. Overflow
+/// is trimmed back to [`SCROLLBACK`] on a schedule that keeps every discarded
+/// line counted (see [`feed_with_marks`]). There is no fixed byte bound:
+/// `ESC[nS`/`ESC[nM` push up to the scroll region's height from a few bytes,
+/// so each raw slice is sized from the live row count
+/// (`slice_bytes / 4 * rows <= SCROLLBACK_SLACK`, floor 64) and re-sized on
+/// every feed so a resize is picked up. If the emulator's own cap
+/// (`SCROLLBACK + SCROLLBACK_SLACK`) is ever reached mid-burst, lines may
+/// have been discarded before the trim step could count them: that is
+/// recorded in [`TerminalSession::history_desyncs`] and the count is then
+/// approximate rather than exact.
+const SCROLLBACK_SLACK: usize = 4_096;
 /// The backend is drained on this cadence — about twice a display frame.
 const POLL_INTERVAL: Duration = Duration::from_millis(8);
 /// Smallest grid the session will report, however small the pane is drawn.
@@ -199,6 +215,35 @@ pub fn encode_sgr(button: u8, col: u16, row: u16, kind: SgrKind) -> Vec<u8> {
     format!("\x1b[<{code};{};{}{}", col + 1, row + 1, final_byte as char).into_bytes()
 }
 
+/// Marks, blocks and the scanner feeding them, shared with the reader thread.
+///
+/// The scanner watches the same byte stream the emulator sees (see
+/// [`feed_with_marks`]), so marks and the grid can never drift apart. Blocks
+/// are reassembled from the marks whenever new ones arrive; a resize only
+/// flags them stale (see [`TerminalSession::resize`]).
+struct MarkState {
+    /// The nonce-checked scanner over the session's byte stream.
+    scanner: Mutex<MarkScanner>,
+    /// Blocks assembled from the marks, oldest first. Pruned to the retained
+    /// window: rebuilds carry the host-set authors and surviving command
+    /// text across by block id, never by index.
+    blocks: Mutex<Vec<Block>>,
+    /// Set by [`TerminalSession::resize`]; the next read rebuilds the blocks
+    /// from the marks against the reflowed grid.
+    stale: AtomicBool,
+    /// Lines evicted from the retained window since the session started.
+    /// Starts at 0 and never decreases; added to the grid's own history
+    /// offset so absolute lines stay monotonic past the scrollback cap.
+    evicted: AtomicI64,
+    /// Bursts that reached the emulator's own cap before the trim step ran.
+    /// Lines may have been discarded uncounted; the evicted count is then
+    /// approximate (monotonicity is still preserved).
+    desync: AtomicU64,
+    /// Next [`Block`] id. Assigned when a block is first assembled and never
+    /// reused, so a pruned prefix cannot recycle an id.
+    next_block: AtomicU64,
+}
+
 /// A terminal session: one emulator fed by one backend.
 ///
 /// The host holds this in a `gpui::Entity`. Output arrives on a reader
@@ -237,6 +282,8 @@ pub struct TerminalSession {
     bounds: Mutex<Option<gpui::Bounds<gpui::Pixels>>>,
     /// Last measured cell metrics, for mouse mapping.
     metrics: Mutex<Option<CellMetrics>>,
+    /// Nonce-checked marks and the blocks over them (decisions D44/D45).
+    mark_state: Arc<MarkState>,
 }
 
 /// The measured geometry of one mono cell.
@@ -256,7 +303,8 @@ impl TerminalSession {
         let (tx, rx) = mpsc::channel();
         let shared = Arc::new(Shared::default());
         let proxy = SessionEventProxy { tx, shared: shared.clone() };
-        let config = Config { scrolling_history: SCROLLBACK, ..Config::default() };
+        let config =
+            Config { scrolling_history: SCROLLBACK + SCROLLBACK_SLACK, ..Config::default() };
         let size = TermSize::new(cols.max(1) as usize, rows.max(1) as usize);
         let inner = Inner { term: Term::new(config, &size, proxy), processor: Processor::new() };
         *shared.size.lock().unwrap() = (cols, rows);
@@ -274,7 +322,31 @@ impl TerminalSession {
             marked: Mutex::new(None),
             bounds: Mutex::new(None),
             metrics: Mutex::new(None),
+            mark_state: Arc::new(MarkState {
+                scanner: Mutex::new(MarkScanner::new(String::new())),
+                blocks: Mutex::new(Vec::new()),
+                stale: AtomicBool::new(false),
+                evicted: AtomicI64::new(0),
+                desync: AtomicU64::new(0),
+                next_block: AtomicU64::new(0),
+            }),
         }
+    }
+
+    /// Pins the session nonce, as a builder: every OSC 133 marker the shell
+    /// emits must carry `k=<nonce>` (see [`MarkScanner`]). Prefer this over
+    /// [`set_nonce`](Self::set_nonce) when the nonce is known up front —
+    /// for example `Pty::nonce` right after spawning.
+    pub fn with_nonce(self, nonce: &str) -> Self {
+        self.set_nonce(nonce);
+        self
+    }
+
+    /// Pins the session nonce: every OSC 133 marker must carry `k=<nonce>`
+    /// to become a mark. Until the host sets one, all markers are ignored
+    /// and no blocks form (decision D45).
+    pub fn set_nonce(&self, nonce: &str) {
+        self.mark_state.scanner.lock().unwrap().set_nonce(nonce);
     }
 
     /// Starts the reader thread. Idempotent: the second call does nothing.
@@ -292,9 +364,10 @@ impl TerminalSession {
         // `pump` call under the same lock.
         let side_rx = self.side_rx.clone();
         let shared = self.shared.clone();
+        let mark_state = self.mark_state.clone();
         let handle = std::thread::spawn(move || {
             while !shared.stop.load(Ordering::Acquire) {
-                let had_output = cycle(&inner, &backend, &side_rx, &shared);
+                let had_output = cycle(&inner, &backend, &side_rx, &shared, &mark_state);
                 if had_output {
                     shared.dirty.store(true, Ordering::Release);
                 }
@@ -336,7 +409,8 @@ impl TerminalSession {
     /// instead of [`start`](Self::start); hosts with a running thread must
     /// not call it.
     pub fn pump(&self) -> bool {
-        let had_output = cycle(&self.inner, &self.backend, &self.side_rx, &self.shared);
+        let had_output =
+            cycle(&self.inner, &self.backend, &self.side_rx, &self.shared, &self.mark_state);
         if had_output {
             self.shared.dirty.store(true, Ordering::Release);
         }
@@ -376,6 +450,12 @@ impl TerminalSession {
 
     /// Tells the session its new size in character cells: resizes the screen
     /// model and the backend together.
+    ///
+    /// Reflow may shift recorded marks, so the blocks are flagged stale and
+    /// rebuilt from the marks against the reflowed grid on the next read
+    /// (decision D44: recompute lazily, accept imperfection). What a user
+    /// sees in the imperfect case: chrome anchored a line or two off where
+    /// wrapped lines moved, until output arrives and the marks re-anchor.
     pub fn resize(&self, cols: u16, rows: u16) {
         let cols = cols.max(MIN_COLS);
         let rows = rows.max(MIN_ROWS);
@@ -383,6 +463,7 @@ impl TerminalSession {
         *self.shared.size.lock().unwrap() = (cols, rows);
         self.inner.lock().term.resize(TermSize::new(cols as usize, rows as usize));
         self.backend.lock().unwrap().resize(cols, rows);
+        self.mark_state.stale.store(true, Ordering::Release);
     }
 
     /// The last measured size in character cells.
@@ -481,9 +562,174 @@ impl TerminalSession {
         self.shared.refused_clipboard.load(Ordering::Acquire)
     }
 
+    /// Bursts that reached the emulator's own history cap before the trim
+    /// step could count them. Zero means the evicted count is exact; after a
+    /// burst the absolutes stay monotonic but the count is approximate.
+    pub fn history_desyncs(&self) -> u64 {
+        self.mark_state.desync.load(Ordering::Acquire)
+    }
+
     /// Takes the queued bell/title/exit notifications for the host to drain.
     pub fn drain_events(&self) -> Vec<SessionEvent> {
         std::mem::take(&mut *self.shared.pending.lock().unwrap())
+    }
+
+    /// The accepted marks, oldest first. Rebuilds the blocks first when a
+    /// resize flagged them stale, so the ranges match the reflowed grid.
+    pub fn marks(&self) -> Vec<Mark> {
+        self.refresh_blocks();
+        self.mark_state.scanner.lock().unwrap().marks().to_vec()
+    }
+
+    /// The blocks assembled from the marks, oldest first. Rebuilds first
+    /// when a resize flagged them stale or a block is still running, so a
+    /// running block's output tracks the live tail.
+    pub fn blocks(&self) -> Vec<Block> {
+        self.refresh_blocks();
+        self.mark_state.blocks.lock().unwrap().clone()
+    }
+
+    /// Labels the block at `index` with `author`: the human typed it, or an
+    /// agent ran it. The assembler leaves every block [`BlockAuthor::Human`];
+    /// the host upgrades the ones its agent started. Out-of-range indices
+    /// do nothing. Authors survive block rebuilds.
+    pub fn set_block_author(&self, index: usize, author: BlockAuthor) {
+        if let Some(block) = self.mark_state.blocks.lock().unwrap().get_mut(index) {
+            block.author = author;
+        }
+    }
+
+    /// Rebuilds the blocks when the marks went stale (after a resize), or
+    /// when a block is still running and must track the live tail.
+    fn refresh_blocks(&self) {
+        let stale = self.mark_state.stale.swap(false, Ordering::AcqRel);
+        let running =
+            self.mark_state.blocks.lock().unwrap().iter().any(|b| b.running());
+        if stale || running {
+            self.with_term(|term| rebuild_blocks(term, &self.mark_state));
+        }
+    }
+
+    /// ANSI-free text of the block's output lines, or `None` for an
+    /// out-of-range block.
+    pub fn block_text(&self, block: usize) -> Option<String> {
+        self.refresh_blocks();
+        let range = self.mark_state.blocks.lock().unwrap().get(block).map(|b| b.output)?;
+        Some(self.with_term(|term| {
+            let evicted = self.mark_state.evicted.load(Ordering::Acquire);
+            grid_range_text(term, evicted, range.0, range.1)
+        }))
+    }
+
+    /// ANSI-free text of the visible grid, top row first, one line per row.
+    pub fn screen_text(&self) -> String {
+        self.with_term(|term| {
+            let evicted = self.mark_state.evicted.load(Ordering::Acquire);
+            let offset = term.grid().display_offset() as i32;
+            let mut lines = Vec::new();
+            let mut row = 0;
+            while row < term.screen_lines() {
+                let absolute = absolute_line(term, evicted, Line(row as i32 - offset));
+                lines.push(grid_line_text(term, evicted, absolute).unwrap_or_default());
+                row += 1;
+            }
+            lines.join("\n")
+        })
+    }
+
+    /// ANSI-free text appended after `since`: every retained line past the
+    /// cursor, joined with newlines. A host polls this with the cursor from
+    /// [`tail_cursor`](Self::tail_cursor) to read what is new; see
+    /// [`TextCursor`] for the invalidation rule.
+    pub fn range_text(&self, since: TextCursor) -> String {
+        self.with_term(|term| {
+            let evicted = self.mark_state.evicted.load(Ordering::Acquire);
+            let tail = absolute_line(term, evicted, term.grid().cursor.point.line);
+            // A cursor older than the retained window clamps forward to the
+            // oldest retained line: the host gets what is still retained
+            // instead of an empty stall.
+            let floor = evicted_floor(&self.mark_state);
+            let from = since.line.saturating_add(1).max(0).max(floor);
+            if from > tail {
+                return String::new();
+            }
+            grid_range_text(term, evicted, from, tail + 1)
+        })
+    }
+
+    /// The cursor describing everything currently on the grid: `range_text`
+    /// past this cursor reads empty until more output arrives.
+    pub fn tail_cursor(&self) -> TextCursor {
+        self.with_term(|term| {
+            let evicted = self.mark_state.evicted.load(Ordering::Acquire);
+            TextCursor { line: absolute_line(term, evicted, term.grid().cursor.point.line) }
+        })
+    }
+
+    /// Chrome for the blocks intersecting the current viewport, oldest first:
+    /// one entry per block the overlay draws. Empty while
+    /// [`alt_screen`](Self::alt_screen) is true — a fullscreen program owns
+    /// every row, so the overlay hides entirely.
+    fn overlay_chrome(&self) -> Vec<BlockChrome> {
+        self.with_term(|term| {
+            if term.mode().contains(TermMode::ALT_SCREEN) {
+                return Vec::new();
+            }
+            self.refresh_blocks_under(term);
+            let evicted = self.mark_state.evicted.load(Ordering::Acquire);
+            let offset = term.grid().display_offset() as i32;
+            let rows = term.screen_lines() as i32;
+            let top = absolute_line(term, evicted, Line(-offset));
+            let now = std::time::Instant::now();
+            self.mark_state
+                .blocks
+                .lock()
+                .unwrap()
+                .iter()
+                .enumerate()
+                .filter_map(|(index, block)| {
+                    let bottom = top + rows;
+                    if block.end < top || block.prompt.0 >= bottom {
+                        return None;
+                    }
+                    let row = block.end.clamp(top, bottom - 1) - top;
+                    let failed = block.exit.is_some_and(|exit| exit != 0);
+                    let label = match (block.exit, block.ended) {
+                        (Some(exit), Some(ended)) => {
+                            finished_label(ended.saturating_duration_since(block.started), exit)
+                        }
+                        _ => live_label(now.saturating_duration_since(block.started)),
+                    };
+                    let glyph = if block.running() {
+                        "●"
+                    } else if failed {
+                        "✗"
+                    } else {
+                        "✓"
+                    };
+                    Some(BlockChrome {
+                        index,
+                        row: row as usize,
+                        glyph,
+                        label,
+                        author: block.author,
+                        running: block.running(),
+                        failed,
+                    })
+                })
+                .collect()
+        })
+    }
+
+    /// [`refresh_blocks`](Self::refresh_blocks) when the term lock is already
+    /// held: rebuilds on stale marks or a running block.
+    fn refresh_blocks_under(&self, term: &Term<SessionEventProxy>) {
+        let stale = self.mark_state.stale.swap(false, Ordering::AcqRel);
+        let running =
+            self.mark_state.blocks.lock().unwrap().iter().any(|b| b.running());
+        if stale || running {
+            rebuild_blocks(term, &self.mark_state);
+        }
     }
 
     /// Runs `f` on the `Term` under the fair mutex. `f` must not call back
@@ -556,6 +802,7 @@ fn cycle(
     backend: &Arc<Mutex<Box<dyn TerminalBackend + Send>>>,
     side_rx: &Mutex<mpsc::Receiver<SideEvent>>,
     shared: &Arc<Shared>,
+    mark_state: &Arc<MarkState>,
 ) -> bool {
     let mut had_output = false;
     for event in backend.lock().unwrap().poll() {
@@ -565,7 +812,7 @@ fn cycle(
                 // Disjoint fields through one deref: the only way to feed
                 // the term without unlocking between processor and screen.
                 let faced: &mut Inner = &mut inner.lock();
-                faced.processor.advance(&mut faced.term, &bytes);
+                feed_with_marks(faced, &bytes, mark_state);
             }
             TermEvent::Exit(code) => {
                 *shared.exit.lock().unwrap() = Some(code);
@@ -576,6 +823,226 @@ fn cycle(
     }
     drain_side(inner, backend, side_rx, shared);
     had_output
+}
+
+/// Feeds `bytes` to the emulator and the mark scanner together: the chunk is
+/// split at complete OSC 133 boundaries, every piece goes to the `Term` in
+/// order, and each accepted marker is recorded at the emulator's absolute
+/// line at that point — the cursor has not moved for the marker's own bytes,
+/// so the line is the shell's line. Afterwards the blocks are reassembled.
+fn feed_with_marks(faced: &mut Inner, bytes: &[u8], state: &MarkState) {
+    let segments = state.scanner.lock().unwrap().split_feed(bytes);
+    if segments.is_empty() {
+        return;
+    }
+    for segment in segments {
+        match segment {
+            ScanSegment::Emit(raw) => {
+                // Row-sized slices: the shortest sequence pushing `k` lines
+                // is `ESC[kS` (three bytes plus digits), so the worst case is
+                // about `rows` lines per four bytes. Size the slice so that
+                // `slice_bytes / 4 * rows <= SCROLLBACK_SLACK`.
+                let mut start = 0;
+                while start < raw.len() {
+                    let len = feed_slice_len(&faced.term).min(raw.len() - start);
+                    advance_counted(faced, state, &raw[start..start + len]);
+                    start += len;
+                }
+            }
+            ScanSegment::Marker { raw, kind, exit } => {
+                advance_counted(faced, state, &raw);
+                let evicted = state.evicted.load(Ordering::Acquire);
+                let line =
+                    absolute_line(&faced.term, evicted, faced.term.grid().cursor.point.line);
+                let at = std::time::Instant::now();
+                state.scanner.lock().unwrap().push_mark(Mark { line, kind, exit, at });
+            }
+        }
+    }
+    rebuild_blocks(&faced.term, state);
+}
+
+/// Slice length for one counted advance, from the live row count so a resize
+/// is picked up on the next feed. Never below 64 bytes so a tall window does
+/// not degenerate into per-byte feeding.
+fn feed_slice_len(term: &Term<SessionEventProxy>) -> usize {
+    let rows = term.screen_lines().max(1);
+    (SCROLLBACK_SLACK * 4 / rows).max(64)
+}
+
+/// Advances the emulator by `bytes`, counting every departure from the
+/// retained window: `ESC[3J` (`Grid::clear_history`) and `ESC c`
+/// (`grid.reset()`) shrink history without ever passing through
+/// [`trim_history`], so any shrink across the advance is absorbed into
+/// `evicted` first and the trim's own contribution is then counted on top
+/// without double counting.
+///
+/// Two guards keep the count honest. While the alternate screen is active
+/// (before or after the advance) the grid is swapped, not wiped, so nothing
+/// is counted — exactly the old behaviour. And the absolute tail is never
+/// allowed to regress within one advance: `ESC[2J` scrolls the viewport into
+/// history and homes the cursor inside the same slice that `ESC[3J` then
+/// wipes, so history-size comparison alone undercounts by the cursor-row
+/// displacement; the residual is topped up here so the tail stays monotonic.
+fn advance_counted(faced: &mut Inner, state: &MarkState, bytes: &[u8]) {
+    if faced.term.mode().contains(TermMode::ALT_SCREEN) {
+        faced.processor.advance(&mut faced.term, bytes);
+        trim_history(&mut faced.term, state);
+        return;
+    }
+    let e0 = state.evicted.load(Ordering::Acquire);
+    let h0 = faced.term.grid().history_size() as i64;
+    let r0 = faced.term.grid().cursor.point.line.0 as i64;
+    faced.processor.advance(&mut faced.term, bytes);
+    if faced.term.mode().contains(TermMode::ALT_SCREEN) {
+        trim_history(&mut faced.term, state);
+        return;
+    }
+    let mid = faced.term.grid().history_size();
+    if (mid as i64) < h0 {
+        state.evicted.fetch_add(h0 - (mid as i64), Ordering::AcqRel);
+    }
+    // Safety net: the emulator discards past its own cap
+    // (`SCROLLBACK + SCROLLBACK_SLACK`) before the trim step can count.
+    if mid >= SCROLLBACK + SCROLLBACK_SLACK {
+        state.desync.fetch_add(1, Ordering::AcqRel);
+    }
+    trim_history(&mut faced.term, state);
+    let e1 = state.evicted.load(Ordering::Acquire);
+    let tail_before = e0 + h0 + r0;
+    let tail_after =
+        e1 + faced.term.grid().history_size() as i64 + faced.term.grid().cursor.point.line.0 as i64;
+    if tail_after < tail_before {
+        state.evicted.fetch_add(tail_before - tail_after, Ordering::AcqRel);
+    }
+}
+
+/// Counts what overflowed the retained window and restores the headroom:
+/// afterwards `history_size() <= SCROLLBACK` and the cap is back at
+/// `SCROLLBACK + SCROLLBACK_SLACK`. Overflow past [`SCROLLBACK`] is counted
+/// here; drops below it (`ESC[3J`, `ESC c`) are counted in
+/// [`advance_counted`]. The evicted count is exact unless the safety net
+/// fired (see [`TerminalSession::history_desyncs`]), but the absolutes stay
+/// monotonic either way.
+fn trim_history(term: &mut Term<SessionEventProxy>, state: &MarkState) {
+    let over = term.grid().history_size().saturating_sub(SCROLLBACK);
+    if over > 0 {
+        state.evicted.fetch_add(over as i64, Ordering::AcqRel);
+        term.grid_mut().update_history(SCROLLBACK);
+        term.grid_mut().update_history(SCROLLBACK + SCROLLBACK_SLACK);
+    }
+}
+
+/// The oldest retained absolute line: everything below it has been evicted.
+fn evicted_floor(state: &MarkState) -> i32 {
+    state.evicted.load(Ordering::Acquire).clamp(i32::MIN as i64, i32::MAX as i64) as i32
+}
+
+/// The absolute grid line for a screen-relative [`Line`]: evicted lines plus
+/// history lines behind plus the line itself. Monotonic for the life of the
+/// session: `evicted` starts at 0 and never decreases, and every drop from
+/// the retained window (`ESC[3J`, `ESC c`, overflow) is counted there. Exact
+/// unless [`TerminalSession::history_desyncs`] fired after a burst past the
+/// emulator's own cap.
+fn absolute_line(term: &Term<SessionEventProxy>, evicted: i64, line: Line) -> i32 {
+    (evicted + term.grid().history_size() as i64 + line.0 as i64) as i32
+}
+
+/// The inverse of [`absolute_line`]: an absolute line back to a
+/// screen-relative [`Line`]. These two helpers own every origin computation;
+/// route new code through them so the origin can never drift again.
+fn screen_line(term: &Term<SessionEventProxy>, evicted: i64, absolute: i32) -> Line {
+    Line((absolute as i64 - evicted - term.grid().history_size() as i64) as i32)
+}
+
+/// Reassembles the blocks from the accepted marks against the current grid,
+/// pruning what fell out of the retained window and carrying the host-set
+/// authors (and surviving command text) across by block id — never by index,
+/// which pruning shifts.
+fn rebuild_blocks(term: &Term<SessionEventProxy>, state: &MarkState) {
+    let evicted = state.evicted.load(Ordering::Acquire);
+    let floor = evicted_floor(state);
+    let tail = absolute_line(term, evicted, term.grid().cursor.point.line);
+    let text = |a: i32, b: i32| grid_range_text(term, evicted, a, b);
+    // Assemble from everything first so blocks straddling the eviction floor
+    // report their full ranges; their marks are then kept while fully-evicted
+    // blocks (and their marks) are dropped.
+    let marks: Vec<Mark> = state.scanner.lock().unwrap().marks().to_vec();
+    if marks.is_empty() {
+        return;
+    }
+    let full = assemble_blocks(&marks, tail, &text);
+    let keep: Vec<(i32, i32)> =
+        full.iter().filter(|b| b.end >= floor).map(|b| (b.prompt.0, b.end)).collect();
+    state.scanner.lock().unwrap().prune_before(floor, &keep);
+    let marks: Vec<Mark> = state.scanner.lock().unwrap().marks().to_vec();
+    let mut fresh = assemble_blocks(&marks, tail, &text);
+    fresh.retain(|b| b.end >= floor);
+    let mut stored = state.blocks.lock().unwrap();
+    let mut used = vec![false; stored.len()];
+    for block in fresh.iter_mut() {
+        // Stable identity is the START anchor: the line of the mark that
+        // opened the block (`prompt.0`, the `A` line or the `C` line when no
+        // `A` came). Absolute lines are monotonic, so it cannot change while
+        // the block runs; `end`, `output.1` and `exit` all change at finish
+        // and must not be part of the key.
+        let mut found: Option<usize> = None;
+        for (i, old) in stored.iter().enumerate() {
+            if !used[i] && old.prompt.0 == block.prompt.0 {
+                found = Some(i);
+                break;
+            }
+        }
+        match found {
+            Some(i) => {
+                used[i] = true;
+                let old = &stored[i];
+                block.id = old.id;
+                block.author = old.author;
+                if block.command.is_empty() && !old.command.is_empty() {
+                    // The lines scrolled past the retained window: keep what
+                    // the grid can no longer tell us.
+                    block.command.clone_from(&old.command);
+                }
+            }
+            None => {
+                block.id = state.next_block.fetch_add(1, Ordering::AcqRel);
+            }
+        }
+    }
+    *stored = fresh;
+}
+
+/// The trimmed, ANSI-free text of one absolute grid line, or `None` when the
+/// line is older than the retained scrollback or past the live tail.
+fn grid_line_text(term: &Term<SessionEventProxy>, evicted: i64, absolute: i32) -> Option<String> {
+    use alacritty_terminal::term::cell::Flags;
+    let line = screen_line(term, evicted, absolute);
+    if line.0 < term.grid().topmost_line().0 || line.0 > term.grid().bottommost_line().0 {
+        return None;
+    }
+    let mut out = String::new();
+    for col in 0..term.columns() {
+        let cell = &term.grid()[Point::new(line, Column(col))];
+        if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+            continue;
+        }
+        out.push(if cell.c == '\0' { ' ' } else { cell.c });
+    }
+    Some(out.trim_end().to_string())
+}
+
+/// The ANSI-free text of absolute lines `start..end`, one per line.
+/// Lines outside the retained window read as empty.
+fn grid_range_text(term: &Term<SessionEventProxy>, evicted: i64, start: i32, end: i32) -> String {
+    let from = start.max(0);
+    let mut lines = Vec::new();
+    let mut line = from;
+    while line < end {
+        lines.push(grid_line_text(term, evicted, line).unwrap_or_default());
+        line += 1;
+    }
+    lines.join("\n")
 }
 
 /// Handles everything the [`SessionEventProxy`] collected.
@@ -708,6 +1175,26 @@ struct CursorCell {
     col: usize,
     /// Block, bar or underline.
     shape: CursorShape,
+}
+
+/// One block's overlay chrome, owned so the term lock is released before any
+/// element is built. Only blocks intersecting the viewport are returned.
+#[derive(Debug, Clone)]
+struct BlockChrome {
+    /// Index into the session's block list; intents carry this back.
+    index: usize,
+    /// Screen row anchoring the chrome (the block's end line, clamped).
+    row: usize,
+    /// Gutter status glyph: running, failed or done.
+    glyph: &'static str,
+    /// Exit code and duration, via the parser's shared labels.
+    label: String,
+    /// Who started the block.
+    author: BlockAuthor,
+    /// Whether the block is still running.
+    running: bool,
+    /// Whether the block exited non-zero.
+    failed: bool,
 }
 
 /// Everything [`TerminalGrid`] paints, owned so the term lock is released
@@ -1147,6 +1634,19 @@ use aui_tokens::{ActiveAui, AuiStyled};
 pub enum TerminalGridIntent {
     /// `⌘`-clicked a hyperlink or detected URL: open it.
     OpenUrl(gpui::SharedString),
+    /// Copies the block's output text. The payload is the block index into
+    /// [`TerminalSession::blocks`]; the host reads it back with
+    /// [`TerminalSession::block_text`] and performs the copy.
+    Copy(usize),
+    /// Re-runs the block's command. The host reads the command back from
+    /// [`TerminalSession::blocks`] and decides how to run it.
+    Rerun(usize),
+    /// Stops the running block. The host decides how (a `Ctrl-C` write, for
+    /// example); raising this on a finished block is a no-op for the host.
+    Stop(usize),
+    /// Asks about the block: the host opens whatever surfaces the block's
+    /// output for questioning.
+    Ask(usize),
 }
 
 /// The grid's intent handler: what [`TerminalGrid::on_intent`] stores.
@@ -1157,9 +1657,10 @@ type IntentHandler = Rc<dyn Fn(TerminalGridIntent, &mut gpui::Window, &mut gpui:
 ///
 /// Paints in four layers, in order: row background rects, batched
 /// same-style text runs, the cursor (block, bar or underline per DECSCUSR,
-/// hollow when unfocused), and an empty overlay layer. The overlay is a
-/// documented extension point: L2 draws gutter marks and block chrome there
-/// (decision D44); this module paints nothing into it.
+/// hollow when unfocused), and the overlay: per-block chrome (gutter status
+/// glyph, exit code and duration, author mark, action row) plus the
+/// jump-to-latest affordance while detached. The overlay hides entirely while
+/// the program owns the alternate screen (decision D44).
 #[derive(gpui::IntoElement)]
 pub struct TerminalGrid {
     session: gpui::Entity<TerminalSession>,
@@ -1291,11 +1792,26 @@ impl gpui::RenderOnce for TerminalGrid {
                 CursorShape::Hidden => div(),
             };
         }
-        // Layer 4: the overlay layer. Empty on purpose: L2 fills it with
-        // gutter marks and block chrome (decision D44). The jump-to-latest
-        // affordance below is the only resident, and only while detached.
+        // Layer 4: the overlay layer. Block chrome first (one strip per
+        // block intersecting the viewport, decision D44), then the
+        // jump-to-latest affordance while detached. A fullscreen program
+        // owns every row, so the whole layer hides on the alternate screen.
+        let alt_screen = self.session.read(cx).alt_screen();
+        let chromes =
+            if alt_screen { Vec::new() } else { self.session.read(cx).overlay_chrome() };
         let mut overlay = div().absolute().inset_0();
-        if snapshot.detached {
+        if !alt_screen {
+            for chrome in &chromes {
+                overlay = overlay.child(block_chrome_el(
+                    chrome,
+                    advance,
+                    line_height,
+                    &palette,
+                    on_intent.clone(),
+                ));
+            }
+        }
+        if snapshot.detached && !alt_screen {
             let jump = self.session.clone();
             let affordance = aui::data::button("terminal-jump-latest", "Jump to latest").sm()
                 .on_click(move |_, _, cx| {
@@ -1402,6 +1918,88 @@ impl gpui::RenderOnce for TerminalGrid {
                 }
             })
     }
+}
+
+/// One block's overlay strip at its anchor row: gutter status glyph, exit
+/// code and duration, author mark, then the action row (Copy, Rerun, Stop,
+/// Ask) raising [`TerminalGridIntent`]s. Overflow goes through
+/// [`popover_layer`](aui::overlay::popover_layer), like the jump affordance.
+fn block_chrome_el(
+    chrome: &BlockChrome,
+    advance: f32,
+    line_height: f32,
+    palette: &aui_tokens::Palette,
+    on_intent: Option<IntentHandler>,
+) -> impl gpui::IntoElement {
+    use aui_tokens::scale;
+    use gpui::{div, prelude::*, px};
+    let status = if chrome.running {
+        palette.accent
+    } else if chrome.failed {
+        palette.danger
+    } else {
+        palette.success
+    };
+    let index = chrome.index;
+    // One ghost action button raising its intent with the block index.
+    let action = |name: &'static str, label: &'static str, intent: TerminalGridIntent| {
+        let emit = on_intent.clone();
+        aui::data::button(gpui::ElementId::named_usize(name, index), label).xs().ghost().on_click(
+            move |_, window: &mut gpui::Window, cx: &mut gpui::App| {
+                if let Some(emit) = &emit {
+                    emit(intent.clone(), window, cx);
+                }
+            },
+        )
+    };
+    let gutter = div()
+        .w(px(advance))
+        .h(px(line_height))
+        .flex()
+        .items_center()
+        .justify_center()
+        .mono(scale::FS_11)
+        .text_color(status)
+        .child(chrome.glyph.to_string());
+    let mut meta = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .mono(scale::FS_11)
+        .text_color(palette.ink_2)
+        .bg(palette.surface_2)
+        .rounded(px(scale::R_SM))
+        .px(px(scale::SP_2))
+        .child(chrome.label.clone());
+    if chrome.author == BlockAuthor::Agent {
+        // D43's `M` mark, rendered by the host's choice of author label.
+        meta = meta.child(div().ml(px(scale::SP_1)).text_color(palette.ink_3).child("M"));
+    }
+    let mut actions = div().flex().flex_row().items_center();
+    for (name, label, intent) in [
+        ("term-block-copy", "Copy", TerminalGridIntent::Copy(index)),
+        ("term-block-rerun", "Rerun", TerminalGridIntent::Rerun(index)),
+        ("term-block-stop", "Stop", TerminalGridIntent::Stop(index)),
+        ("term-block-ask", "Ask", TerminalGridIntent::Ask(index)),
+    ] {
+        actions = actions.child(div().ml(px(scale::SP_1)).child(action(name, label, intent)));
+    }
+    let strip = div()
+        .absolute()
+        .top(px(chrome.row as f32 * line_height))
+        .left(px(0.0))
+        .right(px(0.0))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .child(gutter)
+                .child(meta)
+                .child(div().flex_1())
+                .child(actions),
+        );
+    aui::overlay::popover_layer(strip)
 }
 
 /// Pixels from the row start to byte offset `at`, counting whole cells.
@@ -1964,6 +2562,482 @@ mod tests {
     fn urls_are_detected() {
         assert_eq!(find_urls("see https://example.com/a (ok)"), vec![(4, 25)]);
         assert_eq!(find_urls("no links here"), Vec::new());
+    }
+
+    /// A `Send` replay backend: [`FakePty`](crate::fake::FakePty) owns a
+    /// `ManualClock` and is not `Send`, so the session cannot hold it
+    /// directly. The transcript still travels through the fake — see
+    /// [`session_on_fake`].
+    struct ReplayBackend {
+        chunks: Mutex<VecDeque<Vec<u8>>>,
+    }
+
+    impl ReplayBackend {
+        fn new(chunks: Vec<Vec<u8>>) -> Self {
+            Self { chunks: Mutex::new(chunks.into_iter().collect()) }
+        }
+    }
+
+    impl TerminalBackend for ReplayBackend {
+        fn spawn(&mut self, _shell: &str, _cwd: &Path) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn write(&mut self, _bytes: &[u8]) {}
+
+        fn resize(&mut self, _cols: u16, _rows: u16) {}
+
+        fn poll(&mut self) -> Vec<TermEvent> {
+            self.chunks.lock().unwrap().drain(..).map(TermEvent::Output).collect()
+        }
+    }
+
+    /// Pumps `transcript` through [`FakePty`](crate::fake::FakePty)'s own
+    /// script and poll path into a nonce-pinned session: the chunks are
+    /// built by `FakePty::new` and handed over by `FakePty::poll`, then
+    /// replayed into the session synchronously.
+    fn session_on_fake(transcript: String, nonce: &str) -> TerminalSession {
+        use crate::fake::{FakePty, ScriptChunk};
+        let mut fake = FakePty::new(vec![ScriptChunk::new(0, transcript)]);
+        let mut chunks = Vec::new();
+        for _ in 0..3 {
+            for event in fake.poll() {
+                if let TermEvent::Output(bytes) = event {
+                    chunks.push(bytes);
+                }
+            }
+        }
+        let session =
+            TerminalSession::new(Box::new(ReplayBackend::new(chunks)), 40, 10).with_nonce(nonce);
+        session.pump();
+        session.pump();
+        session
+    }
+
+    /// A nonce-checked transcript through [`FakePty`](crate::fake::FakePty):
+    /// the marks become one finished block with ANSI-free text APIs over it.
+    #[test]
+    fn nonce_checked_marks_become_blocks() {
+        let nonce = "k7test";
+        let transcript = format!(
+            "\x1b]133;A;k={nonce}\x07prompt$ \x1b]133;B;k={nonce}\x07echo hi\r\n\
+             \x1b]133;C;k={nonce}\x07hi\r\n\x1b]133;D;0;k={nonce}\x07"
+        );
+        let session = session_on_fake(transcript, nonce);
+        assert_eq!(session.marks().len(), 4);
+        let blocks = session.blocks();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].exit, Some(0));
+        assert!(!blocks[0].running());
+        assert!(blocks[0].command.contains("echo hi"), "command: {:?}", blocks[0].command);
+        let text = session.block_text(0).expect("block text");
+        assert!(text.contains("hi"), "block text: {text:?}");
+        assert!(session.block_text(7).is_none(), "out-of-range block reads None");
+        let screen = session.screen_text();
+        assert!(screen.contains("echo hi"), "screen: {screen:?}");
+        let tail = session.tail_cursor();
+        assert_eq!(session.range_text(tail), "", "nothing new past the tail");
+        assert!(session.range_text(TextCursor::start()).contains("hi"));
+        session.set_block_author(0, BlockAuthor::Agent);
+        assert_eq!(session.blocks()[0].author, BlockAuthor::Agent);
+        assert_eq!(session.overlay_chrome().len(), 1, "the block intersects the viewport");
+    }
+
+    /// Decision D45, end to end: a transcript whose markers carry the wrong
+    /// nonce — and markers with no `k=` at all — produces no marks and no
+    /// blocks when fed through [`FakePty`](crate::fake::FakePty).
+    #[test]
+    fn forged_markers_without_the_nonce_make_no_blocks() {
+        let transcript = "\x1b]133;A;k=wrong\x07prompt$ \x1b]133;B\x07echo hi\r\n\
+             \x1b]133;C;k=someone-else\x07hi\r\n\x1b]133;D;0\x07"
+            .to_string();
+        let session = session_on_fake(transcript, "k7test");
+        assert!(session.marks().is_empty(), "forged marks accepted: {:?}", session.marks());
+        assert!(session.blocks().is_empty(), "forged markers made a block");
+    }
+
+    /// The overlay hides entirely on the alternate screen (vim, htop).
+    #[test]
+    fn the_overlay_hides_on_the_alternate_screen() {
+        let nonce = "k7test";
+        let transcript = format!(
+            "\x1b]133;A;k={nonce}\x07prompt$ \x1b]133;B;k={nonce}\x07vim\r\n\
+             \x1b]133;C;k={nonce}\x07\x1b[?1049h"
+        );
+        let session = session_on_fake(transcript, nonce);
+        assert!(session.alt_screen());
+        assert_eq!(session.blocks().len(), 1);
+        assert!(session.blocks()[0].running(), "no D arrived yet");
+        assert!(session.overlay_chrome().is_empty(), "chrome drawn over fullscreen");
+    }
+
+    // ------------------------------------------------------------------
+    // Eviction accounting (monotonic absolute lines past the scrollback cap).
+    // ------------------------------------------------------------------
+
+    /// A refillable queue backend: the test pushes output, then pumps.
+    struct LiveBackend {
+        queue: Arc<Mutex<VecDeque<Vec<u8>>>>,
+    }
+
+    impl TerminalBackend for LiveBackend {
+        fn spawn(&mut self, _shell: &str, _cwd: &Path) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn write(&mut self, _bytes: &[u8]) {}
+
+        fn resize(&mut self, _cols: u16, _rows: u16) {}
+
+        fn poll(&mut self) -> Vec<TermEvent> {
+            self.queue.lock().unwrap().drain(..).map(TermEvent::Output).collect()
+        }
+    }
+
+    /// A nonce-pinned session the test feeds incrementally, one pump per feed.
+    struct LiveSession {
+        session: TerminalSession,
+        queue: Arc<Mutex<VecDeque<Vec<u8>>>>,
+        nonce: String,
+    }
+
+    impl LiveSession {
+        fn feed(&self, bytes: &[u8]) {
+            self.queue.lock().unwrap().push_back(bytes.to_vec());
+            self.session.pump();
+        }
+    }
+
+    fn live_session(nonce: &str, cols: u16, rows: u16) -> LiveSession {
+        let queue = Arc::new(Mutex::new(VecDeque::new()));
+        let backend = LiveBackend { queue: queue.clone() };
+        let session = TerminalSession::new(Box::new(backend), cols, rows).with_nonce(nonce);
+        LiveSession { session, queue, nonce: nonce.to_string() }
+    }
+
+    /// One nonce-checked marker's raw bytes.
+    fn marker_bytes(nonce: &str, body: &str) -> Vec<u8> {
+        format!("\x1b]133;{body};k={nonce}\x07").into_bytes()
+    }
+
+    /// A finished command with `lines` output lines between `C` and `D`.
+    fn command_bytes(nonce: &str, echo: &str, exit: i32, lines: usize, tag: &str) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend(marker_bytes(nonce, "A"));
+        out.extend(b"prompt$ ");
+        out.extend(marker_bytes(nonce, "B"));
+        out.extend(echo.as_bytes());
+        out.extend(b"\r\n");
+        out.extend(marker_bytes(nonce, "C"));
+        out.extend(output_bytes(lines, tag));
+        out.extend(marker_bytes(nonce, &format!("D;{exit}")));
+        out
+    }
+
+    /// `lines` plain output lines, each tagged.
+    fn output_bytes(lines: usize, tag: &str) -> Vec<u8> {
+        let mut out = Vec::new();
+        for i in 0..lines {
+            out.extend(format!("{tag}-fill-{i:05}\r\n").into_bytes());
+        }
+        out
+    }
+
+    /// The proved defect: three commands whose output (12,000 lines together)
+    /// pushes past the scrollback cap. The old origin stalled at the cap and
+    /// collapsed the later `D` marks onto one line; the blocks must stay
+    /// distinct with strictly increasing ends and distinct command text.
+    #[test]
+    fn saturated_outputs_keep_distinct_monotonic_blocks() {
+        let h = live_session("l2defect", 80, 24);
+        h.feed(&command_bytes(&h.nonce, "cmd-one", 0, 4_000, "one"));
+        h.feed(&command_bytes(&h.nonce, "cmd-two", 1, 4_000, "two"));
+        h.feed(&command_bytes(&h.nonce, "cmd-three", 0, 4_000, "three"));
+        let blocks = h.session.blocks();
+        assert_eq!(blocks.len(), 3, "blocks: {blocks:?}");
+        assert!(
+            blocks[0].end < blocks[1].end && blocks[1].end < blocks[2].end,
+            "ends not strictly increasing: {:?}",
+            blocks.iter().map(|b| b.end).collect::<Vec<_>>()
+        );
+        assert_ne!(blocks[0].end, blocks[1].end);
+        assert_ne!(blocks[1].end, blocks[2].end);
+        assert!(blocks[0].command.contains("cmd-one"), "command: {:?}", blocks[0].command);
+        assert!(blocks[1].command.contains("cmd-two"), "command: {:?}", blocks[1].command);
+        assert!(blocks[2].command.contains("cmd-three"), "command: {:?}", blocks[2].command);
+    }
+
+    /// The polling stall: past saturation `range_text` from an old cursor
+    /// must return the new output and the tail must keep advancing — twice in
+    /// a row, to prove it keeps working.
+    #[test]
+    fn polling_keeps_working_past_saturation() {
+        let h = live_session("l2poll", 80, 24);
+        h.feed(&output_bytes(11_000, "base"));
+        let c1 = h.session.tail_cursor();
+        h.feed(&output_bytes(5_000, "second"));
+        let text = h.session.range_text(c1);
+        assert!(text.contains("second-fill"), "poll stalled past saturation");
+        let c2 = h.session.tail_cursor();
+        assert!(c2.line > c1.line, "tail stalled: {c1:?} -> {c2:?}");
+        h.feed(&output_bytes(5_000, "third"));
+        let text2 = h.session.range_text(c2);
+        assert!(text2.contains("third-fill"), "poll stalled on the second batch");
+        let c3 = h.session.tail_cursor();
+        assert!(c3.line > c2.line, "tail stalled again: {c2:?} -> {c3:?}");
+    }
+
+    /// Pruning is bounded: ~500 commands with enough output to evict most of
+    /// them must not grow the blocks Vec or the scanner marks linearly, and
+    /// the survivors are the newest commands.
+    #[test]
+    fn pruning_bounds_marks_and_blocks() {
+        let h = live_session("l2prune", 80, 24);
+        let total = 600usize;
+        for i in 0..total {
+            let echo = format!("prune-cmd-{i:03}");
+            let tag = format!("p{i:03}");
+            h.feed(&command_bytes(&h.nonce, &echo, 0, 50, &tag));
+        }
+        let blocks = h.session.blocks();
+        let marks = h.session.marks();
+        assert!(blocks.len() < 300, "blocks grew linearly: {}", blocks.len());
+        assert!(marks.len() < 1200, "marks grew linearly: {}", marks.len());
+        assert!(blocks.len() > 50, "pruned too aggressively: {}", blocks.len());
+        let last = blocks.last().expect("a surviving block");
+        assert!(last.command.contains("prune-cmd-599"), "newest lost: {:?}", last.command);
+        assert!(
+            !blocks[0].command.contains("prune-cmd-000"),
+            "oldest should have been evicted: {:?}",
+            blocks[0].command
+        );
+    }
+
+    /// Ids are stable across pruning: the surviving block keeps its id, and
+    /// the host-set author set before the prune is still on it afterwards.
+    #[test]
+    fn block_ids_survive_pruning_with_authors() {
+        let h = live_session("l2ids", 80, 24);
+        h.feed(&command_bytes(&h.nonce, "first-cmd", 0, 0, "g"));
+        h.feed(&output_bytes(6_000, "gap1"));
+        h.feed(&command_bytes(&h.nonce, "second-cmd", 0, 0, "g"));
+        let before = h.session.blocks();
+        assert_eq!(before.len(), 2);
+        assert_ne!(before[0].id, before[1].id, "ids must be distinct");
+        let id = before[1].id;
+        h.session.set_block_author(1, BlockAuthor::Agent);
+        h.feed(&output_bytes(6_000, "gap2"));
+        let after = h.session.blocks();
+        assert_eq!(after.len(), 1, "the first block should have been evicted: {after:?}");
+        assert_eq!(after[0].id, id, "id changed across the prune");
+        assert_eq!(after[0].author, BlockAuthor::Agent, "author lost across the prune");
+        assert!(after[0].command.contains("second-cmd"), "command: {:?}", after[0].command);
+    }
+
+    /// `resize` rebuilds coherently: blocks survive and the grid reads back.
+    #[test]
+    fn resize_rebuilds_and_stays_coherent() {
+        let h = live_session("l2resize", 80, 24);
+        h.feed(&command_bytes(&h.nonce, "resize-cmd", 0, 3, "r"));
+        assert_eq!(h.session.blocks().len(), 1);
+        h.session.resize(40, 10);
+        let blocks = h.session.blocks();
+        assert_eq!(blocks.len(), 1, "resize lost the block");
+        assert!(blocks[0].command.contains("resize-cmd"), "command: {:?}", blocks[0].command);
+        let screen = h.session.screen_text();
+        assert!(screen.contains("resize-cmd"), "screen: {screen:?}");
+        assert!(h.session.block_text(0).is_some());
+    }
+
+    /// Authors survive block rebuilds: set one, force a rebuild, read it back.
+    #[test]
+    fn authors_survive_block_rebuilds() {
+        let h = live_session("l2author", 80, 24);
+        h.feed(&command_bytes(&h.nonce, "author-cmd", 0, 2, "a"));
+        h.session.set_block_author(0, BlockAuthor::Agent);
+        h.session.resize(80, 24);
+        let blocks = h.session.blocks();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].author, BlockAuthor::Agent);
+    }
+
+    /// Viewport filtering, partially outside: a tall block still appears when
+    /// its top has scrolled above the viewport and when its bottom hangs
+    /// below it.
+    #[test]
+    fn overlay_shows_blocks_partially_outside_the_viewport() {
+        let h = live_session("l2chrome", 80, 6);
+        h.feed(&command_bytes(&h.nonce, "tall-cmd", 0, 10, "t"));
+        // Following the tail: the block's top has scrolled above the viewport.
+        let chrome = h.session.overlay_chrome();
+        assert_eq!(chrome.len(), 1, "tall block missing at the tail: {chrome:?}");
+        assert_eq!(chrome[0].index, 0);
+        // Scrolled to the top of the retained window: the block's bottom
+        // hangs below the viewport.
+        h.session.scroll_lines(8);
+        let chrome = h.session.overlay_chrome();
+        assert_eq!(chrome.len(), 1, "tall block missing when scrolled up: {chrome:?}");
+        assert_eq!(chrome[0].row, 5, "chrome not clamped to the viewport bottom");
+    }
+
+    /// D1: the final output line and `D` arriving in ONE pump (what a real
+    /// pty delivers) keeps the block's id and host-set author: the carry-over
+    /// keys on the START anchor, which cannot move at finish.
+    #[test]
+    fn finishing_a_block_in_one_pump_keeps_id_and_author() {
+        let h = live_session("l2d1", 80, 24);
+        let mut head = Vec::new();
+        head.extend(marker_bytes(&h.nonce, "A"));
+        head.extend(b"prompt$ ");
+        head.extend(marker_bytes(&h.nonce, "B"));
+        head.extend(b"agent-cmd\r\n");
+        head.extend(marker_bytes(&h.nonce, "C"));
+        head.extend(b"line1\r\n");
+        h.feed(&head);
+        let running = h.session.blocks();
+        assert_eq!(running.len(), 1);
+        assert!(running[0].running());
+        let id = running[0].id;
+        h.session.set_block_author(0, BlockAuthor::Agent);
+        let mut tail = Vec::new();
+        tail.extend(b"line2\r\n");
+        tail.extend(marker_bytes(&h.nonce, "D;0"));
+        h.feed(&tail);
+        let done = h.session.blocks();
+        assert_eq!(done.len(), 1);
+        assert!(!done[0].running());
+        assert_eq!(done[0].id, id, "id changed when the block finished");
+        assert_eq!(done[0].author, BlockAuthor::Agent, "author lost when the block finished");
+    }
+
+    /// D2 (`ESC[3J`): `clear` between two commands keeps the tail monotonic,
+    /// block ends strictly increasing, and a pre-clear cursor reading forward.
+    #[test]
+    fn esc_3j_between_commands_keeps_tail_and_order() {
+        let h = live_session("l2d2a", 80, 24);
+        h.feed(&command_bytes(&h.nonce, "cmd-one", 0, 11_000, "one"));
+        let c1 = h.session.tail_cursor();
+        // The `clear` command's own output is what ncurses >= 6 emits.
+        let mut clear = Vec::new();
+        clear.extend(marker_bytes(&h.nonce, "A"));
+        clear.extend(b"prompt$ ");
+        clear.extend(marker_bytes(&h.nonce, "B"));
+        clear.extend(b"clear\r\n");
+        clear.extend(marker_bytes(&h.nonce, "C"));
+        clear.extend(b"\x1b[H\x1b[2J\x1b[3J");
+        clear.extend(marker_bytes(&h.nonce, "D;0"));
+        h.feed(&clear);
+        let c2 = h.session.tail_cursor();
+        assert!(c2.line >= c1.line, "tail went backwards on ESC[3J: {c1:?} -> {c2:?}");
+        h.feed(&command_bytes(&h.nonce, "cmd-three", 0, 3, "three"));
+        let c3 = h.session.tail_cursor();
+        assert!(c3.line >= c2.line, "tail went backwards after clear: {c2:?} -> {c3:?}");
+        let blocks = h.session.blocks();
+        // The clear wiped the oldest output, so the first block may be pruned;
+        // the survivors must stay strictly ordered with their text intact.
+        assert!(blocks.len() >= 2, "wiped all blocks: {blocks:?}");
+        assert!(
+            blocks.windows(2).all(|w| w[0].end < w[1].end),
+            "ends not strictly increasing: {:?}",
+            blocks.iter().map(|b| b.end).collect::<Vec<_>>()
+        );
+        assert!(
+            blocks.iter().all(|b| b.exit == Some(0)),
+            "a block lost its exit: {blocks:?}"
+        );
+        assert!(
+            blocks.last().expect("a block").command.contains("cmd-three"),
+            "command: {blocks:?}"
+        );
+        let polled = h.session.range_text(c1);
+        assert!(polled.contains("three-fill"), "poll stalled after clear");
+    }
+
+    /// D2 (`ESC c` / RIS): same assertions as the `ESC[3J` case.
+    #[test]
+    fn esc_c_ris_between_commands_keeps_tail_and_order() {
+        let h = live_session("l2d2b", 80, 24);
+        h.feed(&command_bytes(&h.nonce, "cmd-one", 0, 11_000, "one"));
+        let c1 = h.session.tail_cursor();
+        // RIS as the `clear` command's own output.
+        let mut clear = Vec::new();
+        clear.extend(marker_bytes(&h.nonce, "A"));
+        clear.extend(b"prompt$ ");
+        clear.extend(marker_bytes(&h.nonce, "B"));
+        clear.extend(b"clear\r\n");
+        clear.extend(marker_bytes(&h.nonce, "C"));
+        clear.extend(b"\x1bc");
+        clear.extend(marker_bytes(&h.nonce, "D;0"));
+        h.feed(&clear);
+        let c2 = h.session.tail_cursor();
+        assert!(c2.line >= c1.line, "tail went backwards on ESC c: {c1:?} -> {c2:?}");
+        h.feed(&command_bytes(&h.nonce, "cmd-three", 0, 3, "three"));
+        let c3 = h.session.tail_cursor();
+        assert!(c3.line >= c2.line, "tail went backwards after RIS: {c2:?} -> {c3:?}");
+        let blocks = h.session.blocks();
+        assert!(blocks.len() >= 2, "wiped all blocks: {blocks:?}");
+        assert!(
+            blocks.windows(2).all(|w| w[0].end < w[1].end),
+            "ends not strictly increasing: {:?}",
+            blocks.iter().map(|b| b.end).collect::<Vec<_>>()
+        );
+        assert!(
+            blocks.iter().all(|b| b.exit == Some(0)),
+            "a block lost its exit: {blocks:?}"
+        );
+        assert!(
+            blocks.last().expect("a block").command.contains("cmd-three"),
+            "command: {blocks:?}"
+        );
+        let polled = h.session.range_text(c1);
+        assert!(polled.contains("three-fill"), "poll stalled after RIS");
+    }
+
+    /// D3: `ESC[24S` bursts push 24 lines from ~5 bytes, breaking any byte
+    /// bound. Row-sized slices keep the accounting exact; where the safety
+    /// net fires the desync is reported rather than silently wrong.
+    #[test]
+    fn scroll_up_bursts_stay_counted_or_report_desync() {
+        let a = live_session("l2d3a", 80, 24);
+        let b = live_session("l2d3b", 80, 24);
+        for h in [&a, &b] {
+            h.feed(&output_bytes(10_024, "pre"));
+        }
+        let ca = a.session.tail_cursor();
+        let cb = b.session.tail_cursor();
+        assert_eq!(ca, cb);
+        let n = 700usize;
+        a.feed(&"\n".repeat(24 * n).into_bytes());
+        b.feed(&"\x1b[24S".repeat(n).into_bytes());
+        let ta = a.session.tail_cursor();
+        let tb = b.session.tail_cursor();
+        assert!(tb.line > cb.line, "SU tail stalled: {cb:?} -> {tb:?}");
+        if b.session.history_desyncs() == 0 {
+            assert_eq!(
+                ta.line - ca.line,
+                tb.line - cb.line,
+                "same line count, different eviction accounting (hist a={:?} b={:?})",
+                a.session.with_term(|t| (t.grid().history_size(), t.grid().display_offset())),
+                b.session.with_term(|t| (t.grid().history_size(), t.grid().display_offset())),
+            );
+        }
+    }
+
+    /// Alt screen, finished block: a block that closed before the alternate
+    /// screen was entered still hides under the overlay.
+    #[test]
+    fn the_overlay_hides_a_finished_block_on_the_alternate_screen() {
+        let h = live_session("l2alt", 80, 24);
+        h.feed(&command_bytes(&h.nonce, "done-cmd", 0, 2, "d"));
+        assert_eq!(h.session.blocks().len(), 1);
+        assert!(!h.session.blocks()[0].running());
+        h.feed(b"\x1b[?1049h");
+        assert!(h.session.alt_screen());
+        assert_eq!(h.session.blocks().len(), 1);
+        assert!(
+            h.session.overlay_chrome().is_empty(),
+            "chrome drawn over a finished block on fullscreen"
+        );
     }
 }
 
