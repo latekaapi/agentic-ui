@@ -11,6 +11,8 @@
 //! | [`fake`] | [`FakePty`], a scripted transcript that replays card 50 |
 //! | `pty` | a real login shell over `portable-pty` (feature `pty`) |
 //! | `tui_grid` | the alacritty grid model behind the TUI pane (feature `tui`) |
+//! | `grid` | [`TerminalSession`] and the [`terminal_grid`] element (feature `tui`) |
+//! | `keys` | the pure key encoder behind the grid (feature `tui`) |
 //! | [`view`] | [`TerminalState`] plus the three gpui elements |
 //!
 //! ```ignore
@@ -29,6 +31,10 @@
 
 pub mod backend;
 pub mod fake;
+#[cfg(feature = "tui")]
+pub mod grid;
+#[cfg(feature = "tui")]
+pub mod keys;
 pub mod parser;
 #[cfg(feature = "pty")]
 pub mod pty;
@@ -38,6 +44,13 @@ pub mod view;
 
 pub use backend::{TermEvent, TerminalBackend};
 pub use fake::{FakePty, ScriptChunk};
+#[cfg(feature = "tui")]
+pub use grid::{
+    encode_sgr, terminal_grid, MouseReport, SessionEvent, SessionEventProxy, SgrKind, TerminalGrid,
+    TerminalGridIntent, TerminalSession,
+};
+#[cfg(feature = "tui")]
+pub use keys::{encode, KeyInput, KeyModifiers, KeyModes, SpecialKey};
 pub use parser::{BlockParser, ManualClock};
 #[cfg(feature = "pty")]
 pub use pty::{login_shell, Pty, ZSH_INTEGRATION};
