@@ -1447,10 +1447,11 @@ mod tests {
             sh.wait_for(&needle, 1, Duration::from_secs(30)),
             "the shell never drew its first prompt"
         );
-        // A slow theme keeps rendering after its first prompt; typing into
-        // that window is lost to the tty, so let it settle first.
-        std::thread::sleep(Duration::from_secs(2));
-        sh.drain();
+        // A slow theme keeps rendering after its first prompt — p10k's
+        // instant prompt repaints and its gitstatus daemon both land after
+        // it — and typing into that window is lost to the tty. Wait for the
+        // output to go quiet rather than guessing a fixed delay.
+        wait_until_quiet(&mut sh, Duration::from_millis(1500), Duration::from_secs(60));
         for &cmd in commands {
             // Baselines from before the send: the command's own `D`/`A`
             // can arrive in the same drain batch as its `C`, so a baseline
@@ -1463,7 +1464,7 @@ mod tests {
             // twice — five typed blocks for four typed commands.
             send_line_exactly_once(&mut sh, cmd);
             let mut started = false;
-            let deadline = Instant::now() + Duration::from_secs(15);
+            let deadline = Instant::now() + Duration::from_secs(60);
             while Instant::now() < deadline {
                 sh.drain();
                 if count_c_markers(&sh.raw, nonce) > c0 {
@@ -1501,47 +1502,48 @@ mod tests {
         raw
     }
 
-    /// Sends one command line so the shell executes it EXACTLY once, however
-    /// slow the theme's startup is. The text goes first WITHOUT its newline;
-    /// the newline follows only after the line editor echoes the text back,
-    /// which proves the editor holds the line. Every text send is preceded by
-    /// `^U` (zle `unix-line-discard`, a no-op on an empty buffer), which wipes
-    /// whatever of ours the editor may already hold — and with no newline
-    /// queued nothing can execute early, so a retry can never queue a second
-    /// executable copy behind an unread first one.
+    /// Drains until no new pty bytes have arrived for `quiet`, or `cap`
+    /// elapses. A settled prompt produces nothing; a theme still painting
+    /// keeps resetting the window.
+    fn wait_until_quiet(sh: &mut LiveZsh, quiet: Duration, cap: Duration) {
+        let deadline = Instant::now() + cap;
+        let mut last_len = sh.raw.len();
+        let mut since = Instant::now();
+        while Instant::now() < deadline {
+            sh.drain();
+            if sh.raw.len() != last_len {
+                last_len = sh.raw.len();
+                since = Instant::now();
+            } else if since.elapsed() >= quiet {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// Sends one command line so the shell executes it EXACTLY once.
+    ///
+    /// One write, never retried. An earlier version waited for the line
+    /// editor to echo the text before sending the newline, and resent on
+    /// timeout; both halves were wrong. The resend duplicated the command
+    /// whenever the first copy was merely unread rather than lost (five
+    /// blocks for four typed commands), and the echo wait itself hangs under
+    /// powerlevel10k's instant prompt, which issues DSR cursor-position
+    /// queries and reads stdin — so a newline-less send is swallowed and no
+    /// echo ever arrives.
+    ///
+    /// Losing a send is now a loud failure rather than a silent duplicate:
+    /// the caller waits for the command's own `C` marker and panics with the
+    /// raw tail if it never comes.
     fn send_line_exactly_once(sh: &mut LiveZsh, cmd: &str) {
-        let text = cmd.trim_end_matches(|c| c == '\r' || c == '\n');
-        let echo_base = sh.raw.len();
-        let mut echoed = false;
-        for _ in 0..3 {
-            sh.writer.write_all(b"\x15").expect("pty write");
-            sh.writer.write_all(text.as_bytes()).expect("pty write");
-            sh.writer.flush().expect("pty flush");
-            // Generous: under a full parallel gate ten live shells share the
-            // box and one prompt cycle can stall for tens of seconds, while
-            // the fast path still resolves in milliseconds.
-            let deadline = Instant::now() + Duration::from_secs(30);
-            while Instant::now() < deadline {
-                sh.drain();
-                if line_echoed(&sh.raw[echo_base..], text) {
-                    echoed = true;
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            if echoed {
-                break;
-            }
-        }
-        if !echoed {
-            let tail = sh.raw.len().saturating_sub(512);
-            panic!(
-                "command {cmd:?} never reached the line editor; raw tail:\n{:?}",
-                String::from_utf8_lossy(&sh.raw[tail..])
-            );
-        }
-        // Exactly one newline for one execution.
-        sh.writer.write_all(b"\n").expect("pty write");
+        let text = cmd.trim_end_matches(['\r', '\n']);
+        // `^U` (zle unix-line-discard) is a no-op on an empty buffer and
+        // clears anything a previous theme repaint left in it.
+        let mut line = Vec::with_capacity(text.len() + 2);
+        line.push(0x15);
+        line.extend_from_slice(text.as_bytes());
+        line.push(b'\n');
+        sh.writer.write_all(&line).expect("pty write");
         sh.writer.flush().expect("pty flush");
     }
 
