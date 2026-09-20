@@ -283,18 +283,20 @@ fn function(n: u8, param: Option<u8>, meta: bool) -> Vec<u8> {
     let code = 25u32 + (n as u32 - 13);
     match param {
         Some(m) => csi_u(code, m),
-        None if meta => {
-            let mut out = vec![0x1b];
-            out.extend(csi_u(code, 1).into_iter().skip(1));
-            out
-        }
-        None => {
-            let mut out = csi_u(code, 1);
-            // Unmodified: drop the `;1`.
-            out.drain(3..5);
-            out
-        }
+        // Unmodified: `CSI {code} u`, carrying no modifier parameter. Built
+        // directly rather than spliced out of `csi_u`, whose `;1` does not sit
+        // at a fixed offset — and every code here (25–32) is two digits.
+        // Meta then ESC-prefixes it, the same way every other branch does.
+        None => meta_prefix(csi_u_plain(code), meta),
     }
+}
+
+/// `CSI {code} u` — the unmodified form, which carries no modifier parameter.
+fn csi_u_plain(code: u32) -> Vec<u8> {
+    let mut out = vec![0x1b, b'['];
+    out.extend_from_slice(code.to_string().as_bytes());
+    out.push(b'u');
+    out
 }
 
 /// ESC-prefixes an already-encoded sequence for Meta.
@@ -443,6 +445,30 @@ mod tests {
         assert_eq!(
             encode(&KeyInput::Key(SpecialKey::F(5)), &ctrl, &KeyModes::default(), false),
             b"\x1b[15;5~"
+        );
+    }
+
+    #[test]
+    fn function_keys_f13_to_f20_are_csi_u() {
+        // Codes 25..=32 — every one of them two digits, which is what makes
+        // splicing a `;1` out of the modified form by a fixed offset wrong.
+        assert_eq!(plain(&KeyInput::Key(SpecialKey::F(13))), b"\x1b[25u");
+        assert_eq!(plain(&KeyInput::Key(SpecialKey::F(14))), b"\x1b[26u");
+        assert_eq!(plain(&KeyInput::Key(SpecialKey::F(20))), b"\x1b[32u");
+
+        let ctrl = KeyModifiers { ctrl: true, ..KeyModifiers::none() };
+        assert_eq!(
+            encode(&KeyInput::Key(SpecialKey::F(13)), &ctrl, &KeyModes::default(), false),
+            b"\x1b[25;5u"
+        );
+
+        // Option/Alt reaches the modifier parameter (alt adds 2, so 1+2 = 3)
+        // rather than an ESC prefix: `param()` is Some whenever meta is true,
+        // so the unmodified-but-meta arm is unreachable for every special key.
+        let alt = KeyModifiers { alt: true, ..KeyModifiers::none() };
+        assert_eq!(
+            encode(&KeyInput::Key(SpecialKey::F(13)), &alt, &KeyModes::default(), true),
+            b"\x1b[25;3u"
         );
     }
 
