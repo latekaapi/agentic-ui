@@ -59,6 +59,8 @@ const POLL_INTERVAL: Duration = Duration::from_millis(8);
 const MIN_COLS: u16 = 8;
 /// …and fewest rows.
 const MIN_ROWS: u16 = 2;
+/// Introducer byte shared by every escape sequence the advance splitter cuts at.
+const ESC: u8 = 0x1b;
 /// Bracketed-paste open/close markers.
 const BRACKET_OPEN: &[u8] = b"\x1b[200~";
 /// …and close.
@@ -239,9 +241,11 @@ struct MarkState {
     /// Lines may have been discarded uncounted; the evicted count is then
     /// approximate (monotonicity is still preserved).
     desync: AtomicU64,
-    /// Next [`Block`] id. Assigned when a block is first assembled and never
-    /// reused, so a pruned prefix cannot recycle an id.
-    next_block: AtomicU64,
+    /// The main grid's history size, snapshotted when the alternate screen
+    /// is entered. While the alternate screen is active its grid has no
+    /// scrollback, so no eviction accounting runs at all; on exit the
+    /// snapshot is dropped and accounting resumes from the live grid.
+    alt_saved_history: Mutex<Option<usize>>,
 }
 
 /// A terminal session: one emulator fed by one backend.
@@ -328,7 +332,7 @@ impl TerminalSession {
                 stale: AtomicBool::new(false),
                 evicted: AtomicI64::new(0),
                 desync: AtomicU64::new(0),
-                next_block: AtomicU64::new(0),
+                alt_saved_history: Mutex::new(None),
             }),
         }
     }
@@ -826,10 +830,11 @@ fn cycle(
 }
 
 /// Feeds `bytes` to the emulator and the mark scanner together: the chunk is
-/// split at complete OSC 133 boundaries, every piece goes to the `Term` in
-/// order, and each accepted marker is recorded at the emulator's absolute
-/// line at that point — the cursor has not moved for the marker's own bytes,
-/// so the line is the shell's line. Afterwards the blocks are reassembled.
+/// split at complete OSC 133 boundaries and at alt-screen switches, every
+/// piece goes to the `Term` in order, and each accepted marker is recorded
+/// at the emulator's absolute line at that point — the cursor has not moved
+/// for the marker's own bytes, so the line is the shell's line. Afterwards
+/// the blocks are reassembled.
 fn feed_with_marks(faced: &mut Inner, bytes: &[u8], state: &MarkState) {
     let segments = state.scanner.lock().unwrap().split_feed(bytes);
     if segments.is_empty() {
@@ -838,15 +843,16 @@ fn feed_with_marks(faced: &mut Inner, bytes: &[u8], state: &MarkState) {
     for segment in segments {
         match segment {
             ScanSegment::Emit(raw) => {
-                // Row-sized slices: the shortest sequence pushing `k` lines
-                // is `ESC[kS` (three bytes plus digits), so the worst case is
-                // about `rows` lines per four bytes. Size the slice so that
-                // `slice_bytes / 4 * rows <= SCROLLBACK_SLACK`.
+                // One counted advance per escape sequence: `ESC[2J` scrolls
+                // the viewport into history and `ESC[3J` wipes it, so sharing
+                // an advance would hide the scrolled lines from the
+                // before/after history comparison and undercount. Text runs
+                // keep the row-sized cap from `feed_slice_len`.
                 let mut start = 0;
                 while start < raw.len() {
-                    let len = feed_slice_len(&faced.term).min(raw.len() - start);
-                    advance_counted(faced, state, &raw[start..start + len]);
-                    start += len;
+                    let end = emit_advance_end(&faced.term, &raw, start);
+                    advance_counted(faced, state, &raw[start..end]);
+                    start = end;
                 }
             }
             ScanSegment::Marker { raw, kind, exit, command } => {
@@ -855,7 +861,12 @@ fn feed_with_marks(faced: &mut Inner, bytes: &[u8], state: &MarkState) {
                 let line =
                     absolute_line(&faced.term, evicted, faced.term.grid().cursor.point.line);
                 let at = std::time::Instant::now();
-                state.scanner.lock().unwrap().push_mark(Mark { line, kind, exit, command, at });
+                // `seq` is overwritten by `push_mark`: identity is minted at
+                // the event, never derived from geometry.
+                state.scanner.lock().unwrap().push_mark(Mark { line, kind, exit, command, at, seq: 0 });
+            }
+            ScanSegment::AltSwitch { raw } => {
+                enter_or_exit_alt(faced, state, &raw);
             }
         }
     }
@@ -870,6 +881,27 @@ fn feed_slice_len(term: &Term<SessionEventProxy>) -> usize {
     (SCROLLBACK_SLACK * 4 / rows).max(64)
 }
 
+/// End offset (exclusive) of the next counted advance starting at `start`:
+/// a text run up to the next `ESC` (capped at [`feed_slice_len`]), or one
+/// escape sequence (`ESC` through the byte before the next `ESC`, or the end
+/// of the chunk). Every advance holds at most one escape, so a
+/// scroll-into-history and the wipe that follows can never share one
+/// before/after history comparison. Always past `start`.
+fn emit_advance_end(term: &Term<SessionEventProxy>, raw: &[u8], start: usize) -> usize {
+    if raw[start] == ESC {
+        match raw[start + 1..].iter().position(|&b| b == ESC) {
+            Some(rel) => start + 1 + rel,
+            None => raw.len(),
+        }
+    } else {
+        let cap = (start + feed_slice_len(term)).min(raw.len());
+        match raw[start..cap].iter().position(|&b| b == ESC) {
+            Some(rel) => start + rel,
+            None => cap,
+        }
+    }
+}
+
 /// Advances the emulator by `bytes`, counting every departure from the
 /// retained window: `ESC[3J` (`Grid::clear_history`) and `ESC c`
 /// (`grid.reset()`) shrink history without ever passing through
@@ -877,17 +909,25 @@ fn feed_slice_len(term: &Term<SessionEventProxy>) -> usize {
 /// `evicted` first and the trim's own contribution is then counted on top
 /// without double counting.
 ///
-/// Two guards keep the count honest. While the alternate screen is active
-/// (before or after the advance) the grid is swapped, not wiped, so nothing
-/// is counted — exactly the old behaviour. And the absolute tail is never
-/// allowed to regress within one advance: `ESC[2J` scrolls the viewport into
-/// history and homes the cursor inside the same slice that `ESC[3J` then
-/// wipes, so history-size comparison alone undercounts by the cursor-row
-/// displacement; the residual is topped up here so the tail stays monotonic.
+/// The whole rule is history-only: `evicted` grows by
+/// `history_before.saturating_sub(history_after)` per advance. Cursor
+/// movement inside the screen (`ESC[nA` redraws, `ESC[H` homing) moves no
+/// line out of the retained window and counts nothing on its own.
+///
+/// One tail guard remains, and only where lines really left: when the
+/// advance shrank history, the wipe also displaced the cursor (a full reset
+/// homes it in the same advance), so the residual is topped up to keep the
+/// absolute tail monotonic. Advances without a shrink — every cursor-up
+/// redraw — never touch `evicted`, however far the cursor moved.
+///
+/// While the alternate screen is active the grid is swapped, not wiped, so
+/// nothing is counted at all (see [`enter_or_exit_alt`]). The scanner
+/// isolates every switch in its own slice, so a transition never shares an
+/// advance with counted bytes; the mid-slice branch below is only a safety
+/// net.
 fn advance_counted(faced: &mut Inner, state: &MarkState, bytes: &[u8]) {
     if faced.term.mode().contains(TermMode::ALT_SCREEN) {
         faced.processor.advance(&mut faced.term, bytes);
-        trim_history(&mut faced.term, state);
         return;
     }
     let e0 = state.evicted.load(Ordering::Acquire);
@@ -895,12 +935,19 @@ fn advance_counted(faced: &mut Inner, state: &MarkState, bytes: &[u8]) {
     let r0 = faced.term.grid().cursor.point.line.0 as i64;
     faced.processor.advance(&mut faced.term, bytes);
     if faced.term.mode().contains(TermMode::ALT_SCREEN) {
-        trim_history(&mut faced.term, state);
+        *state.alt_saved_history.lock().unwrap() = Some(h0.max(0) as usize);
         return;
     }
     let mid = faced.term.grid().history_size();
     if (mid as i64) < h0 {
         state.evicted.fetch_add(h0 - (mid as i64), Ordering::AcqRel);
+        let e1 = state.evicted.load(Ordering::Acquire);
+        let tail_before = e0 + h0 + r0;
+        let tail_after =
+            e1 + mid as i64 + faced.term.grid().cursor.point.line.0 as i64;
+        if tail_after < tail_before {
+            state.evicted.fetch_add(tail_before - tail_after, Ordering::AcqRel);
+        }
     }
     // Safety net: the emulator discards past its own cap
     // (`SCROLLBACK + SCROLLBACK_SLACK`) before the trim step can count.
@@ -908,12 +955,23 @@ fn advance_counted(faced: &mut Inner, state: &MarkState, bytes: &[u8]) {
         state.desync.fetch_add(1, Ordering::AcqRel);
     }
     trim_history(&mut faced.term, state);
-    let e1 = state.evicted.load(Ordering::Acquire);
-    let tail_before = e0 + h0 + r0;
-    let tail_after =
-        e1 + faced.term.grid().history_size() as i64 + faced.term.grid().cursor.point.line.0 as i64;
-    if tail_after < tail_before {
-        state.evicted.fetch_add(tail_before - tail_after, Ordering::AcqRel);
+}
+
+/// Advances the emulator past one alt-screen switch sequence with no
+/// eviction accounting: entering swaps to a grid with no scrollback (history
+/// drops to 0 with nothing evicted) and exiting restores the main grid, so
+/// neither direction may move `evicted`. The main history size is
+/// snapshotted on entry; on exit the snapshot is dropped — the emulator
+/// restored the main grid itself — and accounting resumes from the live
+/// grid. Switches are always slice boundaries, so a `clear` sharing the pump
+/// is a separate slice accounted on its own.
+fn enter_or_exit_alt(faced: &mut Inner, state: &MarkState, raw: &[u8]) {
+    if !faced.term.mode().contains(TermMode::ALT_SCREEN) {
+        *state.alt_saved_history.lock().unwrap() = Some(faced.term.grid().history_size());
+    }
+    faced.processor.advance(&mut faced.term, raw);
+    if !faced.term.mode().contains(TermMode::ALT_SCREEN) {
+        let _saved = state.alt_saved_history.lock().unwrap().take();
     }
 }
 
@@ -981,14 +1039,13 @@ fn rebuild_blocks(term: &Term<SessionEventProxy>, state: &MarkState) {
     let mut stored = state.blocks.lock().unwrap();
     let mut used = vec![false; stored.len()];
     for block in fresh.iter_mut() {
-        // Stable identity is the START anchor: the line of the mark that
-        // opened the block (`prompt.0`, the `A` line or the `C` line when no
-        // `A` came). Absolute lines are monotonic, so it cannot change while
-        // the block runs; `end`, `output.1` and `exit` all change at finish
-        // and must not be part of the key.
+        // Stable identity is minted at the event: the block's `id` is the
+        // sequence number of the mark that opened it, so two blocks sharing
+        // a start anchor never collide and there is nothing left to match
+        // on. Host-set state carries across by id lookup exactly.
         let mut found: Option<usize> = None;
         for (i, old) in stored.iter().enumerate() {
-            if !used[i] && old.prompt.0 == block.prompt.0 {
+            if !used[i] && old.id == block.id {
                 found = Some(i);
                 break;
             }
@@ -997,7 +1054,6 @@ fn rebuild_blocks(term: &Term<SessionEventProxy>, state: &MarkState) {
             Some(i) => {
                 used[i] = true;
                 let old = &stored[i];
-                block.id = old.id;
                 block.author = old.author;
                 if block.command.is_empty() && !old.command.is_empty() {
                     // The lines scrolled past the retained window: keep what
@@ -1006,7 +1062,8 @@ fn rebuild_blocks(term: &Term<SessionEventProxy>, state: &MarkState) {
                 }
             }
             None => {
-                block.id = state.next_block.fetch_add(1, Ordering::AcqRel);
+                // First sight of this opening mark: the assembler already
+                // minted the id, so there is nothing to assign.
             }
         }
     }
@@ -2910,8 +2967,25 @@ mod tests {
         assert_eq!(done[0].author, BlockAuthor::Agent, "author lost when the block finished");
     }
 
+    /// `lines` plain output lines in the audit's `tag-00000` format.
+    fn fill_lines(lines: usize, tag: &str) -> Vec<u8> {
+        let mut out = Vec::new();
+        for i in 0..lines {
+            out.extend(format!("{tag}-{i:05}\r\n").into_bytes());
+        }
+        out
+    }
+
     /// D2 (`ESC[3J`): `clear` between two commands keeps the tail monotonic,
     /// block ends strictly increasing, and a pre-clear cursor reading forward.
+    ///
+    /// Exact count: the `clear` genuinely evicts the first command's 11,000
+    /// lines — its end falls below the retained floor — so exactly the
+    /// `clear` block and `cmd-three` survive. The survivor in front is the
+    /// `clear` block itself: its own `ESC[3J` wiped its echoed command line
+    /// before its `D` was recorded, and no earlier rebuild ever saw it, so
+    /// its command text is genuinely unrecoverable from the grid and reads
+    /// empty, with an empty output range to match.
     #[test]
     fn esc_3j_between_commands_keeps_tail_and_order() {
         let h = live_session("l2d2a", 80, 24);
@@ -2933,9 +3007,7 @@ mod tests {
         let c3 = h.session.tail_cursor();
         assert!(c3.line >= c2.line, "tail went backwards after clear: {c2:?} -> {c3:?}");
         let blocks = h.session.blocks();
-        // The clear wiped the oldest output, so the first block may be pruned;
-        // the survivors must stay strictly ordered with their text intact.
-        assert!(blocks.len() >= 2, "wiped all blocks: {blocks:?}");
+        assert_eq!(blocks.len(), 2, "block count: {blocks:?}");
         assert!(
             blocks.windows(2).all(|w| w[0].end < w[1].end),
             "ends not strictly increasing: {:?}",
@@ -2948,6 +3020,16 @@ mod tests {
         assert!(
             blocks.last().expect("a block").command.contains("cmd-three"),
             "command: {blocks:?}"
+        );
+        assert!(
+            blocks[0].command.is_empty(),
+            "the clear block's echo was wiped by its own ESC[3J: {:?}",
+            blocks[0]
+        );
+        assert_eq!(
+            blocks[0].output.0, blocks[0].output.1,
+            "nothing survived between the clear block's C and D: {:?}",
+            blocks[0]
         );
         let polled = h.session.range_text(c1);
         assert!(polled.contains("three-fill"), "poll stalled after clear");
@@ -3038,6 +3120,132 @@ mod tests {
             h.session.overlay_chrome().is_empty(),
             "chrome drawn over a finished block on fullscreen"
         );
+    }
+
+    /// D4: plain cursor-up redraws (progress bars, `docker pull`, `ink`)
+    /// move no line out of the retained window, so they must not inflate the
+    /// evicted count, prune a block that is still on screen, or drift a
+    /// finished block's text.
+    #[test]
+    fn cursor_up_redraws_evict_nothing() {
+        let h = live_session("l2d4", 80, 24);
+        h.feed(&command_bytes(&h.nonce, "first", 0, 3, "one"));
+        let first_text = h.session.block_text(0).expect("first block text");
+        let mut running = Vec::new();
+        running.extend(marker_bytes(&h.nonce, "A"));
+        running.extend(b"prompt$ ");
+        running.extend(marker_bytes(&h.nonce, "B"));
+        running.extend(b"progress\r\n");
+        running.extend(marker_bytes(&h.nonce, "C"));
+        running.extend(fill_lines(3, "step"));
+        h.feed(&running);
+        let t0 = h.session.tail_cursor();
+        let (h0, _) =
+            h.session.with_term(|t| (t.grid().history_size(), t.grid().display_offset()));
+        // Redraw three lines the way ink/docker do, ten times, one pump each.
+        for _ in 0..10 {
+            h.feed(b"\x1b[3A");
+            h.feed(&fill_lines(3, "step"));
+        }
+        let t1 = h.session.tail_cursor();
+        let (h1, _) =
+            h.session.with_term(|t| (t.grid().history_size(), t.grid().display_offset()));
+        let after_text = h.session.block_text(0).expect("first block text after redraws");
+        let blocks = h.session.blocks();
+        assert_eq!(h1, h0, "history unchanged (precondition)");
+        assert_eq!(t1, t0, "tail moved although no line was pushed or evicted");
+        assert_eq!(after_text, first_text, "finished block's text drifted after cursor-up");
+        assert_eq!(blocks.len(), 2, "a block was pruned while still on screen: {blocks:?}");
+    }
+
+    /// D5: `clear` + alt-screen enter in one pump (`clear; vim`). The switch
+    /// is a slice boundary, so the clear is accounted on its own slice and
+    /// the tail does not regress.
+    #[test]
+    fn clear_then_alt_enter_in_one_pump_is_counted() {
+        let h = live_session("l2d5a", 80, 24);
+        h.feed(&fill_lines(11_000, "base"));
+        let c1 = h.session.tail_cursor();
+        h.feed(b"\x1b[H\x1b[2J\x1b[3J\x1b[?1049h");
+        assert!(h.session.alt_screen());
+        h.feed(b"\x1b[?1049l");
+        let c2 = h.session.tail_cursor();
+        h.feed(&fill_lines(100, "after"));
+        let c3 = h.session.tail_cursor();
+        let polled = h.session.range_text(c1);
+        assert!(c2.line >= c1.line, "tail regressed: {c1:?} -> {c2:?}");
+        assert!(c3.line >= c2.line, "tail regressed after exit: {c2:?} -> {c3:?}");
+        assert!(polled.contains("after-00099"), "poll stalled: {polled:?}");
+    }
+
+    /// D5: alt-screen exit + `ESC[3J` in one pump (`tput rmcup; clear`).
+    /// The exit resumes from the snapshot and the clear is accounted on its
+    /// own slice, so the tail does not regress.
+    #[test]
+    fn alt_exit_then_clear_in_one_pump_is_counted() {
+        let h = live_session("l2d5b", 80, 24);
+        h.feed(&fill_lines(11_000, "base"));
+        let c1 = h.session.tail_cursor();
+        h.feed(b"\x1b[?1049h");
+        h.feed(b"\x1b[?1049l\x1b[H\x1b[2J\x1b[3J");
+        let c2 = h.session.tail_cursor();
+        h.feed(&fill_lines(100, "after"));
+        let polled = h.session.range_text(c1);
+        assert!(c2.line >= c1.line, "tail regressed: {c1:?} -> {c2:?}");
+        assert!(polled.contains("after-00099"), "poll stalled: {polled:?}");
+    }
+
+    /// D6: two blocks sharing a start anchor (a stray first-precmd `D`, then
+    /// a prompt on the same line) keep their own ids and authors once the
+    /// first is pruned. Identity is minted at the event, not matched on the
+    /// anchor.
+    #[test]
+    fn shared_start_anchor_does_not_swap_ids() {
+        let h = live_session("l2d6a", 80, 24);
+        // A stray D with no open block, then a normal prompt on the same line.
+        h.feed(&marker_bytes(&h.nonce, "D;0"));
+        h.feed(&command_bytes(&h.nonce, "real-cmd", 0, 60, "out"));
+        let before = h.session.blocks();
+        assert_eq!(before.len(), 2, "blocks: {before:?}");
+        assert_eq!(
+            before[0].prompt.0, before[1].prompt.0,
+            "precondition: shared start anchor"
+        );
+        assert_ne!(before[0].id, before[1].id, "ids collide on the shared anchor");
+        let id_real = before[1].id;
+        h.session.set_block_author(0, BlockAuthor::Agent);
+        h.session.set_block_author(1, BlockAuthor::Human);
+        // Scroll far enough that the stray block is pruned but the real one is not.
+        h.feed(&command_bytes(&h.nonce, "third", 0, 10_000, "fill"));
+        let after = h.session.blocks();
+        let real =
+            after.iter().find(|b| b.command.contains("real-cmd")).expect("real-cmd survives");
+        assert_eq!(real.id, id_real, "real-cmd changed id after the stray block was pruned");
+        assert_eq!(real.author, BlockAuthor::Human, "real-cmd inherited the stray block's author");
+    }
+
+    /// D6: a `C`-only block (no `A`) with a prompt landing on its line keeps
+    /// its own id and author once the older block is pruned.
+    #[test]
+    fn c_started_block_then_prompt_on_same_line() {
+        let h = live_session("l2d6b", 80, 24);
+        h.feed(&command_bytes(&h.nonce, "zero", 0, 2, "z"));
+        let mut b = Vec::new();
+        b.extend(marker_bytes(&h.nonce, "C"));
+        b.extend(marker_bytes(&h.nonce, "D;7"));
+        h.feed(&b);
+        h.feed(&command_bytes(&h.nonce, "real-cmd", 0, 60, "out"));
+        let before = h.session.blocks();
+        let real_before =
+            before.iter().find(|b| b.command.contains("real-cmd")).expect("real-cmd opens").clone();
+        let idx = before.iter().position(|b| b.command.contains("real-cmd")).expect("index");
+        h.session.set_block_author(idx, BlockAuthor::Agent);
+        h.feed(&command_bytes(&h.nonce, "third", 0, 10_000, "fill"));
+        let after = h.session.blocks();
+        let real = after.iter().find(|b| b.command.contains("real-cmd")).expect("real-cmd survives");
+        assert_eq!(real.id, real_before.id, "id changed");
+        assert_eq!(real.author, BlockAuthor::Agent, "author lost");
+        assert_eq!(real.exit, Some(0));
     }
 }
 
