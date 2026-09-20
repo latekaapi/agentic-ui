@@ -201,44 +201,110 @@ begins is to ask the shell, so the parser reads OSC 133 shell integration:
 
 | marker | meaning |
 |---|---|
-| `OSC 133 ; A ST` | prompt start — the previous block ends, the next block's clock starts |
-| `OSC 133 ; B ST` | prompt drawn; the command line follows |
-| `OSC 133 ; C ST` | the command is running; output follows |
-| `OSC 133 ; D ; <exit> ST` | finished — exit 0 is `Done`, anything else `Failed` |
+| `OSC 133 ; A ; k=<nonce> ST` | prompt start — the previous block ends, the next block's clock starts |
+| `OSC 133 ; B ; k=<nonce> ST` | prompt drawn; the command line follows |
+| `OSC 133 ; C ; k=<nonce> ST` | the command is running; output follows |
+| `OSC 133 ; D ; <exit> ; k=<nonce> ST` | finished — exit 0 is `Done`, anything else `Failed` |
 
 Durations come from the A→D timestamps (`6.2 s`, `3.2 s · exit 1`, live `12 s`).
 A shell with no integration emits no markers, which is not an error: the whole
 stream becomes one running block, and that is the path the TUI pane uses.
 
-**The zsh snippet** (`aui_terminal::ZSH_INTEGRATION`, written into a throwaway
-`ZDOTDIR` whose `.zshrc` sources the user's own first — read, never written):
+Every marker carries `k=<nonce>`, a per-session random token minted by
+`generate_nonce` and carried in `PtyConfig` — there is no way to spawn a
+session without one. A program that prints a bare `OSC 133` therefore cannot
+forge a block boundary.
+
+**The zsh snippet** (`aui_terminal::zsh_integration(nonce)`, written into a
+throwaway `ZDOTDIR` chaining the user's own files — read, never written):
 
 ```zsh
 autoload -Uz add-zsh-hook
 
 # The prompt-end marker, invisible to zsh's width arithmetic.
-_AUI_OSC133_B=$'%{\033]133;B\007%}'
+_AUI_OSC133_B=$'%{\033]133;B;k=<nonce>\007%}'
 
 _aui_osc133_precmd() {
   local _aui_status=$?
   if [[ -n ${_AUI_RUNNING-} ]]; then
-    printf '\033]133;D;%s\007' "$_aui_status"
+    printf '\033]133;D;%s;k=<nonce>\007' "$_aui_status"
     unset _AUI_RUNNING
   fi
-  printf '\033]133;A\007'
+  printf '\033]133;A;k=<nonce>\007'
   # Re-attach the marker to whatever prompt the theme just built.
   PS1="${PS1//$_AUI_OSC133_B/}${_AUI_OSC133_B}"
 }
 
 _aui_osc133_preexec() {
   _AUI_RUNNING=1
-  printf '\033]133;C\007'
+  printf '\033]133;C;k=<nonce>\007'
 }
 
+add-zsh-hook -d precmd _aui_osc133_precmd 2>/dev/null
 add-zsh-hook precmd _aui_osc133_precmd
+add-zsh-hook -d preexec _aui_osc133_preexec 2>/dev/null
 add-zsh-hook preexec _aui_osc133_preexec
 unsetopt PROMPT_SP
 ```
+
+The generated directory holds all four startup files — `.zshenv`,
+`.zprofile`, `.zshrc` and `.zlogin` — and each one does the same three things
+in order: it sources the user's own file from the original `ZDOTDIR` (or
+`$HOME` when unset) first, restores `ZDOTDIR` to its original value so
+children of the shell see the real one, and only then installs the hooks, so
+the hooks land last and survive powerlevel10k's instant prompt.
+
+**The bash snippet** (`aui_terminal::bash_integration(nonce)`, written out as
+a generated `--rcfile` — the spawn passes `--rcfile` before `-l -i`, because
+the macOS bash 3.2 only accepts GNU long options first):
+
+```bash
+if shopt -q login_shell 2>/dev/null; then
+  if [ -f "$HOME/.bash_profile" ]; then . "$HOME/.bash_profile"
+  elif [ -f "$HOME/.bash_login" ]; then . "$HOME/.bash_login"
+  elif [ -f "$HOME/.profile" ]; then . "$HOME/.profile"
+  fi
+fi
+[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"
+
+_AUI_OSC133_B=$'\[\033]133;B;k=<nonce>\007\]'
+
+_aui_osc133_begin() {
+  _AUI_STATUS=$?
+  _AUI_IN_PROMPT=1
+}
+
+_aui_osc133_precmd() {
+  local _aui_status=${_AUI_STATUS:-0}
+  if [ -n "${_AUI_RUNNING-}" ]; then
+    printf '\033]133;D;%s;k=<nonce>\007' "$_aui_status"
+    unset _AUI_RUNNING
+  fi
+  printf '\033]133;A;k=<nonce>\007'
+  PS1="${PS1//"$_AUI_OSC133_B"/}${_AUI_OSC133_B}"
+  unset _AUI_STATUS _AUI_IN_PROMPT
+}
+
+_aui_osc133_preexec() {
+  [ -n "${_AUI_IN_PROMPT-}" ] && return 0
+  case "$BASH_COMMAND" in
+    _aui_osc133_*|PROMPT_COMMAND*) return 0;;
+  esac
+  if [ -z "${_AUI_RUNNING-}" ]; then
+    _AUI_RUNNING=1
+    printf '\033]133;C;k=<nonce>\007'
+  fi
+}
+
+trap '_aui_osc133_preexec' DEBUG
+PROMPT_COMMAND="_aui_osc133_begin${PROMPT_COMMAND:+; $PROMPT_COMMAND}; _aui_osc133_precmd"
+```
+
+The shape mirrors zsh: `PROMPT_COMMAND` plays `precmd` (with a first entry
+capturing `$?` while it is still the command's) and a `DEBUG` trap plays
+`preexec`, ignoring everything that runs while the prompt command itself is
+executing. `\[…\]` is the bash counterpart of `%{…%}`, and the quoted pattern
+in the re-attachment matches the marker literally.
 
 Three details are the difference between this working and not, on a real
 machine:
@@ -252,6 +318,17 @@ machine:
   the line wraps in the wrong place.
 - **`unsetopt PROMPT_SP`** stops the reverse-video `%` zsh prints for a command
   whose output had no trailing newline from landing in the block as a junk line.
+- **Every marker carries `k=<nonce>`.** The snippets are functions of the
+  session nonce, so a program that prints a bare `OSC 133` cannot forge a
+  block boundary.
+- **Each chained file sources, restores, then hooks.** `ZDOTDIR` is put back
+  to its original value in every wrapper file, so children of the shell see
+  the user's real dotfiles; the hooks install last in every file, and each
+  registration deletes before re-adding, so the theme can never end up ahead
+  of the re-attachment.
+- **bash mirrors zsh through `PROMPT_COMMAND` and a `DEBUG` trap.** The
+  user's files are sourced first and the hooks install after them; `\[…\]`
+  plays the part of `%{…%}`.
 
 **Limitations.**
 
@@ -273,8 +350,9 @@ machine:
   box, footer and hint keys rather than reusing it, because the component takes
   `Vec<String>` and the grid needs `TextRun`s. The two panes are drawn from
   duplicated constants and will drift if `tui.rs` changes.
-- Only zsh gets shell integration. Any other shell runs unmarked, which is not
-  an error: the whole stream becomes one running block.
+- zsh and bash get shell integration (chained `ZDOTDIR`, generated
+  `--rcfile`). Any other shell runs unmarked, which is not an error: the
+  whole stream becomes one running block.
 - The measured cols/rows have been exercised against a real `SIGWINCH` (`top`
   redraws when the pane changes size) but the arithmetic is derived from each
   pane's padding constants by hand, so it is one number's drift away from being
