@@ -1,6 +1,6 @@
-//! Workbench: the block terminal and TUI pane, browser with annotator, diff
-//! review, git and PR forms, file tree and document panes, sources and
-//! citations (cards 50–55, spec §5).
+//! Workbench: the block terminal, terminal tabs and dock, and TUI pane,
+//! browser with annotator, diff review, git and PR forms, file tree and
+//! document panes, sources and citations (cards 50–55, spec §5).
 
 mod browser;
 mod citations;
@@ -11,9 +11,11 @@ mod git;
 mod pdf;
 mod sheet;
 mod terminal;
+mod terminal_dock;
 mod tui;
 
 pub use terminal::{block_terminal, BlockState, BlockTerminal, TermBlock, TermPrompt, TerminalAction};
+pub use terminal_dock::{terminal_dock, terminal_tabs, TermTab, TerminalDock, TerminalDockAction, TerminalTabs, TerminalTabsAction};
 pub use tui::{tui_pane, TuiPane};
 pub use browser::{
     agent_action_pill, annotation_pin, annotations_panel, browser_nav, element_outline, note_popover, AgentActionPill, Annotation, AnnotationPin,

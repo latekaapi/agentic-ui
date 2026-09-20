@@ -200,6 +200,11 @@ Conventions used below: **anatomy** (parts, left to right / top to bottom), **si
 - Sources card: header 36 px (book icon, "Sources", "· 3 cited · 11 retrieved" ink-3, Show all xs ghost). Tier labels 11 px caps ink-3 with no swatch: Role · name / Project · name / Session. Rows: 18 px numbered square (accent-soft), title 500, meta 11.5 ink-3, confidence bar 36 × 4 (success fill) + value mono 10.5; uncited session row muted with "–".
 - Source hover card 300 wide: overlay, radius 12, elevation 3; title 600; quote with a 2 px accent left rail and the matched span on accent-soft; actions Open page N (xs), Insert quote (xs ghost).
 
+### 5.7 Terminal tabs and dock (bottom dock chrome, decisions D42–D43)
+- Tabs (`terminal_tabs`): one tab per project terminal, sharing the shell strip's tab anatomy (12 px type, ink / ink-3, close `x` on hover and on the active tab, trailing `+`). An agent-owned tab carries the provider mark — the same mark blocks use. A running command draws the 6 px accent busy dot after the title. The strip is a single row: it scrolls horizontally and never wraps. The active tab takes the body ground so it merges with the pane below. Intents: `Select(i)`, `Close(i)`, `New` (indices into the tab list).
+- Dock (`terminal_dock`): the frame — the shell resize strip along the top edge, a header cell seating the tabs on the left with the hint text and the maximize / close buttons on the right (maximize is a chevron-up, flipping down while maximized — the sprite carries no expand glyph), and the body on the terminal ground. No body draws the centred empty state ("No terminal yet" + "New terminal" button). The dock owns neither height nor open state; resize drags report to the host. Intents: `Maximize`, `Close`, `NewTerminal`.
+- Data: tab id / title / agent / busy, the active index, hint text, the maximized flag.
+
 ---
 
 ## 6. Screens (design/reference/screens)
