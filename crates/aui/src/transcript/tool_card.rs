@@ -10,7 +10,7 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, Easing, Palette, TextRole};
 use gpui::{div, linear_color_stop, linear_gradient, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, StyledText, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{glyph_err, glyph_ok, pill, spinner, tag, PillVariant};
+use crate::data::{button, glyph_err, glyph_ok, pill, spinner, tag, PillVariant};
 use crate::icons::{icon, IconName};
 use crate::transcript::ansi::{ansi_runs, ansi_spans};
 use crate::transcript::transcript_card;
@@ -72,6 +72,41 @@ pub enum ToolCardIntent {
     Unfold,
     /// Open the output in the terminal pane / the diff in the review pane.
     OpenInPane,
+    /// A trailing header action was pressed. The payload is the action's
+    /// index in the card's action list, in the order
+    /// [`ToolCard::actions`] received them, so the host can tell which
+    /// one it was.
+    Action(usize),
+}
+
+/// A host-supplied trailing action in a tool card header.
+///
+/// The library draws the control from this description — tokens and the
+/// shared button component, no caller-built elements — and reports the
+/// press as [`ToolCardIntent::Action`] carrying its index. What the
+/// action does is the host's decision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCardAction {
+    /// The host's own identifier for the action, for looking the pressed
+    /// index back up.
+    pub id: SharedString,
+    /// The button label.
+    pub label: SharedString,
+    /// An optional leading glyph.
+    pub icon: Option<IconName>,
+}
+
+impl ToolCardAction {
+    /// A trailing header action with `label`.
+    pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Self {
+        Self { id: id.into(), label: label.into(), icon: None }
+    }
+
+    /// A leading glyph before the label.
+    pub fn icon(mut self, glyph: IconName) -> Self {
+        self.icon = Some(glyph);
+        self
+    }
 }
 
 type IntentHandler = std::rc::Rc<dyn Fn(ToolCardIntent, &mut Window, &mut App)>;
@@ -87,6 +122,7 @@ pub struct ToolCard {
     target: SharedString,
     status: ToolStatus,
     duration: Option<SharedString>,
+    actions: Vec<ToolCardAction>,
     body: ToolBody,
     open: bool,
     on_intent: Option<IntentHandler>,
@@ -94,7 +130,7 @@ pub struct ToolCard {
 
 /// A card for one tool call.
 pub fn tool_card(id: impl Into<ElementId>, verb: impl Into<SharedString>, target: impl Into<SharedString>, status: ToolStatus, body: ToolBody) -> ToolCard {
-    ToolCard { id: id.into(), verb: verb.into(), target: target.into(), status, duration: None, body, open: true, on_intent: None }
+    ToolCard { id: id.into(), verb: verb.into(), target: target.into(), status, duration: None, actions: Vec::new(), body, open: true, on_intent: None }
 }
 
 impl ToolCard {
@@ -102,6 +138,21 @@ impl ToolCard {
     /// once per card rather than once per frame.
     pub fn duration_ms(mut self, ms: Option<u64>) -> Self {
         self.duration = ms.map(format_duration);
+        self
+    }
+
+    /// Trailing header actions, drawn after the duration in the order
+    /// given and reported as [`ToolCardIntent::Action`] with their index.
+    /// Empty by default; with none set the header renders exactly as
+    /// before.
+    pub fn actions(mut self, actions: Vec<ToolCardAction>) -> Self {
+        self.actions = actions;
+        self
+    }
+
+    /// One trailing header action after any already set. See [`Self::actions`].
+    pub fn action(mut self, action: ToolCardAction) -> Self {
+        self.actions.push(action);
         self
     }
 
@@ -198,6 +249,16 @@ impl RenderOnce for ToolCard {
             if let Some(text) = self.duration.clone() {
                 right = right.child(text);
             }
+        }
+        // Host actions trail the duration. With none set this loop is
+        // empty and the header builds exactly as before.
+        for (index, action) in self.actions.iter().enumerate() {
+            let press = emit(ToolCardIntent::Action(index));
+            let mut control = button((self.id.clone(), SharedString::from(format!("action-{}", action.id))), action.label.clone()).xs().ghost();
+            if let Some(glyph) = action.icon {
+                control = control.icon(glyph);
+            }
+            right = right.child(control.on_click(move |e, w, cx| press(e, w, cx)));
         }
         card = card.header(right);
 
