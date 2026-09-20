@@ -308,9 +308,13 @@ impl Perform {
     /// that arrives while a block is already in `Phase::Output` (a nested
     /// line editor such as `vared` that the shell integration did not
     /// silence) is ignored rather than rewinding the phase: rewinding would
-    /// swallow the rest of the output into the block's command text.
+    /// swallow the rest of the output into the block's command text. A `B`
+    /// that arrives while already in `Phase::Command` is ignored for the
+    /// same reason: redrawing the prompt at the same prompt (`zle
+    /// reset-prompt`, e.g. a transient prompt) re-emits `B` without starting
+    /// a new command line, and clearing would drop what was already typed.
     fn mark_command(&mut self) {
-        if self.phase == Phase::Output {
+        if self.phase == Phase::Output || self.phase == Phase::Command {
             return;
         }
         self.command.clear();
@@ -776,6 +780,26 @@ mod tests {
         assert_eq!(p.blocks().len(), 1);
         assert_eq!(p.blocks()[0].command, "vared-demo");
         assert_eq!(p.blocks()[0].output, vec!["BEFORE-VARED".to_string(), "AFTER-VARED".to_string()]);
+        assert_eq!(p.blocks()[0].state, BlockState::Done);
+    }
+
+    #[test]
+    fn a_second_b_at_the_same_prompt_keeps_the_typed_command() {
+        // A prompt redraw at the same prompt (zle reset-prompt, e.g. a
+        // transient prompt) re-emits B without starting a new command line:
+        // the second B is ignored rather than clearing what was typed.
+        let (mut p, _) = parser();
+        p.feed(a());
+        p.feed(b"prompt $ ");
+        p.feed(b());
+        p.feed(b"echo hi");
+        p.feed(b());
+        p.feed(c());
+        p.feed(b"hi\n");
+        p.feed(b"\x1b]133;D;0\x07");
+        assert_eq!(p.blocks().len(), 1);
+        assert_eq!(p.blocks()[0].command, "echo hi");
+        assert_eq!(p.blocks()[0].output, vec!["hi".to_string()]);
         assert_eq!(p.blocks()[0].state, BlockState::Done);
     }
 
