@@ -31,7 +31,7 @@ pub use activity::{activity_group, ActivityGroup};
 pub use card::{transcript_card, TranscriptCard};
 pub use thinking::{thinking_block, ThinkingBlock};
 pub use prose::{caret_top_in_line, caret_visible, prose, ProseStyle, CARET_BASELINE_DROP, CARET_H, CARET_MARGIN_LEFT, CARET_W};
-pub use markdown::{last_block_runs, markdown, markdown_selected_text, markdown_span_selected_text, message_select_all, message_selected_text, parse_markdown, parsed_markdown, span_runs, Block, Block as MarkdownBlock, LinkHandler, LinkRange, LinkTarget, Markdown, Span, Span as MarkdownSpan, TableAlign};
+pub use markdown::{last_block_runs, markdown, markdown_fences, markdown_selected_text, markdown_span_selected_text, message_select_all, message_selected_text, parse_markdown, parsed_markdown, span_runs, Block, Block as MarkdownBlock, LinkHandler, LinkRange, LinkTarget, Markdown, MarkdownFence, Span, Span as MarkdownSpan, TableAlign};
 pub use selectable::{selectable_text, MessageSelection, SelectableText, SelectionEndpoint, SelectionHandler, SelectionKey, SpanEvent, SpanHandler, SpanSession, TextSelection};
 pub use marker::{marker_row, HandOff, MarkerRow};
 pub use turns::{assistant_turn, footer_items, format_age, turn_selected_text, turn_span_selected_text, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction, COPY_HOLD};

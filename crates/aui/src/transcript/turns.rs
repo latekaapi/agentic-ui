@@ -15,7 +15,7 @@ use std::rc::Rc;
 use std::sync::{LazyLock, Mutex};
 
 use crate::transcript::{caret_top_in_line, caret_visible, ProseStyle, CARET_H, CARET_MARGIN_LEFT, CARET_W};
-use crate::transcript::{LinkTarget, MessageSelection, SelectionHandler, SpanEvent, SpanHandler, TextSelection, last_block_runs, markdown, markdown_selected_text, message_selected_text, LinkHandler};
+use crate::transcript::{LinkTarget, MessageSelection, SelectionHandler, SpanEvent, SpanHandler, TextSelection, last_block_runs, markdown, markdown_selected_text, message_selected_text, CodeBlockAction, CodeBlockHostButton, LinkHandler};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, icon_content_button, ButtonSize};
@@ -138,6 +138,7 @@ fn copy_morph(turn_id: &ElementId, copied: bool, p: &Palette, window: &mut Windo
 
 type UserHandler = std::rc::Rc<dyn Fn(UserTurnAction, &mut Window, &mut App)>;
 type AssistantHandler = std::rc::Rc<dyn Fn(AssistantTurnAction, &mut Window, &mut App)>;
+type CodeHandler = std::rc::Rc<dyn Fn(CodeBlockAction, &mut Window, &mut App)>;
 
 /// The person's turn. Build with [`user_turn`].
 #[derive(IntoElement)]
@@ -155,12 +156,14 @@ pub struct UserTurn {
     on_selection_change: Option<SelectionHandler>,
     span: Option<MessageSelection>,
     on_span: Option<SpanHandler>,
+    fence_buttons: Vec<(usize, CodeBlockHostButton)>,
+    on_code_action: Option<CodeHandler>,
 }
 
 /// A user turn; `markdown` may carry mentions as inline code (`` `@src/checkout` ``),
 /// which render as mention chips.
 pub fn user_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> UserTurn {
-    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), age: None, copied: false, actions: UserTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None, span: None, on_span: None }
+    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), age: None, copied: false, actions: UserTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None, span: None, on_span: None, fence_buttons: Vec::new(), on_code_action: None }
 }
 
 impl UserTurn {
@@ -252,6 +255,29 @@ impl UserTurn {
     /// wires this instead of [`on_selection_change`](Self::on_selection_change).
     pub fn on_span_event(mut self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_span = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Puts the host's button on fence `index` of the turn's markdown body;
+    /// passed straight through to the inner `markdown(...)`. See
+    /// [`Markdown::fence_action`](super::Markdown::fence_action).
+    pub fn fence_action(mut self, index: usize, button: CodeBlockHostButton) -> Self {
+        if let Some(slot) = self.fence_buttons.iter_mut().rfind(|(i, _)| *i == index) {
+            *slot = (index, button);
+        } else {
+            self.fence_buttons.push((index, button));
+        }
+        self
+    }
+
+    /// Code-block intents from the turn's markdown fences, passed straight
+    /// through to the inner `markdown(...)`. See
+    /// [`Markdown::on_code_action`](super::Markdown::on_code_action).
+    pub fn on_code_action(
+        mut self,
+        f: impl Fn(CodeBlockAction, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_code_action = Some(std::rc::Rc::new(f));
         self
     }
 }
@@ -386,6 +412,12 @@ impl RenderOnce for UserTurn {
                     if let Some(on_link) = self.on_link.clone() {
                         body = body.on_link(move |target, window, cx| on_link(target, window, cx));
                     }
+                    for (index, button) in &self.fence_buttons {
+                        body = body.fence_action(*index, button.clone());
+                    }
+                    if let Some(on_code) = self.on_code_action.clone() {
+                        body = body.on_code_action(move |action, window, cx| on_code(action, window, cx));
+                    }
                     body = body.selection(self.selection.as_ref());
                     if let Some(on_change) = self.on_selection_change.clone() {
                         body = body.on_selection_change(move |next, window, cx| on_change(next, window, cx));
@@ -449,11 +481,13 @@ pub struct AssistantTurn {
     on_selection_change: Option<SelectionHandler>,
     span: Option<MessageSelection>,
     on_span: Option<SpanHandler>,
+    fence_buttons: Vec<(usize, CodeBlockHostButton)>,
+    on_code_action: Option<CodeHandler>,
 }
 
 /// An assistant turn rendering `markdown`.
 pub fn assistant_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> AssistantTurn {
-    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, footer: Vec::new(), copied: false, actions: AssistantTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None, span: None, on_span: None }
+    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, footer: Vec::new(), copied: false, actions: AssistantTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None, span: None, on_span: None, fence_buttons: Vec::new(), on_code_action: None }
 }
 
 impl AssistantTurn {
@@ -566,6 +600,29 @@ impl AssistantTurn {
     /// wires this instead of [`on_selection_change`](Self::on_selection_change).
     pub fn on_span_event(mut self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_span = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Puts the host's button on fence `index` of the turn's markdown body;
+    /// passed straight through to the inner `markdown(...)`. See
+    /// [`Markdown::fence_action`](super::Markdown::fence_action).
+    pub fn fence_action(mut self, index: usize, button: CodeBlockHostButton) -> Self {
+        if let Some(slot) = self.fence_buttons.iter_mut().rfind(|(i, _)| *i == index) {
+            *slot = (index, button);
+        } else {
+            self.fence_buttons.push((index, button));
+        }
+        self
+    }
+
+    /// Code-block intents from the turn's markdown fences, passed straight
+    /// through to the inner `markdown(...)`. See
+    /// [`Markdown::on_code_action`](super::Markdown::on_code_action).
+    pub fn on_code_action(
+        mut self,
+        f: impl Fn(CodeBlockAction, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_code_action = Some(std::rc::Rc::new(f));
         self
     }
 }
@@ -794,6 +851,12 @@ impl RenderOnce for AssistantTurn {
                     if let Some(on_link) = self.on_link.clone() {
                         body = body.on_link(move |target, window, cx| on_link(target, window, cx));
                     }
+                    for (index, button) in &self.fence_buttons {
+                        body = body.fence_action(*index, button.clone());
+                    }
+                    if let Some(on_code) = self.on_code_action.clone() {
+                        body = body.on_code_action(move |action, window, cx| on_code(action, window, cx));
+                    }
                     body = body.selection(self.selection.as_ref());
                     if let Some(on_change) = self.on_selection_change.clone() {
                         body = body.on_selection_change(move |next, window, cx| on_change(next, window, cx));
@@ -881,6 +944,26 @@ mod tests {
         ]);
         assert!(!turn.actions.contains(&AssistantTurnAction::Pin));
         assert_eq!(turn.actions.len(), 3);
+    }
+
+    #[test]
+    fn turns_forward_fence_buttons_to_their_markdown() {
+        use crate::transcript::CodeBlockHostButton;
+        use aui_icons::IconName;
+        let button = CodeBlockHostButton::new("Press", IconName::Copy);
+        let assistant = assistant_turn("t", "```sh\necho hi\n```\n").fence_action(0, button.clone());
+        assert_eq!(assistant.fence_buttons.len(), 1);
+        assert_eq!(assistant.fence_buttons[0].0, 0);
+        assert!(assistant.on_code_action.is_none());
+        let assistant = assistant.on_code_action(|_, _, _| {});
+        assert!(assistant.on_code_action.is_some());
+        let user = user_turn("t", "hi").fence_action(2, button);
+        assert_eq!(user.fence_buttons.len(), 1);
+        assert_eq!(user.fence_buttons[0].0, 2);
+        assert!(user.on_code_action.is_none());
+        // Nothing registered by default, so fences render as before.
+        assert!(assistant_turn("t", "hi").fence_buttons.is_empty());
+        assert!(user_turn("t", "hi").fence_buttons.is_empty());
     }
 
     #[test]
