@@ -348,6 +348,11 @@ _aui_osc133_preexec() {
     # but bytes under C, hence the `LC_ALL` below.
     local _aui_raw="$BASH_COMMAND" _aui_cmd _aui_enc _aui_hist
     local HISTTIMEFORMAT=
+    # Byte semantics for the cap below — and remembered, so the user's own
+    # chained DEBUG trap runs in THEIR locale rather than ours (a hook
+    # measuring `${#s}` would otherwise count bytes where it means
+    # characters).
+    local _aui_lc_set=${LC_ALL+x} _aui_lc_val=${LC_ALL-}
     local LC_ALL=C
     _aui_hist=$(history 1 2>/dev/null || true)
     if [ -n "$_aui_hist" ]; then
@@ -357,25 +362,49 @@ _aui_osc133_preexec() {
       case "$_aui_histno" in
         ''|*[!0-9]*) _aui_histno="";;
       esac
-      [ -n "$_aui_histno" ] && _AUI_LAST_HISTNO="$_aui_histno"
       while [[ "$_aui_trimmed" == [0-9]* ]]; do _aui_trimmed=${_aui_trimmed#?}; done
       while [[ "$_aui_trimmed" == [[:space:]]* ]]; do _aui_trimmed=${_aui_trimmed#?}; done
-      # The history index alone cannot tell "the user repeated a command"
-      # from "history is frozen and this line is someone else's": under
-      # `HISTCONTROL=ignoredups`/`ignoreboth` a repeat legitimately leaves
-      # the index unadvanced, while `set +o history`, a `HISTIGNORE` match
-      # or a leading space under `ignorespace` all leave the previous line
-      # behind. So the history line is trusted only when it contains the
-      # `$BASH_COMMAND` fragment — the simple command bash is entering must
-      # appear in the typed line (a repeat keeps its full line this way,
-      # while an unrelated stale entry still falls back to the fragment).
-      # The quoted expansion stays literal, so glob characters in the
-      # fragment cannot over-match.
+      # Two questions, in order, because they have different answers.
+      #
+      # Did history record THIS command? If the index advanced, yes, and the
+      # line is the text as typed — take it. This is the common case and it
+      # must not be second-guessed: `$BASH_COMMAND` is bash's own
+      # reconstruction of an ALIAS-EXPANDED simple command, so testing the
+      # typed line against it fails wherever the user has an alias (Ubuntu's
+      # stock `.bashrc` aliases `ls`, `grep`, `ll`) and loses both the
+      # pipeline and the typed spacing: `ls / | head -1` becomes
+      # `ls --color=auto /`.
+      #
+      # If the index did NOT advance, history did not record this command
+      # and the line belongs to some earlier one. That happens for a repeat
+      # under `HISTCONTROL=ignoredups`, where the stale line IS this
+      # command, and for `set +o history`, a `HISTIGNORE` match or a leading
+      # space under `ignorespace`, where it is somebody else. Only here is
+      # the `$BASH_COMMAND` fragment worth consulting: if the old line
+      # contains it, treat it as that same command repeated; otherwise keep
+      # the fragment, because a stale-but-plausible title is worse than a
+      # short one. The quoted expansion stays literal, so glob characters in
+      # the fragment cannot over-match.
       if [ -n "$_aui_trimmed" ]; then
-        case "$_aui_trimmed" in
-          *"$BASH_COMMAND"*) _aui_raw="$_aui_trimmed";;
-        esac
+        if [ -n "$_aui_histno" ] && [ "$_aui_histno" != "${_AUI_LAST_HISTNO-}" ]; then
+          _aui_raw="$_aui_trimmed"
+        else
+          # The index did not move, so this line is an older command. It is
+          # THIS command only if it is a repeat — and a repeat's first simple
+          # command is exactly the fragment bash is entering. Comparing
+          # against the whole line instead would accept any line that merely
+          # contains the fragment: with `HISTIGNORE=ls`, typing `ls` after
+          # `ls -la /tmp | wc -l` would be titled with the older, longer
+          # line. Splitting at the first `|`, `;` or `&` and comparing
+          # exactly keeps the repeat and rejects that.
+          local _aui_first=${_aui_trimmed%%[|;&]*}
+          while [[ "$_aui_first" == *[[:space:]] ]]; do _aui_first=${_aui_first%?}; done
+          if [ "$_aui_first" = "$BASH_COMMAND" ]; then
+            _aui_raw="$_aui_trimmed"
+          fi
+        fi
       fi
+      [ -n "$_aui_histno" ] && _AUI_LAST_HISTNO="$_aui_histno"
     fi
     _aui_raw=${_aui_raw:0:4096}
     if command -v base64 >/dev/null 2>&1; then
@@ -388,7 +417,7 @@ _aui_osc133_preexec() {
       _aui_enc=raw
     fi
     printf '\033]133;C;k=__AUI_NONCE__;cmd=%s;enc=%s\007' "$_aui_cmd" "$_aui_enc"
-    unset _aui_raw _aui_cmd _aui_enc _aui_hist _aui_trimmed _aui_histno
+    unset _aui_raw _aui_cmd _aui_enc _aui_hist _aui_trimmed _aui_histno _aui_first
   fi
   # Chain the user's own DEBUG trap, if they had one: ours first, theirs
   # after. Guarded against re-entry while it runs, since its own commands
@@ -400,6 +429,9 @@ _aui_osc133_preexec() {
   # do not rely on `$_` inside a chained DEBUG trap.
   if [ -n "${_AUI_USER_DEBUG_TRAP-}" ] && [ -z "${_AUI_IN_PREEXEC-}" ]; then
     _AUI_IN_PREEXEC=1
+    # Their locale, not the byte-wise one the cap above needs: a hook that
+    # measures `${#s}` means characters, and would count bytes under ours.
+    if [ -n "${_aui_lc_set-}" ]; then LC_ALL="${_aui_lc_val-}"; else unset LC_ALL; fi
     _="$_aui_cmd_arg"
     (exit "$_aui_status")
     eval "${_AUI_USER_DEBUG_TRAP}"
@@ -2252,6 +2284,66 @@ mod tests {
     /// A user `PROMPT_COMMAND` ending in `;` (plus trailing whitespace)
     /// still gets markers: the join strips that tail first, so there is no
     /// `syntax error near ;;` and no silent loss of every marker. Ignored:
+    /// D12 (and its regression): the block's command is the line the user
+    /// TYPED, even when their shell aliases it.
+    ///
+    /// An earlier fix trusted `history 1` only when the line contained
+    /// `$BASH_COMMAND`. But `$BASH_COMMAND` is bash's reconstruction of the
+    /// ALIAS-EXPANDED simple command, and Ubuntu's stock `.bashrc` aliases
+    /// `ls`, `grep` and `ll` — so `ls / | head -1` came out as
+    /// `ls --color=auto /`, on every invocation, losing both the alias the
+    /// user typed and the pipeline after it. The history index decides
+    /// first now; containment only arbitrates a line the index says is old.
+    ///
+    /// Remove the index branch and this reports `ls --color=auto /`.
+    #[test]
+    #[ignore = "drives a real bash"]
+    fn a_real_bash_keeps_the_typed_line_when_the_shell_aliases_it() {
+        let bash = "/bin/bash";
+        if !Path::new(bash).exists() {
+            eprintln!("skipped: no {bash}");
+            return;
+        }
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let home = std::env::temp_dir().join(format!(
+            "aui-l3-bashalias-{}-{stamp}-{}",
+            std::process::id(),
+            scratch_counter(),
+        ));
+        std::fs::create_dir_all(&home).expect("home dir");
+        // The three aliases Ubuntu ships by default.
+        std::fs::write(
+            home.join(".bashrc"),
+            "alias ls='ls --color=auto'\nalias ll='ls -alF'\nalias grep='grep --color=auto'\n",
+        )
+        .expect("user file");
+        let dir = Pty::write_bash_rc("bashalias01").expect("the rcfile writes");
+        let out = run_bash_with_stdin(
+            &home,
+            &dir.path().join(BASH_RC_NAME),
+            "ls / | head -1\nll / | head -1\n",
+        );
+        let blocks = live_blocks(out.as_bytes(), "bashalias01");
+        assert!(
+            blocks.iter().any(|b| b.command == "ls / | head -1"),
+            "the typed line survives the `ls` alias, not the expansion: {:?}",
+            blocks.iter().map(|b| &b.command).collect::<Vec<_>>()
+        );
+        assert!(
+            blocks.iter().any(|b| b.command == "ll / | head -1"),
+            "and the `ll` alias too: {:?}",
+            blocks.iter().map(|b| &b.command).collect::<Vec<_>>()
+        );
+        assert!(
+            !blocks.iter().any(|b| b.command.contains("--color=auto")),
+            "no block reports the alias expansion: {:?}",
+            blocks.iter().map(|b| &b.command).collect::<Vec<_>>()
+        );
+    }
+
     /// it needs a real bash.
     #[test]
     #[ignore]
@@ -2432,17 +2524,26 @@ mod tests {
     }
 
     /// D12: under `HISTCONTROL=ignoredups`/`ignoreboth` (Ubuntu's default)
-    /// a repeated command keeps its FULL line. The `history 1` line is
-    /// accepted when it contains the `$BASH_COMMAND` fragment — a repeat's
-    /// full line always does — and only an unrelated stale entry falls back
-    /// to the fragment. Fails against the old template, whose index-only
-    /// check keeps the fragment (`ls /`, `cd /tmp`) on every repeat.
+    /// a repeated command keeps its FULL line.
+    ///
+    /// A repeat leaves the history index unadvanced, so the line is decided
+    /// by comparing the stale entry's FIRST SIMPLE COMMAND against the
+    /// fragment bash is entering: a repeat matches exactly, an unrelated
+    /// entry does not and falls back to the fragment. An earlier version
+    /// tested whether the line merely CONTAINED the fragment, which also
+    /// accepted a longer older line whenever the new command was a
+    /// substring of it — `ls` after `ls -la /tmp | wc -l` under
+    /// `HISTIGNORE=ls` was titled with the older line.
     #[test]
     fn a_repeated_command_under_ignoredups_keeps_its_full_line() {
         let body = bash_integration("dupsnonce12");
         assert!(
-            body.contains("*\"$BASH_COMMAND\"*"),
-            "the history line must agree with the fragment bash is entering:\n{body}"
+            body.contains("_aui_first=${_aui_trimmed%%[|;&]*}"),
+            "a stale line is judged by its first simple command:\n{body}"
+        );
+        assert!(
+            body.contains("[ \"$_aui_first\" = \"$BASH_COMMAND\" ]"),
+            "and compared to the fragment exactly, not by containment:\n{body}"
         );
         let bash = "/bin/bash";
         if !Path::new(bash).exists() {
