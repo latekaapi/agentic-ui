@@ -1465,7 +1465,7 @@ Workbench: the block terminal, terminal tabs and dock, and TUI pane, browser wit
   - `pub fn sources_card(id: impl Into<ElementId>, tiers: Vec<SourceTier>) -> SourcesCard`
 - **fn** `terminal_dock` — The dock frame: `header` (usually `terminal_tabs`) seated on the left of the header cell, and the terminal `body` below — or the centred empty state when `body` is `None`. [...]
   - `pub fn terminal_dock(id: impl Into<ElementId>, header: impl IntoElement, body: Option<impl IntoElement>) -> TerminalDock`
-- **fn** `terminal_tabs` — A strip over `tabs` with `active` selected. The strip takes the free width of its row and scrolls horizontally; it never wraps. [...]
+- **fn** `terminal_tabs` — A strip over `tabs` with `active` selected. It looks and moves like the shell strip (`crate::shell::tab_strip`): same tab anatomy, same 2 px ink indicator sliding under the active tab on the swap spring, and tabs keep their natural width — a strip short of room clips at its edge. [...]
   - `pub fn terminal_tabs(id: impl Into<ElementId>, tabs: Vec<TermTab>, active: usize) -> TerminalTabs`
 - **fn** `tui_pane` — A pane over the TUI’s `lines` (ANSI escapes allowed; bold via SGR 1).
   - `pub fn tui_pane(id: impl Into<ElementId>, lines: Vec<String>) -> TuiPane`
