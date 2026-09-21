@@ -35,9 +35,16 @@ use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Processor, R
 use crate::backend::{TermEvent, TerminalBackend};
 use crate::keys::KeyModes;
 use crate::marks::{
-    assemble_blocks, Block, BlockAuthor, Mark, MarkScanner, ScanSegment, TextCursor,
+    assemble_blocks, Block, BlockAuthor, BlockStatus, Mark, MarkScanner, ScanSegment, TextCursor,
+    block_status_token,
 };
 use crate::parser::{finished_label, live_label};
+
+/// Shell-command highlighting for the block chrome, kept in its own file
+/// but owned here: the overlay is the only consumer, so the module lives
+/// under the grid rather than beside it. The grid's own rows never call it.
+#[path = "syntax.rs"]
+pub mod syntax;
 
 /// Lines of scrollback behind the visible screen (decision D44).
 const SCROLLBACK: usize = 10_000;
@@ -719,6 +726,7 @@ impl TerminalSession {
                         col,
                         glyph,
                         label,
+                        command: block.command.clone(),
                         author: block.author,
                         running: block.running(),
                         failed,
@@ -1341,6 +1349,10 @@ struct BlockChrome {
     glyph: &'static str,
     /// Exit code and duration, via the parser's shared labels.
     label: String,
+    /// The block's command text as the overlay renders it: the `C` payload
+    /// when the emitter sent one, else the grid scrape. Highlighted with
+    /// [`syntax::command_runs`] — never the grid's own rows.
+    command: String,
     /// Who started the block.
     author: BlockAuthor,
     /// Whether the block is still running.
@@ -2137,13 +2149,17 @@ fn block_chrome_el(
 ) -> impl gpui::IntoElement {
     use aui_tokens::scale;
     use gpui::{div, prelude::*, px};
-    let status = if chrome.running {
-        palette.accent
+    // The header earns its colour from state, resolved through the token
+    // palette so both themes read: running is in-progress, failed is a
+    // failure, succeeded stays quiet.
+    let kind = if chrome.running {
+        BlockStatus::Running
     } else if chrome.failed {
-        palette.danger
+        BlockStatus::Failed
     } else {
-        palette.success
+        BlockStatus::Succeeded
     };
+    let status = palette.color(block_status_token(kind)).unwrap_or(palette.ink_2);
     let index = chrome.index;
     // One ghost action button raising its intent with the block index.
     let action = |name: &'static str, label: &'static str, intent: TerminalGridIntent| {
@@ -2179,8 +2195,24 @@ fn block_chrome_el(
         // D43's `M` mark, rendered by the host's choice of author label.
         meta = meta.child(div().ml(px(scale::SP_1)).text_color(palette.ink_3).child("M"));
     }
-    let mut inner =
-        div().flex().flex_row().items_center().child(gutter).child(meta).child(div().flex_1());
+    let mut inner = div().flex().flex_row().items_center().child(gutter).child(meta);
+    // The chrome only: the block's own command text, highlighted. The
+    // grid's rows are untouched — program output renders from its SGR alone.
+    if !chrome.command.is_empty() {
+        inner = inner.child(
+            div()
+                .ml(px(scale::SP_1))
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .mono(scale::FS_11)
+                .text_color(palette.ink)
+                .child(
+                    gpui::StyledText::new(chrome.command.clone())
+                        .with_runs(syntax::command_runs(&chrome.command, palette)),
+                ),
+        );
+    }
+    inner = inner.child(div().flex_1());
     // No opt-in, no action row at all: not even an empty container.
     let buttons = chrome_action_buttons(show_actions, index);
     if !buttons.is_empty() {
@@ -2952,6 +2984,52 @@ mod tests {
     fn urls_are_detected() {
         assert_eq!(find_urls("see https://example.com/a (ok)"), vec![(4, 25)]);
         assert_eq!(find_urls("no links here"), Vec::new());
+    }
+
+    /// V2: the chrome carries the command text the `C` marker reports, so
+    /// the overlay renders the payload — not a scrape, not nothing.
+    #[test]
+    fn chrome_carries_the_reported_command_text() {
+        let h = live_session("v2chrome", 80, 6);
+        let mut bytes = Vec::new();
+        bytes.extend(marker_bytes(&h.nonce, "A"));
+        bytes.extend(b"prompt$ ");
+        bytes.extend(marker_bytes(&h.nonce, "B"));
+        bytes.extend(b"echo hi\r\n");
+        bytes.extend(
+            format!("\x1b]133;C;cmd=echo \"hi\" $HOME;enc=raw;k={}\x07", h.nonce).into_bytes(),
+        );
+        h.feed(&bytes);
+        let blocks = h.session.blocks();
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].running(), "no D arrived yet");
+        assert_eq!(blocks[0].command, "echo \"hi\" $HOME");
+        let chrome = h.session.overlay_chrome();
+        assert_eq!(chrome.len(), 1, "{chrome:?}");
+        assert_eq!(chrome[0].command, "echo \"hi\" $HOME", "chrome: {chrome:?}");
+        assert!(chrome[0].running);
+        // The overlay's runs highlight that text without touching the grid.
+        let runs = syntax::command_runs(&chrome[0].command, &dark());
+        assert_eq!(runs.iter().map(|r| r.len).sum::<usize>(), chrome[0].command.len());
+    }
+
+    /// V2: the grid's own row rendering is unchanged — a row of program
+    /// output with its own SGR renders from that SGR alone, even when its
+    /// text looks like a shell command the chrome would highlight.
+    #[test]
+    fn program_output_rows_render_from_sgr_alone() {
+        let session = pumped(vec![b"\x1b[31mgit \"hi\"\x1b[0m"], 20, 5);
+        let palette = dark();
+        let row = &session.snapshot(&palette).rows[0];
+        assert!(row.text.starts_with("git \"hi\""), "row: {:?}", row.text);
+        assert_eq!(row.runs[0].color, palette.ansi_red, "runs: {:?}", row.runs);
+        // The chrome highlighter would read `git` as a command in accent —
+        // the grid row must not.
+        assert_ne!(
+            row.runs[0].color,
+            syntax::role_color(syntax::SyntaxRole::Command, &palette)
+        );
+        assert_eq!(row.runs.iter().map(|r| r.len).sum::<usize>(), row.text.len());
     }
 
     /// A `Send` replay backend: [`FakePty`](crate::fake::FakePty) owns a

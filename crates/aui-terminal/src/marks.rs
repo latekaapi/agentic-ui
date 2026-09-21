@@ -179,6 +179,40 @@ impl Block {
     }
 }
 
+/// The state a block header reports: running reads as in-progress, failed
+/// as a failure, succeeded quietly. Earned from state, never decoration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockStatus {
+    /// The block is still running: no `D` has arrived.
+    Running,
+    /// The block finished with a non-zero exit status.
+    Failed,
+    /// The block finished with a zero exit status.
+    Succeeded,
+}
+
+/// The header state of `block` (see [`BlockStatus`]).
+pub fn block_status(block: &Block) -> BlockStatus {
+    if block.running() {
+        BlockStatus::Running
+    } else if block.exit.is_some_and(|exit| exit != 0) {
+        BlockStatus::Failed
+    } else {
+        BlockStatus::Succeeded
+    }
+}
+
+/// The existing token name a header state resolves to: running is the
+/// in-progress accent, failed is danger, succeeded is a quiet success.
+/// Every name is a member of the palette in both themes.
+pub fn block_status_token(status: BlockStatus) -> &'static str {
+    match status {
+        BlockStatus::Running => "accent",
+        BlockStatus::Failed => "danger",
+        BlockStatus::Succeeded => "success",
+    }
+}
+
 /// A resumable read position for the session's `range_text`.
 ///
 /// The anchor is the last absolute grid line already delivered; `range_text`
@@ -1122,5 +1156,42 @@ mod tests {
         let second = feed(&mut s, b"9hvim");
         assert_eq!(switches_in(&second), vec![b"\x1b[?1049h".to_vec()]);
         assert_eq!([round_trip(&first), round_trip(&second)].concat(), b"cmd\x1b[?1049hvim");
+    }
+
+    /// The block header earns its colour from state, not decoration: a
+    /// running block reads as in-progress, a failed one as a failure, a
+    /// succeeded one quietly — each resolved to an existing token in both
+    /// themes.
+    #[test]
+    fn header_status_comes_from_state_not_decoration() {
+        fn block(exit: Option<i32>, ended: bool) -> Block {
+            Block {
+                prompt: (0, 0),
+                command_line: (0, 0),
+                output: (0, 0),
+                end: 0,
+                exit,
+                command: String::new(),
+                started: Instant::now(),
+                ended: ended.then(Instant::now),
+                author: BlockAuthor::Human,
+                id: 0,
+            }
+        }
+        assert_eq!(block_status(&block(None, false)), BlockStatus::Running);
+        assert_eq!(block_status(&block(Some(1), true)), BlockStatus::Failed);
+        assert_eq!(block_status(&block(Some(0), true)), BlockStatus::Succeeded);
+        assert_eq!(block_status_token(BlockStatus::Running), "accent");
+        assert_eq!(block_status_token(BlockStatus::Failed), "danger");
+        assert_eq!(block_status_token(BlockStatus::Succeeded), "success");
+        for status in [BlockStatus::Running, BlockStatus::Failed, BlockStatus::Succeeded] {
+            let token = block_status_token(status);
+            for palette in [
+                aui_tokens::Palette::for_kind(aui_tokens::ThemeKind::Dark),
+                aui_tokens::Palette::for_kind(aui_tokens::ThemeKind::Light),
+            ] {
+                assert!(palette.color(token).is_some(), "{token:?} missing from a theme");
+            }
+        }
     }
 }
