@@ -10,7 +10,7 @@ use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{glyph_err, glyph_ok, spinner};
 use crate::nav::chevron;
-use crate::transcript::{tool_card, transcript_card, ToolCardIntent};
+use crate::transcript::{tool_card, transcript_card, ToolCardAction, ToolCardIntent};
 
 /// Collapsed preview rows before the `+k more` row (the image3 idiom: two
 /// rows, then the overflow count).
@@ -73,6 +73,7 @@ pub struct ToolGroup {
     group: ToolGroupData,
     open: bool,
     calls_open: Vec<bool>,
+    card_actions: Vec<Vec<ToolCardAction>>,
     on_intent: Option<IntentHandler>,
 }
 
@@ -84,7 +85,8 @@ pub struct ToolGroup {
 /// the clone the card itself needs (finding `library-hotpaths-8`).
 pub fn tool_group(id: impl Into<ElementId>, group: &ToolGroupData, open: bool) -> ToolGroup {
     let calls_open = vec![true; group.calls.len()];
-    ToolGroup { id: id.into(), group: group.clone(), open, calls_open, on_intent: None }
+    let card_actions = vec![Vec::new(); group.calls.len()];
+    ToolGroup { id: id.into(), group: group.clone(), open, calls_open, card_actions, on_intent: None }
 }
 
 impl ToolGroup {
@@ -92,6 +94,28 @@ impl ToolGroup {
     pub fn call_open(mut self, index: usize, open: bool) -> Self {
         if let Some(slot) = self.calls_open.get_mut(index) {
             *slot = open;
+        }
+        self
+    }
+
+    /// Trailing header actions on one call's inner card, drawn exactly as a
+    /// lone [`tool_card`]'s: after the duration, in the order given. A press
+    /// reports [`ToolGroupIntent::Call`] with the call's index and
+    /// [`ToolCardIntent::Action`]'s action index, so the host can tell card
+    /// 2's action 0 from card 3's action 0. Calls with no actions render
+    /// exactly as before.
+    pub fn card_actions(mut self, index: usize, actions: Vec<ToolCardAction>) -> Self {
+        if let Some(slot) = self.card_actions.get_mut(index) {
+            *slot = actions;
+        }
+        self
+    }
+
+    /// One trailing header action on one call's inner card after any already
+    /// set. See [`Self::card_actions`].
+    pub fn card_action(mut self, index: usize, action: ToolCardAction) -> Self {
+        if let Some(slot) = self.card_actions.get_mut(index) {
+            slot.push(action);
         }
         self
     }
@@ -144,6 +168,10 @@ impl RenderOnce for ToolGroup {
             let mut list = v_flex().w_full().gap(px(OPEN_GAP)).p(px(OPEN_PAD));
             for (index, call) in self.group.calls.iter().enumerate() {
                 let call_open = self.calls_open.get(index).copied().unwrap_or(true);
+                // No actions registered and the inner card builds exactly as
+                // before; otherwise the actions ride the lone card's own
+                // slot, reported under this call's index.
+                let actions = self.card_actions.get(index).cloned().unwrap_or_default();
                 let handler = self.on_intent.clone();
                 list = list.child(
                     tool_card(
@@ -155,6 +183,7 @@ impl RenderOnce for ToolGroup {
                     )
                     .duration_ms(call.duration_ms)
                     .open(call_open)
+                    .actions(actions)
                     .on_intent(move |intent, w, cx| {
                         if let Some(h) = &handler {
                             h(ToolGroupIntent::Call { index, intent }, w, cx);
@@ -262,5 +291,50 @@ mod tests {
         let back = block.as_tool_call().expect("tool call");
         assert_eq!(back, call("tc1"));
         assert!(Block::text("hi").as_tool_call().is_none());
+    }
+
+    fn grouped(calls: usize) -> ToolGroupData {
+        ToolGroupData {
+            calls: (0..calls).map(|n| call(&format!("c{n}"))).collect(),
+            summary: "Ran things".into(),
+            state: ActivityState::Done,
+        }
+    }
+
+    #[test]
+    fn grouped_cards_tell_their_actions_apart() {
+        let group = tool_group("g", &grouped(3), true)
+            .card_action(1, ToolCardAction::new("retry", "Retry"))
+            .card_action(2, ToolCardAction::new("retry", "Retry"));
+        assert!(group.card_actions[0].is_empty());
+        assert_eq!(group.card_actions[1].len(), 1);
+        assert_eq!(group.card_actions[2].len(), 1);
+        // The intent names both the card and the action: card 1's action 0
+        // is a different press from card 2's action 0.
+        let first = ToolGroupIntent::Call {
+            index: 1,
+            intent: ToolCardIntent::Action(0),
+        };
+        let second = ToolGroupIntent::Call {
+            index: 2,
+            intent: ToolCardIntent::Action(0),
+        };
+        assert_ne!(first, second);
+        assert!(matches!(
+            first,
+            ToolGroupIntent::Call {
+                index: 1,
+                intent: ToolCardIntent::Action(0),
+            }
+        ));
+    }
+
+    #[test]
+    fn a_group_with_no_card_actions_stays_empty() {
+        // Nothing registered: every inner card builds exactly as before.
+        let group = tool_group("g", &grouped(2), true);
+        assert!(group.card_actions.iter().all(|actions| actions.is_empty()));
+        let group = tool_group("g", &grouped(2), true).card_actions(5, vec![]);
+        assert!(group.card_actions.iter().all(|actions| actions.is_empty()));
     }
 }

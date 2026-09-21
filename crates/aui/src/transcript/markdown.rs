@@ -46,7 +46,7 @@ use gpui::{
 use gpui_kit::base::{h_flex, v_flex};
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd};
 
-use super::code::code_block;
+use super::code::{CodeBlockAction, CodeBlockHostButton, code_block};
 use super::memo::Memo;
 use super::selectable::{
     clamp_range, selectable_text, MessageSelection, SelectableText, SelectionEndpoint, SelectionHandler,
@@ -938,6 +938,52 @@ pub(super) fn parsed_blocks(source: &str) -> Arc<Vec<Block>> {
     PARSED.get_or_insert("", source, parse_markdown)
 }
 
+/// One fenced code block in a markdown source, in document order.
+///
+/// `index` numbers every fenced or indented code block from 0 in the order
+/// the renderer paints them — quoted fences included — while tables, lists
+/// and inline code never take a number. It is the same index
+/// [`Markdown::fence_action`] takes and [`CodeBlockAction::HostAction`]
+/// reports, so both sides mean the same fence; see [`markdown_fences`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkdownFence {
+    /// The fence's number in document order, from 0.
+    pub index: usize,
+    /// The fence info string's first word, if any.
+    pub language: Option<String>,
+    /// The code without the trailing newline the parser includes.
+    pub code: String,
+}
+
+/// Lists `source`'s fenced code blocks in document order for
+/// [`Markdown::fence_action`]: the host reads the fence it cares about here
+/// and hands its button back with the listed index. Memoised through the same
+/// parse the renderer paints, so the list cannot disagree with what is shown.
+pub fn markdown_fences(source: &str) -> Vec<MarkdownFence> {
+    let mut out = Vec::new();
+    collect_fences(&parsed_blocks(source), &mut out);
+    out
+}
+
+/// Pushes one [`MarkdownFence`] per code block in render order, recursing
+/// into quotes exactly like [`render_block`], so the indices match the
+/// `host_action` indices the renderer assigns.
+fn collect_fences(blocks: &[Block], out: &mut Vec<MarkdownFence>) {
+    for block in blocks {
+        match block {
+            Block::CodeBlock { lang, text } => {
+                out.push(MarkdownFence {
+                    index: out.len(),
+                    language: lang.clone(),
+                    code: text.clone(),
+                });
+            }
+            Block::Quote(inner) => collect_fences(inner, out),
+            _ => {}
+        }
+    }
+}
+
 /// The UI face, built once. `font(name)` is cheap but not free, and the run
 /// builders below call it twice per text block per frame; a `Font` is a
 /// handle (`SharedString` family plus feature and fallback lists), so cloning
@@ -1101,6 +1147,28 @@ struct SelCtx {
     color: Hsla,
     prefix: String,
     span: Option<SpanCtx>,
+}
+
+/// Code-block intents arriving from fences: [`CodeBlockAction`], including
+/// [`HostAction`](CodeBlockAction::HostAction) presses from fence buttons.
+type FenceCodeHandler = Rc<dyn Fn(CodeBlockAction, &mut Window, &mut App)>;
+
+/// Host actions on fenced code blocks, threaded through block rendering
+/// alongside [`SelCtx`]: the buttons by fence index, and the handler that
+/// receives the fences' [`CodeBlockAction`]s. Empty by default, in which case
+/// every fence renders exactly as before.
+#[derive(Clone, Default)]
+struct FenceCtx {
+    /// `(fence index, button)` pairs in the order [`Markdown::fence_action`]
+    /// received them; a repeated index resolves to its latest button.
+    buttons: Rc<Vec<(usize, CodeBlockHostButton)>>,
+    /// The handler for fence code actions, if the host set one.
+    on_action: Option<FenceCodeHandler>,
+    /// The next fence number: incremented for every code block in render
+    /// order, so the renderer assigns the same indices [`collect_fences`]
+    /// reports. Mutable, hence the `&mut` threading through the block
+    /// renderer.
+    next: usize,
 }
 
 /// Cross-cell selection state threaded through block rendering alongside
@@ -1328,11 +1396,12 @@ fn render_blocks(
     style: &ProseStyle,
     palette: &aui_tokens::Palette,
     sel: &SelCtx,
+    fence: &mut FenceCtx,
 ) -> Vec<gpui::AnyElement> {
     let mut out = Vec::new();
     let count = blocks.len();
     for (index, block) in blocks.iter().enumerate() {
-        let child = render_block(id, index, block, style, palette, sel);
+        let child = render_block(id, index, block, style, palette, sel, fence);
         if index + 1 == count {
             out.push(child);
         } else {
@@ -1355,6 +1424,7 @@ fn render_block(
     style: &ProseStyle,
     palette: &aui_tokens::Palette,
     sel: &SelCtx,
+    fence: &mut FenceCtx,
 ) -> gpui::AnyElement {
     match block {
         Block::Paragraph(spans) => inline_element(
@@ -1432,6 +1502,25 @@ fn render_block(
                 code_block(block_id(id, index, "code"), "code", text.clone());
             if let Some(lang) = lang {
                 fenced = fenced.language(lang.clone());
+            }
+            // The counter numbers every code block in render order, so this
+            // index is the one `markdown_fences` reports for the same fence:
+            // tables, lists and inline code never touch it. With no button
+            // registered the fence builds exactly as before.
+            let fence_index = fence.next;
+            fence.next += 1;
+            if let Some(button) = fence
+                .buttons
+                .iter()
+                .rfind(|(i, _)| *i == fence_index)
+                .map(|(_, button)| button.clone())
+            {
+                fenced = fenced.host_action(fence_index, button);
+            }
+            if let Some(on_code) = &fence.on_action {
+                let on_code = on_code.clone();
+                fenced =
+                    fenced.on_action(move |action, window, cx| on_code(action, window, cx));
             }
             // Fences select like every other cell: the block's lines share
             // one key with byte offsets over the whole block text.
@@ -1540,7 +1629,7 @@ fn render_block(
                 .border_l_1()
                 .border_color(palette.line)
                 .pl(px(QUOTE_INDENT))
-                .children(render_blocks(&nested, inner, &dimmed, palette, &quoted))
+                .children(render_blocks(&nested, inner, &dimmed, palette, &quoted, fence))
                 .into_any_element()
         }
         Block::Rule => div()
@@ -1595,6 +1684,8 @@ pub struct Markdown {
     on_selection_change: Option<SelectionHandler>,
     span: Option<MessageSelection>,
     on_span: Option<SpanHandler>,
+    fence_buttons: Vec<(usize, CodeBlockHostButton)>,
+    on_code_action: Option<FenceCodeHandler>,
 }
 
 /// Renders `source` as markdown blocks in `style`.
@@ -1612,6 +1703,8 @@ pub fn markdown(
         on_selection_change: None,
         span: None,
         on_span: None,
+        fence_buttons: Vec::new(),
+        on_code_action: None,
     }
 }
 
@@ -1660,6 +1753,31 @@ impl Markdown {
     /// wires this instead of [`on_selection_change`](Self::on_selection_change).
     pub fn on_span_event(mut self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_span = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Puts the host's button on fence `index` — the fence's number in
+    /// document order from 0, as [`markdown_fences`] lists them — after the
+    /// fence's Copy control. Which fences get a button is the host's call;
+    /// the library only offers the slot. A repeated index keeps its latest
+    /// button. Fences with no button render exactly as before.
+    pub fn fence_action(mut self, index: usize, button: CodeBlockHostButton) -> Self {
+        if let Some(slot) = self.fence_buttons.iter_mut().rfind(|(i, _)| *i == index) {
+            *slot = (index, button);
+        } else {
+            self.fence_buttons.push((index, button));
+        }
+        self
+    }
+
+    /// Code-block intents from the fences: pressing a fence button emits
+    /// [`CodeBlockAction::HostAction`] with the fence's index, language and
+    /// code, so the host can tell which fence was pressed and act on it.
+    pub fn on_code_action(
+        mut self,
+        f: impl Fn(CodeBlockAction, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_code_action = Some(Rc::new(f));
         self
     }
 
@@ -2065,13 +2183,25 @@ impl RenderOnce for Markdown {
             prefix: String::new(),
             span,
         };
+        let mut fence = FenceCtx {
+            buttons: Rc::new(self.fence_buttons.clone()),
+            on_action: self.on_code_action.clone(),
+            next: 0,
+        };
         v_flex()
             .id(self.id.clone())
             .w_full()
             .ui(self.style.size)
             .line_height(relative(self.style.line_height))
             .text_color(self.style.ink)
-            .children(render_blocks(&self.id, &blocks, &self.style, &palette, &sel))
+            .children(render_blocks(
+                &self.id,
+                &blocks,
+                &self.style,
+                &palette,
+                &sel,
+                &mut fence,
+            ))
     }
 }
 
@@ -2500,5 +2630,65 @@ mod tests {
         assert!(last_block_runs("intro\n\n- one", &style, gpui::red()).is_none());
         assert!(last_block_runs("- one\n- two", &style, gpui::red()).is_none());
         assert!(last_block_runs("```rs\nlet x = 1;\n", &style, gpui::red()).is_none());
+    }
+
+    #[test]
+    fn the_second_fence_reports_its_own_language_and_code() {
+        let source = "First:\n\n```sh\necho one\n```\n\nSecond:\n\n```python\nprint('two')\n```\n\nThird:\n\n```\nplain three\n```\n";
+        let fences = markdown_fences(source);
+        assert_eq!(fences.len(), 3);
+        assert_eq!(
+            fences[1],
+            MarkdownFence {
+                index: 1,
+                language: Some("python".to_string()),
+                code: "print('two')".to_string(),
+            }
+        );
+        // The press intent the renderer builds for fence 1 carries that same
+        // fence's language and code, so the host knows which fence was hit.
+        let pressed = CodeBlockAction::HostAction {
+            index: fences[1].index,
+            language: fences[1].language.clone().map(SharedString::from),
+            code: SharedString::from(fences[1].code.clone()),
+        };
+        let CodeBlockAction::HostAction {
+            index,
+            language,
+            code,
+        } = pressed
+        else {
+            panic!("expected a host action");
+        };
+        assert_eq!(index, 1);
+        assert_eq!(language.map(|l| l.to_string()).as_deref(), Some("python"));
+        assert_eq!(code.to_string(), "print('two')");
+        assert_ne!(index, fences[0].index);
+        assert_ne!(index, fences[2].index);
+    }
+
+    #[test]
+    fn tables_lists_and_inline_code_do_not_shift_fence_indices() {
+        let source = "| a |\n| - |\n| 1 |\n\n- item one\n- item two\n\nUse `inline` here.\n\n```rs\nlet first = 1;\n```\n\n1. ordered\n2. items\n\n```sh\necho second\n```\n";
+        let fences = markdown_fences(source);
+        assert_eq!(fences.len(), 2);
+        assert_eq!(fences[0].index, 0);
+        assert_eq!(fences[0].language.as_deref(), Some("rs"));
+        assert!(fences[0].code.contains("let first = 1;"));
+        assert_eq!(fences[1].index, 1);
+        assert_eq!(fences[1].language.as_deref(), Some("sh"));
+        assert!(fences[1].code.contains("echo second"));
+    }
+
+    #[test]
+    fn a_fence_with_no_button_carries_none() {
+        // No fence action registered: the view holds no buttons and no code
+        // handler, so every fence builds exactly as before.
+        let view = markdown("fence-default", "```sh\necho hi\n```\n", style());
+        assert!(view.fence_buttons.is_empty());
+        assert!(view.on_code_action.is_none());
+        let view = view.fence_action(1, CodeBlockHostButton::new("Press", IconName::Copy));
+        assert_eq!(view.fence_buttons.len(), 1);
+        assert!(view.fence_buttons.iter().all(|(i, _)| *i != 0));
     }
 }
