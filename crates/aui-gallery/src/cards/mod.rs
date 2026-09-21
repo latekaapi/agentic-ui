@@ -19,6 +19,7 @@ pub mod files_docs;
 pub mod folder_drop;
 pub mod git_pr;
 pub mod gutter;
+pub mod host_actions;
 pub mod icons;
 pub mod login;
 pub mod markdown;
@@ -37,6 +38,9 @@ pub mod sidebar;
 pub mod sidebar_virtual;
 pub mod summary_status;
 pub mod terminal;
+#[cfg(feature = "tui")]
+pub mod terminal_blocks;
+pub mod terminal_dock_card;
 pub mod terminal_live;
 pub mod thinking;
 pub mod tool_cards;
