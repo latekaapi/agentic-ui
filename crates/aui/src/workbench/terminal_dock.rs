@@ -188,8 +188,15 @@ impl RenderOnce for TerminalTabs {
                         .into_any_element(),
                 )
             }
+            // No target, no animation (D16): an empty strip, or an
+            // out-of-range `active` selecting nothing, has nothing to slide
+            // toward, so asking for a frame here redraws the strip forever.
+            // A strip with tabs still gets its measuring frame while the
+            // geometry is missing; the springs drive every frame after that.
             None => {
-                window.request_animation_frame();
+                if self.tabs.get(active).is_some() {
+                    window.request_animation_frame();
+                }
                 None
             }
         };
@@ -439,5 +446,91 @@ impl RenderOnce for TerminalDock {
         }
 
         v_flex().id(id).size_full().min_h(px(0.0)).bg(p.surface_1).child(top).child(header).child(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    use gpui::TestAppContext;
+
+    /// Clock time allowed for the strip to settle before its frames are
+    /// counted: comfortably longer than the slowest tween and spring.
+    const SETTLE: Duration = Duration::from_millis(1000);
+    /// Clock time each settling draw advances by (one 60 Hz frame).
+    const FRAME: Duration = Duration::from_millis(16);
+    /// Draws taken while counting.
+    const COUNTED_DRAWS: usize = 30;
+
+    type Build = dyn Fn(&mut Window, &mut gpui::App) -> AnyElement;
+    struct IdleHost {
+        build: Rc<Build>,
+    }
+
+    impl gpui::Render for IdleHost {
+        fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            (self.build.clone())(window, cx)
+        }
+    }
+
+    /// Draws `build` inside a real view until it has settled, then counts
+    /// the frames it keeps requesting over [`COUNTED_DRAWS`] further draws.
+    fn frames_at_rest(
+        cx: &mut TestAppContext,
+        label: &str,
+        build: impl Fn(&mut Window, &mut gpui::App) -> AnyElement + 'static,
+    ) -> usize {
+        cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+        let (host, cx) = cx.add_window_view(|_, _| IdleHost { build: Rc::new(build) });
+        let redraw = |cx: &mut gpui::VisualTestContext| {
+            host.update(cx, |_, cx| cx.notify());
+            cx.run_until_parked();
+        };
+        for _ in 0..(SETTLE.as_millis() / FRAME.as_millis()) as usize {
+            redraw(cx);
+            cx.update(|window, app| window.simulate_next_frame(app));
+            cx.executor().advance_clock(FRAME);
+        }
+        let mut frames = 0;
+        for _ in 0..COUNTED_DRAWS {
+            redraw(cx);
+            frames += cx.update(|window, app| window.simulate_next_frame(app));
+            cx.executor().advance_clock(FRAME);
+        }
+        println!("IDLE {label} frames={frames} over {COUNTED_DRAWS} draws");
+        frames
+    }
+
+    /// D16: a settled two-tab strip requests no frames.
+    #[gpui::test]
+    fn terminal_tabs_with_two_tabs_settle(cx: &mut TestAppContext) {
+        let frames = frames_at_rest(cx, "terminal-tabs/2", |_, _| {
+            terminal_tabs("tabs", vec![TermTab::new("a", "zsh"), TermTab::new("b", "bash")], 0)
+                .into_any_element()
+        });
+        assert_eq!(frames, 0, "a settled two-tab strip kept requesting frames");
+    }
+
+    /// D16: an empty strip (a project with no terminal tab) requests no
+    /// frames. Without the fix the indicator's unguarded frame request
+    /// redraws it forever.
+    #[gpui::test]
+    fn terminal_tabs_with_no_tabs_settle(cx: &mut TestAppContext) {
+        let frames = frames_at_rest(cx, "terminal-tabs/0", |_, _| {
+            terminal_tabs("tabs", Vec::new(), 0).into_any_element()
+        });
+        assert_eq!(frames, 0, "an empty strip kept requesting frames");
+    }
+
+    /// D16: a strip with an out-of-range `active` requests no frames.
+    /// Without the fix the missing target still asks for a frame per draw.
+    #[gpui::test]
+    fn terminal_tabs_with_out_of_range_active_settle(cx: &mut TestAppContext) {
+        let frames = frames_at_rest(cx, "terminal-tabs/oor", |_, _| {
+            terminal_tabs("tabs", vec![TermTab::new("a", "zsh")], 5).into_any_element()
+        });
+        assert_eq!(frames, 0, "a strip with an out-of-range active kept requesting frames");
     }
 }

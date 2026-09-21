@@ -135,9 +135,17 @@ pub struct SessionEventProxy {
     shared: Arc<Shared>,
 }
 
+/// Marks the grid dirty and invalidates the snapshot cache (D20): every path
+/// that can change what [`TerminalSession::snapshot`] reads goes through
+/// here, so a cached snapshot is never stale.
+fn mark_dirty(shared: &Arc<Shared>) {
+    shared.dirty.store(true, Ordering::Release);
+    shared.snap_gen.fetch_add(1, Ordering::Release);
+}
+
 impl EventListener for SessionEventProxy {
     fn send_event(&self, event: Event) {
-        self.shared.dirty.store(true, Ordering::Release);
+        mark_dirty(&self.shared);
         let side = match event {
             Event::Title(title) => SideEvent::Title(title),
             Event::ResetTitle => SideEvent::ResetTitle,
@@ -157,6 +165,33 @@ impl EventListener for SessionEventProxy {
     }
 }
 
+/// What the program last said about cursor blinking (D19). Alacritty's own
+/// `cursor_style` collapses "never touched" and "steady block" into one
+/// `blinking: false`, so the session mirrors the byte stream itself: only an
+/// explicit steady shape (a DECSCUSR steady variant, or mode 12 off) counts
+/// as steady. Anything else — including the untouched default — blinks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum CursorBlink {
+    /// Never touched, or reset (DECSCUSR 0, RIS): blinks, like a terminal.
+    #[default]
+    Default,
+    /// DECSCUSR blinking variant, or mode 12 on.
+    Blink,
+    /// DECSCUSR steady variant, or mode 12 off.
+    Steady,
+}
+
+/// The cursor-blink mirror over the fed bytes, plus the carry for sequences
+/// split across backend chunks (see [`note_cursor_sequences`]).
+#[derive(Debug, Default)]
+struct CursorScan {
+    /// The program's last word on blinking.
+    mode: CursorBlink,
+    /// Tail of the previous feed, so a sequence straddling two chunks still
+    /// parses as one.
+    tail: Vec<u8>,
+}
+
 /// State shared between the session, its reader thread and its event proxy.
 #[derive(Debug, Default)]
 struct Shared {
@@ -170,6 +205,10 @@ struct Shared {
     refused_clipboard: AtomicUsize,
     /// Set when the grid changed since the last frame.
     dirty: AtomicBool,
+    /// Bumped alongside every `dirty` store and every other snapshot input
+    /// (selection, scroll, resize, hover, marked text): the snapshot cache's
+    /// invalidation generation (D20).
+    snap_gen: AtomicU64,
     /// Current grid size, for text-area-size answers.
     size: Mutex<(u16, u16)>,
     /// Tells the reader thread to stop.
@@ -253,6 +292,8 @@ struct MarkState {
     /// scrollback, so no eviction accounting runs at all; on exit the
     /// snapshot is dropped and accounting resumes from the live grid.
     alt_saved_history: Mutex<Option<usize>>,
+    /// The cursor-blink mirror over the fed bytes (D19).
+    cursor: Mutex<CursorScan>,
 }
 
 /// A terminal session: one emulator fed by one backend.
@@ -295,6 +336,15 @@ pub struct TerminalSession {
     metrics: Mutex<Option<CellMetrics>>,
     /// Nonce-checked marks and the blocks over them (decisions D44/D45).
     mark_state: Arc<MarkState>,
+    /// The element's focus handle, minted once and held across renders (D15).
+    /// A fresh handle per render can never be focused and drops window focus
+    /// when its refcount hits zero; the host may override it per element
+    /// with [`TerminalGrid::focus_handle`].
+    focus: Mutex<Option<gpui::FocusHandle>>,
+    /// The last snapshot and the generation that built it, by palette (D20).
+    /// A blinking cursor repaints every frame while only its own phase
+    /// changes; the cache makes those frames cost the cursor, not the grid.
+    snap_cache: Mutex<Option<(u64, aui_tokens::Palette, std::sync::Arc<GridSnapshot>)>>,
 }
 
 /// The measured geometry of one mono cell.
@@ -340,7 +390,10 @@ impl TerminalSession {
                 evicted: AtomicI64::new(0),
                 desync: AtomicU64::new(0),
                 alt_saved_history: Mutex::new(None),
+                cursor: Mutex::new(CursorScan::default()),
             }),
+            focus: Mutex::new(None),
+            snap_cache: Mutex::new(None),
         }
     }
 
@@ -380,7 +433,7 @@ impl TerminalSession {
             while !shared.stop.load(Ordering::Acquire) {
                 let had_output = cycle(&inner, &backend, &side_rx, &shared, &mark_state);
                 if had_output {
-                    shared.dirty.store(true, Ordering::Release);
+                    mark_dirty(&shared);
                 }
                 std::thread::sleep(POLL_INTERVAL);
             }
@@ -423,7 +476,7 @@ impl TerminalSession {
         let had_output =
             cycle(&self.inner, &self.backend, &self.side_rx, &self.shared, &self.mark_state);
         if had_output {
-            self.shared.dirty.store(true, Ordering::Release);
+            mark_dirty(&self.shared);
         }
         had_output
     }
@@ -432,6 +485,43 @@ impl TerminalSession {
     /// call. The poll timer uses this shape; tests assert on it directly.
     pub fn take_dirty(&self) -> bool {
         self.shared.dirty.swap(false, Ordering::AcqRel)
+    }
+
+    /// The element's focus handle (D15): the cached handle, minting and
+    /// holding one on first use so every render tracks the same handle. A
+    /// host with its own handle passes it per element with
+    /// [`TerminalGrid::focus_handle`] instead.
+    pub fn focus_handle(&self, cx: &gpui::App) -> gpui::FocusHandle {
+        if let Some(handle) = self.focus.lock().unwrap().clone() {
+            return handle;
+        }
+        let handle = cx.focus_handle();
+        *self.focus.lock().unwrap() = Some(handle.clone());
+        handle
+    }
+
+    /// Invalidates the snapshot cache without touching the repaint flag:
+    /// selection, scroll, resize, hover and marked text change what the
+    /// snapshot reads but set no dirty flag of their own (D20).
+    fn bump_snapshot(&self) {
+        self.shared.snap_gen.fetch_add(1, Ordering::Release);
+    }
+
+    /// The cached snapshot for `palette` (D20): rebuilt only when the
+    /// generation moved or the palette changed, so blink frames share one
+    /// grid instead of rebuilding it at refresh rate.
+    fn snapshot_cached(&self, palette: &aui_tokens::Palette) -> std::sync::Arc<GridSnapshot> {
+        let gen = self.shared.snap_gen.load(Ordering::Acquire);
+        if let Some((cached_gen, cached_palette, cached)) =
+            self.snap_cache.lock().unwrap().clone()
+        {
+            if cached_gen == gen && cached_palette == *palette {
+                return cached;
+            }
+        }
+        let fresh = std::sync::Arc::new(self.snapshot(palette));
+        *self.snap_cache.lock().unwrap() = Some((gen, *palette, fresh.clone()));
+        fresh
     }
 
     /// Spawns `shell` in `cwd` on the backend.
@@ -475,6 +565,7 @@ impl TerminalSession {
         self.inner.lock().term.resize(TermSize::new(cols as usize, rows as usize));
         self.backend.lock().unwrap().resize(cols, rows);
         self.mark_state.stale.store(true, Ordering::Release);
+        self.bump_snapshot();
     }
 
     /// The last measured size in character cells.
@@ -487,11 +578,13 @@ impl TerminalSession {
     pub fn scroll_lines(&self, lines: isize) {
         let delta = lines.clamp(i32::MIN as isize, i32::MAX as isize) as i32;
         self.inner.lock().term.scroll_display(Scroll::Delta(delta));
+        self.bump_snapshot();
     }
 
     /// Returns the viewport to the live tail.
     pub fn scroll_to_bottom(&self) {
         self.inner.lock().term.scroll_display(Scroll::Bottom);
+        self.bump_snapshot();
     }
 
     /// Whether the viewport sits at the live tail.
@@ -544,6 +637,7 @@ impl TerminalSession {
     /// Clears the selection, if any.
     pub fn select_clear(&self) {
         self.inner.lock().term.selection = None;
+        self.bump_snapshot();
     }
 
     /// The selected text, if the selection is non-empty.
@@ -721,27 +815,69 @@ impl TerminalSession {
                     };
                     // Right-aligned at the trailing edge: the strip is
                     // exactly its own text width, against the grid's right
-                    // inset (the element right-anchors it inside the padded
+                    // inset (the element shrink-wraps it inside the padded
                     // text area) — never mid-sentence after the prompt. One
                     // blank cell of separation from the row's own text, or no
                     // chrome at all: a hidden status beats an unreadable one,
                     // and a full row always hides.
                     let used = anchor_used_cols(term, Line(row - offset), cols).min(cols);
-                    let col = cols.saturating_sub(chrome_cells(glyph, &label, &block.command));
-                    if used + 1 > col {
+                    let author = block.author;
+                    let col =
+                        cols.saturating_sub(chrome_cells(glyph, &label, &block.command, author));
+                    if used < col {
+                        return Some(BlockChrome {
+                            index,
+                            row: row as usize,
+                            col,
+                            glyph,
+                            label,
+                            command: block.command.clone(),
+                            author,
+                            running: block.running(),
+                            failed,
+                        });
+                    }
+                    // Tight: a failure must stay visible (D18), so the strip
+                    // degrades instead of hiding — the command text goes
+                    // first, then the duration, keeping the status glyph and
+                    // the exit code, which is the part that matters. Running
+                    // and succeeded blocks keep the V3 rule and hide: only a
+                    // finished failure degrades here.
+                    if !failed {
                         return None;
                     }
-                    Some(BlockChrome {
-                        index,
-                        row: row as usize,
-                        col,
-                        glyph,
-                        label,
-                        command: block.command.clone(),
-                        author: block.author,
-                        running: block.running(),
-                        failed,
-                    })
+                    let bare = chrome_cells(glyph, &label, "", author);
+                    if used < cols.saturating_sub(bare) {
+                        return Some(BlockChrome {
+                            index,
+                            row: row as usize,
+                            col: cols.saturating_sub(bare),
+                            glyph,
+                            label,
+                            command: String::new(),
+                            author,
+                            running: block.running(),
+                            failed,
+                        });
+                    }
+                    if let Some(exit) = block.exit {
+                        let status = format!("exit {exit}");
+                        let minimal = chrome_cells(glyph, &status, "", author);
+                        if used < cols.saturating_sub(minimal) {
+                            return Some(BlockChrome {
+                                index,
+                                row: row as usize,
+                                col: cols.saturating_sub(minimal),
+                                glyph,
+                                label: status,
+                                command: String::new(),
+                                author,
+                                running: block.running(),
+                                failed,
+                            });
+                        }
+                    }
+                    None
                 })
                 .collect()
         })
@@ -770,7 +906,11 @@ impl TerminalSession {
     /// read, via the `&TerminalSession` it is handed.
     fn with_term_mut<R>(&self, f: impl FnOnce(&Self, &mut Term<SessionEventProxy>) -> R) -> R {
         let mut guard = self.inner.lock();
-        f(self, &mut guard.term)
+        let out = f(self, &mut guard.term);
+        // The only callers are the selection setters: the selection is a
+        // snapshot input with no dirty flag of its own (D20).
+        self.bump_snapshot();
+        out
     }
 
     /// The key modes the encoder needs: DECCKM and keypad state.
@@ -843,7 +983,7 @@ fn cycle(
             TermEvent::Exit(code) => {
                 *shared.exit.lock().unwrap() = Some(code);
                 shared.pending.lock().unwrap().push(SessionEvent::Exited(code));
-                shared.dirty.store(true, Ordering::Release);
+                mark_dirty(shared);
             }
         }
     }
@@ -858,6 +998,8 @@ fn cycle(
 /// for the marker's own bytes, so the line is the shell's line. Afterwards
 /// the blocks are reassembled.
 fn feed_with_marks(faced: &mut Inner, bytes: &[u8], state: &MarkState) {
+    // The cursor mirror sees the same bytes the emulator is about to advance.
+    note_cursor_sequences(state, bytes);
     let segments = state.scanner.lock().unwrap().split_feed(bytes);
     if segments.is_empty() {
         return;
@@ -893,6 +1035,116 @@ fn feed_with_marks(faced: &mut Inner, bytes: &[u8], state: &MarkState) {
         }
     }
     rebuild_blocks(&faced.term, state);
+}
+
+/// Bytes of CSI carry kept between feeds: any cursor sequence is far shorter,
+/// so a sequence split across two backend chunks still parses as one.
+const CURSOR_CARRY: usize = 64;
+
+/// Mirrors the cursor-affecting control sequences in `bytes` into the
+/// session's blink state (D19): DECSCUSR (`CSI Ps SP q`), mode 12
+/// (`CSI ? … 12 h/l`) and RIS (`ESC c`, back to the blinking default). Runs
+/// on the same bytes the emulator advances, so the mirror agrees with the
+/// term's explicit-steady bit — the one thing `Term::cursor_style` cannot
+/// report, since an explicit steady block reads exactly like the default.
+fn note_cursor_sequences(state: &MarkState, bytes: &[u8]) {
+    let mut scan = state.cursor.lock().unwrap();
+    // The carry plus this feed, so a split sequence still parses as one.
+    let mut window = std::mem::take(&mut scan.tail);
+    window.extend_from_slice(bytes);
+    let mut i = 0;
+    while i < window.len() {
+        if window[i] != 0x1b {
+            i += 1;
+            continue;
+        }
+        let Some(&next) = window.get(i + 1) else {
+            break; // Split ESC: carry it.
+        };
+        if next == b'c' {
+            // RIS: alacritty's full reset clears the cursor style.
+            scan.mode = CursorBlink::Default;
+            i += 2;
+            continue;
+        }
+        if next != b'[' {
+            // Any other two-byte escape: skip both.
+            i += 2;
+            continue;
+        }
+        // A CSI: one private marker, params, intermediates, then the final.
+        let mut j = i + 2;
+        let mut private = None;
+        if let Some(&b) = window.get(j) {
+            if matches!(b, b'<' | b'=' | b'>' | b'?') {
+                private = Some(b);
+                j += 1;
+            }
+        }
+        let params_start = j;
+        while let Some(&b) = window.get(j) {
+            if (0x30..=0x3f).contains(&b) {
+                j += 1;
+            } else {
+                break;
+            }
+        }
+        let params_end = j;
+        let intermediates_start = j;
+        while let Some(&b) = window.get(j) {
+            if (0x20..=0x2f).contains(&b) {
+                j += 1;
+            } else {
+                break;
+            }
+        }
+        let Some(&final_byte) = window.get(j) else {
+            break; // Split mid-sequence: carry from the ESC.
+        };
+        if !(0x40..=0x7e).contains(&final_byte) {
+            i += 2; // Not a CSI after all: rescan inside.
+            continue;
+        }
+        let params = &window[params_start..params_end];
+        let intermediates = &window[intermediates_start..j];
+        if final_byte == b'q' && private.is_none() && intermediates == *b" " {
+            // DECSCUSR: 0 resets to the default, odd blinks, even steadies.
+            scan.mode = match first_param(params) {
+                0 => CursorBlink::Default,
+                ps if ps % 2 == 1 => CursorBlink::Blink,
+                _ => CursorBlink::Steady,
+            };
+        } else if private == Some(b'?') && (final_byte == b'h' || final_byte == b'l') {
+            // Mode 12 anywhere in a ?-list: set blinks, reset steadies.
+            if params_contain(params, 12) {
+                scan.mode =
+                    if final_byte == b'h' { CursorBlink::Blink } else { CursorBlink::Steady };
+            }
+        }
+        i = j + 1;
+    }
+    // Carry the tail for the next feed.
+    let keep = CURSOR_CARRY.min(window.len());
+    scan.tail = window[window.len() - keep..].to_vec();
+}
+
+/// The first CSI param value, saturating; missing or empty reads 0, the way
+/// the emulator's own defaulting does.
+fn first_param(params: &[u8]) -> u32 {
+    params
+        .iter()
+        .take_while(|b| b.is_ascii_digit())
+        .fold(0u32, |acc, b| acc.saturating_mul(10).saturating_add(u32::from(b - b'0')))
+}
+
+/// Whether a `;`-separated CSI param list holds `want` as a whole number
+/// (subparams after `:` do not count).
+fn params_contain(params: &[u8], want: u32) -> bool {
+    params.split(|b| *b == b';').any(|segment| {
+        let digits: Vec<u8> =
+            segment.iter().take_while(|b| b.is_ascii_digit()).copied().collect();
+        !digits.is_empty() && first_param(&digits) == want
+    })
 }
 
 /// Slice length for one counted advance, from the live row count so a resize
@@ -1254,13 +1506,13 @@ fn drain_side(
                 backend.lock().unwrap().write(answer.as_bytes());
             }
             SideEvent::Dirty => {
-                shared.dirty.store(true, Ordering::Release);
+                mark_dirty(shared);
             }
             SideEvent::ChildExit(code) => {
                 let code = code.unwrap_or(-1);
                 *shared.exit.lock().unwrap() = Some(code);
                 shared.pending.lock().unwrap().push(SessionEvent::Exited(code));
-                shared.dirty.store(true, Ordering::Release);
+                mark_dirty(shared);
             }
         }
     }
@@ -1338,6 +1590,10 @@ struct CursorCell {
     /// or mode 12 (`Term::cursor_style`). `CursorBlinkingChange` already
     /// marks the session dirty, so this is fresh on every snapshot.
     blinking: bool,
+    /// The program explicitly asked for a steady cursor: a DECSCUSR steady
+    /// variant or mode 12 off (see [`note_cursor_sequences`]). The default —
+    /// never touched — is NOT steady: a terminal cursor blinks by default.
+    steady: bool,
     /// The cursor sits on a two-cell (wide) character: the drawn block spans
     /// two cells so it covers the glyph instead of its first half.
     wide: bool,
@@ -1356,7 +1612,9 @@ struct BlockChrome {
     /// grid's right inset instead of mid-sentence after the prompt. The
     /// overlay returns no entry when the row's text reaches within one cell
     /// of this column; a hidden status beats an unreadable one, and a full
-    /// row always hides.
+    /// row always hides. A finished failure degrades instead of hiding
+    /// (D18): the shown command or label may be shortened, and `col` follows
+    /// the shown text.
     col: usize,
     /// Gutter status glyph: running, failed or done.
     glyph: &'static str,
@@ -1513,6 +1771,10 @@ impl TerminalSession {
             for (row_ix, cells) in rows.iter().enumerate() {
                 out.push(render_row(cells, selected(row_ix), palette, &ansi, hover, row_ix));
             }
+            // The explicit-steady mirror (D19): steady only when the program
+            // said so and the term agrees it is not blinking.
+            let steady = self.mark_state.cursor.lock().unwrap().mode == CursorBlink::Steady
+                && !term.cursor_style().blinking;
             let cursor = match content.cursor.shape {
                 CursorShape::Hidden => None,
                 shape => {
@@ -1526,6 +1788,7 @@ impl TerminalSession {
                             col,
                             shape,
                             blinking: term.cursor_style().blinking,
+                            steady,
                             wide: is_wide_lead(term, content.cursor.point.line, col, cols),
                         })
                     }
@@ -1565,20 +1828,24 @@ impl TerminalSession {
     }
 
     /// Maps a window position onto a screen cell, if the probe measured one.
+    /// Positions in the grid's side padding clamp to the nearest column
+    /// (D21): a selection dragged past the text area keeps extending instead
+    /// of stopping at the padding edge.
     fn cell_at(&self, position: gpui::Point<gpui::Pixels>) -> Option<(usize, usize)> {
         let bounds = (*self.bounds.lock().unwrap())?;
         let metrics = (*self.metrics.lock().unwrap())?;
-        if !bounds.contains(&position) {
+        if metrics.advance <= 0.0 || metrics.line_height <= 0.0 {
+            return None;
+        }
+        let (cols, rows) = self.cells();
+        if cols == 0 || rows == 0 {
             return None;
         }
         let x = f32::from(position.x - bounds.origin.x);
         let y = f32::from(position.y - bounds.origin.y);
-        if x < 0.0 || y < 0.0 || metrics.advance <= 0.0 || metrics.line_height <= 0.0 {
-            return None;
-        }
-        let (cols, rows) = self.cells();
-        let col = ((x / metrics.advance).floor() as usize).min(cols.saturating_sub(1) as usize);
-        let row = ((y / metrics.line_height).floor() as usize).min(rows.saturating_sub(1) as usize);
+        let col = (x / metrics.advance).floor().clamp(0.0, f32::from(cols - 1)) as usize;
+        let row =
+            (y / metrics.line_height).floor().clamp(0.0, f32::from(rows - 1)) as usize;
         Some((col, row))
     }
 }
@@ -1844,7 +2111,8 @@ type IntentHandler = Rc<dyn Fn(TerminalGridIntent, &mut gpui::Window, &mut gpui:
 ///
 /// Paints in four layers, in order: row background rects, batched
 /// same-style text runs, the cursor (block, bar or underline per DECSCUSR,
-/// hollow when unfocused, blinking when the program asked), and the overlay:
+/// hollow when unfocused, blinking unless the program asked for steady), and
+/// the overlay:
 /// per-block chrome (status glyph, exit code and duration, author mark) plus
 /// the jump-to-latest affordance while detached. The text area is inset by
 /// [`GRID_PAD_X`] on both sides, and the chrome strip starts clear of the
@@ -1856,12 +2124,19 @@ pub struct TerminalGrid {
     option_as_meta: bool,
     show_actions: bool,
     on_intent: Option<IntentHandler>,
+    focus: Option<gpui::FocusHandle>,
 }
 
 /// The terminal grid fed by `session` (held in a gpui `Entity` the host
 /// owns). State lives in the session; this component only renders.
 pub fn terminal_grid(session: &gpui::Entity<TerminalSession>) -> TerminalGrid {
-    TerminalGrid { session: session.clone(), option_as_meta: false, show_actions: false, on_intent: None }
+    TerminalGrid {
+        session: session.clone(),
+        option_as_meta: false,
+        show_actions: false,
+        on_intent: None,
+        focus: None,
+    }
 }
 
 impl TerminalGrid {
@@ -1889,6 +2164,17 @@ impl TerminalGrid {
         self.on_intent = Some(Rc::new(f));
         self
     }
+
+    /// The focus handle the grid tracks, focuses on click and tests for its
+    /// cursor blink (D15): the host's own handle — the dock already owns one
+    /// for the pane. Without it the grid falls back to one cached handle per
+    /// session, so every render still tracks the same handle. Never mint one
+    /// per render: a fresh handle can never be focused, and its refcount
+    /// hitting zero drops the window's keyboard focus a frame later.
+    pub fn focus_handle(mut self, handle: gpui::FocusHandle) -> Self {
+        self.focus = Some(handle);
+        self
+    }
 }
 
 impl gpui::RenderOnce for TerminalGrid {
@@ -1908,8 +2194,14 @@ impl gpui::RenderOnce for TerminalGrid {
         let advance =
             text_system.ch_advance(font_id, px(TERM_PX)).map(f32::from).unwrap_or(0.0);
         let line_height = TERM_PX * TERM_LH;
-        let snapshot = self.session.read(cx).snapshot(&palette);
-        let focus = cx.focus_handle();
+        // The cached grid (D20): blink frames share it instead of rebuilding
+        // the whole snapshot at refresh rate.
+        let snapshot = self.session.read(cx).snapshot_cached(&palette);
+        // The element's own handle (D15): the host's when told, else the one
+        // cached handle per session — never a fresh handle per render, which
+        // could never be focused and dropped window focus a frame later.
+        let focus =
+            self.focus.clone().unwrap_or_else(|| self.session.read(cx).focus_handle(cx));
         let focused = focus.is_focused(window);
         let option_as_meta = self.option_as_meta;
         let on_intent = self.on_intent.clone();
@@ -1949,22 +2241,26 @@ impl gpui::RenderOnce for TerminalGrid {
             self.session.entity_id().as_u64() as usize,
         );
         // Layer 3: the cursor — block, bar or underline per DECSCUSR —
-        // drawn hollow when the element is not focused. It blinks only when
-        // focused and the program asked for blinking; a steady or unfocused
-        // cursor never touches the motion clock, so it subscribes to no
-        // frames and forces no repaint on any phase.
+        // drawn hollow when the element is not focused. It blinks when
+        // focused unless the program explicitly asked for a steady shape
+        // (D19); a steady or unfocused cursor never touches the motion
+        // clock, so it subscribes to no frames and forces no repaint.
         let mut cursor_el = div();
         if let Some(cursor) = snapshot.cursor {
-            let on = if cursor.blinking && focused {
+            let want_blink = focused && cursor_blinks(&cursor);
+            // Under reduced motion `looping` holds its resting phase without
+            // subscribing; `blink_visible` still forces the cursor on (D19).
+            let phase = if want_blink {
                 looping(
                     (grid_id.clone(), "cursor-blink"),
-                    Loop::linear(aui_tokens::scale::D_SLOW * 4).resting(1.0),
+                    Loop::linear(aui_tokens::scale::D_SLOW * 4).resting(0.0),
                     window,
                     cx,
-                ) < 0.5
+                )
             } else {
-                true
+                0.0
             };
+            let on = blink_visible(want_blink, cx.reduce_motion(), phase);
             let (x, y, w, h) = cursor_rect(&cursor, advance, line_height);
             cursor_el = match cursor.shape {
                 // A hollow block is already the unfocused look: always an
@@ -2108,8 +2404,12 @@ impl gpui::RenderOnce for TerminalGrid {
                     session.update(cx, |session, cx| {
                         let cell = session.cell_at(event.position);
                         // ⌘-hover tracks the link cell for underlining.
-                        *session.hover.lock().unwrap() =
-                            if event.modifiers.platform { cell } else { None };
+                        let hovered = if event.modifiers.platform { cell } else { None };
+                        if *session.hover.lock().unwrap() != hovered {
+                            *session.hover.lock().unwrap() = hovered;
+                            // Hover underlines are a snapshot input (D20).
+                            session.bump_snapshot();
+                        }
                         if session.dragging.load(Ordering::Acquire) {
                             if let Some((col, row)) = cell {
                                 if session.mouse_report() != MouseReport::Local
@@ -2149,10 +2449,11 @@ impl gpui::RenderOnce for TerminalGrid {
 /// One block's overlay strip at its anchor row: status glyph, exit code and
 /// duration, author mark, then the action row — but only when the host opted
 /// in (see [`TerminalGrid::show_actions`]) — raising [`TerminalGridIntent`]s.
-/// The strip is right-aligned at the row's trailing edge, against the grid's
-/// right inset; the overlay hides the block instead of drawing when the
-/// row's text reaches the strip, so it never covers the row's own text.
-/// Overflow goes through [`popover_layer`](aui::overlay::popover_layer),
+/// The strip starts at the anchor column and shrink-wraps its content, so the
+/// whole strip stays visible against the grid's right inset instead of
+/// running off it (D17); the session hides the strip — or degrades a
+/// failure — when the row's text reaches it, so it never covers the row's
+/// own text. Overflow goes through [`popover_layer`](aui::overlay::popover_layer),
 /// like the jump affordance.
 fn block_chrome_el(
     chrome: &BlockChrome,
@@ -2244,12 +2545,14 @@ fn block_chrome_el(
         }
         inner = inner.child(actions);
     }
+    // Shrink-wrapped (D17): the box is exactly the strip's real rendered
+    // width, so the status tail cannot fall off the right edge the way the
+    // old stretched-and-clipped box cut it. The pill padding past the text
+    // cells lands in the grid's right inset, still inside the pane.
     let strip = div()
         .absolute()
         .top(px(chrome.row as f32 * line_height))
         .left(px(chrome.col as f32 * advance))
-        .right(px(0.0))
-        .overflow_hidden()
         .child(inner);
     aui::overlay::popover_layer(strip)
 }
@@ -2284,31 +2587,44 @@ fn is_wide_lead(term: &Term<SessionEventProxy>, line: Line, col: usize, cols: us
             .contains(Flags::WIDE_CHAR_SPACER)
 }
 
-/// Used text cells on a screen row: one past the last non-blank cell, with a
-/// leading wide char counting two. The chrome's separation check measures
-/// from here, so the strip can never cover the row's own text; a full row
-/// yields `cols`.
+/// Used text cells on a screen row: one past the last occupied cell, with a
+/// leading wide char counting two. A cell is occupied when it holds a
+/// character — or when SGR painted a background under a blank (D18): a
+/// trailing run of spaces with a background colour is visible colour, not
+/// free space, so the chrome must not land on it. The chrome's separation
+/// check measures from here, so the strip can never cover the row's own
+/// text; a full row yields `cols`.
 fn anchor_used_cols(term: &Term<SessionEventProxy>, line: Line, cols: usize) -> usize {
+    use alacritty_terminal::term::cell::Flags;
     let mut used = 0usize;
     for col in 0..cols {
         let cell = &term.grid()[Point::new(line, Column(col))];
-        if cell.flags.contains(alacritty_terminal::term::cell::Flags::WIDE_CHAR_SPACER) {
+        if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
             continue;
         }
-        if cell.c != '\0' && cell.c != ' ' {
+        let blank = cell.c == '\0' || cell.c == ' ';
+        // An inverse blank shows the foreground as its ground; any other
+        // non-default background paints the cell directly.
+        let painted = cell.flags.contains(Flags::INVERSE)
+            || cell.bg != Color::Named(NamedColor::Background);
+        if !blank || painted {
             used = col + if is_wide_lead(term, line, col, cols) { 2 } else { 1 };
         }
     }
     used.min(cols)
 }
 
-/// Grid cells the chrome strip needs: the status glyph, the duration label
-/// and the command in display cells (see [`str_cells`]). The strip is
-/// exactly this wide at the row's trailing edge; a command longer than the
-/// row hides the chrome outright by the separation rule instead of squeezing
-/// past the row's own text.
-fn chrome_cells(glyph: &str, label: &str, command: &str) -> usize {
-    str_cells(glyph) + str_cells(label) + str_cells(command)
+/// Grid cells the chrome strip's text needs: the status glyph, the meta
+/// label, the command and the agent mark in display cells (see
+/// [`str_cells`]). The strip sits this wide at the row's trailing edge, so
+/// its real rendered width — including the author mark — stays inside the
+/// grid instead of running off it (D17).
+fn chrome_cells(glyph: &str, label: &str, command: &str, author: BlockAuthor) -> usize {
+    let mark = match author {
+        BlockAuthor::Agent => str_cells("M"),
+        BlockAuthor::Human => 0,
+    };
+    str_cells(glyph) + str_cells(label) + str_cells(command) + mark
 }
 
 /// Display cells in `text`: one per character, two per East-Asian wide or
@@ -2339,6 +2655,26 @@ fn is_wide(c: char) -> bool {
             | 0xFFE0..=0xFFE6
             | 0x20000..=0x3FFFD
     )
+}
+
+/// Whether the cursor wants to blink (D19): the program asked for blinking,
+/// or it never asked for steady — a terminal cursor blinks by default, and
+/// only an explicit steady shape (a DECSCUSR steady variant, or mode 12 off)
+/// holds it still.
+fn cursor_blinks(cursor: &CursorCell) -> bool {
+    cursor.blinking || !cursor.steady
+}
+
+/// Whether the cursor paints this frame (D19): no blink wanted, or reduced
+/// motion, means a steady VISIBLE cursor — never a hidden one. Under reduced
+/// motion the loop holds its resting phase, which a phase test could read as
+/// off; short-circuiting keeps the cursor on without touching the clock.
+fn blink_visible(want_blink: bool, reduce_motion: bool, phase: f32) -> bool {
+    if !want_blink || reduce_motion {
+        true
+    } else {
+        phase < 0.5
+    }
 }
 
 /// The cursor's pixel rect `(x, y, w, h)`: the grid cell's position — never
@@ -2631,6 +2967,7 @@ impl gpui::EntityInputHandler for TerminalSession {
     fn unmark_text(&mut self, _window: &mut gpui::Window, _cx: &mut gpui::Context<Self>) {
         // Commit: the marked text goes to the program as typed text.
         if let Some(text) = self.marked.lock().unwrap().take() {
+            self.bump_snapshot();
             self.write(text.as_bytes());
         }
     }
@@ -2654,6 +2991,7 @@ impl gpui::EntityInputHandler for TerminalSession {
         _cx: &mut gpui::Context<Self>,
     ) {
         *self.marked.lock().unwrap() = Some(new_text.to_string());
+        self.bump_snapshot();
     }
 
     fn bounds_for_range(
@@ -4071,6 +4409,236 @@ mod tests {
         assert_eq!(b.5, BlockAuthor::Agent, "author lost across RIS");
         assert_eq!(b.4, Some(3));
         assert!(b.2.0 <= b.3, "output range inverted: {b:?}");
+    }
+
+    // ------------------------------------------------------------------
+    // V4 (D15–D21).
+    // ------------------------------------------------------------------
+
+    /// D17: the chrome accounts for its real rendered width — the agent mark
+    /// counts as a cell, and the strip's text right edge sits exactly at the
+    /// grid edge, so the whole strip stays visible. Without the fix the mark
+    /// is free and the strip's tail runs off the grid.
+    #[test]
+    fn chrome_accounts_for_its_real_width() {
+        // Human: the text right edge is flush with the grid edge.
+        let h = live_session("v4human", 20, 6);
+        h.feed(&running_bytes(&h.nonce, "run", b"hi"));
+        let chrome = h.session.overlay_chrome();
+        assert_eq!(chrome.len(), 1, "{chrome:?}");
+        let need = chrome_cells(
+            chrome[0].glyph,
+            &chrome[0].label,
+            &chrome[0].command,
+            chrome[0].author,
+        );
+        assert_eq!(chrome[0].col + need, 20, "strip not flush: {chrome:?}");
+        // Agent, same content: one cell earlier for the mark.
+        let a = live_session("v4agent", 20, 6);
+        a.feed(&running_bytes(&a.nonce, "run", b"hi"));
+        a.session.set_block_author(0, BlockAuthor::Agent);
+        let agent = a.session.overlay_chrome();
+        assert_eq!(agent.len(), 1, "{agent:?}");
+        assert_eq!(agent[0].author, BlockAuthor::Agent);
+        assert_eq!(agent[0].col + 1, chrome[0].col, "no room for the mark: {agent:?}");
+    }
+
+    /// One finished failed command with `tail` output bytes after its `C`
+    /// marker: the block is closed, so the chrome anchors on the tail row.
+    fn failed_bytes(nonce: &str, echo: &str, tail: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend(marker_bytes(nonce, "A"));
+        out.extend(b"p$ ");
+        out.extend(marker_bytes(nonce, "B"));
+        out.extend(echo.as_bytes());
+        out.extend(b"\r\n");
+        out.extend(marker_bytes(nonce, "C"));
+        out.extend(tail);
+        out.extend(marker_bytes(nonce, "D;1"));
+        out
+    }
+
+    /// D18: a failed block degrades instead of hiding — the command text
+    /// goes first, then the duration — keeping the status glyph and exit
+    /// code visible. Without the fix a tight row hides the failure entirely.
+    /// Related, same site: SGR-painted trailing spaces count as occupied.
+    #[test]
+    fn failed_chrome_degrades_before_hiding() {
+        // Loose tail row: the whole strip, command included. (The scrape
+        // keeps the prompt, so the command reads `p$ run`.)
+        let loose = live_session("v4loose", 40, 6);
+        loose.feed(&failed_bytes(&loose.nonce, "run", b""));
+        let chrome = loose.session.overlay_chrome();
+        assert_eq!(chrome.len(), 1, "{chrome:?}");
+        assert!(chrome[0].failed);
+        assert_eq!(chrome[0].command, "p$ run", "over-degraded: {chrome:?}");
+        assert!(chrome[0].label.contains("exit 1"), "status lost: {chrome:?}");
+        // Tight: no room for the command, room for glyph plus duration —
+        // the command drops but the failure stays.
+        let tight = live_session("v4tight", 40, 6);
+        tight.feed(&failed_bytes(&tight.nonce, "run", &[b'y'; 22]));
+        let chrome = tight.session.overlay_chrome();
+        assert_eq!(chrome.len(), 1, "failure hidden: {chrome:?}");
+        assert!(chrome[0].command.is_empty(), "command not dropped: {chrome:?}");
+        assert!(chrome[0].label.contains("exit 1"), "status lost: {chrome:?}");
+        assert_eq!(chrome[0].col, 25, "not right-aligned: {chrome:?}");
+        // Tighter: only the glyph and exit code fit — the duration drops too.
+        let tighter = live_session("v4tighter", 40, 6);
+        tighter.feed(&failed_bytes(&tighter.nonce, "run", &[b'y'; 30]));
+        let chrome = tighter.session.overlay_chrome();
+        assert_eq!(chrome.len(), 1, "failure hidden: {chrome:?}");
+        assert!(chrome[0].command.is_empty(), "command not dropped: {chrome:?}");
+        assert_eq!(chrome[0].label, "exit 1", "duration not dropped: {chrome:?}");
+        assert_eq!(chrome[0].glyph, "✗", "status glyph lost: {chrome:?}");
+        // Painted blanks are occupied: thirty SGR-backed spaces degrade the
+        // strip exactly like thirty `y`s do.
+        let painted = live_session("v4painted", 40, 6);
+        let mut tail = b"\x1b[41m".to_vec();
+        tail.extend([b' '; 30]);
+        tail.extend(b"\x1b[0m");
+        painted.feed(&failed_bytes(&painted.nonce, "run", &tail));
+        let chrome = painted.session.overlay_chrome();
+        assert_eq!(chrome.len(), 1, "failure hidden: {chrome:?}");
+        assert!(chrome[0].command.is_empty(), "painted blanks read as free: {chrome:?}");
+        assert_eq!(chrome[0].label, "exit 1", "painted blanks read as free: {chrome:?}");
+    }
+
+    /// D19: the cursor blinks by default — only an explicit steady shape (a
+    /// DECSCUSR steady variant, or mode 12 off) holds it still — in both
+    /// themes. Without the fix the untouched default never blinks.
+    #[test]
+    fn cursor_blinks_unless_explicitly_steady() {
+        for palette in [dark(), light()] {
+            let h = live_session("v4blink", 20, 5);
+            h.feed(b"hi");
+            let cursor = h.session.snapshot(&palette).cursor.expect("a cursor");
+            assert!(!cursor.blinking, "precondition: untouched default");
+            assert!(cursor_blinks(&cursor), "the default cursor must blink");
+            // DECSCUSR steady, then back to blinking.
+            h.feed(b"\x1b[2 q");
+            let cursor = h.session.snapshot(&palette).cursor.expect("a cursor");
+            assert!(cursor.steady, "DECSCUSR steady not mirrored");
+            assert!(!cursor_blinks(&cursor));
+            h.feed(b"\x1b[1 q");
+            let cursor = h.session.snapshot(&palette).cursor.expect("a cursor");
+            assert!(!cursor.steady, "DECSCUSR blink did not clear steady");
+            assert!(cursor_blinks(&cursor));
+            // Mode 12 off steadies, on blinks, RIS resets to the default.
+            h.feed(b"\x1b[?12l");
+            let cursor = h.session.snapshot(&palette).cursor.expect("a cursor");
+            assert!(cursor.steady, "mode 12 off not mirrored");
+            assert!(!cursor_blinks(&cursor));
+            h.feed(b"\x1b[?12h");
+            assert!(cursor_blinks(&h.session.snapshot(&palette).cursor.expect("a cursor")));
+            h.feed(b"\x1bc");
+            let cursor = h.session.snapshot(&palette).cursor.expect("a cursor");
+            assert!(!cursor.steady, "RIS did not reset to the default");
+            assert!(cursor_blinks(&cursor));
+            // A steady sequence split across two feeds still steadies.
+            h.feed(b"\x1b[2");
+            h.feed(b" q");
+            let cursor = h.session.snapshot(&palette).cursor.expect("a cursor");
+            assert!(cursor.steady, "split steady sequence missed");
+            assert!(!cursor_blinks(&cursor));
+        }
+    }
+
+    /// D19: reduced motion is a steady VISIBLE cursor — the resting phase
+    /// must never read as off. Without the fix the `resting(1.0)` phase
+    /// hides the cursor permanently under reduced motion.
+    #[test]
+    fn reduced_motion_keeps_the_cursor_visible() {
+        assert!(blink_visible(true, true, 1.0), "resting phase hides the cursor");
+        assert!(blink_visible(true, true, 0.0));
+        assert!(blink_visible(true, false, 0.2));
+        assert!(!blink_visible(true, false, 0.7));
+        assert!(blink_visible(false, false, 0.9));
+        assert!(blink_visible(false, true, 0.9));
+    }
+
+    /// D20: blink frames share one snapshot — rebuilt only on new output, a
+    /// selection change or a palette change. Without the fix every frame
+    /// rebuilds the whole grid at refresh rate.
+    #[test]
+    fn blink_frames_share_one_snapshot() {
+        let h = live_session("v4cache", 20, 5);
+        h.feed(b"hello");
+        let dark_palette = dark();
+        let a = h.session.snapshot_cached(&dark_palette);
+        let b = h.session.snapshot_cached(&dark_palette);
+        assert!(std::sync::Arc::ptr_eq(&a, &b), "a blink frame rebuilt the grid");
+        h.feed(b"!");
+        let c = h.session.snapshot_cached(&dark_palette);
+        assert!(!std::sync::Arc::ptr_eq(&b, &c), "new output kept a stale grid");
+        assert!(c.rows[0].text.starts_with("hello!"), "stale rows: {:?}", c.rows[0].text);
+        h.session.select_start(0, 0);
+        let d = h.session.snapshot_cached(&dark_palette);
+        assert!(!std::sync::Arc::ptr_eq(&c, &d), "selection kept a stale highlight");
+        let e = h.session.snapshot_cached(&light());
+        assert!(!std::sync::Arc::ptr_eq(&d, &e), "theme switch kept stale colours");
+        assert!(std::sync::Arc::ptr_eq(&e, &h.session.snapshot_cached(&light())));
+    }
+
+    /// D21: positions in the grid's side padding clamp to the nearest cell
+    /// instead of missing, so a drag past the text keeps extending. Without
+    /// the fix the padding maps to `None` and the selection stalls.
+    #[test]
+    fn padding_clamps_to_the_nearest_cell() {
+        let session = pumped(vec![b"hello"], 20, 5);
+        let (advance, line_height) = (8.0, 16.0);
+        session.note_layout(
+            gpui::Bounds {
+                origin: gpui::point(gpui::px(100.0), gpui::px(50.0)),
+                size: gpui::size(gpui::px(20.0 * advance), gpui::px(5.0 * line_height)),
+            },
+            CellMetrics { advance, line_height },
+            20,
+            5,
+        );
+        let at = |x: f32, y: f32| session.cell_at(gpui::point(gpui::px(x), gpui::px(y)));
+        // Inside the text area: unchanged.
+        assert_eq!(at(100.0 + 2.0 * advance, 50.0), Some((2, 0)));
+        // Left padding clamps to column 0, right padding to the last column.
+        assert_eq!(at(100.0 - 6.0, 50.0), Some((0, 0)));
+        assert_eq!(
+            at(100.0 + 20.0 * advance + 4.0, 50.0 + 2.0 * line_height),
+            Some((19, 2))
+        );
+        // Above and below clamp to the edge rows.
+        assert_eq!(at(100.0 + 3.0 * advance, 49.0), Some((3, 0)));
+        assert_eq!(at(100.0 + 3.0 * advance, 500.0), Some((3, 4)));
+    }
+
+    /// D15: the element takes its focus handle from the caller and holds it
+    /// across renders instead of minting one per frame. This pins the API
+    /// shape the dock host programs against — `aui-terminal` has no
+    /// `test-support`, so the click-keeps-focus behaviour itself is proven by
+    /// re-running the audit's `v1_grid_focus` test against this code (see
+    /// the report), which fails with the per-frame handle and passes with it.
+    /// Without the fix neither method exists and this test fails to compile.
+    #[test]
+    fn grid_takes_its_focus_handle_from_the_host() {
+        fn host_wires_a_handle(
+            grid: TerminalGrid,
+            handle: Option<gpui::FocusHandle>,
+        ) -> TerminalGrid {
+            match handle {
+                Some(handle) => grid.focus_handle(handle),
+                None => grid,
+            }
+        }
+
+        fn session_falls_back_to_a_cached_handle(
+            session: &TerminalSession,
+            cx: &gpui::App,
+        ) -> gpui::FocusHandle {
+            let first = session.focus_handle(cx);
+            assert_eq!(first, session.focus_handle(cx), "the fallback minted twice");
+            first
+        }
+
+        let _ = host_wires_a_handle;
+        let _ = session_falls_back_to_a_cached_handle;
     }
 }
 
