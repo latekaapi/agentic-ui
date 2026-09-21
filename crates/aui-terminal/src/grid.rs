@@ -3089,8 +3089,6 @@ impl gpui::EntityInputHandler for TerminalSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[path = "/tmp/relay-L3-fix2/crates/aui-terminal/src/v1_audit.rs"] mod v1_audit;
-    #[path = "/tmp/relay-L3-fix2/crates/aui-terminal/src/v4_audit.rs"] mod v4_audit;
     use std::collections::VecDeque;
 
     /// A deterministic backend: queued output, one exit, recorded writes.
