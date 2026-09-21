@@ -1709,9 +1709,26 @@ fn rgb(c: Rgb) -> gpui::Hsla {
         .into()
 }
 
-/// The mono font for a run: semibold for bold, italic for italic.
+/// The grid's single cell font (V5): every painted run, the rows container
+/// and the advance metric below resolve this same face, so a column always
+/// lands on the pixels it was measured with. `FONT_MONO` ("Geist Mono")
+/// ships embedded (see `aui_tokens::fonts`), so this normally resolves to
+/// the intended face; when it cannot be resolved the text system falls back
+/// to a substitute face, but BOTH the metric and the paint go through this
+/// same `Font`, so the grid may render in a substitute face yet the cursor,
+/// backgrounds, selection, chrome and hit-testing still agree with the text.
+/// Measuring one face while painting another drifted the cursor left
+/// proportionally to the column — never split them again: resolve once via
+/// this helper and paint with it, at [`TERM_PX`].
+fn term_font() -> gpui::Font {
+    gpui::font(aui_tokens::scale::FONT_MONO)
+}
+
+/// The mono font for a run: [`term_font`] semibold for bold, italic for
+/// italic — the same face the metric is measured from, so styled runs keep
+/// the cell advance.
 fn run_font(bold: bool, italic: bool) -> gpui::Font {
-    let mut f = gpui::font(aui_tokens::scale::FONT_MONO);
+    let mut f = term_font();
     if bold {
         f.weight = gpui::FontWeight::SEMIBOLD;
     }
@@ -1904,19 +1921,29 @@ fn render_row(
                 bg = Some(palette.surface_3);
             }
         }
+        // Whether this character opens or extends a span: only its own span
+        // is widened below, so a run never bleeds into the next character.
+        let mut bg_open = false;
         if let Some(color) = bg {
             let byte = text.len();
             match bgs.last_mut() {
-                Some(span) if span.end == byte && span.color == color => span.end += 1,
-                // Widened below once the character length is known.
-                _ => bgs.push(BgSpan { start: byte, end: byte, color }),
+                // Extended below by the real character length, once known.
+                Some(span) if span.end == byte && span.color == color => bg_open = true,
+                _ => {
+                    bgs.push(BgSpan { start: byte, end: byte, color });
+                    bg_open = true;
+                }
             }
         }
+        let mut link_open = false;
         if let Some(url) = link.clone() {
             let byte = text.len();
             match links.last_mut() {
-                Some(span) if span.end == byte && span.url == url => span.end += 1,
-                _ => links.push(LinkSpan { start: byte, end: byte, url }),
+                Some(span) if span.end == byte && span.url == url => link_open = true,
+                _ => {
+                    links.push(LinkSpan { start: byte, end: byte, url });
+                    link_open = true;
+                }
             }
         }
         let c = if cell.c == '\0' { ' ' } else { cell.c };
@@ -1944,14 +1971,18 @@ fn render_row(
             last_key = Some(key);
         }
         text.push(c);
-        // Backfill the span ends opened above with the real byte length.
+        // Widen the spans opened above to the real byte length (V5): the old
+        // `end += 1` merge assumed one-byte characters and sliced wide runs
+        // mid-character, and the unconditional backfill bled one cell past a
+        // run's end. Only the span this character belongs to moves, so
+        // background and selection rects cover exactly their cells.
         if let Some(span) = bgs.last_mut() {
-            if span.end == text.len() - c.len_utf8() {
+            if bg_open {
                 span.end = text.len();
             }
         }
         if let Some(span) = links.last_mut() {
-            if span.end == text.len() - c.len_utf8() {
+            if link_open {
                 span.end = text.len();
             }
         }
@@ -2020,12 +2051,17 @@ fn insert_marked(row: &mut GridRow, col: usize, text: &str, palette: &aui_tokens
     row.runs = out;
 }
 
-/// Byte offset of a screen column in a row's text.
+/// Byte offset of a screen column in a row's text (V5): columns count
+/// display cells, so a wide character's trailing cell maps back to its lead
+/// instead of the next character.
 fn col_to_byte(row: &GridRow, col: usize) -> usize {
-    for (current, (ix, _)) in row.text.char_indices().enumerate() {
-        if current == col {
+    let mut cell = 0usize;
+    for (ix, c) in row.text.char_indices() {
+        let w = if is_wide(c) { 2 } else { 1 };
+        if col < cell + w {
             return ix;
         }
+        cell += w;
     }
     row.text.len()
 }
@@ -2187,10 +2223,18 @@ impl gpui::RenderOnce for TerminalGrid {
             session.ensure_polling(window, cx);
         });
         let palette = cx.aui().colors;
-        // Layer 0, measured once: the mono cell from the theme's mono font
-        // through the window's own text system, so it matches the paint.
+        // Layer 0, measured once (V5): the cell advance of [`term_font`] —
+        // the same face the rows paint in, at the same [`TERM_PX`] size —
+        // through the window's own text system. One `advance` positions
+        // everything: backgrounds, cursor, chrome, selection and the layout
+        // probe that reports columns to the pty, while `cell_at` inverts it
+        // for hit-testing. When the face is missing `resolve_font` falls
+        // back consistently for both metric and paint (see [`term_font`]);
+        // a zero advance paints nothing measurable, so the probe and
+        // hit-testing bail on it instead of mis-sizing the terminal.
         let text_system = window.text_system();
-        let font_id = text_system.resolve_font(&gpui::font(aui_tokens::scale::FONT_MONO));
+        let font = term_font();
+        let font_id = text_system.resolve_font(&font);
         let advance =
             text_system.ch_advance(font_id, px(TERM_PX)).map(f32::from).unwrap_or(0.0);
         let line_height = TERM_PX * TERM_LH;
@@ -2223,8 +2267,16 @@ impl gpui::RenderOnce for TerminalGrid {
                 );
             }
         }
-        // Layer 2: batched same-style text runs, one line per row.
-        let mut lines = gpui::div().w_full().mono(TERM_PX).line_height(gpui::relative(TERM_LH));
+        // Layer 2: batched same-style text runs, one line per row. Painted
+        // in [`term_font`] at `px(TERM_PX)` (V5) — the same face and size
+        // the advance above was measured from, never the rem-scaled `.mono`
+        // style, whose rendered size follows the text-scale preference and
+        // drifts a fixed-px advance proportionally to the column.
+        let mut lines = gpui::div()
+            .w_full()
+            .font_family(aui_tokens::scale::FONT_MONO)
+            .text_size(px(TERM_PX))
+            .line_height(gpui::relative(TERM_LH));
         for row in &snapshot.rows {
             let text = if row.text.is_empty() { " ".to_string() } else { row.text.clone() };
             lines = lines.child(
@@ -2557,15 +2609,35 @@ fn block_chrome_el(
     aui::overlay::popover_layer(strip)
 }
 
-/// Pixels from the row start to byte offset `at`, counting whole cells.
-fn row_offset(_row: usize, at: usize, text: &str, advance: f32) -> f32 {
-    let cols = text[..at.min(text.len())].chars().count();
-    cols as f32 * advance
+/// Display cells in `text` before byte offset `at`: one per character, two
+/// per wide character (see [`is_wide`]). Walks char boundaries so a mid-char
+/// offset clamps to its character instead of panicking on a bad slice.
+fn cells_before(text: &str, at: usize) -> usize {
+    let mut cells = 0usize;
+    for (ix, c) in text.char_indices() {
+        if ix >= at {
+            break;
+        }
+        cells += if is_wide(c) { 2 } else { 1 };
+    }
+    cells
 }
 
-/// Whole cells covered by byte range `start..end`.
+/// Pixels from the row start to byte offset `at`, counting whole display
+/// cells (V5): wide characters occupy two cells of `advance`, exactly where
+/// the cursor's `col * advance` puts them, so background and selection
+/// rects agree with the cursor at any column.
+fn row_offset(_row: usize, at: usize, text: &str, advance: f32) -> f32 {
+    cells_before(text, at) as f32 * advance
+}
+
+/// Whole display cells covered by byte range `start..end` (V5): wide
+/// characters count two, matching the cursor width on a wide char.
 fn span_cols(text: &str, start: usize, end: usize) -> usize {
-    text.get(start..end).map(|s| s.chars().count()).unwrap_or(0).max(1)
+    if start >= end {
+        return 1;
+    }
+    cells_before(text, end).saturating_sub(cells_before(text, start)).max(1)
 }
 
 /// Whether the grid cell at (`line`, `col`) leads a wide character: flagged
@@ -3198,6 +3270,138 @@ mod tests {
             assert_eq!(w, 16.0, "two cells wide");
             assert_eq!(h, 16.0);
         }
+    }
+
+    /// V5: at a realistic column the cursor's drawn x equals the painted
+    /// text's advance × column, within a fraction of a cell. Column 48: a
+    /// 5% metric error there is 2.4 cells — the owner's ~45-column prompt
+    /// drifted four cells — while at column 13 the same error is barely one
+    /// cell, which is why short-line checks kept missing it. The row mixes
+    /// 44 ASCII cells with two wide chars (48 cells, 46 characters); without
+    /// the fix `row_offset` counts characters (46), so the painted text
+    /// disagrees with the cursor by two full cells.
+    #[test]
+    fn v5_cursor_matches_painted_text_at_a_realistic_column() {
+        let palette = dark();
+        let fed = format!("{}{}", "x".repeat(44), "あ".repeat(2));
+        let session = pumped(vec![fed.as_bytes()], 80, 5);
+        let grid = session.snapshot(&palette);
+        let cursor = grid.cursor.expect("a cursor");
+        // 44 narrow cells + 2 wide chars × 2 cells.
+        assert_eq!((cursor.row, cursor.col), (0, 48), "cursor column");
+        let row = &grid.rows[0];
+        assert!(row.text.starts_with(&fed), "row text touched: {:?}", row.text);
+        // One font for both: every run paints in the measured face.
+        for run in &row.runs {
+            assert_eq!(&*run.font.family, aui_tokens::scale::FONT_MONO, "run paints another face");
+        }
+        assert_eq!(&*term_font().family, aui_tokens::scale::FONT_MONO);
+        let advance = 7.0f32;
+        let (x, _, w, _) = cursor_rect(&cursor, advance, 16.0);
+        assert_eq!(x, 48.0 * advance, "cursor x");
+        assert_eq!(w, advance, "narrow cursor is one cell");
+        // The painted text's own advance × column, via the background metric.
+        let painted = row_offset(0, fed.len(), &row.text, advance);
+        assert_eq!(painted, 48.0 * advance, "painted text disagrees with the cursor");
+        assert!(
+            (x - painted).abs() <= advance * 0.1,
+            "cursor drifts from painted text: {x} vs {painted}"
+        );
+    }
+
+    /// V5: the selection highlight's left edge and the chrome strip's column
+    /// use the cursor's metric. Selecting wide cells 10..=19 must paint from
+    /// 10 cells of advance; without the fix the span counts 5 characters, so
+    /// both the left edge and the width land five cells left.
+    #[test]
+    fn v5_selection_edge_and_chrome_column_share_the_cursor_metric() {
+        let advance = 7.0f32;
+        let palette = dark();
+        let wide = "あ".repeat(10);
+        let session = pumped(vec![wide.as_bytes()], 80, 5);
+        session.select_start(10, 0);
+        session.select_extend(19, 0);
+        let grid = session.snapshot(&palette);
+        let row = &grid.rows[0];
+        let surface = palette.surface_3;
+        let same = |c: gpui::Hsla| {
+            c.h == surface.h && c.s == surface.s && c.l == surface.l && c.a == surface.a
+        };
+        let span = row.bgs.iter().find(|span| same(span.color)).expect("a selected span");
+        // Wide chars 5..=9: bytes 15..30, cells 10..=19.
+        assert_eq!((span.start, span.end), (15, 30), "selected bytes");
+        let left = row_offset(0, span.start, &row.text, advance);
+        assert_eq!(left, 10.0 * advance, "selection left edge");
+        let width = span_cols(&row.text, span.start, span.end) as f32 * advance;
+        assert_eq!(width, 10.0 * advance, "selection width");
+        // The chrome strip starts at its cell column × the same advance and
+        // round-trips through the row text back to the same x.
+        let h = live_session("v5chrome", 80, 6);
+        h.feed(&running_bytes(&h.nonce, "run", b"tail output here"));
+        let chrome = h.session.overlay_chrome();
+        assert_eq!(chrome.len(), 1, "{chrome:?}");
+        let strip_x = chrome[0].col as f32 * advance;
+        let snap = h.session.snapshot(&palette);
+        let anchor = &snap.rows[chrome[0].row];
+        let back = row_offset(0, col_to_byte(anchor, chrome[0].col), &anchor.text, advance);
+        assert!(
+            (strip_x - back).abs() <= advance * 0.1,
+            "chrome drifts from the row text: {strip_x} vs {back}"
+        );
+    }
+
+    /// V5: `cell_at` inverts the cursor metric — mapping a cell to x and back
+    /// returns the same column, including the high columns (20, 45) where a
+    /// metric mismatch would strand clicks and selections.
+    #[test]
+    fn v5_cell_at_round_trips_through_the_cursor_metric() {
+        let (advance, line_height) = (7.0f32, 19.2f32);
+        let session = pumped(vec![b"hello"], 60, 10);
+        session.note_layout(
+            gpui::Bounds {
+                origin: gpui::point(gpui::px(100.0), gpui::px(50.0)),
+                size: gpui::size(gpui::px(60.0 * advance), gpui::px(10.0 * line_height)),
+            },
+            CellMetrics { advance, line_height },
+            60,
+            10,
+        );
+        for col in [0usize, 1, 20, 45] {
+            // The cursor's drawn x for this column maps back to it.
+            let x = col as f32 * advance;
+            let at = session.cell_at(gpui::point(
+                gpui::px(100.0 + x + advance * 0.5),
+                gpui::px(50.0 + 2.0 * line_height),
+            ));
+            assert_eq!(at, Some((col, 2)), "column {col} does not round-trip");
+        }
+    }
+
+    /// V5: wide characters at a high column land on display cells, not
+    /// character counts. Forty narrow cells plus five wide chars are fifty
+    /// cells; without the fix every helper below counts 45 characters.
+    #[test]
+    fn v5_wide_chars_at_a_high_column_land_on_cells() {
+        let advance = 7.0f32;
+        let text = format!("{}{}", "x".repeat(40), "あ".repeat(5));
+        assert_eq!(text.len(), 55);
+        // 40 narrow cells, then 10 wide cells.
+        assert_eq!(cells_before(&text, 40), 40);
+        assert_eq!(cells_before(&text, text.len()), 50);
+        assert_eq!(row_offset(0, 40, &text, advance), 40.0 * advance);
+        assert_eq!(row_offset(0, text.len(), &text, advance), 50.0 * advance);
+        // The wide run covers bytes 40..55: ten cells.
+        assert_eq!(span_cols(&text, 40, 55), 10);
+        assert_eq!(span_cols(&text, 0, 40), 40);
+        // Inverse mapping: the lead cell hits the character, the trailing
+        // cell falls back to its lead, the next cell moves on.
+        let row = GridRow { text: text.clone(), runs: Vec::new(), bgs: Vec::new(), links: Vec::new() };
+        assert_eq!(col_to_byte(&row, 40), 40);
+        assert_eq!(col_to_byte(&row, 41), 40);
+        assert_eq!(col_to_byte(&row, 42), 43);
+        assert_eq!(col_to_byte(&row, 50), text.len());
+        // A mid-character offset clamps instead of panicking on the slice.
+        assert_eq!(cells_before(&text, 41), 42);
     }
 
     /// V1 D2: the snapshot carries the terminal's own blink mode — DECSCUSR's
