@@ -881,18 +881,65 @@ fn feed_slice_len(term: &Term<SessionEventProxy>) -> usize {
     (SCROLLBACK_SLACK * 4 / rows).max(64)
 }
 
+/// Length of the escape sequence at `raw[start]` (which is `ESC`), final byte
+/// included: CSI (`ESC [` … final byte `0x40..=0x7E`), OSC and the other
+/// `ESC`-introduced strings (`ESC ]`, `ESC P/X/^/_`, terminated by `BEL` or
+/// `ESC \`), charset selections (`ESC ( X`, three bytes), and every other
+/// two-byte sequence (including RIS, `ESC c`). An unterminated sequence runs
+/// to the end of the chunk. Always at least 1 and never past `raw.len()`.
+fn escape_len(raw: &[u8], start: usize) -> usize {
+    const BEL: u8 = 0x07;
+    const ST_FINAL: u8 = 0x5c;
+    let rest = &raw[start..];
+    if rest.len() < 2 {
+        return rest.len();
+    }
+    let end = match rest[1] {
+        b'[' => {
+            // CSI: parameter and intermediate bytes after the `[`, then a
+            // final byte. (The scan starts past the introducer: `[` itself
+            // is in the final-byte range.)
+            rest[2..]
+                .iter()
+                .position(|&b| (0x40..=0x7E).contains(&b))
+                .map(|i| start + 2 + i + 1)
+                .unwrap_or(raw.len())
+        }
+        b']' | b'P' | b'X' | b'^' | b'_' => {
+            // BEL- or ST-terminated string.
+            let mut i = 2;
+            let mut end = raw.len();
+            while i < rest.len() {
+                if rest[i] == BEL {
+                    end = start + i + 1;
+                    break;
+                }
+                if rest[i] == ESC && rest.get(i + 1) == Some(&ST_FINAL) {
+                    end = start + i + 2;
+                    break;
+                }
+                i += 1;
+            }
+            end
+        }
+        b'(' | b')' | b'*' | b'+' => start + 3.min(rest.len()),
+        _ => start + 2.min(rest.len()),
+    };
+    end.max(start + 1).min(raw.len())
+}
+
 /// End offset (exclusive) of the next counted advance starting at `start`:
 /// a text run up to the next `ESC` (capped at [`feed_slice_len`]), or one
-/// escape sequence (`ESC` through the byte before the next `ESC`, or the end
-/// of the chunk). Every advance holds at most one escape, so a
-/// scroll-into-history and the wipe that follows can never share one
-/// before/after history comparison. Always past `start`.
+/// escape sequence ending at its FINAL BYTE. An escape-prefixed advance used
+/// to run to the next `ESC` or the end of the chunk, uncapped, so the
+/// row-sized cap never applied to the plain text following any escape: the
+/// emulator discarded lines past its own cap before the trim step could count
+/// them. Every advance holds at most one escape, so a scroll-into-history
+/// and the wipe that follows can never share one before/after history
+/// comparison. Always past `start`.
 fn emit_advance_end(term: &Term<SessionEventProxy>, raw: &[u8], start: usize) -> usize {
     if raw[start] == ESC {
-        match raw[start + 1..].iter().position(|&b| b == ESC) {
-            Some(rel) => start + 1 + rel,
-            None => raw.len(),
-        }
+        escape_len(raw, start)
     } else {
         let cap = (start + feed_slice_len(term)).min(raw.len());
         match raw[start..cap].iter().position(|&b| b == ESC) {
@@ -3246,6 +3293,237 @@ mod tests {
         assert_eq!(real.id, real_before.id, "id changed");
         assert_eq!(real.author, BlockAuthor::Agent, "author lost");
         assert_eq!(real.exit, Some(0));
+    }
+
+    // ------------------------------------------------------------------
+    // L3-fix6: the grid path (`MarkScanner` via `TerminalSession`) under
+    // realistic 1024-byte pty reads, escape-capped advances, and RIS.
+    // ------------------------------------------------------------------
+
+    /// Standard-alphabet base64 (what the `base64` CLI emits), for building
+    /// `C` payloads in tests.
+    fn b64_encode(bytes: &[u8]) -> String {
+        const ALPHA: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let mut n: u32 = 0;
+            for &b in chunk {
+                n = (n << 8) | u32::from(b);
+            }
+            n <<= 8 * (3 - chunk.len());
+            out.push(ALPHA[(n >> 18) as usize & 63] as char);
+            out.push(ALPHA[(n >> 12) as usize & 63] as char);
+            out.push(if chunk.len() > 1 { ALPHA[(n >> 6) as usize & 63] as char } else { '=' });
+            out.push(if chunk.len() > 2 { ALPHA[n as usize & 63] as char } else { '=' });
+        }
+        out
+    }
+
+    /// A `C` marker carrying `cmd` as a base64 payload — what the real
+    /// snippets emit (no `B`, which our snippets no longer send).
+    fn c_marker_with_cmd(nonce: &str, cmd: &str) -> Vec<u8> {
+        format!("\x1b]133;C;k={nonce};cmd={};enc=b64\x07", b64_encode(cmd.as_bytes()))
+            .into_bytes()
+    }
+
+    /// Feeds `bytes` in `chunk`-sized pumps: one pump per chunk, the way a
+    /// macOS pty delivers output in 1024-byte reads.
+    fn feed_chunked(h: &LiveSession, bytes: &[u8], chunk: usize) {
+        for c in bytes.chunks(chunk) {
+            h.feed(c);
+        }
+    }
+
+    /// A finished command whose `C` carries the exact `cmd` text as a
+    /// payload, fed the way a pty delivers it: 1024 bytes per pump.
+    fn feed_command_chunked(h: &LiveSession, nonce: &str, cmd: &str, exit: i32, output: &[u8]) {
+        let mut stream = Vec::new();
+        stream.extend(marker_bytes(nonce, "A"));
+        stream.extend(b"prompt$ ");
+        stream.extend(cmd.as_bytes());
+        stream.extend(b"\r\n");
+        stream.extend(c_marker_with_cmd(nonce, cmd));
+        stream.extend(output);
+        stream.extend(marker_bytes(nonce, &format!("D;{exit}")));
+        feed_chunked(h, &stream, 1024);
+    }
+
+    /// D1 (grid path): a 745-character command fed in 1024-byte pty reads
+    /// keeps its `C` marker. The split partial exceeds the old 512-byte hold
+    /// bound, so the old code flushed it as plain text and the block fell
+    /// back to the scrape with an empty, garbled command.
+    #[test]
+    fn long_c_marker_survives_1024_byte_pty_reads() {
+        let h = live_session("l3d1a", 80, 24);
+        let nonce = h.nonce.clone();
+        let cmd = format!("curl-{}", "x".repeat(740));
+        assert_eq!(cmd.len(), 745);
+        feed_command_chunked(&h, &nonce, &cmd, 0, b"ok\r\n");
+        let blocks = h.session.blocks();
+        assert_eq!(blocks.len(), 1, "{blocks:?}");
+        assert_eq!(blocks[0].command, cmd);
+        assert_eq!(blocks[0].exit, Some(0));
+    }
+
+    /// D1 (grid path): a 1,505-character command across several 1024-byte
+    /// reads — the marker head, middle and tail all land in different pumps.
+    #[test]
+    fn longer_c_marker_survives_1024_byte_pty_reads() {
+        let h = live_session("l3d1b", 80, 24);
+        let nonce = h.nonce.clone();
+        let cmd = format!("curl-{}", "y".repeat(1500));
+        assert_eq!(cmd.len(), 1505);
+        feed_command_chunked(&h, &nonce, &cmd, 0, b"ok\r\n");
+        let blocks = h.session.blocks();
+        assert_eq!(blocks.len(), 1, "{blocks:?}");
+        assert_eq!(blocks[0].command, cmd);
+        assert_eq!(blocks[0].exit, Some(0));
+    }
+
+    /// D1 (grid path): a command exactly at the 4 KB payload cap arrives
+    /// whole through 1024-byte reads.
+    #[test]
+    fn c_marker_at_the_4kb_cap_survives_1024_byte_pty_reads() {
+        let h = live_session("l3d1c", 80, 24);
+        let nonce = h.nonce.clone();
+        let cmd = "z".repeat(crate::marks::MAX_CMD_LEN);
+        feed_command_chunked(&h, &nonce, &cmd, 0, b"ok\r\n");
+        let blocks = h.session.blocks();
+        assert_eq!(blocks.len(), 1, "{blocks:?}");
+        assert_eq!(blocks[0].command, cmd);
+    }
+
+    /// D1 (grid path): a 5 KB command truncates to the first 4096 bytes on
+    /// this path too — the equivalent of the decoder-level cap test, driven
+    /// through `TerminalSession` in 1024-byte reads.
+    #[test]
+    fn oversized_command_truncates_to_4kb_on_the_session_path() {
+        let h = live_session("l3d1d", 80, 24);
+        let nonce = h.nonce.clone();
+        let cmd = "w".repeat(5000);
+        feed_command_chunked(&h, &nonce, &cmd, 0, b"ok\r\n");
+        let blocks = h.session.blocks();
+        assert_eq!(blocks.len(), 1, "{blocks:?}");
+        assert_eq!(blocks[0].command.len(), crate::marks::MAX_CMD_LEN);
+        assert_eq!(blocks[0].command, cmd[..crate::marks::MAX_CMD_LEN]);
+    }
+
+    /// D1 (grid path): the worst split boundary — one byte of the `C` marker
+    /// in the first chunk, the rest arriving later.
+    #[test]
+    fn c_marker_split_with_one_byte_in_the_first_chunk() {
+        let h = live_session("l3d1e", 80, 24);
+        let nonce = h.nonce.clone();
+        let cmd = format!("worst-{}", "v".repeat(739));
+        let mut stream = Vec::new();
+        stream.extend(marker_bytes(&nonce, "A"));
+        stream.extend(b"prompt$ ");
+        stream.extend(cmd.as_bytes());
+        stream.extend(b"\r\n");
+        stream.extend(c_marker_with_cmd(&nonce, &cmd));
+        stream.extend(b"ok\r\n");
+        stream.extend(marker_bytes(&nonce, "D;0"));
+        // Split so the first chunk holds exactly one byte of the `C` marker.
+        let c_marker = c_marker_with_cmd(&nonce, &cmd);
+        let c_pos = stream
+            .windows(c_marker.len())
+            .position(|w| w == c_marker.as_slice())
+            .expect("the C marker is in the stream");
+        h.feed(&stream[..c_pos + 1]);
+        feed_chunked(&h, &stream[c_pos + 1..], 1024);
+        let blocks = h.session.blocks();
+        assert_eq!(blocks.len(), 1, "{blocks:?}");
+        assert_eq!(blocks[0].command, cmd);
+        assert_eq!(blocks[0].exit, Some(0));
+    }
+
+    /// D7: an `ESC`-prefixed run of 20,000 lines in one pump advances the
+    /// tail by exactly 20,000 with no desync — the row-sized cap applies past
+    /// the escape's final byte, exactly as in the plain-text case.
+    #[test]
+    fn esc_prefixed_burst_advances_the_tail_exactly() {
+        for (tag, prefix) in [("l3d7a", b"\x1b[0m".as_slice()), ("l3d7b", b"".as_slice())] {
+            let h = live_session(tag, 80, 24);
+            let c0 = h.session.tail_cursor();
+            let mut burst = Vec::new();
+            burst.extend_from_slice(prefix);
+            burst.extend(fill_lines(20_000, "burst"));
+            h.feed(&burst);
+            let c1 = h.session.tail_cursor();
+            assert_eq!(c1.line - c0.line, 20_000, "tail delta with prefix {prefix:?}");
+            assert_eq!(h.session.history_desyncs(), 0, "burst desynced with prefix {prefix:?}");
+        }
+    }
+
+    /// D8: `clear` plus 100 lines in one pump — the `ESC[3J` is its own
+    /// advance, so the wipe is counted before the text lands: the tail moves
+    /// exactly 100 and the poll resumes at the first line after the cursor
+    /// (`after-00001` sits past it; `after-00000` lands exactly on the
+    /// already-delivered cursor line, because the clear contributes net zero
+    /// to the tail). With the escape sharing its advance with the text, the
+    /// wipe undercounts: the tail lands 77 short and the poll starts at
+    /// `after-00078`.
+    #[test]
+    fn clear_plus_100_lines_in_one_pump_shows_the_first_line_after() {
+        let h = live_session("l3d8", 80, 24);
+        h.feed(&fill_lines(11_000, "base"));
+        let c1 = h.session.tail_cursor();
+        let mut burst = b"\x1b[H\x1b[2J\x1b[3J".to_vec();
+        burst.extend(fill_lines(100, "after"));
+        h.feed(&burst);
+        let c2 = h.session.tail_cursor();
+        assert_eq!(c2.line - c1.line, 100, "tail miscounted across the clear: {c1:?} -> {c2:?}");
+        let polled = h.session.range_text(c1);
+        assert_eq!(
+            polled.lines().next().unwrap_or_default(),
+            "after-00001",
+            "poll did not resume at the first line after the cursor"
+        );
+        assert!(polled.contains("after-00099"), "poll stalled");
+    }
+
+    /// One block's id, ranges, end, exit, author and command — the shape the
+    /// ported `ris_mid_running_block` assertions read.
+    type BlockSummary = (u64, (i32, i32), (i32, i32), i32, Option<i32>, BlockAuthor, String);
+
+    /// RIS mid-block with a running command keeps the block's id and closes
+    /// it sanely. Ported verbatim from the L2 audit (`l2_audit2.rs`): the
+    /// narrowed history-only top-up satisfies it alongside the accounting
+    /// rule the previous task feared it contradicted.
+    #[test]
+    fn ris_mid_running_block() {
+        let h = live_session("t5", 80, 24);
+        let nonce = h.nonce.clone();
+        h.feed(&command_bytes(&nonce, "zero", 0, 11_000, "z"));
+        let mut head = Vec::new();
+        head.extend(marker_bytes(&nonce, "A"));
+        head.extend(b"prompt$ ");
+        head.extend(marker_bytes(&nonce, "B"));
+        head.extend(b"long\r\n");
+        head.extend(marker_bytes(&nonce, "C"));
+        head.extend(fill_lines(5, "pre"));
+        h.feed(&head);
+        let running: Vec<BlockSummary> =
+            h.session.blocks().iter().map(|b| (b.id, b.prompt, b.output, b.end, b.exit, b.author, b.command.clone())).collect();
+        let id = running.last().unwrap().0;
+        let idx = running.len() - 1;
+        h.session.set_block_author(idx, BlockAuthor::Agent);
+        let t0 = h.session.tail_cursor().line;
+        h.feed(b"\x1bc");
+        h.feed(&fill_lines(5, "post"));
+        let t1 = h.session.tail_cursor().line;
+        let mut tail = Vec::new();
+        tail.extend(marker_bytes(&nonce, "D;3"));
+        h.feed(&tail);
+        let done: Vec<BlockSummary> =
+            h.session.blocks().iter().map(|b| (b.id, b.prompt, b.output, b.end, b.exit, b.author, b.command.clone())).collect();
+        eprintln!("tail {t0} -> {t1}; running={running:?}\ndone={done:?}");
+        assert!(t1 >= t0);
+        let b = done.last().unwrap();
+        assert_eq!(b.0, id, "id changed across RIS");
+        assert_eq!(b.5, BlockAuthor::Agent, "author lost across RIS");
+        assert_eq!(b.4, Some(3));
+        assert!(b.2.0 <= b.3, "output range inverted: {b:?}");
     }
 }
 

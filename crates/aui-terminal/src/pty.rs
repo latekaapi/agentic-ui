@@ -114,10 +114,14 @@ _aui_osc133_preexec() {
   _AUI_RUNNING=1
   local _aui_raw=$1 _aui_cmd _aui_enc
   if command -v base64 >/dev/null 2>&1; then
-    _aui_cmd=$(printf '%s' "$_aui_raw" | base64 | tr -d '\n')
+    _aui_cmd=$(printf '%s' "$_aui_raw" | base64)
+    _aui_cmd=${_aui_cmd//$'\n'/}
     _aui_enc=b64
   else
-    _aui_cmd=$(printf '%s' "$_aui_raw" | tr -d ';[:cntrl:]')
+    # Builtins only: `tr` lives beside `base64` in /usr/bin, so it is
+    # unavailable exactly when this fallback runs.
+    _aui_cmd=${_aui_raw//;/}
+    _aui_cmd=${_aui_cmd//[[:cntrl:]]/}
     _aui_enc=raw
   fi
   printf '\033]133;C;k=__AUI_NONCE__;cmd=%s;enc=%s\007' "$_aui_cmd" "$_aui_enc"
@@ -164,18 +168,28 @@ unsetopt PROMPT_SP
 /// inline — and captured the same way, then ours is reinstalled around it.
 ///
 /// Like the zsh side, there is deliberately no `B` marker: the shell hands
-/// us the command line directly (`$BASH_COMMAND`), so the `C` payload needs
-/// no prompt bracketing and no ordering fight — every `DEBUG` trap sees the
-/// same `$BASH_COMMAND`. Nothing here touches `PS1`.
+/// us the typed line (read from `history 1`, with `$BASH_COMMAND` kept as
+/// the fallback when history is unavailable or empty — `$BASH_COMMAND` alone
+/// is a fragment, not the typed line), so the `C` payload needs no prompt
+/// bracketing and no ordering fight. Nothing here touches `PS1`. Note:
+/// with `HISTCONTROL=ignorespace` a command typed with a leading space is
+/// not in history, so `history 1` names the previous entry and the payload
+/// carries that stale line; only an empty history falls back to
+/// `$BASH_COMMAND`. Known gap: `(echo sub)` in bash 3.2 never fires the
+/// DEBUG trap, so no `C` is emitted for a subshell command and its output is
+/// orphaned — pre-existing, recorded next to the guard, not fixed here.
 ///
 /// `PROMPT_COMMAND` brackets the user's own: the status capture runs first
 /// (so `$?` is still the command's) and the marker hook runs after theirs.
-/// The join strips trailing `;` and whitespace off the user's value first:
-/// a `PROMPT_COMMAND` ending in `;` would otherwise produce `;;` — `syntax
-/// error near ;;` on every prompt, with no markers at all. On bash ≥ 5.1
-/// `PROMPT_COMMAND` may be an array (bash-preexec 0.5 uses it); that form is
-/// bracketed element-wise. (There is no bash 5 on this machine, so the
-/// array branch is code-correctness, not something executed here.)
+/// The parts are joined with newlines rather than `;` — a user value ending
+/// in `;` would otherwise produce `;;` (`syntax error near ;;` on every
+/// prompt, with no markers at all), a value containing `#` would comment our
+/// hooks out, and a value ending in `&` would break the join the same way.
+/// The join still strips trailing `;` and whitespace off the user's value
+/// first. On bash ≥ 5.1 `PROMPT_COMMAND` may be an array (bash-preexec 0.5
+/// uses it); that form is bracketed element-wise. (There is no bash 5 on
+/// this machine, so the array branch is code-correctness, not something
+/// executed here.)
 const BASH_TEMPLATE: &str = r#"
 # OSC 133 shell integration for the aui block terminal (bash).
 # The shell runs as `bash --rcfile <this> -i` (never `-l`: bash ignores
@@ -268,23 +282,43 @@ _aui_osc133_preexec() {
   case "$BASH_COMMAND" in
     _aui_osc133_*|PROMPT_COMMAND*|if\ _aui_osc133_rechain*) return 0;;
   esac
+  # Known gap, recorded not fixed: `(echo sub)` in bash 3.2 never fires the
+  # DEBUG trap, so no `C` is emitted for a subshell command and its output is
+  # orphaned — pre-existing, and not yours to fix here.
   if [ -z "${_AUI_RUNNING-}" ]; then
     _AUI_RUNNING=1
-    # The shell hands us the command line as $BASH_COMMAND: no screen
-    # geometry, no prompt bracketing, no ordering fight. Base64 so newlines,
-    # `;`, BEL and UTF-8 pass through untouched; without `base64` on PATH a
-    # sanitised literal with control characters and `;` stripped, and `enc=`
-    # says which one it is.
-    local _aui_raw="$BASH_COMMAND" _aui_cmd _aui_enc
+    # The typed line comes from `history 1` — `$BASH_COMMAND` is a fragment,
+    # not the typed line (`echo a | cat | cat` reports `echo a`). The leading
+    # history number and whitespace are stripped with builtins only, exactly
+    # why bash-preexec does it. When history is unavailable or empty
+    # (`set +o history`, `HISTSIZE=0`) the fragment is kept as the fallback.
+    # Note: with `HISTCONTROL=ignorespace` a command typed with a leading
+    # space is not in history, so `history 1` names the previous entry and
+    # the payload carries that stale line; only an empty history falls back
+    # to `$BASH_COMMAND`. Base64 so newlines, `;`, BEL and UTF-8 pass through
+    # untouched; without `base64` on PATH a sanitised literal with control
+    # characters and `;` stripped (builtins only — `tr` lives beside
+    # `base64`, so it is unavailable exactly when needed), and `enc=` says
+    # which one it is.
+    local _aui_raw="$BASH_COMMAND" _aui_cmd _aui_enc _aui_hist
+    _aui_hist=$(history 1 2>/dev/null || true)
+    if [ -n "$_aui_hist" ]; then
+      while [[ "$_aui_hist" == [[:space:]]* ]]; do _aui_hist=${_aui_hist#?}; done
+      while [[ "$_aui_hist" == [0-9]* ]]; do _aui_hist=${_aui_hist#?}; done
+      while [[ "$_aui_hist" == [[:space:]]* ]]; do _aui_hist=${_aui_hist#?}; done
+      [ -n "$_aui_hist" ] && _aui_raw="$_aui_hist"
+    fi
     if command -v base64 >/dev/null 2>&1; then
-      _aui_cmd=$(printf '%s' "$_aui_raw" | base64 | tr -d '\n')
+      _aui_cmd=$(printf '%s' "$_aui_raw" | base64)
+      _aui_cmd=${_aui_cmd//$'\n'/}
       _aui_enc=b64
     else
-      _aui_cmd=$(printf '%s' "$_aui_raw" | tr -d ';[:cntrl:]')
+      _aui_cmd=${_aui_raw//;/}
+      _aui_cmd=${_aui_cmd//[[:cntrl:]]/}
       _aui_enc=raw
     fi
     printf '\033]133;C;k=__AUI_NONCE__;cmd=%s;enc=%s\007' "$_aui_cmd" "$_aui_enc"
-    unset _aui_raw _aui_cmd _aui_enc
+    unset _aui_raw _aui_cmd _aui_enc _aui_hist
   fi
   # Chain the user's own DEBUG trap, if they had one: ours first, theirs
   # after. Guarded against re-entry while it runs, since its own commands
@@ -305,14 +339,16 @@ _aui_osc133_preexec() {
 
 # This brackets the user's own PROMPT_COMMAND: the status capture runs first
 # (so `$?` is still the command's) and the marker hook runs after theirs.
-# The user's value is joined with trailing `;` and whitespace stripped first:
-# a PROMPT_COMMAND ending in `;` would otherwise produce `;;` — a syntax
-# error on every prompt, with no markers at all. PROMPT_COMMAND is an array
-# on bash >= 5.1 (bash-preexec 0.5 uses it): bracket that form element-wise.
-# Between theirs and ours sits the late-trap check: it must run inline at
-# the top level (not inside a function) because a function body cannot see
-# the DEBUG trap, and for the same reason only this top level may reinstall
-# ours.
+# The parts are joined with newlines rather than `;`: a user value ending in
+# `;` would otherwise produce `;;` — a syntax error on every prompt, with no
+# markers at all — a value containing `#` would comment our hooks out, and a
+# value ending in `&` would break the join the same way. The user's value is
+# still stripped of trailing `;` and whitespace first. PROMPT_COMMAND is an
+# array on bash >= 5.1 (bash-preexec 0.5 uses it): bracket that form
+# element-wise. Between theirs and ours sits the late-trap check: it must run
+# inline at the top level (not inside a function) because a function body
+# cannot see the DEBUG trap, and for the same reason only this top level may
+# reinstall ours.
 _aui_osc133_rechain_inline='if _aui_osc133_rechain "$(trap -p DEBUG 2>/dev/null)"; then trap '\''_aui_osc133_preexec'\'' DEBUG; fi'
 if declare -p PROMPT_COMMAND 2>/dev/null | grep -q 'declare -a'; then
   PROMPT_COMMAND=(_aui_osc133_begin "${PROMPT_COMMAND[@]}" "$_aui_osc133_rechain_inline" _aui_osc133_precmd)
@@ -327,9 +363,14 @@ else
     esac
   done
   if [ -n "$_aui_user_pc" ]; then
-    PROMPT_COMMAND="_aui_osc133_begin; $_aui_user_pc; $_aui_osc133_rechain_inline; _aui_osc133_precmd"
+    PROMPT_COMMAND="_aui_osc133_begin
+$_aui_user_pc
+$_aui_osc133_rechain_inline
+_aui_osc133_precmd"
   else
-    PROMPT_COMMAND="_aui_osc133_begin; $_aui_osc133_rechain_inline; _aui_osc133_precmd"
+    PROMPT_COMMAND="_aui_osc133_begin
+$_aui_osc133_rechain_inline
+_aui_osc133_precmd"
   fi
   unset _aui_user_pc
 fi
@@ -952,7 +993,11 @@ mod tests {
         assert!(snippet.contains("local _aui_raw=$1"), "preexec takes $1:\n{snippet}");
         assert!(snippet.contains("cmd=%s;enc=%s"), "the C payload:\n{snippet}");
         assert!(snippet.contains("command -v base64"), "the base64 probe:\n{snippet}");
-        assert!(snippet.contains("tr -d ';[:cntrl:]'"), "the raw fallback:\n{snippet}");
+        assert!(!snippet.contains("| tr"), "the snippet depends on no external pipe stage:\n{snippet}");
+        assert!(
+            snippet.contains("${_aui_raw//;/}") && snippet.contains("${_aui_cmd//[[:cntrl:]]/}"),
+            "the raw fallback is builtins-only:\n{snippet}"
+        );
         assert!(snippet.contains("add-zsh-hook -d precmd _aui_osc133_status"), "{snippet}");
         assert!(snippet.contains("add-zsh-hook precmd _aui_osc133_status"), "{snippet}");
         assert!(snippet.contains("add-zsh-hook -d precmd _aui_osc133_precmd"), "{snippet}");
@@ -1095,7 +1140,15 @@ mod tests {
         assert!(!body.contains("133;B"), "no B emission:\n{body}");
         assert!(!body.contains("_AUI_OSC133_B"), "no prompt marker variable:\n{body}");
         assert!(!body.contains("PS1="), "PS1 untouched:\n{body}");
-        assert!(body.contains("_aui_raw=\"$BASH_COMMAND\""), "preexec takes $BASH_COMMAND:\n{body}");
+        assert!(body.contains("_aui_raw=\"$BASH_COMMAND\""), "the BASH_COMMAND fallback:\n{body}");
+        assert!(body.contains("history 1"), "the typed line comes from history:\n{body}");
+        assert!(body.contains("ignorespace"), "the ignorespace caveat is documented:\n{body}");
+        assert!(body.contains("(echo sub)"), "the subshell DEBUG gap is recorded:\n{body}");
+        assert!(!body.contains("| tr "), "the C payload depends on no `tr` pipe stage:\n{body}");
+        assert!(
+            body.contains("${_aui_raw//;/}") && body.contains("${_aui_cmd//[[:cntrl:]]/}"),
+            "the raw fallback is builtins-only:\n{body}"
+        );
         assert!(body.contains("cmd=%s;enc=%s"), "the C payload:\n{body}");
         assert!(body.contains("command -v base64"), "the base64 probe:\n{body}");
         assert!(body.contains("_aui_user_pc"), "the trailing-`;` strip:\n{body}");
@@ -1103,6 +1156,25 @@ mod tests {
             body.contains("cannot be restored for the chained trap"),
             "the `$_` limitation is documented:\n{body}"
         );
+    }
+
+    /// The `PROMPT_COMMAND` parts are joined with newlines, not `;`: a user
+    /// value with a `#` comment or a trailing `&` no longer swallows or
+    /// breaks our hooks, and the trailing-`;` strip still runs first.
+    #[test]
+    fn bash_prompt_command_parts_are_joined_with_newlines() {
+        let dir = Pty::write_bash_rc("join-nonce").expect("the rcfile writes");
+        let body = std::fs::read_to_string(dir.path().join(BASH_RC_NAME)).expect("the rcfile");
+        assert!(
+            body.contains("_aui_osc133_begin\n$_aui_user_pc\n")
+                || body.contains("_aui_osc133_begin\n$_aui_osc133_rechain_inline\n"),
+            "newline-joined PROMPT_COMMAND:\n{body}"
+        );
+        assert!(
+            !body.contains("; $_aui_user_pc;"),
+            "no semicolon-joined PROMPT_COMMAND:\n{body}"
+        );
+        assert!(body.contains("_aui_user_pc"), "the trailing-`;` strip stays:\n{body}");
     }
 
     /// Every session mints its own nonce, and a `Pty` cannot exist without

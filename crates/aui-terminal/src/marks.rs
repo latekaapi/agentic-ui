@@ -45,9 +45,15 @@ const ST_FINAL: u8 = 0x5c;
 /// OSC introducer second byte (`ESC ]`).
 const OSC_INTRO: u8 = b']';
 /// How many trailing bytes an incomplete sequence may hold across chunks.
-/// Longer than any marker the snippets emit; anything past it is flushed
-/// through rather than held forever.
-const MAX_PENDING: usize = 512;
+///
+/// Bound by the marker cap, not by the pty read size: a `C` marker can carry
+/// a 4 KB command payload (about 5,464 base64 characters) plus its parameters
+/// and a nonce of up to 128 characters, so a complete marker is under 6 KB;
+/// 8,192 holds any marker the snippets emit with headroom, even when macOS
+/// ptys deliver it split across 1024-byte reads. Anything past it is flushed
+/// through as plain text rather than held forever — a defence against an
+/// unterminated OSC, not a routine occurrence.
+const MAX_PENDING: usize = 8192;
 
 /// Which of the four shell-integration markers a [`Mark`] records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -416,6 +422,12 @@ pub(crate) const MAX_CMD_LEN: usize = 4096;
 /// [`MAX_CMD_LEN`] bytes at a character boundary.
 pub(crate) fn decode_command(cmd: Option<&str>, enc: Option<&str>) -> Option<String> {
     let raw = cmd?;
+    // An EMPTY payload is absent, not an empty command: it decodes to `None`
+    // so the block falls back to the grid scrape (see `block_command`) rather
+    // than reporting an empty command line.
+    if raw.is_empty() {
+        return None;
+    }
     let bytes = match enc {
         Some("b64") => decode_base64(raw)?,
         // `raw`, missing, or unknown: a literal. Lenient on purpose — the
@@ -1078,6 +1090,52 @@ mod tests {
         let decoded = decode_command(Some(&b64), Some("b64")).expect("decodes");
         assert_eq!(decoded.len(), MAX_CMD_LEN);
         assert_eq!(decoded, long[..MAX_CMD_LEN]);
+    }
+
+    /// An EMPTY `cmd=` is absent, not an empty command: it decodes to `None`
+    /// so the block falls back to the grid scrape instead of reporting an
+    /// empty command line.
+    #[test]
+    fn an_empty_cmd_payload_is_absent_not_empty() {
+        assert_eq!(decode_command(Some(""), Some("b64")), None);
+        assert_eq!(decode_command(Some(""), Some("raw")), None);
+        assert_eq!(decode_command(Some(""), None), None);
+        assert_eq!(decode_command(None, Some("b64")), None);
+    }
+
+    /// A multi-KB `C` marker split across chunks is held whole and reported
+    /// once: the pending buffer is bound by the marker cap, not by the pty
+    /// read size, so a marker longer than one 1024-byte read survives.
+    #[test]
+    fn a_multi_kb_marker_split_across_chunks_is_reported_once() {
+        let mut s = scanner();
+        // A ~2,000-character command payload: the partial exceeds the old
+        // 512-byte hold bound, so the old code flushed it as plain text.
+        let cmd = "eHh4".repeat(666) + "eHg=";
+        let marker = format!("\x1b]133;C;k=n9_abc-XY;cmd={cmd};enc=b64\x07");
+        let bytes = marker.as_bytes();
+        assert!(bytes.len() > 1024, "precondition: longer than one pty read");
+        let mut markers = 0;
+        let mut round = Vec::new();
+        for chunk in bytes.chunks(1024) {
+            let segments = feed(&mut s, chunk);
+            markers += markers_in(&segments).len();
+            round.extend(round_trip(&segments));
+        }
+        assert_eq!(markers, 1, "the split marker was lost or duplicated");
+        assert_eq!(round, bytes, "bytes must round-trip exactly");
+        // The payload decodes to 2000 `x`s.
+        let mut s2 = scanner();
+        let segments = feed(&mut s2, bytes);
+        let cmds: Vec<_> = segments
+            .iter()
+            .filter_map(|seg| match seg {
+                ScanSegment::Marker { command, .. } => Some(command.clone()),
+                ScanSegment::Emit(_) | ScanSegment::AltSwitch { .. } => None,
+            })
+            .collect();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].as_deref().map(str::len), Some(2000));
     }
 
     #[test]
