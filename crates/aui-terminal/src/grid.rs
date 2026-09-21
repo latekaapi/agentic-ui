@@ -892,6 +892,8 @@ fn feed_slice_len(term: &Term<SessionEventProxy>) -> usize {
 fn escape_len(raw: &[u8], start: usize) -> usize {
     const BEL: u8 = 0x07;
     const ST_FINAL: u8 = 0x5c;
+    const CAN: u8 = 0x18;
+    const SUB: u8 = 0x1a;
     let rest = &raw[start..];
     if rest.len() < 2 {
         return rest.len();
@@ -908,14 +910,20 @@ fn escape_len(raw: &[u8], start: usize) -> usize {
                 .unwrap_or(raw.len())
         }
         b']' | b'P' | b'X' | b'^' | b'_' => {
-            // BEL-, ST- or ESC-terminated string, exactly like vte: any ESC
-            // ends the string. A bare ESC is left for the next advance to
-            // parse as a new sequence; only ST consumes it.
+            // BEL-, ST-, CAN-, SUB- or ESC-terminated string, exactly like
+            // vte: CAN (0x18) and SUB (0x1a) abort the string, and any ESC
+            // ends it. A bare ESC, CAN or SUB is left for the next advance
+            // to parse as a new sequence (the emulator executes the
+            // control); only BEL and ST consume their terminator.
             let mut i = 2;
             let mut end = raw.len();
             while i < rest.len() {
                 if rest[i] == BEL {
                     end = start + i + 1;
+                    break;
+                }
+                if rest[i] == CAN || rest[i] == SUB {
+                    end = start + i;
                     break;
                 }
                 if rest[i] == ESC {
@@ -3493,6 +3501,30 @@ mod tests {
             let mut burst = Vec::new();
             burst.extend_from_slice(prefix);
             burst.extend(fill_lines(20_000, "str"));
+            h.feed(&burst);
+            let c1 = h.session.tail_cursor();
+            assert_eq!(c1.line - c0.line, 20_000, "tail delta with prefix {prefix:?}");
+            assert_eq!(h.session.history_desyncs(), 0, "burst desynced with prefix {prefix:?}");
+        }
+    }
+
+    /// D14: a title OSC cut off by CAN (0x18) or SUB (0x1a) ends there,
+    /// exactly like vte, so the 20,000 lines after it advance the tail by
+    /// exactly 20,000 with no desync. Without the fix the whole burst is a
+    /// single advance, the emulator discards past its own cap, and the tail
+    /// lands 5,881 short with one desync — the same loss shape as D7, from
+    /// a narrower trigger.
+    #[test]
+    fn can_and_sub_terminated_strings_do_not_swallow_later_lines() {
+        for (tag, prefix) in [
+            ("l3d14a", b"\x1b]0;title\x18".as_slice()),
+            ("l3d14b", b"\x1b]0;title\x1a".as_slice()),
+        ] {
+            let h = live_session(tag, 80, 24);
+            let c0 = h.session.tail_cursor();
+            let mut burst = Vec::new();
+            burst.extend_from_slice(prefix);
+            burst.extend(fill_lines(20_000, "can"));
             h.feed(&burst);
             let c1 = h.session.tail_cursor();
             assert_eq!(c1.line - c0.line, 20_000, "tail delta with prefix {prefix:?}");

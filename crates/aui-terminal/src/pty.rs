@@ -85,7 +85,12 @@ autoload -Uz add-zsh-hook
 # Status capture. Stays FIRST in precmd_functions so $? is still the
 # command's exit status: a user precmd running before us would clobber it.
 _aui_osc133_status() {
+  # Saved before everything: even `emulate` below would clobber `$?`.
   _AUI_STATUS=$?
+  # Pinned options: without this a user's `setopt ksh_arrays` makes the
+  # `${precmd_functions[1]}` lookup below zero-based (and every other
+  # option the user set leaks in the same way).
+  emulate -L zsh
   if [[ ${precmd_functions[1]:-} != _aui_osc133_status ]]; then
     precmd_functions=(${precmd_functions:#_aui_osc133_status})
     precmd_functions=(_aui_osc133_status "${precmd_functions[@]}")
@@ -97,6 +102,9 @@ _aui_osc133_status() {
 # where the prompt began (off by the prompt's height when a theme redraws
 # after us — accepted per D44), and D carries the status captured above.
 _aui_osc133_precmd() {
+  # Pinned options, as in `_aui_osc133_status`: no user option changes
+  # what this function's expansions mean.
+  emulate -L zsh
   local _aui_status=${_AUI_STATUS:-0}
   if [[ -n ${_AUI_RUNNING-} ]]; then
     printf '\033]133;D;%s;k=__AUI_NONCE__\007' "$_aui_status"
@@ -111,11 +119,23 @@ _aui_osc133_precmd() {
 # without `base64` on PATH it falls back to a sanitised literal with control
 # characters and `;` stripped, and `enc=` says which one it is.
 _aui_osc133_preexec() {
+  # Pinned options, as in `_aui_osc133_status`: without this a user's
+  # `setopt ksh_arrays` makes the slice below zero-based and every command
+  # loses its first character.
+  emulate -L zsh
+  # Byte locale for this function's scope: `${_aui_raw[1,4096]}` counts
+  # characters in a UTF-8 locale but bytes under C, and the cap below must
+  # bound bytes — a character cap is no bound at all for CJK and emoji
+  # input (3000 CJK characters would still emit a 12 KB marker past the
+  # scanner's bound, and the block's command would come back empty).
+  # Cutting a multi-byte character in half is acceptable: the decoder
+  # handles a byte-split payload lossily and still produces a command.
+  local LC_ALL=C
   _AUI_RUNNING=1
   local _aui_raw=$1 _aui_cmd _aui_enc
-  # Cap the payload where it is produced: the decoder keeps at most
-  # MAX_CMD_LEN (4096) bytes, so anything larger only grows the marker past
-  # the scanner's bound while carrying nothing the library keeps.
+  # Cap the payload where it is produced, IN BYTES: the decoder keeps at
+  # most MAX_CMD_LEN (4096) bytes, so anything larger only grows the marker
+  # past the scanner's bound while carrying nothing the library keeps.
   _aui_raw=${_aui_raw[1,4096]}
   if command -v base64 >/dev/null 2>&1; then
     _aui_cmd=$(printf '%s' "$_aui_raw" | base64)
@@ -177,16 +197,23 @@ unsetopt PROMPT_SP
 /// is a fragment, not the typed line), so the `C` payload needs no prompt
 /// bracketing and no ordering fight. Nothing here touches `PS1`.
 /// `HISTTIMEFORMAT` is cleared in the preexec's local scope (as bash-preexec
-/// does) so a timestamp never parses as part of the command. Note: with
+/// does) so a timestamp never parses as part of the command, and `LC_ALL`
+/// is forced to `C` in that same scope so the payload cap below counts
+/// bytes, not characters (as on the zsh side). Note: with
 /// `HISTCONTROL=ignorespace` a command typed with a leading space is not in
 /// history, and with `HISTIGNORE` an ignored command is not in history
 /// either — `history 1` then still names the previous entry. That stale line
-/// is never trusted: the history index must have advanced since the previous
-/// command, otherwise the `$BASH_COMMAND` fragment is kept instead. A
-/// stale-but-plausible title is worse than a fragment, so the fragment wins
-/// over a confidently wrong command. Like the zsh side, the payload is
-/// capped at `MAX_CMD_LEN` (4096) before encoding, so the marker is bounded
-/// by construction. Known gap: `(echo sub)` in bash 3.2 never fires the
+/// is never trusted blindly: it is accepted only when it agrees with what
+/// bash is about to run (the `$BASH_COMMAND` fragment must appear in it),
+/// otherwise the `$BASH_COMMAND` fragment is kept instead. The history index
+/// alone cannot tell "the user repeated a command" — legitimate under
+/// `HISTCONTROL=ignoredups`/`ignoreboth`, which leave the index unadvanced —
+/// from "history is frozen and this line is someone else's" (`set +o
+/// history` leaves an unrelated line behind). A stale-but-plausible title is
+/// worse than a fragment, so the fragment wins over a confidently wrong
+/// command. Like the zsh side, the payload is capped at `MAX_CMD_LEN`
+/// (4096) bytes before encoding, so the marker is bounded by construction.
+/// Known gap: `(echo sub)` in bash 3.2 never fires the
 /// DEBUG trap, so no `C` is emitted for a subshell command and its output is
 /// orphaned — pre-existing, recorded next to the guard, not fixed here.
 ///
@@ -308,18 +335,20 @@ _aui_osc133_preexec() {
     # Note: with `HISTCONTROL=ignorespace` a command typed with a leading
     # space is not in history, and with `HISTIGNORE` an ignored command is
     # not in history either — `history 1` then still names the previous
-    # entry. That stale line is never trusted: the history index must have
-    # advanced since the previous command (tracked in `_AUI_LAST_HISTNO`),
-    # otherwise the `$BASH_COMMAND` fragment is kept instead. A
-    # stale-but-plausible title is worse than a fragment. Base64 so newlines,
-    # `;`, BEL and UTF-8 pass through untouched; without `base64` on PATH a
-    # sanitised literal with control characters and `;` stripped (builtins
-    # only — `tr` lives beside `base64`, so it is unavailable exactly when
-    # needed), and `enc=` says which one it is.
-    # The payload is capped where it is produced: the decoder keeps at most
-    # MAX_CMD_LEN (4096) bytes, so anything larger only grows the marker.
+    # entry. That line is accepted only when it agrees with what bash is
+    # about to run (see below); otherwise the `$BASH_COMMAND` fragment is
+    # kept instead. A stale-but-plausible title is worse than a fragment.
+    # Base64 so newlines, `;`, BEL and UTF-8 pass through untouched; without
+    # `base64` on PATH a sanitised literal with control characters and `;`
+    # stripped (builtins only — `tr` lives beside `base64`, so it is
+    # unavailable exactly when needed), and `enc=` says which one it is.
+    # The payload is capped where it is produced, IN BYTES: the decoder
+    # keeps at most MAX_CMD_LEN (4096) bytes, so anything larger only grows
+    # the marker. `${_aui_raw:0:4096}` counts characters in a UTF-8 locale
+    # but bytes under C, hence the `LC_ALL` below.
     local _aui_raw="$BASH_COMMAND" _aui_cmd _aui_enc _aui_hist
     local HISTTIMEFORMAT=
+    local LC_ALL=C
     _aui_hist=$(history 1 2>/dev/null || true)
     if [ -n "$_aui_hist" ]; then
       local _aui_trimmed="$_aui_hist"
@@ -328,16 +357,24 @@ _aui_osc133_preexec() {
       case "$_aui_histno" in
         ''|*[!0-9]*) _aui_histno="";;
       esac
-      if [ -n "$_aui_histno" ] && [ "$_aui_histno" = "${_AUI_LAST_HISTNO-}" ]; then
-        # Stale: history did not advance (a `HISTIGNORE` match, `set +o
-        # history`, a leading space under `ignorespace`) — keep the
-        # `$BASH_COMMAND` fragment rather than the previous command's line.
-        :
-      else
-        [ -n "$_aui_histno" ] && _AUI_LAST_HISTNO="$_aui_histno"
-        while [[ "$_aui_trimmed" == [0-9]* ]]; do _aui_trimmed=${_aui_trimmed#?}; done
-        while [[ "$_aui_trimmed" == [[:space:]]* ]]; do _aui_trimmed=${_aui_trimmed#?}; done
-        [ -n "$_aui_trimmed" ] && _aui_raw="$_aui_trimmed"
+      [ -n "$_aui_histno" ] && _AUI_LAST_HISTNO="$_aui_histno"
+      while [[ "$_aui_trimmed" == [0-9]* ]]; do _aui_trimmed=${_aui_trimmed#?}; done
+      while [[ "$_aui_trimmed" == [[:space:]]* ]]; do _aui_trimmed=${_aui_trimmed#?}; done
+      # The history index alone cannot tell "the user repeated a command"
+      # from "history is frozen and this line is someone else's": under
+      # `HISTCONTROL=ignoredups`/`ignoreboth` a repeat legitimately leaves
+      # the index unadvanced, while `set +o history`, a `HISTIGNORE` match
+      # or a leading space under `ignorespace` all leave the previous line
+      # behind. So the history line is trusted only when it contains the
+      # `$BASH_COMMAND` fragment — the simple command bash is entering must
+      # appear in the typed line (a repeat keeps its full line this way,
+      # while an unrelated stale entry still falls back to the fragment).
+      # The quoted expansion stays literal, so glob characters in the
+      # fragment cannot over-match.
+      if [ -n "$_aui_trimmed" ]; then
+        case "$_aui_trimmed" in
+          *"$BASH_COMMAND"*) _aui_raw="$_aui_trimmed";;
+        esac
       fi
     fi
     _aui_raw=${_aui_raw:0:4096}
@@ -2261,6 +2298,209 @@ mod tests {
             blocks.iter().any(|b| b.command == "echo BASH-SEMICOLON-DONE"),
             "the block carries the typed command: {blocks:#?}"
         );
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// Runs the real bash like `run_bash_with_stdin`, but returns stdout
+    /// as bytes and lets the caller pass extra environment (e.g.
+    /// `HISTCONTROL`): `script` on stdin, so real prompt cycles, the real
+    /// DEBUG trap and the real `history 1` all run — synchronously, with no
+    /// pty and no sleeps.
+    fn run_bash_piped(
+        home: &Path,
+        rcfile: &Path,
+        script: &str,
+        extra_env: &[(&str, &str)],
+    ) -> Vec<u8> {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let mut cmd = Command::new("/bin/bash");
+        cmd.env("HOME", home)
+            .arg("--rcfile")
+            .arg(rcfile)
+            .arg("-i")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        for (k, v) in extra_env {
+            cmd.env(k, v);
+        }
+        let mut child = cmd.spawn().expect("bash runs");
+        child.stdin.as_mut().expect("piped stdin").write_all(script.as_bytes()).expect("stdin write");
+        child.wait_with_output().expect("bash finishes").stdout
+    }
+
+    /// The zsh half of `run_bash_piped`: `ZDOTDIR` at the wrapper, `HOME`
+    /// at the scratch home, `script` on stdin — so the real `preexec`
+    /// (with the real `$1`) and real prompt cycles run synchronously.
+    fn run_zsh_piped(home: &Path, zdotdir: &Path, script: &str) -> Vec<u8> {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let mut child = Command::new("/bin/zsh")
+            .env("HOME", home)
+            .env("ZDOTDIR", zdotdir)
+            .env("ZSH_DISABLE_COMPFIX", "true")
+            .arg("-l")
+            .arg("-i")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .current_dir(std::env::temp_dir())
+            .spawn()
+            .expect("zsh runs");
+        child.stdin.as_mut().expect("piped stdin").write_all(script.as_bytes()).expect("stdin write");
+        child.wait_with_output().expect("zsh finishes").stdout
+    }
+
+    /// The byte length of every `C` marker from this session in the raw
+    /// bytes: the bound that decides whether the block keeps its command.
+    fn c_marker_lens(raw: &[u8], nonce: &str) -> Vec<usize> {
+        let head = format!("\x1b]133;C;k={nonce}");
+        let head = head.as_bytes();
+        let mut lens = Vec::new();
+        let mut i = 0;
+        while i + head.len() <= raw.len() {
+            if &raw[i..i + head.len()] == head {
+                let end =
+                    raw[i..].iter().position(|&b| b == 0x07).map(|r| i + r + 1).unwrap_or(raw.len());
+                lens.push(end - i);
+                i = end;
+            } else {
+                i += 1;
+            }
+        }
+        lens
+    }
+
+    /// D11: the payload cap counts BYTES, not characters. A 3,000-character
+    /// CJK command and a 2,000-emoji command through a real zsh: every `C`
+    /// marker stays under the scanner's 8,192-byte bound, and both blocks
+    /// carry their commands truncated at the documented 4,096-byte bound —
+    /// never empty. Fails against the old template: the character slice
+    /// emits a 12,033-byte CJK marker (past the bound, so the command is
+    /// lost) and the snippet carries no byte locale.
+    #[test]
+    fn byte_capped_cjk_and_emoji_commands_survive_the_marker_bound() {
+        let snippet = zsh_integration("bytecap11");
+        assert!(
+            snippet.contains("local LC_ALL=C"),
+            "the zsh slice counts bytes, not characters:\n{snippet}"
+        );
+        let bash = bash_integration("bytecap11");
+        assert!(bash.contains("local LC_ALL=C"), "the bash slice counts bytes, not characters");
+        let zsh = "/bin/zsh";
+        if !Path::new(zsh).exists() {
+            eprintln!("skipped: no {zsh}");
+            return;
+        }
+        let nonce = "bytecaplive";
+        let (home, dir, _) = scratch_home(&[], nonce, "unset ZDOTDIR", "bytecap");
+        let cjk = format!("echo {}", "日".repeat(3000));
+        let emoji = format!("echo {}", "😀".repeat(2000));
+        let script = format!("{cjk}\n{emoji}\n");
+        let raw = run_zsh_piped(&home, dir.path(), &script);
+        assert_eq!(count_c_markers(&raw, nonce), 2, "one C per typed command");
+        // Bounded by construction: 4,096 bytes base64-encode to 5,464, so
+        // every marker fits the scanner's 8,192-byte hold with room to spare.
+        for len in c_marker_lens(&raw, nonce) {
+            assert!(len < 8192, "a C marker past the scanner's bound: {len} bytes");
+        }
+        let blocks = live_blocks(&raw, nonce);
+        assert_eq!(blocks.len(), 2, "{blocks:#?}");
+        for (i, full) in [cjk.as_str(), emoji.as_str()].iter().enumerate() {
+            let bytes = full.as_bytes();
+            assert!(bytes.len() > 4096, "precondition: the audit's oversized case");
+            // What the snippet capped (first 4,096 bytes, possibly mid
+            // character) looks like after the decoder's documented pass:
+            // lossy, then truncated back to the bound at a character
+            // boundary (so a split tail's replacement character may fall
+            // back off again — either way the command is never empty).
+            let mut expect =
+                String::from_utf8_lossy(&bytes[..crate::parser::MAX_CMD_LEN]).into_owned();
+            if expect.len() > crate::parser::MAX_CMD_LEN {
+                let mut end = crate::parser::MAX_CMD_LEN;
+                while !expect.is_char_boundary(end) {
+                    end -= 1;
+                }
+                expect.truncate(end);
+            }
+            assert!(!blocks[i].command.is_empty(), "block {i} lost its command");
+            assert!(blocks[i].command.len() <= 4096, "block {i} past the byte bound");
+            assert_eq!(blocks[i].command, expect, "block {i} truncates at the byte bound");
+        }
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// D12: under `HISTCONTROL=ignoredups`/`ignoreboth` (Ubuntu's default)
+    /// a repeated command keeps its FULL line. The `history 1` line is
+    /// accepted when it contains the `$BASH_COMMAND` fragment — a repeat's
+    /// full line always does — and only an unrelated stale entry falls back
+    /// to the fragment. Fails against the old template, whose index-only
+    /// check keeps the fragment (`ls /`, `cd /tmp`) on every repeat.
+    #[test]
+    fn a_repeated_command_under_ignoredups_keeps_its_full_line() {
+        let body = bash_integration("dupsnonce12");
+        assert!(
+            body.contains("*\"$BASH_COMMAND\"*"),
+            "the history line must agree with the fragment bash is entering:\n{body}"
+        );
+        let bash = "/bin/bash";
+        if !Path::new(bash).exists() {
+            eprintln!("skipped: no {bash}");
+            return;
+        }
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let home = std::env::temp_dir().join(format!(
+            "aui-l3-bashdups-{}-{stamp}-{}",
+            std::process::id(),
+            scratch_counter(),
+        ));
+        std::fs::create_dir_all(&home).expect("home dir");
+        let dir = Pty::write_bash_rc("dupsnonce12").expect("the rcfile writes");
+        let raw = run_bash_piped(
+            &home,
+            &dir.path().join(BASH_RC_NAME),
+            "ls / | head -1\nls / | head -1\ncd /tmp && echo in\ncd /tmp && echo in\n",
+            &[("HISTCONTROL", "ignoreboth")],
+        );
+        assert_eq!(count_c_markers(&raw, "dupsnonce12"), 4, "one C per typed command");
+        let blocks = live_blocks(&raw, "dupsnonce12");
+        let cmds: Vec<_> = blocks.iter().map(|b| b.command.as_str()).collect();
+        assert_eq!(
+            cmds,
+            ["ls / | head -1", "ls / | head -1", "cd /tmp && echo in", "cd /tmp && echo in"],
+            "{blocks:#?}"
+        );
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// D13: user zsh options do not leak into the integration. With
+    /// `setopt ksh_arrays` in effect the captured command is still whole —
+    /// `emulate -L zsh` pins every function this integration defines.
+    /// Fails against the old template: the zero-based slice reports
+    /// `cho hello | cat`.
+    #[test]
+    fn zsh_options_do_not_shift_the_captured_command() {
+        let snippet = zsh_integration("kshnonce13");
+        assert_eq!(
+            snippet.matches("\n  emulate -L zsh\n").count(),
+            3,
+            "every zsh function pins its options:\n{snippet}"
+        );
+        let zsh = "/bin/zsh";
+        if !Path::new(zsh).exists() {
+            eprintln!("skipped: no {zsh}");
+            return;
+        }
+        let nonce = "kshlive0001";
+        let (home, dir, _) = scratch_home(&[], nonce, "unset ZDOTDIR", "ksharrays");
+        let raw = run_zsh_piped(&home, dir.path(), "setopt ksh_arrays\necho hello | cat\n");
+        let blocks = live_blocks(&raw, nonce);
+        let cmds: Vec<_> = blocks.iter().map(|b| b.command.as_str()).collect();
+        assert_eq!(cmds, ["setopt ksh_arrays", "echo hello | cat"], "{blocks:#?}");
         std::fs::remove_dir_all(&home).ok();
     }
 

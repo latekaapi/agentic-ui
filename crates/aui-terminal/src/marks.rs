@@ -48,13 +48,16 @@ const OSC_INTRO: u8 = b']';
 ///
 /// Follows from the shell-side payload cap, not from the pty read size: the
 /// snippets cap `_aui_raw` at [`MAX_CMD_LEN`](crate::parser::MAX_CMD_LEN)
-/// (4 KB) before encoding, so a `C` marker carries at most ~5,464 base64
-/// characters plus its parameters and a nonce of up to 128 characters —
-/// well under twice the payload cap even when macOS ptys deliver it split
-/// across 1024-byte reads. The marker is bounded by construction; this bound
-/// states that fact instead of guessing about shell behaviour. Anything past
-/// it is flushed through as plain text rather than held forever — a defence
-/// against an unterminated OSC, not a routine occurrence.
+/// (4096) bytes before encoding — in bytes, not characters, via `LC_ALL=C`
+/// in the preexec's local scope, so CJK and emoji input cannot push past it
+/// either — so a `C` marker carries at most 5,464 base64 characters plus its
+/// parameters and a nonce of up to 128 characters: well under twice the
+/// payload cap even when macOS ptys deliver it split across 1024-byte reads.
+/// The marker is bounded by construction *because* the shell-side cap counts
+/// bytes under the C locale; this bound states that fact instead of guessing
+/// about shell behaviour. Anything past it is flushed through as plain text
+/// rather than held forever — a defence against an unterminated OSC, not a
+/// routine occurrence.
 const MAX_PENDING: usize = crate::parser::MAX_CMD_LEN * 2;
 
 /// Which of the four shell-integration markers a [`Mark`] records.
