@@ -24,13 +24,13 @@
 //!     })
 //! ```
 
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
-use aui_motion::{tween, Tween};
+use aui_motion::{spring_px, tween, SpringKind, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
-use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
-use gpui_kit::base::{h_flex, v_flex};
+use gpui::{div, prelude::*, px, AnyElement, App, Bounds, ElementId, IntoElement, Pixels, SharedString, Window};
+use gpui_kit::base::{h_flex, v_flex, ElementExt};
 
 use crate::data::{button, icon_button, icon_content_button, ButtonSize};
 use crate::shell::{resize_handle, RESIZE_HANDLE_W};
@@ -40,9 +40,17 @@ use crate::util::{interaction_flags, TrackInteraction};
 /// 12 px type.
 const TAB_GAP: f32 = 7.0;
 const TAB_PAD: f32 = 12.0;
+/// The strip frame matches the shell strip too: 6 px side padding, 2 px gaps
+/// and the 2 px ink indicator under the active tab, inset 8 px from the tab
+/// edges. (The shell strip's own numbers, kept in step with it.)
+const STRIP_PAD: f32 = 6.0;
+const STRIP_GAP: f32 = scale::SP_1;
+const INDICATOR_H: f32 = scale::SP_1;
+const INDICATOR_INSET: f32 = scale::SP_3;
 /// The agent mark in a tab: 12 px, the strip's glyph size.
 const TAB_MARK: f32 = 12.0;
-/// The busy dot while a command runs: 6 px in accent.
+/// The busy dot while a command runs: 6 px in ink, like every tab indicator
+/// in the design (never accent).
 const BUSY_DOT: f32 = 6.0;
 /// The close affordance: the shell strip's 14 px box (radius 3) with a 10 px x.
 const CLOSE_SIZE: f32 = 14.0;
@@ -103,6 +111,14 @@ pub enum TerminalTabsAction {
 
 type TabsHandler = Rc<dyn Fn(TerminalTabsAction, &mut Window, &mut App)>;
 
+/// Previous-frame geometry the indicator is positioned from: the shell
+/// strip's own mechanism, so the two strips move as one.
+#[derive(Default)]
+struct StripGeometry {
+    strip: Option<Bounds<Pixels>>,
+    tabs: Vec<Option<Bounds<Pixels>>>,
+}
+
 /// The terminal tab strip. Build with [`terminal_tabs`].
 #[derive(IntoElement)]
 pub struct TerminalTabs {
@@ -112,10 +128,13 @@ pub struct TerminalTabs {
     on_action: Option<TabsHandler>,
 }
 
-/// A strip over `tabs` with `active` selected. The strip takes the free width
-/// of its row and scrolls horizontally; it never wraps. An out-of-range
-/// `active` selects nothing. Seat it in the dock header (or any fixed-height
-/// row); it fills the row's height the way the shell strip does.
+/// A strip over `tabs` with `active` selected. It looks and moves like the
+/// shell strip ([`crate::shell::tab_strip`]): same tab anatomy, same 2 px ink
+/// indicator sliding under the active tab on the swap spring, and tabs keep
+/// their natural width — a strip short of room clips at its edge. An
+/// out-of-range `active` selects nothing. Seat it in the dock header (or any
+/// fixed-height row); it fills the row's height the way the shell strip does.
+/// The dock header cell owns the bottom hairline, so the strip draws none.
 pub fn terminal_tabs(id: impl Into<ElementId>, tabs: Vec<TermTab>, active: usize) -> TerminalTabs {
     TerminalTabs { id: id.into(), tabs, active, on_action: None }
 }
@@ -132,12 +151,62 @@ impl RenderOnce for TerminalTabs {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
+        let active = self.active;
+
+        // The indicator is placed from last frame's bounds; the first frame
+        // draws none and asks for another frame. The captured strip bounds are
+        // its border box while an absolute `left` is measured from the content
+        // box, so the strip's own padding is taken back out — the shell
+        // strip's own arithmetic.
+        let geometry = window
+            .use_keyed_state((id.clone(), "geometry"), cx, |_, _| Rc::new(RefCell::new(StripGeometry::default())))
+            .read(cx)
+            .clone();
+        let target = {
+            let g = geometry.borrow();
+            match (g.strip, g.tabs.get(active).copied().flatten()) {
+                (Some(strip), Some(tab)) => Some((
+                    tab.origin.x - strip.origin.x + px(INDICATOR_INSET - STRIP_PAD),
+                    tab.size.width - px(2.0 * INDICATOR_INSET),
+                )),
+                _ => None,
+            }
+        };
+        let indicator = match target {
+            Some((left, width)) => {
+                let left = spring_px((id.clone(), "indicator-left"), left, SpringKind::Swap, window, cx);
+                let width = spring_px((id.clone(), "indicator-width"), width, SpringKind::Swap, window, cx);
+                Some(
+                    div()
+                        .absolute()
+                        .bottom(px(0.0))
+                        .left(left)
+                        .w(width.max(px(0.0)))
+                        .h(px(INDICATOR_H))
+                        .rounded_t(px(INDICATOR_H))
+                        .bg(p.ink)
+                        .into_any_element(),
+                )
+            }
+            None => {
+                window.request_animation_frame();
+                None
+            }
+        };
+
         let mut strip = h_flex()
             .id((id.clone(), "strip"))
+            .relative()
             .h(cx.aui().metrics.tab_strip)
             .flex_1()
             .min_w(px(0.0))
-            .overflow_x_scroll();
+            .gap(px(STRIP_GAP))
+            .px(px(STRIP_PAD))
+            .on_prepaint({
+                let geometry = geometry.clone();
+                move |bounds, _, _| geometry.borrow_mut().strip = Some(bounds)
+            });
+        let count = self.tabs.len();
         for (index, tab) in self.tabs.iter().enumerate() {
             let tab_id: ElementId = (id.clone(), tab.id.clone()).into();
             let active = index == self.active;
@@ -145,10 +214,13 @@ impl RenderOnce for TerminalTabs {
             let color = tween((tab_id.clone(), "ink"), if active || flags.hovered { p.ink } else { p.ink_3 }, Tween::FAST, window, cx);
             let show_close = active || flags.hovered;
             let close_opacity = tween((tab_id.clone(), "close"), if show_close { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
-            // The active tab takes the body ground so it merges with the pane
-            // below; inactive tabs are transparent.
+            // Tabs keep their natural width; a strip short of room clips at
+            // its edge, like the shell strip. The active tab takes the body
+            // ground so it merges with the pane below; inactive tabs are
+            // transparent.
             let mut el = h_flex()
                 .id(tab_id.clone())
+                .relative()
                 .h_full()
                 .flex_none()
                 .gap(px(TAB_GAP))
@@ -158,13 +230,23 @@ impl RenderOnce for TerminalTabs {
                 .whitespace_nowrap()
                 .cursor_pointer()
                 .track_interaction(&state)
-                .when(active, |d| d.bg(p.term_bg));
+                .when(active, |d| d.bg(p.term_bg))
+                .on_prepaint({
+                    let geometry = geometry.clone();
+                    move |bounds, _, _| {
+                        let mut g = geometry.borrow_mut();
+                        if g.tabs.len() < count {
+                            g.tabs.resize(count, None);
+                        }
+                        g.tabs[index] = Some(bounds);
+                    }
+                });
             if let Some(provider) = tab.agent {
                 el = el.child(provider_mark(provider).size(px(TAB_MARK)));
             }
             el = el.child(tab.title.clone());
             if tab.busy {
-                el = el.child(div().flex_none().size(px(BUSY_DOT)).rounded_full().bg(p.accent));
+                el = el.child(div().flex_none().size(px(BUSY_DOT)).rounded_full().bg(p.ink));
             }
             let mut close = div()
                 .id((tab_id.clone(), "close"))
@@ -190,7 +272,8 @@ impl RenderOnce for TerminalTabs {
         if let Some(on_new) = self.on_action.clone() {
             plus = plus.on_click(move |_, w, cx| on_new(TerminalTabsAction::New, w, cx));
         }
-        strip.child(div().flex_none().flex().items_center().h_full().child(plus))
+        strip = strip.child(div().flex_none().flex().items_center().h_full().child(plus));
+        strip.children(indicator)
     }
 }
 

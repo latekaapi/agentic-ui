@@ -697,6 +697,8 @@ impl TerminalSession {
                         return None;
                     }
                     let row = block.end.clamp(top, bottom - 1) - top;
+                    let cols = term.columns();
+                    let col = anchor_used_cols(term, Line(row - offset), cols).min(cols);
                     let failed = block.exit.is_some_and(|exit| exit != 0);
                     let label = match (block.exit, block.ended) {
                         (Some(exit), Some(ended)) => {
@@ -714,6 +716,7 @@ impl TerminalSession {
                     Some(BlockChrome {
                         index,
                         row: row as usize,
+                        col,
                         glyph,
                         label,
                         author: block.author,
@@ -1260,6 +1263,11 @@ const TERM_PX: f32 = 12.0;
 const TERM_LH: f32 = 1.6;
 /// Bar-cursor and underline-cursor thickness, in px.
 const CURSOR_BAR_W: f32 = 2.0;
+/// Side padding of the grid text area, from the token scale: the block
+/// terminal's own side rhythm, so the two panes align. Text, cursor and
+/// chrome all live inside it; the layout probe measures the inset box, so the
+/// program is told the columns it really has.
+const GRID_PAD_X: f32 = aui_tokens::scale::SP_4;
 /// Inset of the jump-to-latest affordance from the pane corner, in px.
 const JUMP_OFFSET: f32 = 8.0;
 
@@ -1307,6 +1315,13 @@ struct CursorCell {
     col: usize,
     /// Block, bar or underline.
     shape: CursorShape,
+    /// The program asked for a blinking cursor: a DECSCUSR blinking variant
+    /// or mode 12 (`Term::cursor_style`). `CursorBlinkingChange` already
+    /// marks the session dirty, so this is fresh on every snapshot.
+    blinking: bool,
+    /// The cursor sits on a two-cell (wide) character: the drawn block spans
+    /// two cells so it covers the glyph instead of its first half.
+    wide: bool,
 }
 
 /// One block's overlay chrome, owned so the term lock is released before any
@@ -1317,6 +1332,11 @@ struct BlockChrome {
     index: usize,
     /// Screen row anchoring the chrome (the block's end line, clamped).
     row: usize,
+    /// First free screen column of the anchor row: one past its last
+    /// non-blank cell. The element draws the strip from here to the row's
+    /// end (clipped), so the chrome can never cover the row's own text; a
+    /// full row yields `cols` and the strip clips to nothing.
+    col: usize,
     /// Gutter status glyph: running, failed or done.
     glyph: &'static str,
     /// Exit code and duration, via the parser's shared labels.
@@ -1473,8 +1493,17 @@ impl TerminalSession {
                 shape => {
                     let row = content.cursor.point.line.0 + disp;
                     let col = content.cursor.point.column.0;
-                    (row >= 0 && (row as usize) < out.len() && col < cols)
-                        .then_some(CursorCell { row: row as usize, col, shape })
+                    if row < 0 || (row as usize) >= out.len() || col >= cols {
+                        None
+                    } else {
+                        Some(CursorCell {
+                            row: row as usize,
+                            col,
+                            shape,
+                            blinking: term.cursor_style().blinking,
+                            wide: is_wide_lead(term, content.cursor.point.line, col, cols),
+                        })
+                    }
                 }
             };
             let mut snapshot =
@@ -1758,6 +1787,7 @@ fn find_urls(text: &str) -> Vec<(usize, usize)> {
 
 use std::rc::Rc;
 
+use aui_motion::{looping, Loop};
 use aui_tokens::{ActiveAui, AuiStyled};
 
 /// What [`TerminalGrid`] asks its host for. The component is stateless; the
@@ -1789,27 +1819,40 @@ type IntentHandler = Rc<dyn Fn(TerminalGridIntent, &mut gpui::Window, &mut gpui:
 ///
 /// Paints in four layers, in order: row background rects, batched
 /// same-style text runs, the cursor (block, bar or underline per DECSCUSR,
-/// hollow when unfocused), and the overlay: per-block chrome (gutter status
-/// glyph, exit code and duration, author mark, action row) plus the
-/// jump-to-latest affordance while detached. The overlay hides entirely while
-/// the program owns the alternate screen (decision D44).
+/// hollow when unfocused, blinking when the program asked), and the overlay:
+/// per-block chrome (status glyph, exit code and duration, author mark) plus
+/// the jump-to-latest affordance while detached. The text area is inset by
+/// [`GRID_PAD_X`] on both sides, and the chrome strip starts clear of the
+/// row's own text. The overlay hides entirely while the program owns the
+/// alternate screen (decision D44).
 #[derive(gpui::IntoElement)]
 pub struct TerminalGrid {
     session: gpui::Entity<TerminalSession>,
     option_as_meta: bool,
+    show_actions: bool,
     on_intent: Option<IntentHandler>,
 }
 
 /// The terminal grid fed by `session` (held in a gpui `Entity` the host
 /// owns). State lives in the session; this component only renders.
 pub fn terminal_grid(session: &gpui::Entity<TerminalSession>) -> TerminalGrid {
-    TerminalGrid { session: session.clone(), option_as_meta: false, on_intent: None }
+    TerminalGrid { session: session.clone(), option_as_meta: false, show_actions: false, on_intent: None }
 }
 
 impl TerminalGrid {
     /// Treats Option as Meta for key encoding (the macOS terminal setting).
     pub fn option_as_meta(mut self, option_as_meta: bool) -> Self {
         self.option_as_meta = option_as_meta;
+        self
+    }
+
+    /// Shows the per-block Copy / Rerun / Stop / Ask buttons in the overlay
+    /// chrome. Off by default: nothing appears unless the host asks, so a
+    /// grid built with no opt-in renders no action controls at all (the
+    /// library's global UI rule against unnecessary actions). The intents
+    /// stay in the API either way.
+    pub fn show_actions(mut self, show_actions: bool) -> Self {
+        self.show_actions = show_actions;
         self
     }
 
@@ -1876,12 +1919,28 @@ impl gpui::RenderOnce for TerminalGrid {
                     .child(gpui::StyledText::new(text).with_runs(row.runs.clone())),
             );
         }
+        let grid_id = gpui::ElementId::named_usize(
+            "terminal-grid",
+            self.session.entity_id().as_u64() as usize,
+        );
         // Layer 3: the cursor — block, bar or underline per DECSCUSR —
-        // drawn hollow when the element is not focused.
+        // drawn hollow when the element is not focused. It blinks only when
+        // focused and the program asked for blinking; a steady or unfocused
+        // cursor never touches the motion clock, so it subscribes to no
+        // frames and forces no repaint on any phase.
         let mut cursor_el = div();
         if let Some(cursor) = snapshot.cursor {
-            let x = cursor.col as f32 * advance;
-            let y = cursor.row as f32 * line_height;
+            let on = if cursor.blinking && focused {
+                looping(
+                    (grid_id.clone(), "cursor-blink"),
+                    Loop::linear(aui_tokens::scale::D_SLOW * 4).resting(1.0),
+                    window,
+                    cx,
+                ) < 0.5
+            } else {
+                true
+            };
+            let (x, y, w, h) = cursor_rect(&cursor, advance, line_height);
             cursor_el = match cursor.shape {
                 // A hollow block is already the unfocused look: always an
                 // outline, whatever the focus.
@@ -1889,8 +1948,8 @@ impl gpui::RenderOnce for TerminalGrid {
                     .absolute()
                     .left(px(x))
                     .top(px(y))
-                    .w(px(advance))
-                    .h(px(line_height))
+                    .w(px(w))
+                    .h(px(h))
                     .bg(gpui::transparent_black())
                     .border_1()
                     .border_color(palette.term_cursor),
@@ -1899,8 +1958,8 @@ impl gpui::RenderOnce for TerminalGrid {
                         .absolute()
                         .left(px(x))
                         .top(px(y))
-                        .w(px(advance))
-                        .h(px(line_height))
+                        .w(px(w))
+                        .h(px(h))
                         .bg(palette.term_cursor);
                     if !focused {
                         el = el.bg(gpui::transparent_black()).border_1().border_color(palette.term_cursor);
@@ -1912,17 +1971,20 @@ impl gpui::RenderOnce for TerminalGrid {
                     .left(px(x))
                     .top(px(y))
                     .w(px(CURSOR_BAR_W))
-                    .h(px(line_height))
+                    .h(px(h))
                     .bg(palette.term_cursor),
                 CursorShape::Underline => div()
                     .absolute()
                     .left(px(x))
-                    .top(px(line_height - CURSOR_BAR_W + y))
-                    .w(px(advance))
+                    .top(px(h - CURSOR_BAR_W + y))
+                    .w(px(w))
                     .h(px(CURSOR_BAR_W))
                     .bg(palette.term_cursor),
                 CursorShape::Hidden => div(),
             };
+            if !on {
+                cursor_el = cursor_el.opacity(0.0);
+            }
         }
         // Layer 4: the overlay layer. Block chrome first (one strip per
         // block intersecting the viewport, decision D44), then the
@@ -1939,6 +2001,7 @@ impl gpui::RenderOnce for TerminalGrid {
                     advance,
                     line_height,
                     &palette,
+                    self.show_actions,
                     on_intent.clone(),
                 ));
             }
@@ -1961,10 +2024,20 @@ impl gpui::RenderOnce for TerminalGrid {
             );
         }
 
-        let grid_id = gpui::ElementId::named_usize(
-            "terminal-grid",
-            self.session.entity_id().as_u64() as usize,
-        );
+        // The inset text area: every paint layer lives inside the side
+        // padding, so the probe measures the columns the program really has
+        // and hit-testing needs no offset.
+        let content = div()
+            .absolute()
+            .top(px(0.0))
+            .bottom(px(0.0))
+            .left(px(GRID_PAD_X))
+            .right(px(GRID_PAD_X))
+            .child(backgrounds)
+            .child(lines)
+            .child(cursor_el)
+            .child(overlay)
+            .child(layout_probe(&self.session, advance, line_height));
         div()
             .id(grid_id)
             .relative()
@@ -1972,11 +2045,7 @@ impl gpui::RenderOnce for TerminalGrid {
             .bg(palette.term_bg)
             .text_color(palette.term_fg)
             .track_focus(&focus)
-            .child(backgrounds)
-            .child(lines)
-            .child(cursor_el)
-            .child(overlay)
-            .child(layout_probe(&self.session, advance, line_height))
+            .child(content)
             .on_mouse_down(gpui::MouseButton::Left, {
                 let session = session.clone();
                 let on_intent = on_intent.clone();
@@ -2052,15 +2121,18 @@ impl gpui::RenderOnce for TerminalGrid {
     }
 }
 
-/// One block's overlay strip at its anchor row: gutter status glyph, exit
-/// code and duration, author mark, then the action row (Copy, Rerun, Stop,
-/// Ask) raising [`TerminalGridIntent`]s. Overflow goes through
+/// One block's overlay strip at its anchor row: status glyph, exit code and
+/// duration, author mark, then the action row — but only when the host opted
+/// in (see [`TerminalGrid::show_actions`]) — raising [`TerminalGridIntent`]s.
+/// The strip starts at the anchor row's first free cell and clips there, so
+/// it never covers the row's own text. Overflow goes through
 /// [`popover_layer`](aui::overlay::popover_layer), like the jump affordance.
 fn block_chrome_el(
     chrome: &BlockChrome,
     advance: f32,
     line_height: f32,
     palette: &aui_tokens::Palette,
+    show_actions: bool,
     on_intent: Option<IntentHandler>,
 ) -> impl gpui::IntoElement {
     use aui_tokens::scale;
@@ -2107,30 +2179,31 @@ fn block_chrome_el(
         // D43's `M` mark, rendered by the host's choice of author label.
         meta = meta.child(div().ml(px(scale::SP_1)).text_color(palette.ink_3).child("M"));
     }
-    let mut actions = div().flex().flex_row().items_center();
-    for (name, label, intent) in [
-        ("term-block-copy", "Copy", TerminalGridIntent::Copy(index)),
-        ("term-block-rerun", "Rerun", TerminalGridIntent::Rerun(index)),
-        ("term-block-stop", "Stop", TerminalGridIntent::Stop(index)),
-        ("term-block-ask", "Ask", TerminalGridIntent::Ask(index)),
-    ] {
-        actions = actions.child(div().ml(px(scale::SP_1)).child(action(name, label, intent)));
+    let mut inner =
+        div().flex().flex_row().items_center().child(gutter).child(meta).child(div().flex_1());
+    // No opt-in, no action row at all: not even an empty container.
+    let buttons = chrome_action_buttons(show_actions, index);
+    if !buttons.is_empty() {
+        let mut actions = div().flex().flex_row().items_center();
+        for (name, intent) in buttons {
+            let label = match intent {
+                TerminalGridIntent::Copy(_) => "Copy",
+                TerminalGridIntent::Rerun(_) => "Rerun",
+                TerminalGridIntent::Stop(_) => "Stop",
+                TerminalGridIntent::Ask(_) => "Ask",
+                TerminalGridIntent::OpenUrl(_) => continue,
+            };
+            actions = actions.child(div().ml(px(scale::SP_1)).child(action(name, label, intent)));
+        }
+        inner = inner.child(actions);
     }
     let strip = div()
         .absolute()
         .top(px(chrome.row as f32 * line_height))
-        .left(px(0.0))
+        .left(px(chrome.col as f32 * advance))
         .right(px(0.0))
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .child(gutter)
-                .child(meta)
-                .child(div().flex_1())
-                .child(actions),
-        );
+        .overflow_hidden()
+        .child(inner);
     aui::overlay::popover_layer(strip)
 }
 
@@ -2143,6 +2216,76 @@ fn row_offset(_row: usize, at: usize, text: &str, advance: f32) -> f32 {
 /// Whole cells covered by byte range `start..end`.
 fn span_cols(text: &str, start: usize, end: usize) -> usize {
     text.get(start..end).map(|s| s.chars().count()).unwrap_or(0).max(1)
+}
+
+/// Whether the grid cell at (`line`, `col`) leads a wide character: flagged
+/// wide, or followed by its spacer when the flag was already consumed by an
+/// overwrite. Spacers themselves are never leads; out-of-range columns read
+/// narrow.
+fn is_wide_lead(term: &Term<SessionEventProxy>, line: Line, col: usize, cols: usize) -> bool {
+    use alacritty_terminal::term::cell::Flags;
+    if col >= cols {
+        return false;
+    }
+    let cell = &term.grid()[Point::new(line, Column(col))];
+    if cell.flags.contains(Flags::WIDE_CHAR) {
+        return true;
+    }
+    col + 1 < cols
+        && term.grid()[Point::new(line, Column(col + 1))]
+            .flags
+            .contains(Flags::WIDE_CHAR_SPACER)
+}
+
+/// Used text cells on a screen row: one past the last non-blank cell, with a
+/// leading wide char counting two. The chrome strip starts here, so it can
+/// never cover the row's own text; a full row yields `cols`.
+fn anchor_used_cols(term: &Term<SessionEventProxy>, line: Line, cols: usize) -> usize {
+    let mut used = 0usize;
+    for col in 0..cols {
+        let cell = &term.grid()[Point::new(line, Column(col))];
+        if cell.flags.contains(alacritty_terminal::term::cell::Flags::WIDE_CHAR_SPACER) {
+            continue;
+        }
+        if cell.c != '\0' && cell.c != ' ' {
+            used = col + if is_wide_lead(term, line, col, cols) { 2 } else { 1 };
+        }
+    }
+    used.min(cols)
+}
+
+/// The cursor's pixel rect `(x, y, w, h)`: the grid cell's position — never
+/// measured from the row text, so wide lines cannot shift it — two cells wide
+/// when it sits on a wide character.
+fn cursor_rect(cursor: &CursorCell, advance: f32, line_height: f32) -> (f32, f32, f32, f32) {
+    let width = if cursor.wide { 2.0 } else { 1.0 };
+    (
+        cursor.col as f32 * advance,
+        cursor.row as f32 * line_height,
+        width * advance,
+        line_height,
+    )
+}
+
+/// Whole columns for a measured content width, however small the pane is
+/// drawn (see [`MIN_COLS`]).
+fn content_cols(width_px: f32, advance: f32) -> u16 {
+    ((width_px / advance).floor() as u16).clamp(MIN_COLS, u16::MAX)
+}
+
+/// The per-block action buttons behind the host opt-in, left to right: empty
+/// unless the host asked for them (see [`TerminalGrid::show_actions`]). The
+/// intents stay in the API either way.
+fn chrome_action_buttons(show_actions: bool, index: usize) -> Vec<(&'static str, TerminalGridIntent)> {
+    if !show_actions {
+        return Vec::new();
+    }
+    vec![
+        ("term-block-copy", TerminalGridIntent::Copy(index)),
+        ("term-block-rerun", TerminalGridIntent::Rerun(index)),
+        ("term-block-stop", TerminalGridIntent::Stop(index)),
+        ("term-block-ask", TerminalGridIntent::Ask(index)),
+    ]
 }
 
 /// Left press: focus is handled by the caller. `⌘`-click on a link opens it;
@@ -2345,7 +2488,7 @@ fn layout_probe(
             }
             let w = f32::from(bounds.size.width);
             let h = f32::from(bounds.size.height);
-            let cols = ((w / advance).floor() as u16).clamp(MIN_COLS, u16::MAX);
+            let cols = content_cols(w, advance);
             let rows = ((h / line_height).floor() as u16).clamp(MIN_ROWS, u16::MAX);
             let metrics = CellMetrics { advance, line_height };
             session.update(cx, |session, _| session.note_layout(bounds, metrics, cols, rows));
@@ -2504,6 +2647,121 @@ mod tests {
 
     fn dark() -> aui_tokens::Palette {
         aui_tokens::Palette::for_kind(aui_tokens::ThemeKind::Dark)
+    }
+
+    fn light() -> aui_tokens::Palette {
+        aui_tokens::Palette::for_kind(aui_tokens::ThemeKind::Light)
+    }
+
+    /// A running command with `tail` bytes after its `C` marker: the block is
+    /// still open, so its chrome anchors on the live tail row.
+    fn running_bytes(nonce: &str, echo: &str, tail: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend(marker_bytes(nonce, "A"));
+        out.extend(b"p$ ");
+        out.extend(marker_bytes(nonce, "B"));
+        out.extend(echo.as_bytes());
+        out.extend(b"\r\n");
+        out.extend(marker_bytes(nonce, "C"));
+        out.extend(tail);
+        out
+    }
+
+    /// V1 D1: the chrome strip starts clear of the anchor row's own text. A
+    /// running block whose tail row is full-width text clips the strip to
+    /// nothing; a short tail row carries the strip right after its last
+    /// glyph. Without the fix the strip starts at column 0, over the text.
+    #[test]
+    fn chrome_starts_clear_of_the_row_text() {
+        // Full-width tail row: 20 columns of text on a 20-column grid.
+        let h = live_session("v1d1full", 20, 6);
+        h.feed(&running_bytes(&h.nonce, "run", &[b'X'; 20]));
+        assert!(h.session.blocks().iter().any(|b| b.running()), "precondition: still running");
+        let chrome = h.session.overlay_chrome();
+        assert_eq!(chrome.len(), 1, "{chrome:?}");
+        assert_eq!(chrome[0].col, 20, "strip must start past the last used cell: {chrome:?}");
+        // Short tail row: the strip starts after the last glyph, inside the row.
+        let h = live_session("v1d1part", 20, 6);
+        h.feed(&running_bytes(&h.nonce, "run", b"hi"));
+        let chrome = h.session.overlay_chrome();
+        assert_eq!(chrome.len(), 1, "{chrome:?}");
+        assert_eq!(chrome[0].col, 2, "strip must start after the tail text: {chrome:?}");
+    }
+
+    /// V1 D1/D2: the drawn cursor rect sits on the grid's cursor cell — for a
+    /// plain line and for one with wide characters — and spans two cells on a
+    /// wide char, in both themes. Without the fix the cursor is always one
+    /// cell wide and carries no blink state.
+    #[test]
+    fn cursor_rect_matches_the_grid_cell_with_and_without_wide_chars() {
+        for palette in [dark(), light()] {
+            let plain = pumped(vec![b"hi"], 20, 5);
+            let grid = plain.snapshot(&palette);
+            let cursor = grid.cursor.expect("a cursor");
+            assert_eq!((cursor.row, cursor.col), (0, 2));
+            assert!(!cursor.wide, "plain line");
+            assert_eq!(cursor_rect(&cursor, 8.0, 16.0), (16.0, 0.0, 8.0, 16.0));
+            // A wide char, then two cells back onto it.
+            let wide = pumped(vec!["あ".as_bytes(), b"\x1b[2D"], 20, 5);
+            let grid = wide.snapshot(&palette);
+            let cursor = grid.cursor.expect("a cursor");
+            assert_eq!((cursor.row, cursor.col), (0, 0));
+            assert!(cursor.wide, "cursor sits on a wide char");
+            let (x, y, w, h) = cursor_rect(&cursor, 8.0, 16.0);
+            assert_eq!((x, y), (0.0, 0.0));
+            assert_eq!(w, 16.0, "two cells wide");
+            assert_eq!(h, 16.0);
+        }
+    }
+
+    /// V1 D2: the snapshot carries the terminal's own blink mode — DECSCUSR's
+    /// blinking variants and mode 12 — so the element blinks a willing cursor
+    /// and leaves a steady one alone, in both themes.
+    #[test]
+    fn cursor_blink_state_follows_the_terminal_mode() {
+        for palette in [dark(), light()] {
+            let h = live_session("v1d2", 20, 5);
+            h.feed(b"hi");
+            assert!(!h.session.snapshot(&palette).cursor.expect("a cursor").blinking);
+            // DECSCUSR blinking block, then steady block.
+            h.feed(b"\x1b[1 q");
+            assert!(h.session.snapshot(&palette).cursor.expect("a cursor").blinking);
+            h.feed(b"\x1b[2 q");
+            assert!(!h.session.snapshot(&palette).cursor.expect("a cursor").blinking);
+            // Mode 12 set and reset.
+            h.feed(b"\x1b[?12h");
+            assert!(h.session.snapshot(&palette).cursor.expect("a cursor").blinking);
+            h.feed(b"\x1b[?12l");
+            assert!(!h.session.snapshot(&palette).cursor.expect("a cursor").blinking);
+        }
+    }
+
+    /// V1 D3: no per-block action buttons unless the host opts in. The
+    /// intents stay in the API; the default carries none.
+    #[test]
+    fn no_action_buttons_unless_opted_in() {
+        assert!(chrome_action_buttons(false, 0).is_empty());
+        let intents: Vec<TerminalGridIntent> =
+            chrome_action_buttons(true, 3).into_iter().map(|(_, intent)| intent).collect();
+        assert_eq!(
+            intents,
+            vec![
+                TerminalGridIntent::Copy(3),
+                TerminalGridIntent::Rerun(3),
+                TerminalGridIntent::Stop(3),
+                TerminalGridIntent::Ask(3),
+            ]
+        );
+    }
+
+    /// V1 D4: the grid's side padding comes from the token scale, and the
+    /// probe counts whole columns for a measured width, floored at the
+    /// session minimum.
+    #[test]
+    fn grid_side_padding_comes_from_the_token_scale() {
+        assert_eq!(GRID_PAD_X, aui_tokens::scale::SP_4);
+        assert_eq!(content_cols(100.0, 10.0), 10);
+        assert_eq!(content_cols(1.0, 10.0), MIN_COLS);
     }
 
     #[test]
