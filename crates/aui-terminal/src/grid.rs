@@ -3,8 +3,8 @@
 //! [`tui_grid`](crate::tui_grid) wraps an `alacritty_terminal` `Term` with no
 //! scrollback, swallowed events and no selection. This module is its
 //! replacement: a `Term` with 10 000 lines of scrollback behind
-//! [`FairMutex`](alacritty_terminal::sync::FairMutex), a reader thread that
-//! drains a boxed [`TerminalBackend`](crate::backend::TerminalBackend) and
+//! [`FairMutex`], a reader thread that
+//! drains a boxed [`TerminalBackend`] and
 //! feeds the `Term` off the UI thread, a channel-based event listener that
 //! handles every side-channel event instead of swallowing it, and a gpui
 //! element that paints the grid in layers.
@@ -117,7 +117,7 @@ enum SideEvent {
 
 /// The `alacritty_terminal` event listener: a channel, not a swallow.
 ///
-/// Every event becomes a [`SideEvent`] the reader thread handles. The one
+/// Every event becomes a `SideEvent` the reader thread handles. The one
 /// exception is the repaint marker, which flips the shared dirty flag
 /// directly so a repaint is never stuck behind a busy backend.
 #[derive(Debug, Clone)]

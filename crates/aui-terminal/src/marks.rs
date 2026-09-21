@@ -96,7 +96,7 @@ pub struct Mark {
     pub at: Instant,
     /// The command text carried on [`MarkKind::OutputStart`], decoded from
     /// the `C` marker's `cmd=` payload (see
-    /// [`decode_command`](crate::parser::decode_command)). `None` when
+    /// `decode_command`). `None` when
     /// the emitter sent none (an OSC 133 emitter that is not ours) or when
     /// the payload was rejected; the block then falls back to the grid
     /// scrape. `None` for the other kinds.

@@ -68,7 +68,7 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
   - `pub fn on_remove(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — Drop the attachment (the `x` on a ready row).
   - `pub fn on_retry(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — Try the failed upload again (`Retry`).
   - `pub fn state(self, state: AttachmentRowState) -> Self` — Sets the row state.
-  - `pub fn thumbnail(self, thumbnail: Arc<RenderImage>) -> Self` — A decoded preview for [`AttachmentKind::Image`]: drawn as the tile in place of the glyph, like the composer image chip.
+  - `pub fn thumbnail(self, thumbnail: Arc<RenderImage>) -> Self` — A decoded preview for `AttachmentKind::Image`: drawn as the tile in place of the glyph, like the composer image chip.
 - **struct** `CommandItem` — One row of the `/` menu.
   - fields: `id`, `command`, `description`, `key`, `source_tag`
   - `pub fn key(self, key: impl Into<SharedString>) -> Self` — Adds the keycap at the right edge.
@@ -154,7 +154,7 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
 
 - **enum** `AttachmentRowState` — Where one attachment row is in its life.
   - variants: `Ready`, `Uploading`, `Failed`, `Hint`
-  - `pub fn from_upload(state: &UploadState) -> Self` — Maps the protocol’s [`UploadState`] onto a row state.
+  - `pub fn from_upload(state: &UploadState) -> Self` — Maps the protocol’s `UploadState` onto a row state.
 - **enum** `ComposerChipAnchor` — Which toolbar control a `Composer::chip_menu` hangs off.
   - variants: `Model`, `Mode`, `Effort`
 - **enum** `ComposerChipKind` — What a context chip stands for.
@@ -1038,6 +1038,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn last_block_runs(source: &str, style: &ProseStyle, link_ink: Hsla) -> Option<(String, Vec<TextRun>)>`
 - **fn** `markdown` — Renders `source` as markdown blocks in `style`.
   - `pub fn markdown(id: impl Into<ElementId>, source: impl Into<SharedString>, style: ProseStyle) -> Markdown`
+- **fn** `markdown_fences` — Lists `source`’s fenced code blocks in document order for `Markdown::fence_action`: the host reads the fence it cares about here and hands its button back with the listed index. [...]
+  - `pub fn markdown_fences(source: &str) -> Vec<MarkdownFence>`
 - **fn** `markdown_selected_text` — Copies the selected text out of `source` without building a view: the slice of the holding cell’s shaped text, or `None` when the key addresses no cell or the range is empty. [...]
   - `pub fn markdown_selected_text(source: &str, selection: &TextSelection) -> Option<String>`
 - **fn** `markdown_span_selected_text` — Copies the selected text across `selection`’s cells without building a view: the same lookup `Markdown::span_selected_text` uses, for callers that hold the source but never built the view.
@@ -1123,7 +1125,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn choices(self, choices: Vec<ApprovalChoice>) -> Self` — The server’s own choice list, in the server’s order.
   - `pub fn cwd(self, cwd: impl Into<SharedString>) -> Self` — The directory the command would run in.
   - `pub fn feedback(self, feedback: impl Into<SharedString>) -> Self` — The feedback that went out with a refusal, quoted on the resolved card.
-  - `pub fn feedback_open(self, choice_id: Option<String>) -> Self` — Which choice’s feedback field is open, by [`ApprovalChoice::id`].
+  - `pub fn feedback_open(self, choice_id: Option<String>) -> Self` — Which choice’s feedback field is open, by `ApprovalChoice::id`.
   - `pub fn feedback_slot(self, slot: impl IntoElement) -> Self` — The feedback field itself — the host’s element, because the card never owns text. The same division as the composer’s editor.
   - `pub fn feedback_text(self, text: impl Into<String>) -> Self` — What the open field currently holds. Data in, so that “Send” can hand it straight back through `ApprovalCard::on_choose` without the card ever keeping a character of it.
   - `pub fn on_choose(self, f: impl Fn(String, Option<String>, &mut Window, &mut App) + 'static) -> Self` — A server-minted choice was pressed: its id, and the feedback typed for it when the open field was confirmed.
@@ -1142,9 +1144,11 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn actions_bottom(self, bottom: bool) -> Self` — In-flow action row under the prose instead of the hover toolbar.
   - `pub fn age(self, age: impl Into<SharedString>) -> Self` — The how-long-ago cell at the end of the footer, formatted by `format_age` on state change (once per card, not once per frame). [...]
   - `pub fn copied(self, copied: bool) -> Self` — Whether the copy button shows its success check. The flag is the caller’s transient state — the library owns no timers — so the app sets it on the copy intent and clears it after `COPY_HOLD`, the way the code block header holds its check for the same 1.2 s. [...]
+  - `pub fn fence_action(self, index: usize, button: CodeBlockHostButton) -> Self` — Puts the host’s button on fence `index` of the turn’s markdown body; passed straight through to the inner `markdown(...)`. See `Markdown::fence_action`.
   - `pub fn footer(self, cells: Vec<SharedString>) -> Self` — The footer cells, already formatted, for a caller that keeps them.
   - `pub fn meta(self, meta: TurnMeta) -> Self` — The footer: model · duration · tokens · cost.
   - `pub fn on_action(self, f: impl Fn(AssistantTurnAction, &mut Window, &mut App) + 'static) -> Self` — Toolbar handler.
+  - `pub fn on_code_action(self, f: impl Fn(CodeBlockAction, &mut Window, &mut App) + 'static) -> Self` — Code-block intents from the turn’s markdown fences, passed straight through to the inner `markdown(...)`. See `Markdown::on_code_action`.
   - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Link-click handler, passed through to the markdown body.
   - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents, passed straight through to the inner `markdown(...)`: drags and word / paragraph picks arrive as `Some`, plain clicks elsewhere in a cell arrive as `None` (clearing).
   - `pub fn on_span_event(self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self` — Cross-cell selection events, passed straight through to the inner `markdown(...)` for the turn’s `SpanSession`. A turn in span mode wires this instead of `on_selection_change`.
@@ -1187,6 +1191,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
 - **struct** `LinkRange` — A link’s byte range inside its paragraph’s shaped text, with its target.
   - fields: `range`, `target`
 - **struct** `Markdown` — A markdown block column. Build with `markdown`.
+  - `pub fn fence_action(self, index: usize, button: CodeBlockHostButton) -> Self` — Puts the host’s button on fence `index` — the fence’s number in document order from 0, as `markdown_fences` lists them — after the fence’s Copy control. [...]
+  - `pub fn on_code_action(self, f: impl Fn(CodeBlockAction, &mut Window, &mut App) + 'static) -> Self` — Code-block intents from the fences: pressing a fence button emits `CodeBlockAction::HostAction` with the fence’s index, language and code, so the host can tell which fence was pressed and act on it.
   - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Click handler for links: the argument is the clicked range’s target.
   - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents: drags and word / paragraph picks arrive as `Some`, plain clicks elsewhere in a cell arrive as `None` (clearing). [...]
   - `pub fn on_span_event(self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self` — Cross-cell selection events for the view’s `SpanSession`: presses, hovers while any button is held, releases, and word / paragraph picks. [...]
@@ -1194,6 +1200,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn selection(self, selection: Option<&TextSelection>) -> Self` — The stored selection this render highlights: the app owns one `Option<TextSelection>` per markdown view and passes it back here. Ignored while span mode is on (see `span_selection`).
   - `pub fn span_selected_text(&self, selection: &MessageSelection) -> Option<String>` — Copies the selected text across `selection`’s cells in document order; see `message_selected_text`. The app puts this on the clipboard on ⌘C when it holds a span; the keybinding stays with the app.
   - `pub fn span_selection(self, selection: Option<&MessageSelection>) -> Self` — The stored cross-cell span this render highlights: the app owns one `Option<MessageSelection>` per markdown view (plus its `SpanSession`) and passes it back here. [...]
+- **struct** `MarkdownFence` — One fenced code block in a markdown source, in document order.
+  - fields: `index`, `language`, `code`
 - **struct** `MarkerRow` — A marker row. Build with `marker_row`.
   - `pub fn glyph(self, name: IconName, color: Option<Hsla>) -> Self` — The 12 px leading glyph, optionally tinted (a warning shield).
   - `pub fn hand_off(self, hand_off: HandOff) -> Self` — The hand-off pill before the text.
@@ -1217,7 +1225,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn on_edit(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — “Edit”: the person wants to change the plan text first.
   - `pub fn on_reject(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — “Reject”: the agent should propose something else.
   - `pub fn sections(self, sections: Vec<PlanSection>) -> Self` — The unnumbered labels that group the steps.
-  - `pub fn state(self, state: PlanState) -> Self` — Where the plan is in its lifecycle; the action row is only drawn while the plan is [`PlanState::Proposed`].
+  - `pub fn state(self, state: PlanState) -> Self` — Where the plan is in its lifecycle; the action row is only drawn while the plan is `PlanState::Proposed`.
 - **struct** `ProseStyle` — Colours and sizes for a prose block.
   - fields: `ink`, `code_ink`, `code_bg`, `size`, `line_height`, `paragraph_gap`
 - **struct** `QuestionCard` — The pending question card. Build with `question_card`.
@@ -1228,7 +1236,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn hint(self, hint: impl Into<SharedString>) -> Self` — Overrides the action-row hint (the default counts the selection).
   - `pub fn limits(self, min: Option<usize>, max: Option<usize>) -> Self` — How many options a multi-select must gather: `(min, max)`.
   - `pub fn multi(self, multi: bool) -> Self` — Checkboxes instead of radios (`Block::Question::multi`).
-  - `pub fn on_answer(self, f: impl Fn(Answer, &mut Window, &mut App) + 'static) -> Self` — “Continue”: the current selection, as an [`Answer`].
+  - `pub fn on_answer(self, f: impl Fn(Answer, &mut Window, &mut App) + 'static) -> Self` — “Continue”: the current selection, as an `Answer`.
   - `pub fn on_clarify(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — “Explain instead”: the person would rather write than pick (MSP `userInput/clarify`).
   - `pub fn on_other(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — The “Other” row was clicked; the host opens a free-text field.
   - `pub fn on_select(self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self` — An option row was clicked; the host toggles or replaces the selection.
@@ -1292,10 +1300,12 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Self` — A trailing header action with `label`.
 - **struct** `ToolGroup` — A group of tool calls. Build with `tool_group`.
   - `pub fn call_open(self, index: usize, open: bool) -> Self` — Whether one call’s full card is open (all are, by default).
+  - `pub fn card_action(self, index: usize, action: ToolCardAction) -> Self` — One trailing header action on one call’s inner card after any already set. See `Self::card_actions`.
+  - `pub fn card_actions(self, index: usize, actions: Vec<ToolCardAction>) -> Self` — Trailing header actions on one call’s inner card, drawn exactly as a lone `tool_card`’s: after the duration, in the order given. [...]
   - `pub fn on_intent(self, f: impl Fn(ToolGroupIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler: `ToolGroupIntent::Toggle` for the header, and one `ToolGroupIntent::Call` per call card.
 - **struct** `ToolGroupData` — The data a tool group renders.
   - fields: `calls`, `summary`, `state`
-  - `pub fn from_block(block: &Block) -> Option<Self>` — The data of a [`Block::ToolGroup`]; `None` for any other variant.
+  - `pub fn from_block(block: &Block) -> Option<Self>` — The data of a `Block::ToolGroup`; `None` for any other variant.
 - **struct** `TranscriptCard` — A collapsible transcript card. Build with `transcript_card`.
   - `pub fn body(self, el: impl IntoElement) -> Self` — The body, drawn behind a 1 px top border and collapsed when closed.
   - `pub fn body_border(self, border: bool) -> Self` — Drops the 1 px line between header and body (the thinking block).
@@ -1310,7 +1320,9 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn age(self, age: impl Into<SharedString>) -> Self` — The how-long-ago caption under the bubble, formatted by `format_age` on state change (once per card, not once per frame). [...]
   - `pub fn attachments(self, attachments: Vec<Attachment>) -> Self` — Attachments shown above the bubble.
   - `pub fn copied(self, copied: bool) -> Self` — Whether the copy button shows its success check. The flag is the caller’s transient state — the library owns no timers — so the app sets it on the copy intent and clears it after `COPY_HOLD`, the way the code block header holds its check for the same 1.2 s. [...]
+  - `pub fn fence_action(self, index: usize, button: CodeBlockHostButton) -> Self` — Puts the host’s button on fence `index` of the turn’s markdown body; passed straight through to the inner `markdown(...)`. See `Markdown::fence_action`.
   - `pub fn on_action(self, f: impl Fn(UserTurnAction, &mut Window, &mut App) + 'static) -> Self` — Hover-action handler.
+  - `pub fn on_code_action(self, f: impl Fn(CodeBlockAction, &mut Window, &mut App) + 'static) -> Self` — Code-block intents from the turn’s markdown fences, passed straight through to the inner `markdown(...)`. See `Markdown::on_code_action`.
   - `pub fn on_link(self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self` — Link-click handler, passed through to the markdown body.
   - `pub fn on_selection_change(self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self` — Selection intents, passed straight through to the inner `markdown(...)`: drags and word / paragraph picks arrive as `Some`, plain clicks elsewhere in a cell arrive as `None` (clearing).
   - `pub fn on_span_event(self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self` — Cross-cell selection events, passed straight through to the inner `markdown(...)` for the turn’s `SpanSession`. A turn in span mode wires this instead of `on_selection_change`.
@@ -1498,7 +1510,7 @@ Workbench: the block terminal, terminal tabs and dock, and TUI pane, browser wit
 - **struct** `CitedAnswer` — An assistant answer with inline citation markers (`.a p`). Build with `cited_answer`.
   - `pub fn on_open(self, f: impl Fn(u8, &mut Window, &mut App) + 'static) -> Self` — A marker was clicked; the argument is the source number.
   - `pub fn streaming(self, streaming: bool) -> Self` — Shows the blinking caret after the last word while chunks arrive. The answer is a wrapping row of word groups, so the caret is simply the last group and needs no measuring.
-- **struct** `DiffHighlight` — A word-level `diff-add-strong` / `diff-del-strong` span inside one row, addressed by hunk and row index with byte offsets into [`aui_protocol::DiffLine::text`].
+- **struct** `DiffHighlight` — A word-level `diff-add-strong` / `diff-del-strong` span inside one row, addressed by hunk and row index with byte offsets into `aui_protocol::DiffLine::text`.
   - fields: `hunk`, `line`, `start`, `end`
 - **struct** `DiffReview` — The diff review pane. Build with `diff_review`.
   - `pub fn highlights(self, highlights: Vec<DiffHighlight>) -> Self` — Word-level highlights inside diff rows.
@@ -1549,7 +1561,7 @@ Workbench: the block terminal, terminal tabs and dock, and TUI pane, browser wit
   - `pub fn cited_as(self, n: u8) -> Self` — Shows the `cited as N` pill.
   - `pub fn on_action(self, f: impl Fn(PdfAction, &mut Window, &mut App) + 'static) -> Self` — Action handler.
   - `pub fn zoom(self, zoom: impl Into<SharedString>) -> Self` — The zoom label.
-- **struct** `PrCheck` — One row of the “checks on last push” list: a protocol [`Check`], whether it is still running, and the trailing detail the card prints after a `·`.
+- **struct** `PrCheck` — One row of the “checks on last push” list: a protocol `Check`, whether it is still running, and the trailing detail the card prints after a `·`.
   - fields: `check`, `running`, `detail`
   - `pub fn detail(self, detail: impl Into<SharedString>) -> Self` — The detail after the name.
   - `pub fn running(self) -> Self` — Marks the check as still running.

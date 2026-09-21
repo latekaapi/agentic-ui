@@ -420,7 +420,7 @@ trap '_aui_osc133_preexec' DEBUG
 /// at most 128 characters, ASCII alphanumerics plus `-` and `_` only.
 /// Anything else could break out of the quoted shell strings the nonce is
 /// spliced into, so every public entry point that takes a nonce panics on
-/// one that is not. See [`assert_valid_nonce`].
+/// one that is not. See `assert_valid_nonce`.
 const NONCE_MAX_LEN: usize = 128;
 
 /// Panics unless `nonce` is something the markers can safely carry:
@@ -442,11 +442,11 @@ fn assert_valid_nonce(nonce: &str) {
 /// marker it emits (`A`, `C` and `D` all carry `k=<nonce>`; `C` also carries
 /// the command line as `cmd=<encoded>;enc=<b64|raw>`).
 ///
-/// See [`ZSH_TEMPLATE`] for what the snippet does and why; the only
+/// See `ZSH_TEMPLATE` for what the snippet does and why; the only
 /// difference is that this one is ready to source. It is written into the
 /// throwaway `ZDOTDIR` by [`Pty`], after the user's own files.
 ///
-/// Panics if `nonce` is not a safe token (see [`assert_valid_nonce`]).
+/// Panics if `nonce` is not a safe token (see `assert_valid_nonce`).
 pub fn zsh_integration(nonce: &str) -> String {
     assert_valid_nonce(nonce);
     ZSH_TEMPLATE.replace(NONCE_PLACEHOLDER, nonce)
@@ -456,12 +456,12 @@ pub fn zsh_integration(nonce: &str) -> String {
 /// marker it emits (`A`, `C` and `D` all carry `k=<nonce>`; `C` also carries
 /// the command line as `cmd=<encoded>;enc=<b64|raw>`).
 ///
-/// See [`BASH_TEMPLATE`] for what the snippet does and why; the only
+/// See `BASH_TEMPLATE` for what the snippet does and why; the only
 /// difference is that this one is ready to source. It is written out as the
 /// generated `--rcfile` by [`Pty`], which already sources the user's own
 /// files inside it.
 ///
-/// Panics if `nonce` is not a safe token (see [`assert_valid_nonce`]).
+/// Panics if `nonce` is not a safe token (see `assert_valid_nonce`).
 pub fn bash_integration(nonce: &str) -> String {
     assert_valid_nonce(nonce);
     BASH_TEMPLATE.replace(NONCE_PLACEHOLDER, nonce)
@@ -507,7 +507,7 @@ pub struct PtyConfig {
     pub env: Vec<(String, String)>,
     /// The per-session token every emitted marker carries as `k=<nonce>`.
     ///
-    /// Private so every nonce passes through [`assert_valid_nonce`]: use
+    /// Private so every nonce passes through `assert_valid_nonce`: use
     /// [`with_nonce`](Self::with_nonce) to pin one and [`nonce`](Self::nonce)
     /// to read it back.
     nonce: String,
@@ -532,7 +532,7 @@ impl PtyConfig {
 
     /// Pins the nonce, e.g. to replay a fixed session in a test.
     ///
-    /// Panics if `nonce` is not a safe token (see [`assert_valid_nonce`]).
+    /// Panics if `nonce` is not a safe token (see `assert_valid_nonce`).
     pub fn with_nonce(mut self, nonce: impl Into<String>) -> Self {
         let nonce = nonce.into();
         assert_valid_nonce(&nonce);
@@ -593,7 +593,7 @@ impl Pty {
     /// A pty that has not been spawned yet, with a pinned nonce — e.g. to
     /// replay a fixed session in a test.
     ///
-    /// Panics if `nonce` is not a safe token (see [`assert_valid_nonce`]).
+    /// Panics if `nonce` is not a safe token (see `assert_valid_nonce`).
     pub fn with_nonce(nonce: impl Into<String>) -> Self {
         let nonce = nonce.into();
         assert_valid_nonce(&nonce);
@@ -797,7 +797,7 @@ impl Pty {
         Ok(dir)
     }
 
-    /// Writes the generated bash `--rcfile` (see [`BASH_TEMPLATE`]) into a
+    /// Writes the generated bash `--rcfile` (see `BASH_TEMPLATE`) into a
     /// throwaway directory and hands the directory back; it lives as long as
     /// the session does.
     fn write_bash_rc(nonce: &str) -> std::io::Result<TempDir> {

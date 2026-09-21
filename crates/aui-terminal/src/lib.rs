@@ -11,8 +11,8 @@
 //! | [`fake`] | [`FakePty`], a scripted transcript that replays card 50 |
 //! | `pty` | a real login shell over `portable-pty` (feature `pty`) |
 //! | `tui_grid` | the alacritty grid model behind the TUI pane (feature `tui`) |
-//! | `grid` | [`TerminalSession`] and the [`terminal_grid`] element (feature `tui`) |
-//! | `marks` | nonce-checked OSC 133 [`marks::Mark`]s and [`marks::Block`]s over the grid (feature `tui`) |
+//! | `grid` | `TerminalSession` and the `terminal_grid` element (feature `tui`) |
+//! | `marks` | nonce-checked OSC 133 `Mark`s and `Block`s over the grid (feature `tui`) |
 //! | `keys` | the pure key encoder behind the grid (feature `tui`) |
 //! | [`view`] | [`TerminalState`] plus the three gpui elements |
 //!
