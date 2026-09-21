@@ -34,6 +34,7 @@ pub const SIDEBAR_MAX_WIDTH: f32 = 420.0;
 pub fn clamp_sidebar_width(width: f32) -> f32 {
     width.clamp(SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH)
 }
+
 /// Minimum right column width while resizing: below this a diff hunk or a
 /// file tree row stops staying readable.
 /// Clamp every drag move with [`clamp_right_width`].
@@ -123,11 +124,18 @@ impl AppShell {
         self
     }
 
-    /// A resize drag is in flight: the column feeds the width straight through
-    /// and skips the layout spring so the divider tracks the pointer. When the
-    /// drag ends the spring re-arms from the current width, so the pane
-    /// settles with no jump. The app sets this from the resize handle's
+    /// A resize drag is in flight: the dragged column feeds its width straight
+    /// through and skips the layout spring so the divider tracks the pointer.
+    /// When the drag ends the spring re-arms from the current width, so the
+    /// pane settles with no jump. The app sets this from the resize handle's
     /// drag intents (see [`crate::shell::resize_handle`]).
+    ///
+    /// **This one flag governs both columns.** Only one divider can be under
+    /// the pointer at a time, so a single flag is enough for the drag itself —
+    /// but it also suppresses the *other* column's spring while it is set. A
+    /// host that toggles [`Self::right_open`] during a sidebar drag will see
+    /// the right column jump to its new width instead of animating there.
+    /// Clear the flag on mouse-up and that window closes.
     pub fn resizing(mut self, resizing: bool) -> Self {
         self.resizing = resizing;
         self
