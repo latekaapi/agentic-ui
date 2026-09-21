@@ -12,8 +12,8 @@ mod resize_handle;
 mod tab_strip;
 
 pub use app_shell::{
-    app_shell, clamp_sidebar_width, AppShell, RAIL_WIDTH, RAIL_WIDTH_WITH_LIGHTS, RIGHT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH,
-    SIDEBAR_WIDTH,
+    app_shell, clamp_right_width, clamp_sidebar_width, AppShell, RAIL_WIDTH, RAIL_WIDTH_WITH_LIGHTS, RIGHT_MAX_WIDTH, RIGHT_MIN_WIDTH,
+    RIGHT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_WIDTH,
 };
 pub use drag_region::{drag_region, DragRegion};
 pub use composer_dock::{docked_composer, DockedComposer, DockedComposerIntent};
