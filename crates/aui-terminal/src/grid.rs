@@ -3386,7 +3386,7 @@ mod tests {
     fn c_marker_at_the_4kb_cap_survives_1024_byte_pty_reads() {
         let h = live_session("l3d1c", 80, 24);
         let nonce = h.nonce.clone();
-        let cmd = "z".repeat(crate::marks::MAX_CMD_LEN);
+        let cmd = "z".repeat(crate::parser::MAX_CMD_LEN);
         feed_command_chunked(&h, &nonce, &cmd, 0, b"ok\r\n");
         let blocks = h.session.blocks();
         assert_eq!(blocks.len(), 1, "{blocks:?}");
@@ -3404,8 +3404,8 @@ mod tests {
         feed_command_chunked(&h, &nonce, &cmd, 0, b"ok\r\n");
         let blocks = h.session.blocks();
         assert_eq!(blocks.len(), 1, "{blocks:?}");
-        assert_eq!(blocks[0].command.len(), crate::marks::MAX_CMD_LEN);
-        assert_eq!(blocks[0].command, cmd[..crate::marks::MAX_CMD_LEN]);
+        assert_eq!(blocks[0].command.len(), crate::parser::MAX_CMD_LEN);
+        assert_eq!(blocks[0].command, cmd[..crate::parser::MAX_CMD_LEN]);
     }
 
     /// D1 (grid path): the worst split boundary — one byte of the `C` marker

@@ -93,7 +93,8 @@ pub struct Mark {
     /// When the session accepted the marker; blocks read durations off this.
     pub at: Instant,
     /// The command text carried on [`MarkKind::OutputStart`], decoded from
-    /// the `C` marker's `cmd=` payload (see [`decode_command`]). `None` when
+    /// the `C` marker's `cmd=` payload (see
+    /// [`decode_command`](crate::parser::decode_command)). `None` when
     /// the emitter sent none (an OSC 133 emitter that is not ours) or when
     /// the payload was rejected; the block then falls back to the grid
     /// scrape. `None` for the other kinds.
@@ -403,100 +404,6 @@ fn osc_end(seq: &[u8]) -> Option<usize> {
     None
 }
 
-/// The most command text a decoded `C` payload may contribute to a block:
-/// 4 KB, truncating at a character boundary. Generous for a command line,
-/// and a bound so a hostile emitter cannot grow blocks without limit.
-pub(crate) const MAX_CMD_LEN: usize = 4096;
-
-/// Decodes the command payload of a `C` marker: `cmd` is the raw `cmd=`
-/// value, `enc` the raw `enc=` value. Our own snippets emit `enc=b64` with a
-/// base64 command line (so newlines, `;`, BEL and UTF-8 pass through
-/// untouched), or `enc=raw` with a sanitised literal when `base64` is not on
-/// `PATH`. Either encoding carries no `;` by construction, so splitting the
-/// marker body on `;` never cuts a value in half.
-///
-/// A missing `cmd=` is "no command text", not an error: returns `None` and
-/// the block falls back to the grid scrape. An `enc=b64` value that is not
-/// valid base64 is rejected the same way — never panicked over. Anything
-/// longer than [`MAX_CMD_LEN`] bytes is truncated to the first
-/// [`MAX_CMD_LEN`] bytes at a character boundary.
-pub(crate) fn decode_command(cmd: Option<&str>, enc: Option<&str>) -> Option<String> {
-    let raw = cmd?;
-    // An EMPTY payload is absent, not an empty command: it decodes to `None`
-    // so the block falls back to the grid scrape (see `block_command`) rather
-    // than reporting an empty command line.
-    if raw.is_empty() {
-        return None;
-    }
-    let bytes = match enc {
-        Some("b64") => decode_base64(raw)?,
-        // `raw`, missing, or unknown: a literal. Lenient on purpose — the
-        // text is still better than the scrape when it is present.
-        _ => raw.as_bytes().to_vec(),
-    };
-    let mut text = String::from_utf8_lossy(&bytes).into_owned();
-    if text.len() > MAX_CMD_LEN {
-        let mut end = MAX_CMD_LEN;
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        text.truncate(end);
-    }
-    Some(text)
-}
-
-/// Decodes standard-alphabet base64 (what the `base64` CLI emits) without
-/// trusting the input: any whitespace, control, non-alphabet byte, or
-/// misplaced padding returns `None` rather than panicking.
-fn decode_base64(s: &str) -> Option<Vec<u8>> {
-    if s.is_empty() {
-        return Some(Vec::new());
-    }
-    if !s.len().is_multiple_of(4) {
-        return None;
-    }
-    let bytes = s.as_bytes();
-    let val = |c: u8| match c {
-        b'A'..=b'Z' => Some(c - b'A'),
-        b'a'..=b'z' => Some(c - b'a' + 26),
-        b'0'..=b'9' => Some(c - b'0' + 52),
-        b'+' => Some(62),
-        b'/' => Some(63),
-        _ => None,
-    };
-    // Padding (`=`, at most two) may only close the final quantum: once it
-    // starts, only more padding may follow.
-    let mut pad = 0usize;
-    for &c in bytes {
-        if c == b'=' {
-            pad += 1;
-        } else if pad > 0 || val(c).is_none() {
-            return None;
-        }
-    }
-    if pad > 2 {
-        return None;
-    }
-    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
-    // Exact: the length check above leaves no remainder.
-    for quad in bytes.as_chunks::<4>().0 {
-        let mut n: u32 = 0;
-        for &c in quad {
-            n <<= 6;
-            if c != b'=' {
-                n |= u32::from(val(c)?);
-            }
-        }
-        out.push((n >> 16) as u8);
-        if quad[2] != b'=' {
-            out.push((n >> 8) as u8);
-        }
-        if quad[3] != b'=' {
-            out.push(n as u8);
-        }
-    }
-    Some(out)
-}
 
 /// Parses one complete OSC sequence. Returns the kind, exit status and (for
 /// `C`) decoded command text when it is an OSC 133 marker whose `k=` equals
@@ -561,7 +468,7 @@ fn parse_133(raw: &[u8], nonce: &str) -> Option<(MarkKind, Option<i32>, Option<S
             .iter()
             .find_map(|p| p.strip_prefix(b"enc="))
             .and_then(|e| std::str::from_utf8(e).ok());
-        decode_command(cmd, enc)
+        crate::parser::decode_command(cmd, enc)
     });
     Some((kind, exit, command.flatten()))
 }
@@ -1087,9 +994,9 @@ mod tests {
         let long = "x".repeat(5000);
         let b64 = "eHh4".repeat(1666) + "eHg=";
         assert_eq!(b64.len(), 6668);
-        let decoded = decode_command(Some(&b64), Some("b64")).expect("decodes");
-        assert_eq!(decoded.len(), MAX_CMD_LEN);
-        assert_eq!(decoded, long[..MAX_CMD_LEN]);
+        let decoded = crate::parser::decode_command(Some(&b64), Some("b64")).expect("decodes");
+        assert_eq!(decoded.len(), crate::parser::MAX_CMD_LEN);
+        assert_eq!(decoded, long[..crate::parser::MAX_CMD_LEN]);
     }
 
     /// An EMPTY `cmd=` is absent, not an empty command: it decodes to `None`
@@ -1097,10 +1004,10 @@ mod tests {
     /// empty command line.
     #[test]
     fn an_empty_cmd_payload_is_absent_not_empty() {
-        assert_eq!(decode_command(Some(""), Some("b64")), None);
-        assert_eq!(decode_command(Some(""), Some("raw")), None);
-        assert_eq!(decode_command(Some(""), None), None);
-        assert_eq!(decode_command(None, Some("b64")), None);
+        assert_eq!(crate::parser::decode_command(Some(""), Some("b64")), None);
+        assert_eq!(crate::parser::decode_command(Some(""), Some("raw")), None);
+        assert_eq!(crate::parser::decode_command(Some(""), None), None);
+        assert_eq!(crate::parser::decode_command(None, Some("b64")), None);
     }
 
     /// A multi-KB `C` marker split across chunks is held whole and reported
