@@ -329,7 +329,7 @@ impl Perform {
 
     /// `OSC 133;C` — the command is running; its output follows. `payload`
     /// is the decoded `cmd=` text when the emitter sent one (see
-    /// [`decode_command`](crate::marks::decode_command)): it wins over the
+    /// [`decode_command`](decode_command)): it wins over the
     /// scraped text between `B` and `C`, which is only the fallback for an
     /// OSC 133 emitter that is not ours.
     fn mark_output(&mut self, payload: Option<String>) {
@@ -437,7 +437,7 @@ impl vte::Perform for Perform {
                     .skip(1)
                     .find_map(|p| p.strip_prefix(b"enc="))
                     .and_then(|e| std::str::from_utf8(e).ok());
-                self.mark_output(crate::marks::decode_command(cmd, enc));
+                self.mark_output(decode_command(cmd, enc));
             }
             Some(b'D') => {
                 let exit = params
@@ -479,6 +479,101 @@ impl vte::Perform for Perform {
     /// Two-byte escapes (charset selection, index, save/restore cursor) carry
     /// no text and no colour, and none of them survive into a line.
     fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {}
+}
+
+/// The most command text a decoded `C` payload may contribute to a block:
+/// 4 KB, truncating at a character boundary. Generous for a command line,
+/// and a bound so a hostile emitter cannot grow blocks without limit.
+pub(crate) const MAX_CMD_LEN: usize = 4096;
+
+/// Decodes the command payload of a `C` marker: `cmd` is the raw `cmd=`
+/// value, `enc` the raw `enc=` value. Our own snippets emit `enc=b64` with a
+/// base64 command line (so newlines, `;`, BEL and UTF-8 pass through
+/// untouched), or `enc=raw` with a sanitised literal when `base64` is not on
+/// `PATH`. Either encoding carries no `;` by construction, so splitting the
+/// marker body on `;` never cuts a value in half.
+///
+/// A missing `cmd=` is "no command text", not an error: returns `None` and
+/// the block falls back to the grid scrape. An `enc=b64` value that is not
+/// valid base64 is rejected the same way — never panicked over. Anything
+/// longer than [`MAX_CMD_LEN`] bytes is truncated to the first
+/// [`MAX_CMD_LEN`] bytes at a character boundary.
+pub(crate) fn decode_command(cmd: Option<&str>, enc: Option<&str>) -> Option<String> {
+    let raw = cmd?;
+    // An EMPTY payload is absent, not an empty command: it decodes to `None`
+    // so the block falls back to the grid scrape (see `block_command`) rather
+    // than reporting an empty command line.
+    if raw.is_empty() {
+        return None;
+    }
+    let bytes = match enc {
+        Some("b64") => decode_base64(raw)?,
+        // `raw`, missing, or unknown: a literal. Lenient on purpose — the
+        // text is still better than the scrape when it is present.
+        _ => raw.as_bytes().to_vec(),
+    };
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    if text.len() > MAX_CMD_LEN {
+        let mut end = MAX_CMD_LEN;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
+    Some(text)
+}
+
+/// Decodes standard-alphabet base64 (what the `base64` CLI emits) without
+/// trusting the input: any whitespace, control, non-alphabet byte, or
+/// misplaced padding returns `None` rather than panicking.
+fn decode_base64(s: &str) -> Option<Vec<u8>> {
+    if s.is_empty() {
+        return Some(Vec::new());
+    }
+    if !s.len().is_multiple_of(4) {
+        return None;
+    }
+    let bytes = s.as_bytes();
+    let val = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    };
+    // Padding (`=`, at most two) may only close the final quantum: once it
+    // starts, only more padding may follow.
+    let mut pad = 0usize;
+    for &c in bytes {
+        if c == b'=' {
+            pad += 1;
+        } else if pad > 0 || val(c).is_none() {
+            return None;
+        }
+    }
+    if pad > 2 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    // Exact: the length check above leaves no remainder.
+    for quad in bytes.as_chunks::<4>().0 {
+        let mut n: u32 = 0;
+        for &c in quad {
+            n <<= 6;
+            if c != b'=' {
+                n |= u32::from(val(c)?);
+            }
+        }
+        out.push((n >> 16) as u8);
+        if quad[2] != b'=' {
+            out.push((n >> 8) as u8);
+        }
+        if quad[3] != b'=' {
+            out.push(n as u8);
+        }
+    }
+    Some(out)
 }
 
 #[cfg(test)]
