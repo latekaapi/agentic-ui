@@ -894,6 +894,12 @@ fn escape_len(raw: &[u8], start: usize) -> usize {
     const ST_FINAL: u8 = 0x5c;
     const CAN: u8 = 0x18;
     const SUB: u8 = 0x1a;
+    /// 8-bit ST. vte ends a DCS on it and consumes it (`vte/src/lib.rs:331`),
+    /// but its OSC and SOS/PM/APC states have no case for the byte at all —
+    /// there it is ordinary payload (`advance_osc_string`, `anywhere`). So
+    /// this terminates a DCS and nothing else; treating it as a general
+    /// terminator swallows an OSC's remaining bytes and every line after it.
+    const ST_8BIT: u8 = 0x9c;
     let rest = &raw[start..];
     if rest.len() < 2 {
         return rest.len();
@@ -914,7 +920,9 @@ fn escape_len(raw: &[u8], start: usize) -> usize {
             // vte: CAN (0x18) and SUB (0x1a) abort the string, and any ESC
             // ends it. A bare ESC, CAN or SUB is left for the next advance
             // to parse as a new sequence (the emulator executes the
-            // control); only BEL and ST consume their terminator.
+            // control); BEL and 7-bit ST consume their terminator, and 8-bit
+            // ST does too — but only for a DCS, which is the one state vte
+            // ends on it.
             let mut i = 2;
             let mut end = raw.len();
             while i < rest.len() {
@@ -924,6 +932,10 @@ fn escape_len(raw: &[u8], start: usize) -> usize {
                 }
                 if rest[i] == CAN || rest[i] == SUB {
                     end = start + i;
+                    break;
+                }
+                if rest[i] == ST_8BIT && rest[1] == b'P' {
+                    end = start + i + 1;
                     break;
                 }
                 if rest[i] == ESC {
@@ -3508,7 +3520,8 @@ mod tests {
         }
     }
 
-    /// D14: a title OSC cut off by CAN (0x18) or SUB (0x1a) ends there,
+    /// D14: a title OSC cut off by CAN (0x18) or SUB (0x1a), or a DCS
+    /// closed by 8-bit ST (0x9c), ends there,
     /// exactly like vte, so the 20,000 lines after it advance the tail by
     /// exactly 20,000 with no desync. Without the fix the whole burst is a
     /// single advance, the emulator discards past its own cap, and the tail
@@ -3519,6 +3532,11 @@ mod tests {
         for (tag, prefix) in [
             ("l3d14a", b"\x1b]0;title\x18".as_slice()),
             ("l3d14b", b"\x1b]0;title\x1a".as_slice()),
+            // 8-bit ST: vte ends the string AND consumes the byte
+            // (`vte/src/lib.rs:331`), so the count has to match it.
+            // 8-bit ST ends a DCS in vte and is ordinary payload in an
+            // OSC, so only the DCS form is a terminator here.
+            ("l3d14c", b"\x1bPq#0\x9c".as_slice()),
         ] {
             let h = live_session(tag, 80, 24);
             let c0 = h.session.tail_cursor();
