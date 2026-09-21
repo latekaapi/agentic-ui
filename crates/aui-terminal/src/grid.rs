@@ -705,7 +705,6 @@ impl TerminalSession {
                     }
                     let row = block.end.clamp(top, bottom - 1) - top;
                     let cols = term.columns();
-                    let col = anchor_used_cols(term, Line(row - offset), cols).min(cols);
                     let failed = block.exit.is_some_and(|exit| exit != 0);
                     let label = match (block.exit, block.ended) {
                         (Some(exit), Some(ended)) => {
@@ -720,6 +719,18 @@ impl TerminalSession {
                     } else {
                         "✓"
                     };
+                    // Right-aligned at the trailing edge: the strip is
+                    // exactly its own text width, against the grid's right
+                    // inset (the element right-anchors it inside the padded
+                    // text area) — never mid-sentence after the prompt. One
+                    // blank cell of separation from the row's own text, or no
+                    // chrome at all: a hidden status beats an unreadable one,
+                    // and a full row always hides.
+                    let used = anchor_used_cols(term, Line(row - offset), cols).min(cols);
+                    let col = cols.saturating_sub(chrome_cells(glyph, &label, &block.command));
+                    if used + 1 > col {
+                        return None;
+                    }
                     Some(BlockChrome {
                         index,
                         row: row as usize,
@@ -1340,10 +1351,12 @@ struct BlockChrome {
     index: usize,
     /// Screen row anchoring the chrome (the block's end line, clamped).
     row: usize,
-    /// First free screen column of the anchor row: one past its last
-    /// non-blank cell. The element draws the strip from here to the row's
-    /// end (clipped), so the chrome can never cover the row's own text; a
-    /// full row yields `cols` and the strip clips to nothing.
+    /// Leading screen column of the chrome strip: the strip's own text width
+    /// back from the row's trailing edge, so the chrome sits against the
+    /// grid's right inset instead of mid-sentence after the prompt. The
+    /// overlay returns no entry when the row's text reaches within one cell
+    /// of this column; a hidden status beats an unreadable one, and a full
+    /// row always hides.
     col: usize,
     /// Gutter status glyph: running, failed or done.
     glyph: &'static str,
@@ -2136,9 +2149,11 @@ impl gpui::RenderOnce for TerminalGrid {
 /// One block's overlay strip at its anchor row: status glyph, exit code and
 /// duration, author mark, then the action row — but only when the host opted
 /// in (see [`TerminalGrid::show_actions`]) — raising [`TerminalGridIntent`]s.
-/// The strip starts at the anchor row's first free cell and clips there, so
-/// it never covers the row's own text. Overflow goes through
-/// [`popover_layer`](aui::overlay::popover_layer), like the jump affordance.
+/// The strip is right-aligned at the row's trailing edge, against the grid's
+/// right inset; the overlay hides the block instead of drawing when the
+/// row's text reaches the strip, so it never covers the row's own text.
+/// Overflow goes through [`popover_layer`](aui::overlay::popover_layer),
+/// like the jump affordance.
 fn block_chrome_el(
     chrome: &BlockChrome,
     advance: f32,
@@ -2270,8 +2285,9 @@ fn is_wide_lead(term: &Term<SessionEventProxy>, line: Line, col: usize, cols: us
 }
 
 /// Used text cells on a screen row: one past the last non-blank cell, with a
-/// leading wide char counting two. The chrome strip starts here, so it can
-/// never cover the row's own text; a full row yields `cols`.
+/// leading wide char counting two. The chrome's separation check measures
+/// from here, so the strip can never cover the row's own text; a full row
+/// yields `cols`.
 fn anchor_used_cols(term: &Term<SessionEventProxy>, line: Line, cols: usize) -> usize {
     let mut used = 0usize;
     for col in 0..cols {
@@ -2284,6 +2300,45 @@ fn anchor_used_cols(term: &Term<SessionEventProxy>, line: Line, cols: usize) -> 
         }
     }
     used.min(cols)
+}
+
+/// Grid cells the chrome strip needs: the status glyph, the duration label
+/// and the command in display cells (see [`str_cells`]). The strip is
+/// exactly this wide at the row's trailing edge; a command longer than the
+/// row hides the chrome outright by the separation rule instead of squeezing
+/// past the row's own text.
+fn chrome_cells(glyph: &str, label: &str, command: &str) -> usize {
+    str_cells(glyph) + str_cells(label) + str_cells(command)
+}
+
+/// Display cells in `text`: one per character, two per East-Asian wide or
+/// fullwidth character (see [`is_wide`]). An unlisted character counts one,
+/// which only ever narrows the strip — clipped at the trailing edge — and
+/// can never push it into the row's own text.
+fn str_cells(text: &str) -> usize {
+    text.chars().map(|c| if is_wide(c) { 2 } else { 1 }).sum()
+}
+
+/// Whether `c` fills two grid cells: East-Asian Wide or Fullwidth
+/// (Hiragana, Katakana, CJK unified and compatibility, Hangul, fullwidth
+/// ASCII and punctuation). This mirrors what the emulator flags `WIDE_CHAR`;
+/// emoji and other ambiguous widths count one (see [`str_cells`]).
+fn is_wide(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x1100..=0x115F
+            | 0x2E80..=0x303E
+            | 0x3041..=0x33FF
+            | 0x3400..=0x4DBF
+            | 0x4E00..=0x9FFF
+            | 0xA000..=0xA4CF
+            | 0xAC00..=0xD7A3
+            | 0xF900..=0xFAFF
+            | 0xFE30..=0xFE4F
+            | 0xFF00..=0xFF60
+            | 0xFFE0..=0xFFE6
+            | 0x20000..=0x3FFFD
+    )
 }
 
 /// The cursor's pixel rect `(x, y, w, h)`: the grid cell's position — never
@@ -2699,25 +2754,86 @@ mod tests {
         out
     }
 
-    /// V1 D1: the chrome strip starts clear of the anchor row's own text. A
-    /// running block whose tail row is full-width text clips the strip to
-    /// nothing; a short tail row carries the strip right after its last
-    /// glyph. Without the fix the strip starts at column 0, over the text.
+    /// V3: the chrome sits at the row's trailing edge, not after the text. A
+    /// short tail row carries the strip right-aligned — its own text width
+    /// back from the last column — so the prompt and the pill never touch. A
+    /// full-width tail row hides the chrome entirely and keeps its text
+    /// (V1's case: the strip used to clip to nothing here, now it hides).
+    /// Without the fix the strip starts at the first free cell, jammed
+    /// against the prompt.
     #[test]
     fn chrome_starts_clear_of_the_row_text() {
-        // Full-width tail row: 20 columns of text on a 20-column grid.
-        let h = live_session("v1d1full", 20, 6);
+        for palette in [dark(), light()] {
+            // Short tail row: the leading edge sits at the trailing inset.
+            let h = live_session("v3trail", 20, 6);
+            h.feed(&running_bytes(&h.nonce, "run", b"hi"));
+            let chrome = h.session.overlay_chrome();
+            assert_eq!(chrome.len(), 1, "{chrome:?}");
+            let need =
+                1 + chrome[0].label.chars().count() + chrome[0].command.chars().count();
+            assert_eq!(chrome[0].col, 20 - need, "not right-aligned: {chrome:?}");
+            assert_ne!(chrome[0].col, 2, "jammed against the prompt: {chrome:?}");
+            assert!(chrome[0].running);
+            // V2 kept: the state colouring resolves and the command highlight
+            // covers the text, in this theme.
+            assert!(palette.color(block_status_token(BlockStatus::Running)).is_some());
+            assert!(palette.color(block_status_token(BlockStatus::Failed)).is_some());
+            assert!(palette.color(block_status_token(BlockStatus::Succeeded)).is_some());
+            let runs = syntax::command_runs(&chrome[0].command, &palette);
+            assert_eq!(runs.iter().map(|r| r.len).sum::<usize>(), chrome[0].command.len());
+        }
+        // Full-width tail row: no chrome, and the text is untouched.
+        let h = live_session("v3full", 20, 6);
         h.feed(&running_bytes(&h.nonce, "run", &[b'X'; 20]));
         assert!(h.session.blocks().iter().any(|b| b.running()), "precondition: still running");
-        let chrome = h.session.overlay_chrome();
-        assert_eq!(chrome.len(), 1, "{chrome:?}");
-        assert_eq!(chrome[0].col, 20, "strip must start past the last used cell: {chrome:?}");
-        // Short tail row: the strip starts after the last glyph, inside the row.
-        let h = live_session("v1d1part", 20, 6);
+        assert!(h.session.overlay_chrome().is_empty(), "chrome drawn over a full row");
+        assert!(
+            h.session.screen_text().contains(&"X".repeat(20)),
+            "row text touched: {:?}",
+            h.session.screen_text()
+        );
+    }
+
+    /// V3: the chrome hides when the row's text reaches within one cell of
+    /// it. Grown one cell at a time from a short tail: still drawn with
+    /// exactly one blank cell of separation, gone the cell after. Without
+    /// the fix the strip follows the text and both halves fail.
+    #[test]
+    fn chrome_hides_when_text_reaches_within_one_cell_of_it() {
+        let h = live_session("v3near", 20, 6);
         h.feed(&running_bytes(&h.nonce, "run", b"hi"));
+        let col = {
+            let chrome = h.session.overlay_chrome();
+            assert_eq!(chrome.len(), 1, "{chrome:?}");
+            chrome[0].col
+        };
+        assert_ne!(col, 2, "jammed against the prompt: {col}");
+        // One blank cell of separation: still drawn, leading edge unmoved.
+        h.feed(&vec![b'y'; col - 1 - 2]);
         let chrome = h.session.overlay_chrome();
         assert_eq!(chrome.len(), 1, "{chrome:?}");
-        assert_eq!(chrome[0].col, 2, "strip must start after the tail text: {chrome:?}");
+        assert_eq!(chrome[0].col, col, "leading edge moved: {chrome:?}");
+        // The separating cell is gone: no chrome rather than a collision.
+        h.feed(b"y");
+        assert!(h.session.overlay_chrome().is_empty(), "chrome drawn touching the text");
+    }
+
+    /// V3: a row of wide characters reaching the trailing edge hides the
+    /// chrome too. The trailing cell is a wide-char spacer, so only a
+    /// cell-counting measure sees the row as full; a character count would
+    /// park the strip mid-text. Without the fix the strip is drawn at the
+    /// end of the row.
+    #[test]
+    fn chrome_hides_when_a_wide_row_reaches_the_trailing_edge() {
+        let h = live_session("v3wide", 20, 6);
+        h.feed(&running_bytes(&h.nonce, "run", "あ".repeat(10).as_bytes()));
+        assert!(h.session.blocks().iter().any(|b| b.running()), "precondition: still running");
+        assert!(h.session.overlay_chrome().is_empty(), "chrome drawn over a wide-char row");
+        assert!(
+            h.session.screen_text().contains(&"あ".repeat(10)),
+            "row text touched: {:?}",
+            h.session.screen_text()
+        );
     }
 
     /// V1 D1/D2: the drawn cursor rect sits on the grid's cursor cell — for a
