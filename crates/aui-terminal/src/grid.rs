@@ -883,10 +883,12 @@ fn feed_slice_len(term: &Term<SessionEventProxy>) -> usize {
 
 /// Length of the escape sequence at `raw[start]` (which is `ESC`), final byte
 /// included: CSI (`ESC [` … final byte `0x40..=0x7E`), OSC and the other
-/// `ESC`-introduced strings (`ESC ]`, `ESC P/X/^/_`, terminated by `BEL` or
-/// `ESC \`), charset selections (`ESC ( X`, three bytes), and every other
-/// two-byte sequence (including RIS, `ESC c`). An unterminated sequence runs
-/// to the end of the chunk. Always at least 1 and never past `raw.len()`.
+/// `ESC`-introduced strings (`ESC ]`, `ESC P/X/^/_`, terminated by `BEL`,
+/// `ESC \` or — exactly like vte — any other `ESC`, which a buggy `PS1`
+/// title or a program dying mid-string can leave behind), charset selections
+/// (`ESC ( X`, three bytes), and every other two-byte sequence (including
+/// RIS, `ESC c`). An unterminated sequence runs to the end of the chunk.
+/// Always at least 1 and never past `raw.len()`.
 fn escape_len(raw: &[u8], start: usize) -> usize {
     const BEL: u8 = 0x07;
     const ST_FINAL: u8 = 0x5c;
@@ -906,7 +908,9 @@ fn escape_len(raw: &[u8], start: usize) -> usize {
                 .unwrap_or(raw.len())
         }
         b']' | b'P' | b'X' | b'^' | b'_' => {
-            // BEL- or ST-terminated string.
+            // BEL-, ST- or ESC-terminated string, exactly like vte: any ESC
+            // ends the string. A bare ESC is left for the next advance to
+            // parse as a new sequence; only ST consumes it.
             let mut i = 2;
             let mut end = raw.len();
             while i < rest.len() {
@@ -914,8 +918,12 @@ fn escape_len(raw: &[u8], start: usize) -> usize {
                     end = start + i + 1;
                     break;
                 }
-                if rest[i] == ESC && rest.get(i + 1) == Some(&ST_FINAL) {
-                    end = start + i + 2;
+                if rest[i] == ESC {
+                    if rest.get(i + 1) == Some(&ST_FINAL) {
+                        end = start + i + 2;
+                    } else {
+                        end = start + i;
+                    }
                     break;
                 }
                 i += 1;
@@ -3348,16 +3356,23 @@ mod tests {
         feed_chunked(h, &stream, 1024);
     }
 
-    /// D1 (grid path): a 745-character command fed in 1024-byte pty reads
-    /// keeps its `C` marker. The split partial exceeds the old 512-byte hold
-    /// bound, so the old code flushed it as plain text and the block fell
-    /// back to the scrape with an empty, garbled command.
+    /// D1 (grid path): a 1,500-character command fed in 1024-byte pty reads
+    /// keeps its `C` marker. Sized from the real bound, not a round number:
+    /// the marker (~2 KB) exceeds one 1024-byte read plus the old 512-byte
+    /// hold, so some pump strands more than 512 pending bytes and the old
+    /// code flushed the marker as plain text — this test fails with the hold
+    /// reverted to 512 — while fitting the marker cap derived from
+    /// `MAX_CMD_LEN` with room to spare.
     #[test]
     fn long_c_marker_survives_1024_byte_pty_reads() {
         let h = live_session("l3d1a", 80, 24);
         let nonce = h.nonce.clone();
-        let cmd = format!("curl-{}", "x".repeat(740));
-        assert_eq!(cmd.len(), 745);
+        let cmd = format!("curl-{}", "x".repeat(1495));
+        assert_eq!(cmd.len(), 1500);
+        assert!(
+            c_marker_with_cmd(&nonce, &cmd).len() > 1024 + 512,
+            "precondition: some pump strands more than the old 512-byte hold"
+        );
         feed_command_chunked(&h, &nonce, &cmd, 0, b"ok\r\n");
         let blocks = h.session.blocks();
         assert_eq!(blocks.len(), 1, "{blocks:?}");
@@ -3409,12 +3424,17 @@ mod tests {
     }
 
     /// D1 (grid path): the worst split boundary — one byte of the `C` marker
-    /// in the first chunk, the rest arriving later.
+    /// in the first chunk, the rest arriving later. Sized from the real
+    /// bound: the ~2 KB marker spans three 1024-byte pumps after the split,
+    /// so no chunk boundary can complete it exactly and the old 512-byte
+    /// hold flushes it mid-marker — this test fails with the hold reverted
+    /// to 512.
     #[test]
     fn c_marker_split_with_one_byte_in_the_first_chunk() {
         let h = live_session("l3d1e", 80, 24);
         let nonce = h.nonce.clone();
-        let cmd = format!("worst-{}", "v".repeat(739));
+        let cmd = format!("worst-{}", "v".repeat(1494));
+        assert_eq!(cmd.len(), 1500);
         let mut stream = Vec::new();
         stream.extend(marker_bytes(&nonce, "A"));
         stream.extend(b"prompt$ ");
@@ -3448,6 +3468,31 @@ mod tests {
             let mut burst = Vec::new();
             burst.extend_from_slice(prefix);
             burst.extend(fill_lines(20_000, "burst"));
+            h.feed(&burst);
+            let c1 = h.session.tail_cursor();
+            assert_eq!(c1.line - c0.line, 20_000, "tail delta with prefix {prefix:?}");
+            assert_eq!(h.session.history_desyncs(), 0, "burst desynced with prefix {prefix:?}");
+        }
+    }
+
+    /// D7 residual: an OSC/DCS/APC string cut off by an `ESC` — a buggy `PS1`
+    /// title, a program dying mid-string — ends there, exactly like vte, so
+    /// the 20,000 lines after it advance the tail by exactly 20,000 with no
+    /// desync. Without the fix the whole burst is a single advance, the
+    /// emulator discards past its own cap, and the tail lands short with one
+    /// desync.
+    #[test]
+    fn esc_terminated_strings_do_not_swallow_later_lines() {
+        for (tag, prefix) in [
+            ("l3d7c", b"\x1b]0;title\x1b[0m".as_slice()),
+            ("l3d7d", b"\x1bPq#0\x1b[0m".as_slice()),
+            ("l3d7e", b"\x1b_Gf=100\x1b[0m".as_slice()),
+        ] {
+            let h = live_session(tag, 80, 24);
+            let c0 = h.session.tail_cursor();
+            let mut burst = Vec::new();
+            burst.extend_from_slice(prefix);
+            burst.extend(fill_lines(20_000, "str"));
             h.feed(&burst);
             let c1 = h.session.tail_cursor();
             assert_eq!(c1.line - c0.line, 20_000, "tail delta with prefix {prefix:?}");

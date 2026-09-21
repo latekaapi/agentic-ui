@@ -483,7 +483,10 @@ impl vte::Perform for Perform {
 
 /// The most command text a decoded `C` payload may contribute to a block:
 /// 4 KB, truncating at a character boundary. Generous for a command line,
-/// and a bound so a hostile emitter cannot grow blocks without limit.
+/// and a bound so a hostile emitter cannot grow blocks without limit. The
+/// shell snippets cap the payload at this same length before encoding (see
+/// `pty.rs`), so markers are bounded by construction; this is the
+/// decode-side backstop for emitters that are not ours.
 pub(crate) const MAX_CMD_LEN: usize = 4096;
 
 /// Decodes the command payload of a `C` marker: `cmd` is the raw `cmd=`

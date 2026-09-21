@@ -46,14 +46,16 @@ const ST_FINAL: u8 = 0x5c;
 const OSC_INTRO: u8 = b']';
 /// How many trailing bytes an incomplete sequence may hold across chunks.
 ///
-/// Bound by the marker cap, not by the pty read size: a `C` marker can carry
-/// a 4 KB command payload (about 5,464 base64 characters) plus its parameters
-/// and a nonce of up to 128 characters, so a complete marker is under 6 KB;
-/// 8,192 holds any marker the snippets emit with headroom, even when macOS
-/// ptys deliver it split across 1024-byte reads. Anything past it is flushed
-/// through as plain text rather than held forever — a defence against an
-/// unterminated OSC, not a routine occurrence.
-const MAX_PENDING: usize = 8192;
+/// Follows from the shell-side payload cap, not from the pty read size: the
+/// snippets cap `_aui_raw` at [`MAX_CMD_LEN`](crate::parser::MAX_CMD_LEN)
+/// (4 KB) before encoding, so a `C` marker carries at most ~5,464 base64
+/// characters plus its parameters and a nonce of up to 128 characters —
+/// well under twice the payload cap even when macOS ptys deliver it split
+/// across 1024-byte reads. The marker is bounded by construction; this bound
+/// states that fact instead of guessing about shell behaviour. Anything past
+/// it is flushed through as plain text rather than held forever — a defence
+/// against an unterminated OSC, not a routine occurrence.
+const MAX_PENDING: usize = crate::parser::MAX_CMD_LEN * 2;
 
 /// Which of the four shell-integration markers a [`Mark`] records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

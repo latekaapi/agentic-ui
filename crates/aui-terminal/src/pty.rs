@@ -113,6 +113,10 @@ _aui_osc133_precmd() {
 _aui_osc133_preexec() {
   _AUI_RUNNING=1
   local _aui_raw=$1 _aui_cmd _aui_enc
+  # Cap the payload where it is produced: the decoder keeps at most
+  # MAX_CMD_LEN (4096) bytes, so anything larger only grows the marker past
+  # the scanner's bound while carrying nothing the library keeps.
+  _aui_raw=${_aui_raw[1,4096]}
   if command -v base64 >/dev/null 2>&1; then
     _aui_cmd=$(printf '%s' "$_aui_raw" | base64)
     _aui_cmd=${_aui_cmd//$'\n'/}
@@ -171,11 +175,18 @@ unsetopt PROMPT_SP
 /// us the typed line (read from `history 1`, with `$BASH_COMMAND` kept as
 /// the fallback when history is unavailable or empty — `$BASH_COMMAND` alone
 /// is a fragment, not the typed line), so the `C` payload needs no prompt
-/// bracketing and no ordering fight. Nothing here touches `PS1`. Note:
-/// with `HISTCONTROL=ignorespace` a command typed with a leading space is
-/// not in history, so `history 1` names the previous entry and the payload
-/// carries that stale line; only an empty history falls back to
-/// `$BASH_COMMAND`. Known gap: `(echo sub)` in bash 3.2 never fires the
+/// bracketing and no ordering fight. Nothing here touches `PS1`.
+/// `HISTTIMEFORMAT` is cleared in the preexec's local scope (as bash-preexec
+/// does) so a timestamp never parses as part of the command. Note: with
+/// `HISTCONTROL=ignorespace` a command typed with a leading space is not in
+/// history, and with `HISTIGNORE` an ignored command is not in history
+/// either — `history 1` then still names the previous entry. That stale line
+/// is never trusted: the history index must have advanced since the previous
+/// command, otherwise the `$BASH_COMMAND` fragment is kept instead. A
+/// stale-but-plausible title is worse than a fragment, so the fragment wins
+/// over a confidently wrong command. Like the zsh side, the payload is
+/// capped at `MAX_CMD_LEN` (4096) before encoding, so the marker is bounded
+/// by construction. Known gap: `(echo sub)` in bash 3.2 never fires the
 /// DEBUG trap, so no `C` is emitted for a subshell command and its output is
 /// orphaned — pre-existing, recorded next to the guard, not fixed here.
 ///
@@ -290,24 +301,46 @@ _aui_osc133_preexec() {
     # The typed line comes from `history 1` — `$BASH_COMMAND` is a fragment,
     # not the typed line (`echo a | cat | cat` reports `echo a`). The leading
     # history number and whitespace are stripped with builtins only, exactly
-    # why bash-preexec does it. When history is unavailable or empty
-    # (`set +o history`, `HISTSIZE=0`) the fragment is kept as the fallback.
+    # why bash-preexec does it. `HISTTIMEFORMAT` is cleared in this local
+    # scope (as bash-preexec does) so a timestamp never parses as part of
+    # the command. When history is unavailable or empty (`set +o history`,
+    # `HISTSIZE=0`) the fragment is kept as the fallback.
     # Note: with `HISTCONTROL=ignorespace` a command typed with a leading
-    # space is not in history, so `history 1` names the previous entry and
-    # the payload carries that stale line; only an empty history falls back
-    # to `$BASH_COMMAND`. Base64 so newlines, `;`, BEL and UTF-8 pass through
-    # untouched; without `base64` on PATH a sanitised literal with control
-    # characters and `;` stripped (builtins only — `tr` lives beside
-    # `base64`, so it is unavailable exactly when needed), and `enc=` says
-    # which one it is.
+    # space is not in history, and with `HISTIGNORE` an ignored command is
+    # not in history either — `history 1` then still names the previous
+    # entry. That stale line is never trusted: the history index must have
+    # advanced since the previous command (tracked in `_AUI_LAST_HISTNO`),
+    # otherwise the `$BASH_COMMAND` fragment is kept instead. A
+    # stale-but-plausible title is worse than a fragment. Base64 so newlines,
+    # `;`, BEL and UTF-8 pass through untouched; without `base64` on PATH a
+    # sanitised literal with control characters and `;` stripped (builtins
+    # only — `tr` lives beside `base64`, so it is unavailable exactly when
+    # needed), and `enc=` says which one it is.
+    # The payload is capped where it is produced: the decoder keeps at most
+    # MAX_CMD_LEN (4096) bytes, so anything larger only grows the marker.
     local _aui_raw="$BASH_COMMAND" _aui_cmd _aui_enc _aui_hist
+    local HISTTIMEFORMAT=
     _aui_hist=$(history 1 2>/dev/null || true)
     if [ -n "$_aui_hist" ]; then
-      while [[ "$_aui_hist" == [[:space:]]* ]]; do _aui_hist=${_aui_hist#?}; done
-      while [[ "$_aui_hist" == [0-9]* ]]; do _aui_hist=${_aui_hist#?}; done
-      while [[ "$_aui_hist" == [[:space:]]* ]]; do _aui_hist=${_aui_hist#?}; done
-      [ -n "$_aui_hist" ] && _aui_raw="$_aui_hist"
+      local _aui_trimmed="$_aui_hist"
+      while [[ "$_aui_trimmed" == [[:space:]]* ]]; do _aui_trimmed=${_aui_trimmed#?}; done
+      local _aui_histno=${_aui_trimmed%%[^0-9]*}
+      case "$_aui_histno" in
+        ''|*[!0-9]*) _aui_histno="";;
+      esac
+      if [ -n "$_aui_histno" ] && [ "$_aui_histno" = "${_AUI_LAST_HISTNO-}" ]; then
+        # Stale: history did not advance (a `HISTIGNORE` match, `set +o
+        # history`, a leading space under `ignorespace`) — keep the
+        # `$BASH_COMMAND` fragment rather than the previous command's line.
+        :
+      else
+        [ -n "$_aui_histno" ] && _AUI_LAST_HISTNO="$_aui_histno"
+        while [[ "$_aui_trimmed" == [0-9]* ]]; do _aui_trimmed=${_aui_trimmed#?}; done
+        while [[ "$_aui_trimmed" == [[:space:]]* ]]; do _aui_trimmed=${_aui_trimmed#?}; done
+        [ -n "$_aui_trimmed" ] && _aui_raw="$_aui_trimmed"
+      fi
     fi
+    _aui_raw=${_aui_raw:0:4096}
     if command -v base64 >/dev/null 2>&1; then
       _aui_cmd=$(printf '%s' "$_aui_raw" | base64)
       _aui_cmd=${_aui_cmd//$'\n'/}
@@ -318,7 +351,7 @@ _aui_osc133_preexec() {
       _aui_enc=raw
     fi
     printf '\033]133;C;k=__AUI_NONCE__;cmd=%s;enc=%s\007' "$_aui_cmd" "$_aui_enc"
-    unset _aui_raw _aui_cmd _aui_enc _aui_hist
+    unset _aui_raw _aui_cmd _aui_enc _aui_hist _aui_trimmed _aui_histno
   fi
   # Chain the user's own DEBUG trap, if they had one: ours first, theirs
   # after. Guarded against re-entry while it runs, since its own commands
@@ -350,7 +383,10 @@ _aui_osc133_preexec() {
 # cannot see the DEBUG trap, and for the same reason only this top level may
 # reinstall ours.
 _aui_osc133_rechain_inline='if _aui_osc133_rechain "$(trap -p DEBUG 2>/dev/null)"; then trap '\''_aui_osc133_preexec'\'' DEBUG; fi'
-if declare -p PROMPT_COMMAND 2>/dev/null | grep -q 'declare -a'; then
+# Builtins only: `grep` lives beside `base64` in /usr/bin, so it is
+# unavailable exactly when the `enc=raw` fallback runs — and it prints
+# `grep: command not found` at startup on such a PATH.
+if [[ $(declare -p PROMPT_COMMAND 2>/dev/null) == 'declare -a'* ]]; then
   PROMPT_COMMAND=(_aui_osc133_begin "${PROMPT_COMMAND[@]}" "$_aui_osc133_rechain_inline" _aui_osc133_precmd)
 else
   _aui_user_pc="${PROMPT_COMMAND-}"
@@ -991,6 +1027,10 @@ mod tests {
         assert!(!snippet.contains("_AUI_AT_PROMPT"), "no at-prompt guard:\n{snippet}");
         assert!(!snippet.contains("PROMPT_SUBST"), "no prompt substitution:\n{snippet}");
         assert!(snippet.contains("local _aui_raw=$1"), "preexec takes $1:\n{snippet}");
+        assert!(
+            snippet.contains("${_aui_raw[1,4096]}"),
+            "the payload is capped where it is produced (decoder keeps 4096):\n{snippet}"
+        );
         assert!(snippet.contains("cmd=%s;enc=%s"), "the C payload:\n{snippet}");
         assert!(snippet.contains("command -v base64"), "the base64 probe:\n{snippet}");
         assert!(!snippet.contains("| tr"), "the snippet depends on no external pipe stage:\n{snippet}");
@@ -1142,7 +1182,21 @@ mod tests {
         assert!(!body.contains("PS1="), "PS1 untouched:\n{body}");
         assert!(body.contains("_aui_raw=\"$BASH_COMMAND\""), "the BASH_COMMAND fallback:\n{body}");
         assert!(body.contains("history 1"), "the typed line comes from history:\n{body}");
+        assert!(
+            body.contains("local HISTTIMEFORMAT="),
+            "HISTTIMEFORMAT is cleared in the preexec's local scope:\n{body}"
+        );
+        assert!(
+            body.contains("_AUI_LAST_HISTNO"),
+            "staleness is detected via the history index, not trusted blindly:\n{body}"
+        );
         assert!(body.contains("ignorespace"), "the ignorespace caveat is documented:\n{body}");
+        assert!(body.contains("HISTIGNORE"), "HISTIGNORE is documented alongside it:\n{body}");
+        assert!(
+            body.contains("${_aui_raw:0:4096}"),
+            "the payload is capped where it is produced (decoder keeps 4096):\n{body}"
+        );
+        assert!(!body.contains("grep -q"), "no external grep at startup (builtins only):\n{body}");
         assert!(body.contains("(echo sub)"), "the subshell DEBUG gap is recorded:\n{body}");
         assert!(!body.contains("| tr "), "the C payload depends on no `tr` pipe stage:\n{body}");
         assert!(
