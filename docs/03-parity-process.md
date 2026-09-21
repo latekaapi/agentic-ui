@@ -162,11 +162,14 @@ documented in `crates/aui-gallery/src/cards/views.rs`.
 | 35 Approval | transcript::ApprovalCard | transcript/approval | cc4d03f · 1.1 % (26 px tile kept) |
 | 36 Question, plan, todo | transcript::QuestionCard, PlanCard, TodoList | transcript/question-plan-todo | cc4d03f · 1.0 % |
 | 37 Code and diff blocks | transcript::CodeBlock, DiffBlock, DiffNote | transcript/code-diff | dc89a4a · 2.0 % (diff keeps code indentation the HTML collapsed) |
+| — | transcript::ToolCard + ToolCardAction, CodeBlock + host_action (the L5 host hooks) | transcript/host-actions | — (new, no reference) |
 | 38 Summary, error, status | transcript::SummaryCard, ErrorCard, StatusRow, NeedsYouBanner, JumpPill | transcript/summary-status | cc4d03f · 0.9 % (design `.sm` collision fixed) |
 | 40 Composer | composer::Composer (docked + floating), PlusMenu, queue, suggestions | composer/composer | dc89a4a · 2.3 % (kit textarea line box) |
 | 41 Slash and mentions | composer::CommandMenu, MentionPicker | composer/menus | f94bc7c · 0.9 % |
 | 42 Attachments | composer::AttachmentRow, DropOverlay | composer/attachments | f94bc7c · 1.1 % |
 | 50 Terminal | workbench::BlockTerminal, TuiPane | workbench/terminal | 19bcd60 · 1.4 % (tab indicator moved to ink/bottom per the rules) |
+| — | aui_terminal::{TerminalSession, terminal_grid} + marks::Block overlay | workbench/terminal-blocks | — (new, no reference) |
+| — | aui::workbench::{terminal_dock, terminal_tabs} | workbench/terminal-dock | — (new, no reference) |
 | 51 Browser and annotator | workbench::BrowserNav, AnnotationsPanel, pins, NotePopover | workbench/browser | a447df3 · 1.0 % |
 | 52 Diff review | workbench::DiffReview, Segmented | workbench/diff | dc89a4a · 1.6 % (code indentation) |
 | 53 Git and PR | workbench::GitChanges, PrForm | workbench/git | 6157e0f · 1.0 % (description flows as prose; design fixed) |

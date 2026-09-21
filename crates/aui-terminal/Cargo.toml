@@ -29,3 +29,7 @@ vte = "0.15"
 getrandom = { version = "0.3", optional = true }
 portable-pty = { version = "0.8", optional = true }
 alacritty_terminal = { version = "0.26", optional = true }
+
+[[bench]]
+name = "feed"
+harness = false
