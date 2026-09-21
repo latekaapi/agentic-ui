@@ -34,6 +34,20 @@ pub const SIDEBAR_MAX_WIDTH: f32 = 420.0;
 pub fn clamp_sidebar_width(width: f32) -> f32 {
     width.clamp(SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH)
 }
+/// Minimum right column width while resizing: below this a diff hunk or a
+/// file tree row stops staying readable.
+/// Clamp every drag move with [`clamp_right_width`].
+pub const RIGHT_MIN_WIDTH: f32 = 280.0;
+/// Maximum right column width while resizing: keeps the centre transcript
+/// usable on a 13-inch window.
+pub const RIGHT_MAX_WIDTH: f32 = 720.0;
+
+/// Clamps a drag width into the resizable range. The shell clamps its own
+/// target the same way, but call this on every drag move before notifying so
+/// the stored width never leaves the range.
+pub fn clamp_right_width(width: f32) -> f32 {
+    width.clamp(RIGHT_MIN_WIDTH, RIGHT_MAX_WIDTH)
+}
 
 /// The shell. Build with [`app_shell`].
 #[derive(IntoElement)]
@@ -45,6 +59,8 @@ pub struct AppShell {
     resizing: bool,
     draggable: bool,
     right_width: Pixels,
+    right_min: Pixels,
+    right_max: Pixels,
     right_open: bool,
     sidebar_open: bool,
     header_follows_sidebar: bool,
@@ -69,6 +85,8 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         resizing: false,
         draggable: true,
         right_width: px(RIGHT_WIDTH),
+        right_min: px(RIGHT_MIN_WIDTH),
+        right_max: px(RIGHT_MAX_WIDTH),
         right_open: true,
         sidebar_open: true,
         header_follows_sidebar: true,
@@ -126,6 +144,20 @@ impl AppShell {
     /// Overrides the right column width.
     pub fn right_width(mut self, width: impl Into<Pixels>) -> Self {
         self.right_width = width.into();
+        self
+    }
+
+    /// Minimum right column width; the render target never goes below it while
+    /// the right column is open. Defaults to [`RIGHT_MIN_WIDTH`].
+    pub fn right_min_width(mut self, min: impl Into<Pixels>) -> Self {
+        self.right_min = min.into();
+        self
+    }
+
+    /// Maximum right column width; the render target never goes above it while
+    /// the right column is open. Defaults to [`RIGHT_MAX_WIDTH`].
+    pub fn right_max_width(mut self, max: impl Into<Pixels>) -> Self {
+        self.right_max = max.into();
         self
     }
 
@@ -236,9 +268,16 @@ impl RenderOnce for AppShell {
         } else {
             spring_px((id.clone(), "sidebar-width"), sidebar_target, SpringKind::Layout, window, cx).max(px(0.0))
         };
-        let right_target = if self.right_open { self.right_width } else { px(0.0) };
-        let right_w = spring_px((id.clone(), "right-width"), right_target, SpringKind::Layout, window, cx).max(px(0.0));
-        let right_inner = self.right_width;
+        let right_lo = f32::from(self.right_min);
+        let right_hi = f32::from(self.right_max).max(right_lo);
+        let right_rest = px(f32::from(self.right_width).clamp(right_lo, right_hi));
+        let right_target = if self.right_open { right_rest } else { px(0.0) };
+        let right_w = if self.resizing {
+            right_target
+        } else {
+            spring_px((id.clone(), "right-width"), right_target, SpringKind::Layout, window, cx).max(px(0.0))
+        };
+        let right_inner = right_rest;
         // The pane keeps its resting width while the column springs, so the
         // content slides under the divider instead of reflowing every frame.
         // While collapsing, the expanded sidebar stays in the column and is
@@ -337,8 +376,27 @@ mod tests {
         assert_eq!(clamp_sidebar_width(SIDEBAR_MAX_WIDTH + 0.5), SIDEBAR_MAX_WIDTH);
     }
 
+    #[test]
+    fn clamp_right_keeps_drag_widths_in_range() {
+        assert_eq!(clamp_right_width(400.0), 400.0);
+        assert_eq!(clamp_right_width(0.0), RIGHT_MIN_WIDTH);
+        assert_eq!(clamp_right_width(10_000.0), RIGHT_MAX_WIDTH);
+        assert_eq!(clamp_right_width(RIGHT_MIN_WIDTH - 0.5), RIGHT_MIN_WIDTH);
+        assert_eq!(clamp_right_width(RIGHT_MAX_WIDTH + 0.5), RIGHT_MAX_WIDTH);
+    }
+
+    #[test]
+    fn right_and_sidebar_clamps_are_independent() {
+        assert_eq!(clamp_sidebar_width(200.0), 200.0);
+        assert_eq!(clamp_right_width(200.0), RIGHT_MIN_WIDTH);
+        assert_eq!(clamp_right_width(500.0), 500.0);
+        assert_eq!(clamp_sidebar_width(500.0), SIDEBAR_MAX_WIDTH);
+    }
+
     const _: () = {
         assert!(SIDEBAR_MIN_WIDTH < SIDEBAR_WIDTH);
         assert!(SIDEBAR_WIDTH < SIDEBAR_MAX_WIDTH);
+        assert!(RIGHT_MIN_WIDTH < RIGHT_WIDTH);
+        assert!(RIGHT_WIDTH < RIGHT_MAX_WIDTH);
     };
 }
