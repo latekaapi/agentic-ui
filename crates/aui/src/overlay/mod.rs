@@ -9,7 +9,7 @@ mod settings;
 
 pub use command_palette::*;
 pub use dialog::{dialog, Dialog, DialogKind};
-pub use settings::{settings_dialog, SettingsDialog, SettingsRow, SettingsSection};
+pub use settings::{settings_dialog, SettingsDialog, SettingsRow, SettingsSection, ShortcutEdit};
 
 use aui_tokens::scale;
 use gpui::{point, prelude::ParentElement, px, Anchor, Bounds, IntoElement, Pixels};
