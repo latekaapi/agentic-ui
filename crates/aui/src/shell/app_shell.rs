@@ -352,7 +352,22 @@ impl RenderOnce for AppShell {
                     .bg(p.surface_1)
                     .child(div().absolute().left(px(0.0)).top(px(0.0)).bottom(px(0.0)).w(rail_width).children(self.rail))
                     .when(show_sidebar, |d| {
-                        d.child(div().absolute().left(px(0.0)).top(px(0.0)).bottom(px(0.0)).w(sidebar_rest).overflow_hidden().children(self.sidebar))
+                        // Opaque, or the rail beneath shows through it: the
+                        // rail's icons sit at the same left edge as the
+                        // sidebar's rows, so a transparent overlay draws a
+                        // second `+` through "New session" and a magnifier
+                        // through "Add project".
+                        d.child(
+                            div()
+                                .absolute()
+                                .left(px(0.0))
+                                .top(px(0.0))
+                                .bottom(px(0.0))
+                                .w(sidebar_rest)
+                                .overflow_hidden()
+                                .bg(p.surface_1)
+                                .children(self.sidebar),
+                        )
                     }),
             )
             .child(div().flex_1().h_full().min_w(px(0.0)).overflow_hidden().bg(p.bg).children(self.centre))
