@@ -106,7 +106,7 @@ impl MinimalApp {
         session.turns.push(Turn::Assistant {
             id: "t1".into(),
             blocks: vec![Block::Text { text: SEED_REPLY.into(), streaming: false }],
-            meta: TurnMeta { model: "Opus 4.6".into(), duration_ms: 2_100, tokens_in: 1_840, tokens_out: 96, reasoning_tokens: 0, cost_usd: 0.014 },
+            meta: TurnMeta { model: "Opus 4.6".into(), duration_ms: 2_100, tokens_in: 1_840, tokens_out: 96, reasoning_tokens: 0, cost_usd: 0.014, ..Default::default() },
             timestamp: None,
         });
         let (focus_root, focus_approval) = (cx.focus_handle(), cx.focus_handle());
@@ -217,7 +217,7 @@ impl MinimalApp {
             let _ = this.update(cx, |this, cx| {
                 this.session.apply(Delta::TurnFinished {
                     turn_id,
-                    meta: TurnMeta { model: "Opus 4.6".into(), duration_ms: 4_800, tokens_in: 2_310, tokens_out: 214, reasoning_tokens: 0, cost_usd: 0.021 },
+                    meta: TurnMeta { model: "Opus 4.6".into(), duration_ms: 4_800, tokens_in: 2_310, tokens_out: 214, reasoning_tokens: 0, cost_usd: 0.021, ..Default::default() },
                 });
                 cx.notify();
             });

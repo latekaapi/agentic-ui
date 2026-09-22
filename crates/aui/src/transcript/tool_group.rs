@@ -182,6 +182,9 @@ impl RenderOnce for ToolGroup {
                         call.body.clone(),
                     )
                     .duration_ms(call.duration_ms)
+                    // The server's whole-patch summary rides along with no
+                    // caller opt-in, exactly as a lone card draws it.
+                    .diff_stat(call.diff_stat)
                     .open(call_open)
                     .actions(actions)
                     .on_intent(move |intent, w, cx| {
@@ -247,6 +250,7 @@ mod tests {
             status: ToolStatus::Success,
             duration_ms: Some(4),
             body: aui_protocol::ToolBody::Read { lines: 12 },
+            diff_stat: None,
         }
     }
 

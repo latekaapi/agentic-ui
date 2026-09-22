@@ -83,6 +83,12 @@ impl Turn {
 }
 
 /// The mono footer under an assistant turn: `model · duration · tokens · cost`.
+///
+/// The cache counters below are informational only: they are *not directly
+/// summable across providers*, and `cached_tokens` may be counted inside or
+/// beside `tokens_in` depending on the provider's convention — adding any of
+/// them to `tokens_in` double-counts. Nothing fills them yet; they ship inert
+/// (unknown / `0`) until the fold does.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TurnMeta {
     /// Model that produced the turn, e.g. `"opus 4.6"`.
@@ -101,6 +107,33 @@ pub struct TurnMeta {
     pub reasoning_tokens: u64,
     /// Cost of the turn in US dollars.
     pub cost_usd: f64,
+    /// Cache read tokens (MSP `TokenUsage.cacheReadTokens`).
+    ///
+    /// `None` when the provider does not distinguish cache reads from writes —
+    /// "the provider did not tell us", which is different from reporting zero.
+    /// Not summable across providers; never add to `tokens_in`.
+    ///
+    /// Additive: defaults to `None` when it is absent from serialized data.
+    #[serde(default)]
+    pub cache_read_tokens: Option<u64>,
+    /// Cache write tokens (MSP `TokenUsage.cacheWriteTokens`).
+    ///
+    /// `None` when the provider does not distinguish cache writes from reads —
+    /// see `cache_read_tokens`. Not summable across providers; never add to
+    /// `tokens_in`.
+    ///
+    /// Additive: defaults to `None` when it is absent from serialized data.
+    #[serde(default)]
+    pub cache_write_tokens: Option<u64>,
+    /// Provider-reported cache tokens (MSP `TokenUsage.cachedTokens`).
+    ///
+    /// This is what it is not: it may be counted inside or beside `tokens_in`
+    /// depending on the provider's convention, so adding it to `tokens_in`
+    /// double-counts, and it is not directly summable across providers.
+    ///
+    /// Additive: defaults to `0` when it is absent from serialized data.
+    #[serde(default)]
+    pub cached_tokens: u64,
 }
 
 /// A file or image sent with a user turn, shown as a chip above the bubble.
@@ -172,4 +205,61 @@ pub enum MentionKind {
     Url,
     /// A named skill or slash command.
     Skill,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_counters_default_when_absent() {
+        // Old serialized data carries none of the three keys: it still parses.
+        let meta: TurnMeta = serde_json::from_value(serde_json::json!({
+            "model": "opus 4.6",
+            "duration_ms": 3_100,
+            "tokens_in": 1_900,
+            "tokens_out": 500,
+            "reasoning_tokens": 120,
+            "cost_usd": 0.04,
+        }))
+        .expect("decode");
+        assert_eq!(meta.cache_read_tokens, None);
+        assert_eq!(meta.cache_write_tokens, None);
+        assert_eq!(meta.cached_tokens, 0);
+    }
+
+    #[test]
+    fn cache_counters_survive_a_round_trip() {
+        let meta = TurnMeta {
+            model: "opus 4.6".into(),
+            duration_ms: 3_100,
+            tokens_in: 1_900,
+            tokens_out: 500,
+            reasoning_tokens: 120,
+            cost_usd: 0.04,
+            cache_read_tokens: Some(800),
+            cache_write_tokens: Some(200),
+            cached_tokens: 1_000,
+        };
+        let json = serde_json::to_value(&meta).expect("serialize");
+        assert_eq!(json["cache_read_tokens"], 800);
+        assert_eq!(json["cache_write_tokens"], 200);
+        assert_eq!(json["cached_tokens"], 1_000);
+        let back: TurnMeta = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(back, meta);
+
+        // "The provider said zero" stays distinct from "did not tell us".
+        let zero = TurnMeta {
+            cache_read_tokens: Some(0),
+            cache_write_tokens: Some(0),
+            cached_tokens: 0,
+            ..TurnMeta::default()
+        };
+        let back: TurnMeta =
+            serde_json::from_value(serde_json::to_value(&zero).expect("serialize"))
+                .expect("deserialize");
+        assert_eq!(back.cache_read_tokens, Some(0));
+        assert_eq!(back.cache_write_tokens, Some(0));
+        assert_eq!(back, zero);
+    }
 }

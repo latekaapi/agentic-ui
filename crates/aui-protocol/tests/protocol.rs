@@ -1,8 +1,8 @@
 //! Behavioural tests for the session model.
 
 use aui_protocol::{
-    ActivityState, ApprovalDecision, ApprovalState, Block, Delta, Session, ToolBody, ToolCall,
-    ToolKind, ToolStatus, Turn, TurnMeta,
+    ActivityState, ApprovalDecision, ApprovalState, Block, Delta, DiffStat, Session, ToolBody,
+    ToolCall, ToolKind, ToolStatus, Turn, TurnMeta,
 };
 
 #[test]
@@ -87,6 +87,9 @@ fn text_delta_appends_to_the_streaming_block() {
         tokens_out: 500,
         reasoning_tokens: 120,
         cost_usd: 0.04,
+        cache_read_tokens: None,
+        cache_write_tokens: None,
+        cached_tokens: 0,
     };
     assert!(session.apply(Delta::TurnFinished { turn_id: "t1".into(), meta: meta.clone() }));
     assert_eq!(
@@ -236,6 +239,7 @@ fn shell_call(output: Vec<String>) -> Block {
         status: ToolStatus::Running,
         duration_ms: None,
         body: ToolBody::Shell { output_lines: output, exit_code: None, live: true },
+        diff_stat: None,
     }
 }
 
@@ -313,6 +317,7 @@ fn tool_output_delta_ignores_bodies_with_nowhere_to_put_it() {
             status: ToolStatus::Success,
             duration_ms: Some(4),
             body: ToolBody::Read { lines: 12 },
+            diff_stat: None,
         }],
         meta: TurnMeta::default(),
     });
@@ -470,6 +475,8 @@ fn the_wider_approval_decisions_settle_the_card() {
 
 #[test]
 fn tool_group_reuses_the_tool_call_shape() {
+    // The fixture carries a summary, so the round trip below proves the
+    // variant keeps it — with `None` the drop was invisible.
     let call = ToolCall {
         id: "tc1".into(),
         kind: ToolKind::Read,
@@ -478,6 +485,7 @@ fn tool_group_reuses_the_tool_call_shape() {
         status: ToolStatus::Success,
         duration_ms: Some(4),
         body: ToolBody::Read { lines: 12 },
+        diff_stat: Some(DiffStat { added: 20, removed: 7, files: 4 }),
     };
     // The struct and the lone-call variant carry the same data both ways.
     assert_eq!(Block::tool_call(call.clone()).as_tool_call(), Some(call.clone()));
@@ -493,6 +501,53 @@ fn tool_group_reuses_the_tool_call_shape() {
     assert_eq!(json["calls"][0]["tool_kind"]["kind"], "read");
     let back: Block = serde_json::from_value(json).expect("deserialize");
     assert_eq!(group, back);
+}
+
+#[test]
+fn tool_call_block_round_trip_preserves_diff_stat() {
+    let call = ToolCall {
+        id: "tc-edit".into(),
+        kind: ToolKind::Edit,
+        verb: "Edited".into(),
+        target: "src/main.rs".into(),
+        status: ToolStatus::Success,
+        duration_ms: Some(340),
+        body: ToolBody::None,
+        diff_stat: Some(DiffStat { added: 8, removed: 3, files: 1 }),
+    };
+    // `ToolCall` → `Block` → `ToolCall` keeps the server's summary.
+    let block = Block::tool_call(call.clone());
+    assert_eq!(block.as_tool_call(), Some(call));
+
+    // ...and so does the JSON round trip of the lone-call variant.
+    let json = serde_json::to_value(&block).expect("serialize");
+    assert_eq!(json["diff_stat"]["added"], 8);
+    let back: Block = serde_json::from_value(json).expect("deserialize");
+    assert_eq!(back, block);
+}
+
+#[test]
+fn old_tool_call_blocks_without_diff_stat_decode_with_none() {
+    // Payloads written before the summary existed carry no `diff_stat` key;
+    // the lone-call variant still decodes, with no chips to draw.
+    let back: Block = serde_json::from_value(serde_json::json!({
+        "kind": "tool_call",
+        "id": "tc1",
+        "tool_kind": {"kind": "read"},
+        "verb": "Read",
+        "target": "src/main.rs",
+        "status": "success",
+        "duration_ms": 4,
+        "body": {"kind": "read", "lines": 12},
+    }))
+    .expect("deserialize");
+    match &back {
+        Block::ToolCall { diff_stat, .. } => assert_eq!(*diff_stat, None),
+        other => panic!("expected a tool call, got {other:?}"),
+    }
+    // `None` stays off the wire, so old consumers see the old shape.
+    let json = serde_json::to_value(&back).expect("serialize");
+    assert!(json.get("diff_stat").is_none());
 }
 
 #[test]

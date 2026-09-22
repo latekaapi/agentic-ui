@@ -400,6 +400,7 @@ fn bench_footer_items() {
         tokens_out: 1200,
         reasoning_tokens: 40,
         cost_usd: 0.04,
+        ..aui_protocol::TurnMeta::default()
     };
     bench("footer_items + format_duration", ITERS, || {
         let items = super::turns::footer_items(&meta);

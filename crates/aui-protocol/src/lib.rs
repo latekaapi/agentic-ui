@@ -71,7 +71,7 @@ pub use delta::Delta;
 pub use intent::{ApprovalDecision, Intent, Note, WorkbenchView};
 pub use session::{Environment, PermissionMode, Provider, ReasoningEffort, Session};
 pub use tool::{
-    AnsiLine, Diff, DiffKind, DiffLine, Hunk, SearchHit, ToolBody, ToolCall, ToolKind, ToolStatus,
-    WebResult,
+    AnsiLine, Diff, DiffKind, DiffLine, DiffStat, Hunk, SearchHit, ToolBody, ToolCall, ToolKind,
+    ToolStatus, WebResult,
 };
 pub use turn::{Attachment, AttachmentKind, Mention, MentionKind, Turn, TurnMeta, UploadState};

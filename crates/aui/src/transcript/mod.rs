@@ -36,7 +36,10 @@ pub use selectable::{selectable_text, MessageSelection, SelectableText, Selectio
 pub use marker::{marker_row, HandOff, MarkerRow};
 pub use turns::{assistant_turn, footer_items, format_age, turn_selected_text, turn_span_selected_text, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction, COPY_HOLD};
 pub use ansi::{ansi_runs, parse_ansi, AnsiSpan};
-pub use tool_card::{format_duration, tool_card, ToolCard, ToolCardAction, ToolCardIntent, SHELL_FOLD};
+pub use tool_card::{
+    arm_chip_probe, format_duration, take_drawn_chips, tool_card, ToolCard, ToolCardAction,
+    ToolCardIntent, SHELL_FOLD,
+};
 pub use tool_group::{
     count_label, more_label, preview_hidden, tool_group, ToolGroup, ToolGroupData, ToolGroupIntent,
     GROUP_PREVIEW,
