@@ -207,6 +207,40 @@ fn shortcut_recording_swallows_down_and_reports_set(cx: &mut TestAppContext) {
     assert!(!recording);
 }
 
+/// While recording, `space` binds instead of flipping the focused switch: it
+/// reports `Set("space")`, and nothing else is reported.
+#[gpui::test]
+fn shortcut_recording_space_reports_set(cx: &mut TestAppContext) {
+    let (log, open, keystroke, recording) = recording_state(cx, &["down down enter", "space"]);
+
+    assert_eq!(log, vec!["shortcut:palette:Record".to_string(), "shortcut:palette:Set(\"space\")".to_string()]);
+    assert!(open);
+    assert_eq!(keystroke, Some("space".into()));
+    assert!(!recording);
+}
+
+/// While recording, `enter` binds instead of confirming anything: it reports
+/// `Set("enter")`, and the dialog does not flip or dismiss.
+#[gpui::test]
+fn shortcut_recording_enter_reports_set(cx: &mut TestAppContext) {
+    let (log, open, keystroke, recording) = recording_state(cx, &["down down enter", "enter"]);
+
+    assert_eq!(log, vec!["shortcut:palette:Record".to_string(), "shortcut:palette:Set(\"enter\")".to_string()]);
+    assert!(open);
+    assert_eq!(keystroke, Some("enter".into()));
+    assert!(!recording);
+}
+
+/// `space` on a focused switch row flips it when nothing is recording — the
+/// not-recording path the recording fix must not break.
+#[gpui::test]
+fn shortcut_space_flips_switch_when_idle(cx: &mut TestAppContext) {
+    let (log, open) = shortcut_keys(cx, &["down space"]);
+
+    assert_eq!(log, vec!["flip:chevron:false".to_string()]);
+    assert!(open);
+}
+
 /// `esc` while recording cancels the recording and must not dismiss: a later
 /// `esc` with nothing recording still dismisses.
 #[gpui::test]

@@ -23,8 +23,12 @@
 //!
 //! While any shortcut row is recording, the card-level key handling captures
 //! the next keystroke and reports it through `on_shortcut` instead of moving
-//! the row focus: `↓` binds rather than stepping down, and `esc` cancels the
-//! recording without dismissing the dialog.
+//! the row focus: `↓` binds rather than stepping down, `esc` cancels the
+//! recording without dismissing the dialog, and `enter` / `space` bind
+//! rather than flipping — the `Confirm` handler re-enables propagation with
+//! `cx.propagate()` (bubble-phase action listeners stop it by default, so
+//! merely returning would swallow the keystroke) so the key-down capture
+//! below still sees the exact key.
 
 use std::rc::Rc;
 
@@ -357,13 +361,6 @@ fn is_bare_modifier(keystroke: &Keystroke) -> bool {
     )
 }
 
-/// Whether a key-down is a bare `esc`: the recording abort. `esc` with
-/// modifiers held (e.g. `"ctrl-escape"`) is a bindable chord, not an abort.
-fn is_bare_escape(keystroke: &Keystroke) -> bool {
-    let modifiers = &keystroke.modifiers;
-    keystroke.key == "escape" && !modifiers.control && !modifiers.alt && !modifiers.shift && !modifiers.platform && !modifiers.function
-}
-
 impl RenderOnce for SettingsDialog {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
@@ -428,10 +425,14 @@ impl RenderOnce for SettingsDialog {
         // While a row is recording, the bound keys below report through
         // `on_shortcut` instead of navigating: the `↓`/`↑` guards emit `Set`
         // and stop propagation so the focus never moves, `esc` emits `Cancel`
-        // instead of dismissing, and `enter` / `space` fall through to the
-        // key-down capture below so the exact key (`"enter"` vs `"space"`)
-        // is what gets reported. Keys with no binding reach that capture
-        // directly; either way one keystroke reports exactly once.
+        // instead of dismissing, and `enter` / `space` re-enable propagation
+        // with `cx.propagate()` — merely returning from the `Confirm`
+        // handler would not reach the key-down capture, because a
+        // bubble-phase action listener stops propagation by default before
+        // the handler runs — so the capture below still sees the exact key
+        // (`"enter"` vs `"space"`, which the `Confirm` action itself cannot
+        // tell apart) and reports it. Keys with no binding reach that
+        // capture directly; either way one keystroke reports exactly once.
         let confirm_order = order.clone();
         let confirm_switches = switches.clone();
         let confirm_shortcuts = shortcuts.clone();
@@ -499,8 +500,13 @@ impl RenderOnce for SettingsDialog {
             })
             .on_action(move |_: &Confirm, w, cx| {
                 if recording_confirm.is_some() {
-                    // Fall through to the key-down capture so the exact key
-                    // is reported; the capture stops propagation there.
+                    // Re-enable propagation so the key-down capture below
+                    // sees the exact key (`"enter"` vs `"space"`) and
+                    // reports it: a bubble-phase action listener stops
+                    // propagation by default before this handler runs, so
+                    // merely returning would swallow the keystroke
+                    // entirely. The capture stops propagation there.
+                    cx.propagate();
                     return;
                 }
                 if let Some(focused) = focused {
@@ -548,13 +554,16 @@ impl RenderOnce for SettingsDialog {
                     return;
                 };
                 // Bound keys never reach here — their action guards above
-                // either report or stop first — so this is the unbound keys
-                // plus the `enter` / `space` fall-through from `Confirm`.
+                // either report or stop first — except `enter` / `space`,
+                // which the `Confirm` handler re-propagates so this capture
+                // sees the exact key. A bare `escape` never reaches here
+                // either: it always matches the `Cancel` binding first, and
+                // that guard reports `Cancel` and stops, so no escape guard
+                // is needed here. What remains is the unbound keys plus the
+                // re-propagated `enter` / `space`.
                 // A lone modifier is not a keystroke: swallow it and stay
                 // recording.
-                let edit = if is_bare_escape(&event.keystroke) {
-                    Some(ShortcutEdit::Cancel)
-                } else if is_bare_modifier(&event.keystroke) {
+                let edit = if is_bare_modifier(&event.keystroke) {
                     None
                 } else {
                     Some(ShortcutEdit::Set(format_keystroke(&event.keystroke)))
