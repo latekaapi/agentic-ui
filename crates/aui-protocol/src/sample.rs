@@ -372,6 +372,9 @@ fn work_turn() -> Turn {
             tokens_out: 500,
             reasoning_tokens: 0,
             cost_usd: 0.04,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            cached_tokens: 0,
         },
     }
 }
@@ -388,6 +391,9 @@ fn decision_turn() -> Turn {
             tokens_out: 320,
             reasoning_tokens: 0,
             cost_usd: 0.02,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            cached_tokens: 0,
         },
     }
 }
@@ -410,6 +416,9 @@ fn approval_turn() -> Turn {
             tokens_out: 120,
             reasoning_tokens: 0,
             cost_usd: 0.01,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            cached_tokens: 0,
         },
     }
 }
@@ -484,6 +493,9 @@ fn wrap_up_turn() -> Turn {
             tokens_out: 3_100,
             reasoning_tokens: 0,
             cost_usd: 0.31,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            cached_tokens: 0,
         },
     }
 }
@@ -866,6 +878,9 @@ fn sub_agent_call() -> Block {
                         tokens_out: 160,
                         reasoning_tokens: 0,
                         cost_usd: 0.002,
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                        cached_tokens: 0,
                     },
                 },
             ],

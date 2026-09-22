@@ -87,6 +87,9 @@ fn text_delta_appends_to_the_streaming_block() {
         tokens_out: 500,
         reasoning_tokens: 120,
         cost_usd: 0.04,
+        cache_read_tokens: None,
+        cache_write_tokens: None,
+        cached_tokens: 0,
     };
     assert!(session.apply(Delta::TurnFinished { turn_id: "t1".into(), meta: meta.clone() }));
     assert_eq!(
