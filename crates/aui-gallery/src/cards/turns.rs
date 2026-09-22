@@ -2,10 +2,13 @@
 //! `design/src/cards/transcript/31-turns.html` at 760×680.
 
 use aui::protocol::{Attachment, AttachmentKind, TurnMeta, UploadState};
-use aui::transcript::{assistant_turn, format_age, user_turn, AssistantTurnAction, UserTurnAction, COPY_HOLD, TextSelection};
+use aui::transcript::{
+    assistant_turn, format_age, user_turn, AssistantTurnAction, TextSelection, UserTurnAction,
+    COPY_HOLD,
+};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
-use gpui_kit::base::v_flex;
+use gpui_kit::base::{h_flex, v_flex};
 
 /// `.tr{gap:18px}`.
 const TURN_GAP: f32 = 18.0;
@@ -107,6 +110,26 @@ Found the country-specific branch in `validateAddress`. Two things stand out:\n\
 - Canadian postal codes fall into the US ZIP branch.\n\n\
 I'll make the ZIP/postal path explicit and keep the checkout copy unchanged, then run the two focused test files";
 
+/// A 120-character run with nothing the line wrapper would break at —
+/// digits only, no spaces or punctuation — so prose must break it mid-word.
+fn unbroken_span() -> String {
+    "0123456789".repeat(12)
+}
+
+/// The assistant demo text: everyday words around the unbroken run, so the
+/// card shows wrapping at spaces and breaking inside the run side by side.
+fn unbroken_demo() -> String {
+    format!(
+        "Circular received under file number {}: the run has no spaces, so it breaks mid-word and wraps instead of clipping its tail.",
+        unbroken_span()
+    )
+}
+
+/// The same paste in both width cells, long enough to pass 78% of its half
+/// of the card: the default bubble stops at the cap while the full-width one
+/// uses the whole column.
+const WIDTH_TEXT: &str = "Pasting circular 12/2026 into the pane to read it here: at the default cap this bubble stops at 78% of the column, while the full-width turn beside it uses the whole column.";
+
 /// Stores a card-level selection intent: drags, word and paragraph picks
 /// replace the stored selection, plain clicks clear it.
 fn track_selection(
@@ -124,8 +147,20 @@ fn track_selection(
 pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
     let attachments = vec![
-        Attachment { name: "validators.ts".into(), kind: AttachmentKind::File, size_bytes: None, meta: Some("180 lines".into()), state: UploadState::Ready },
-        Attachment { name: "checkout-form.png".into(), kind: AttachmentKind::Image, size_bytes: None, meta: None, state: UploadState::Ready },
+        Attachment {
+            name: "validators.ts".into(),
+            kind: AttachmentKind::File,
+            size_bytes: None,
+            meta: Some("180 lines".into()),
+            state: UploadState::Ready,
+        },
+        Attachment {
+            name: "checkout-form.png".into(),
+            kind: AttachmentKind::Image,
+            size_bytes: None,
+            meta: None,
+            state: UploadState::Ready,
+        },
     ];
     // The card owns the selection, like an app would: one
     // `Option<TextSelection>` wired through every turn.
@@ -240,9 +275,62 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         ))
         .child(
             div()
+                .id("card31-unbroken")
+                .role(Role::Paragraph)
+                .aria_label("Assistant turn: an unbroken 120-character span wraps instead of clipping")
+                .w_full()
+                .child(
+                    assistant_turn("card31-assistant-unbroken", unbroken_demo())
+                        .selection(current.as_ref())
+                        .on_selection_change(track_selection(selection.clone())),
+                ),
+        )
+        .child(
+            h_flex()
+                .id("card31-width-compare")
+                .role(Role::Group)
+                .aria_label("User bubble width: default 78 percent beside full width")
+                .w_full()
+                .gap(px(TURN_GAP))
+                .child(
+                    div()
+                        .id("card31-width-default")
+                        .role(Role::Group)
+                        .aria_label("User turn at the default 78 percent width")
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .child(div().w_full().flex().justify_end().child(
+                            user_turn("card31-user-default78", WIDTH_TEXT)
+                                .selection(current.as_ref())
+                                .on_selection_change(track_selection(selection.clone())),
+                        )),
+                )
+                .child(
+                    div()
+                        .id("card31-width-full")
+                        .role(Role::Group)
+                        .aria_label("User turn at full width through max width fraction")
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .child(div().w_full().flex().justify_end().child(
+                            user_turn("card31-user-full", WIDTH_TEXT)
+                                .max_width_fraction(1.0)
+                                .selection(current.as_ref())
+                                .on_selection_change(track_selection(selection.clone())),
+                        )),
+                ),
+        )
+        .child(
+            div()
                 .ui(scale::FS_12)
                 .text_color(p.ink_3)
                 .child("Long prompt above: eighty lines of markdown wrap inside the bubble, which never passes 78% of the column. The short prompts sit in short bubbles hugging the right."),
+        )
+        .child(
+            div()
+                .ui(scale::FS_12)
+                .text_color(p.ink_3)
+                .child("Reading width above: the assistant turn carries a 120-character unbroken span that breaks mid-word and wraps instead of clipping, and the two user turns paste the same circular side by side — one at the default 78%, one at the full column through max_width_fraction(1.0). Fenced code and tables keep their own scrolling frames."),
         )
         .child(
             div()
@@ -271,4 +359,19 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .child("User turns sit right in a soft bubble; assistant turns are full-width text with no bubble, so the transcript reads like a document. Streamed chunks fade and rise 3 px; the caret blinks on the accent. The toolbar appears on hover above the turn and never shifts layout. The bottom-row variant pins the same actions in-flow under the prose, muted until hover. Drag inside any turn to select (double-click a word, triple-click a paragraph): the card holds one Option<TextSelection> wired through each turn's selection/on_selection_change, and copies it out with turn_selected_text."),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unbroken_span;
+
+    #[test]
+    fn the_demo_span_is_120_unbroken_characters() {
+        let span = unbroken_span();
+        assert_eq!(span.len(), 120);
+        assert!(
+            span.chars().all(|c| c.is_ascii_alphanumeric()),
+            "the span must give the wrapper no boundary to break at: {span:?}"
+        );
+    }
 }
