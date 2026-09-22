@@ -400,13 +400,14 @@ pub struct DiffReview {
     view: DiffView,
     highlights: Vec<DiffHighlight>,
     summary: Option<(SharedString, u32, u32)>,
+    flush: bool,
     on_action: Option<Handler>,
 }
 
 /// A review pane showing `diff` for the file selected in `files`, with `notes`
 /// collected across the change set.
 pub fn diff_review(id: impl Into<ElementId>, files: Vec<ReviewFile>, diff: Diff, notes: Vec<ReviewNote>, scope: DiffScope, view: DiffView) -> DiffReview {
-    DiffReview { id: id.into(), files, diff, notes, scope, view, highlights: Vec::new(), summary: None, on_action: None }
+    DiffReview { id: id.into(), files, diff, notes, scope, view, highlights: Vec::new(), summary: None, flush: false, on_action: None }
 }
 
 impl DiffReview {
@@ -420,6 +421,16 @@ impl DiffReview {
     /// Word-level highlights inside diff rows.
     pub fn highlights(mut self, highlights: Vec<DiffHighlight>) -> Self {
         self.highlights = highlights;
+        self
+    }
+
+    /// Drops the outer card chrome (the radius and the outer border) for a
+    /// pane mounted as a full-height pane or stacked with other panels,
+    /// where the column already owns the edges. Keeps every internal
+    /// divider, the header's bottom hairline and all padding. Off by
+    /// default, so a floating card renders exactly as before.
+    pub fn flush(mut self) -> Self {
+        self.flush = true;
         self
     }
 
@@ -809,15 +820,11 @@ impl RenderOnce for DiffReview {
             .child(button((id.clone(), "clear"), "Clear").sm().ghost().on_click(emit(DiffReviewAction::Clear)))
             .child(send.on_click(emit(DiffReviewAction::Send)));
 
-        v_flex()
-            .id(id)
-            .w_full()
-            .h(px(FRAME_H))
-            .rounded(px(scale::R_LG))
-            .border_1()
-            .border_color(p.line_strong)
-            .bg(p.surface_1)
-            .overflow_hidden()
+        let mut frame = v_flex().id(id).w_full().h(px(FRAME_H)).bg(p.surface_1).overflow_hidden();
+        if !self.flush {
+            frame = frame.rounded(px(scale::R_LG)).border_1().border_color(p.line_strong);
+        }
+        frame
             .child(top)
             .child(h_flex().w_full().flex_1().min_h(px(0.0)).items_start().child(files).child(body))
             .child(bottom)

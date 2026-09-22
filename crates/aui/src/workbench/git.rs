@@ -143,6 +143,7 @@ pub struct GitChanges {
     branch: SharedString,
     ahead: u32,
     behind: u32,
+    flush: bool,
     on_action: Option<GitHandler>,
 }
 
@@ -156,13 +157,23 @@ pub fn git_changes(
     ahead: u32,
     behind: u32,
 ) -> GitChanges {
-    GitChanges { id: id.into(), files, message: message.into(), branch: SharedString::default(), ahead, behind, on_action: None }
+    GitChanges { id: id.into(), files, message: message.into(), branch: SharedString::default(), ahead, behind, flush: false, on_action: None }
 }
 
 impl GitChanges {
     /// The branch name shown in the ahead / behind row.
     pub fn branch(mut self, branch: impl Into<SharedString>) -> Self {
         self.branch = branch.into();
+        self
+    }
+
+    /// Drops the outer card chrome (the radius and the outer border) for a
+    /// panel mounted as a full-height pane or stacked with other panels,
+    /// where the column already owns the edges. Keeps every internal
+    /// divider, the header's bottom hairline and all padding. Off by
+    /// default, so a floating card renders exactly as before.
+    pub fn flush(mut self) -> Self {
+        self.flush = true;
         self
     }
 
@@ -242,7 +253,11 @@ impl RenderOnce for GitChanges {
             .child(icon(IconName::Git).color(p.ink))
             .child("Changes")
             .child(div().flex_1())
-            .child(crate::data::pill(self.files.len().to_string()));
+            // Plain trailing text, not a pill: pills are status-only (see
+            // `crate::data::pill`), while every other header count in this
+            // crate (`citations`, the diff review's file counts) is plain
+            // ink-3 text.
+            .child(div().flex_none().font_weight(gpui::FontWeight::NORMAL).text_color(p.ink_3).child(self.files.len().to_string()));
 
         let mut rows = v_flex().w_full().flex_none();
         for (file, on) in &self.files {
@@ -374,18 +389,11 @@ impl RenderOnce for GitChanges {
             .child(div().flex_none().child(format!("↓{}", self.behind)))
             .child(push);
 
-        v_flex()
-            .id(id)
-            .size_full()
-            .rounded(px(PANEL_RADIUS))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.surface_1)
-            .overflow_hidden()
-            .child(head)
-            .child(rows)
-            .child(commit)
-            .child(ahead_behind)
+        let mut panel = v_flex().id(id).size_full().bg(p.surface_1).overflow_hidden();
+        if !self.flush {
+            panel = panel.rounded(px(PANEL_RADIUS)).border_1().border_color(p.line);
+        }
+        panel.child(head).child(rows).child(commit).child(ahead_behind)
     }
 }
 
@@ -450,6 +458,7 @@ pub struct PrForm {
     checks: Vec<PrCheck>,
     provider: SharedString,
     issue: Option<SharedString>,
+    flush: bool,
     on_action: Option<PrHandler>,
 }
 
@@ -470,6 +479,7 @@ pub fn pr_form(
         checks,
         provider: SharedString::default(),
         issue: None,
+        flush: false,
         on_action: None,
     }
 }
@@ -484,6 +494,16 @@ impl PrForm {
     /// The tracker issue chip in the footer (`Linear ACM-412`).
     pub fn issue(mut self, issue: impl Into<SharedString>) -> Self {
         self.issue = Some(issue.into());
+        self
+    }
+
+    /// Drops the outer card chrome (the radius and the outer border) for a
+    /// form mounted as a full-height pane or stacked with other panels,
+    /// where the column already owns the edges. Keeps every internal
+    /// divider, the header's bottom hairline and all padding. Off by
+    /// default, so a floating card renders exactly as before.
+    pub fn flush(mut self) -> Self {
+        self.flush = true;
         self
     }
 
@@ -638,15 +658,11 @@ impl RenderOnce for PrForm {
             .child(footer_button("Cancel", ButtonVariant::Ghost, PrAction::Cancel, &self.on_action))
             .child(footer_button("Create PR", ButtonVariant::Primary, PrAction::Create, &self.on_action));
 
-        v_flex()
-            .id(id)
-            .size_full()
-            .rounded(px(PANEL_RADIUS))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.surface_1)
-            .overflow_hidden()
-            .child(head)
+        let mut panel = v_flex().id(id).size_full().bg(p.surface_1).overflow_hidden();
+        if !self.flush {
+            panel = panel.rounded(px(PANEL_RADIUS)).border_1().border_color(p.line);
+        }
+        panel.child(head)
             .child(
                 v_flex()
                     .w_full()
