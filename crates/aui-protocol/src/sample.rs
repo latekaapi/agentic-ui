@@ -15,7 +15,8 @@ use crate::block::{
 use crate::intent::ApprovalDecision;
 use crate::session::{Environment, PermissionMode, Provider, Session};
 use crate::tool::{
-    Diff, DiffKind, DiffLine, Hunk, SearchHit, ToolBody, ToolCall, ToolKind, ToolStatus, WebResult,
+    Diff, DiffKind, DiffLine, DiffStat, Hunk, SearchHit, ToolBody, ToolCall, ToolKind, ToolStatus,
+    WebResult,
 };
 use crate::turn::{
     Attachment, AttachmentKind, Mention, MentionKind, Turn, TurnMeta, UploadState,
@@ -681,6 +682,7 @@ fn vitest_call() -> Block {
             exit_code: Some(0),
             live: false,
         },
+        diff_stat: None,
     }
 }
 
@@ -704,6 +706,7 @@ fn dev_server_call() -> Block {
             exit_code: None,
             live: true,
         },
+        diff_stat: None,
     }
 }
 
@@ -716,6 +719,7 @@ fn read_call() -> Block {
         status: ToolStatus::Success,
         duration_ms: Some(120),
         body: ToolBody::Read { lines: 180 },
+        diff_stat: None,
     }
 }
 
@@ -728,6 +732,9 @@ fn edit_call() -> Block {
         status: ToolStatus::Success,
         duration_ms: Some(340),
         body: ToolBody::Edit { diff: validators_diff() },
+        // The provider's whole-patch summary, so the gallery draws the chips
+        // without fetching the patch body.
+        diff_stat: Some(DiffStat { added: 8, removed: 3, files: 1 }),
     }
 }
 
@@ -753,6 +760,7 @@ fn search_call() -> Block {
                 },
             ],
         },
+        diff_stat: None,
     }
 }
 
@@ -779,6 +787,7 @@ fn web_call() -> Block {
             ],
             hidden: 3,
         },
+        diff_stat: None,
     }
 }
 
@@ -828,6 +837,7 @@ fn lint_call() -> Block {
             exit_code: Some(1),
             live: false,
         },
+        diff_stat: None,
     }
 }
 
@@ -844,6 +854,7 @@ fn browser_call() -> Block {
             screenshot: Some("design/reference/screens/harness-Main.png".into()),
             caption: Some("click \u{201c}Try free\u{201d}".into()),
         },
+        diff_stat: None,
     }
 }
 
@@ -885,6 +896,7 @@ fn sub_agent_call() -> Block {
                 },
             ],
         },
+        diff_stat: None,
     }
 }
 
@@ -902,6 +914,7 @@ fn mcp_call() -> Block {
                           \"state\":\"In Progress\"}"
                 .into(),
         },
+        diff_stat: None,
     }
 }
 
