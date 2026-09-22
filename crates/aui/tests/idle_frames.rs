@@ -102,6 +102,7 @@ fn a_settled_assistant_turn_requests_no_frames(cx: &mut TestAppContext) {
             tokens_out: 400,
             reasoning_tokens: 0,
             cost_usd: 0.04,
+            ..TurnMeta::default()
         })
         .into_any_element()
     });
