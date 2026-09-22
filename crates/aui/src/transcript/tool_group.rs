@@ -182,6 +182,9 @@ impl RenderOnce for ToolGroup {
                         call.body.clone(),
                     )
                     .duration_ms(call.duration_ms)
+                    // The server's whole-patch summary rides along with no
+                    // caller opt-in, exactly as a lone card draws it.
+                    .diff_stat(call.diff_stat)
                     .open(call_open)
                     .actions(actions)
                     .on_intent(move |intent, w, cx| {

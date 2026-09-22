@@ -9,6 +9,7 @@ use aui_protocol::{DiffKind, DiffStat, ToolBody, ToolStatus};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Easing, Palette, TextRole};
 use gpui::{div, linear_color_stop, linear_gradient, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, StyledText, Window};
 use gpui_kit::base::{h_flex, v_flex};
+use std::cell::RefCell;
 
 use crate::data::{button, glyph_err, glyph_ok, pill, spinner, tag, PillVariant};
 use crate::icons::{icon, IconName};
@@ -217,6 +218,33 @@ fn edit_draws_chips(diff_stat: Option<&DiffStat>) -> bool {
     diff_stat.is_none()
 }
 
+// Test probe for the `+N`/`−N` header chips: gpui offers no text query and
+// tags paint no quads, so a test arms this, draws a card in a real window,
+// and reads back the labels the render committed — the chip analogue of
+// `Window::painted_quads`. Arming records; it changes nothing drawn.
+thread_local! {
+    static CHIP_PROBE_ARMED: RefCell<bool> = const { RefCell::new(false) };
+    static DRAWN_CHIPS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Arms (`true`) or disarms the chip probe. Disarmed — the default — nothing
+/// is recorded and rendering is byte-for-byte what it was.
+pub fn arm_chip_probe(armed: bool) {
+    CHIP_PROBE_ARMED.with(|flag| *flag.borrow_mut() = armed);
+}
+
+/// Drains the chip labels recorded since the last call, in draw order.
+pub fn take_drawn_chips() -> Vec<String> {
+    DRAWN_CHIPS.with(|chips| std::mem::take(&mut *chips.borrow_mut()))
+}
+
+/// Records one drawn chip label when the probe is armed; a no-op otherwise.
+fn record_chip(label: &str) {
+    if CHIP_PROBE_ARMED.with(|flag| *flag.borrow()) {
+        DRAWN_CHIPS.with(|chips| chips.borrow_mut().push(label.to_owned()));
+    }
+}
+
 impl RenderOnce for ToolCard {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
@@ -251,6 +279,8 @@ impl RenderOnce for ToolCard {
         // no second pair.
         if let Some(stat) = &self.diff_stat {
             let (added, removed) = diff_stat_tags(stat);
+            record_chip(&added);
+            record_chip(&removed);
             right = right.child(tag(added).color(p.success)).child(tag(removed).color(p.danger));
             if let Some(files) = diff_stat_files_label(stat) {
                 right = right.child(files);
@@ -278,7 +308,11 @@ impl RenderOnce for ToolCard {
                 // above already show the whole-patch counts, which can
                 // legitimately disagree with this possibly single-file diff.
                 if edit_draws_chips(self.diff_stat.as_ref()) {
-                    right = right.child(tag(format!("+{}", diff.added)).color(p.success)).child(tag(format!("−{}", diff.removed)).color(p.danger));
+                    let added = format!("+{}", diff.added);
+                    let removed = format!("−{}", diff.removed);
+                    record_chip(&added);
+                    record_chip(&removed);
+                    right = right.child(tag(added).color(p.success)).child(tag(removed).color(p.danger));
                 }
                 show_duration = false;
             }

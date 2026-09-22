@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::intent::ApprovalDecision;
-use crate::tool::{ToolBody, ToolCall, ToolKind, ToolStatus};
+use crate::tool::{DiffStat, ToolBody, ToolCall, ToolKind, ToolStatus};
 
 /// One renderable unit inside an assistant turn.
 ///
@@ -59,6 +59,12 @@ pub enum Block {
         duration_ms: Option<u64>,
         /// Tool-specific payload.
         body: ToolBody,
+        /// Server-authored diff summary for edit-family calls: the counts the
+        /// provider computed over the whole patch, available without fetching
+        /// the patch body. `None` for other tools and for payloads written
+        /// before the summary existed; the card then draws no chips.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        diff_stat: Option<DiffStat>,
     },
     /// A run of consecutive tool calls folded into one card.
     ///
@@ -241,6 +247,7 @@ impl Block {
             status: call.status,
             duration_ms: call.duration_ms,
             body: call.body,
+            diff_stat: call.diff_stat,
         }
     }
 
@@ -249,7 +256,7 @@ impl Block {
     /// matching the variant itself.
     pub fn as_tool_call(&self) -> Option<ToolCall> {
         match self {
-            Block::ToolCall { id, kind, verb, target, status, duration_ms, body } => Some(ToolCall {
+            Block::ToolCall { id, kind, verb, target, status, duration_ms, body, diff_stat } => Some(ToolCall {
                 id: id.clone(),
                 kind: kind.clone(),
                 verb: verb.clone(),
@@ -257,7 +264,7 @@ impl Block {
                 status: *status,
                 duration_ms: *duration_ms,
                 body: body.clone(),
-                diff_stat: None,
+                diff_stat: *diff_stat,
             }),
             _ => None,
         }

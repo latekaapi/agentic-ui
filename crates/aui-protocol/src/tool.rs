@@ -60,7 +60,8 @@ pub struct DiffStat {
 
 /// One tool invocation: what ran, how it went, and the payload the card renders.
 ///
-/// The fields are the [`crate::Block::ToolCall`] variant's fields, so a group
+/// The fields are the [`crate::Block::ToolCall`] variant's fields — a lone
+/// call and a group entry share this shape — so a group
 /// ([`crate::Block::ToolGroup`]) reuses this struct instead of restating them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ToolCall {
