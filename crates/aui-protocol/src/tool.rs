@@ -40,6 +40,24 @@ pub enum ToolKind {
     },
 }
 
+/// Server-authored summary of a patch's size, computed by the provider over
+/// the whole stored patch document.
+///
+/// Unlike [`Diff`], which renders one file's hunks in the card body, these
+/// are whole-patch counts available without fetching the patch body (the
+/// body is a separate round trip on the patch reference). `files` is a file
+/// *count* — the number of file entries in the stored patch — not a line
+/// count, and nothing derives these numbers from a rendered [`Diff`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DiffStat {
+    /// Total `+`-prefixed lines across all files' hunks.
+    pub added: u64,
+    /// Total `-`-prefixed lines across all files' hunks.
+    pub removed: u64,
+    /// File entries in the stored patch document.
+    pub files: u64,
+}
+
 /// One tool invocation: what ran, how it went, and the payload the card renders.
 ///
 /// The fields are the [`crate::Block::ToolCall`] variant's fields, so a group
@@ -64,6 +82,12 @@ pub struct ToolCall {
     pub duration_ms: Option<u64>,
     /// Tool-specific payload.
     pub body: ToolBody,
+    /// Server-authored diff summary for edit-family calls: the counts the
+    /// provider computed over the whole patch, available without fetching
+    /// the patch body. `None` for other tools and for payloads written
+    /// before the summary existed; the card then draws no chips.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff_stat: Option<DiffStat>,
 }
 
 /// The lifecycle of a tool call, which picks the header glyph and result pill.
@@ -211,4 +235,61 @@ pub enum DiffKind {
     Add,
     /// Removed from the old file.
     Del,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn read_call() -> ToolCall {
+        ToolCall {
+            id: "tc1".into(),
+            kind: ToolKind::Read,
+            verb: "Read".into(),
+            target: "src/main.rs".into(),
+            status: ToolStatus::Success,
+            duration_ms: Some(4),
+            body: ToolBody::Read { lines: 12 },
+            diff_stat: None,
+        }
+    }
+
+    #[test]
+    fn old_payloads_without_diff_stat_decode_with_none() {
+        // Payloads written before the summary existed carry no `diff_stat`
+        // key; the rest of the call still decodes unchanged.
+        let back: ToolCall = serde_json::from_value(serde_json::json!({
+            "id": "tc1",
+            "tool_kind": {"kind": "read"},
+            "verb": "Read",
+            "target": "src/main.rs",
+            "status": "success",
+            "duration_ms": 4,
+            "body": {"kind": "read", "lines": 12},
+        }))
+        .expect("deserialize");
+        assert_eq!(back, read_call());
+        assert_eq!(back.diff_stat, None);
+    }
+
+    #[test]
+    fn diff_stat_round_trips_and_omits_none() {
+        let call = ToolCall {
+            diff_stat: Some(DiffStat { added: 20, removed: 7, files: 4 }),
+            ..read_call()
+        };
+        let json = serde_json::to_value(&call).expect("serialize");
+        assert_eq!(json["diff_stat"]["added"], 20);
+        assert_eq!(json["diff_stat"]["removed"], 7);
+        assert_eq!(json["diff_stat"]["files"], 4);
+        let back: ToolCall = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(back, call);
+
+        // `None` stays off the wire, so old consumers see the old shape.
+        let plain = read_call();
+        let json = serde_json::to_value(&plain).expect("serialize");
+        assert!(json.get("diff_stat").is_none());
+        let back: ToolCall = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(back.diff_stat, None);
+    }
 }

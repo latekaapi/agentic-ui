@@ -247,6 +247,7 @@ mod tests {
             status: ToolStatus::Success,
             duration_ms: Some(4),
             body: aui_protocol::ToolBody::Read { lines: 12 },
+            diff_stat: None,
         }
     }
 

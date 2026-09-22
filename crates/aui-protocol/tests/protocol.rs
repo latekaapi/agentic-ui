@@ -478,6 +478,7 @@ fn tool_group_reuses_the_tool_call_shape() {
         status: ToolStatus::Success,
         duration_ms: Some(4),
         body: ToolBody::Read { lines: 12 },
+        diff_stat: None,
     };
     // The struct and the lone-call variant carry the same data both ways.
     assert_eq!(Block::tool_call(call.clone()).as_tool_call(), Some(call.clone()));

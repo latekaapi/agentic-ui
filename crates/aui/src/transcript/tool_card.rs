@@ -5,7 +5,7 @@
 //! generic MCP parameters.
 
 use aui_motion::{looping, Loop};
-use aui_protocol::{DiffKind, ToolBody, ToolStatus};
+use aui_protocol::{DiffKind, DiffStat, ToolBody, ToolStatus};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Easing, Palette, TextRole};
 use gpui::{div, linear_color_stop, linear_gradient, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, StyledText, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -124,13 +124,14 @@ pub struct ToolCard {
     duration: Option<SharedString>,
     actions: Vec<ToolCardAction>,
     body: ToolBody,
+    diff_stat: Option<DiffStat>,
     open: bool,
     on_intent: Option<IntentHandler>,
 }
 
 /// A card for one tool call.
 pub fn tool_card(id: impl Into<ElementId>, verb: impl Into<SharedString>, target: impl Into<SharedString>, status: ToolStatus, body: ToolBody) -> ToolCard {
-    ToolCard { id: id.into(), verb: verb.into(), target: target.into(), status, duration: None, actions: Vec::new(), body, open: true, on_intent: None }
+    ToolCard { id: id.into(), verb: verb.into(), target: target.into(), status, duration: None, actions: Vec::new(), body, diff_stat: None, open: true, on_intent: None }
 }
 
 impl ToolCard {
@@ -153,6 +154,15 @@ impl ToolCard {
     /// One trailing header action after any already set. See [`Self::actions`].
     pub fn action(mut self, action: ToolCardAction) -> Self {
         self.actions.push(action);
+        self
+    }
+
+    /// Server-authored `+N`/`−N` counts for the header, drawn without a
+    /// [`ToolBody::Edit`] diff: the provider's whole-patch summary. `None`
+    /// (the default) draws no chips. When both this and an `Edit` diff are
+    /// present the summary wins and the body draws no second pair.
+    pub fn diff_stat(mut self, stat: Option<DiffStat>) -> Self {
+        self.diff_stat = stat;
         self
     }
 
@@ -183,6 +193,30 @@ pub fn format_duration(ms: u64) -> SharedString {
     }
 }
 
+/// `+N` / `−N` chip labels for a server-authored [`DiffStat`], drawn with the
+/// same tag component and success/danger colours as the [`ToolBody::Edit`]
+/// arm so the two paths are indistinguishable. The minus is U+2212, as there.
+fn diff_stat_tags(stat: &DiffStat) -> (String, String) {
+    (format!("+{}", stat.added), format!("−{}", stat.removed))
+}
+
+/// File-count label for a server-authored [`DiffStat`]: `{n} files`, in the
+/// same mono ink-3 style the `Read`/`Search` arms use for `{n} lines` /
+/// `{n} hits`. Drawn only when the patch spans more than one file.
+fn diff_stat_files_label(stat: &DiffStat) -> Option<String> {
+    if stat.files > 1 {
+        Some(format!("{} files", stat.files))
+    } else {
+        None
+    }
+}
+
+/// Whether the [`ToolBody::Edit`] arm draws its own chips: never when a
+/// server-authored stat is present, so the header shows exactly one pair.
+fn edit_draws_chips(diff_stat: Option<&DiffStat>) -> bool {
+    diff_stat.is_none()
+}
+
 impl RenderOnce for ToolCard {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
@@ -211,6 +245,18 @@ impl RenderOnce for ToolCard {
         // The right group: a result pill or count, then the duration.
         let mut right = h_flex().flex_none().gap(px(scale::SP_3)).text_role(TextRole::MonoSmall).font_weight(gpui::FontWeight::MEDIUM).text_color(p.ink_3);
         let mut show_duration = true;
+        // Server-authored counts, drawn without the patch body. They cover
+        // every file in the patch while a rendered `Diff` may be one file,
+        // so when both are present these win and the `Edit` arm below draws
+        // no second pair.
+        if let Some(stat) = &self.diff_stat {
+            let (added, removed) = diff_stat_tags(stat);
+            right = right.child(tag(added).color(p.success)).child(tag(removed).color(p.danger));
+            if let Some(files) = diff_stat_files_label(stat) {
+                right = right.child(files);
+            }
+            show_duration = false;
+        }
         match &self.body {
             ToolBody::Shell { exit_code, live, .. } => {
                 let (label, variant): (SharedString, PillVariant) = match (live, exit_code) {
@@ -228,7 +274,12 @@ impl RenderOnce for ToolCard {
                 show_duration = false;
             }
             ToolBody::Edit { diff } => {
-                right = right.child(tag(format!("+{}", diff.added)).color(p.success)).child(tag(format!("−{}", diff.removed)).color(p.danger));
+                // Never a second pair: when `diff_stat` is present the chips
+                // above already show the whole-patch counts, which can
+                // legitimately disagree with this possibly single-file diff.
+                if edit_draws_chips(self.diff_stat.as_ref()) {
+                    right = right.child(tag(format!("+{}", diff.added)).color(p.success)).child(tag(format!("−{}", diff.removed)).color(p.danger));
+                }
                 show_duration = false;
             }
             ToolBody::Search { hits } => {
@@ -497,5 +548,55 @@ mod tests {
             let out = format_duration(ms);
             assert!(!out.starts_with("60.") && !out.starts_with("60 s"), "{ms} ms printed `{out}`");
         }
+    }
+
+    #[test]
+    fn diff_stat_tags_use_ascii_plus_and_u2212_minus() {
+        let (added, removed) = diff_stat_tags(&DiffStat { added: 8, removed: 3, files: 1 });
+        assert_eq!(added, "+8");
+        assert_eq!(removed, "−3");
+        assert!(removed.starts_with('−'), "the minus must stay U+2212, as the Edit arm uses");
+    }
+
+    #[test]
+    fn the_file_count_shows_only_for_multi_file_patches() {
+        assert_eq!(diff_stat_files_label(&DiffStat { added: 8, removed: 3, files: 0 }), None);
+        assert_eq!(diff_stat_files_label(&DiffStat { added: 8, removed: 3, files: 1 }), None);
+        assert_eq!(diff_stat_files_label(&DiffStat { added: 20, removed: 7, files: 4 }).as_deref(), Some("4 files"));
+    }
+
+    #[test]
+    fn a_stat_card_with_no_body_shows_the_server_counts() {
+        let card = tool_card("t", "Edited", "a.rs", ToolStatus::Success, ToolBody::None).diff_stat(Some(DiffStat { added: 8, removed: 3, files: 1 }));
+        // The builder stores the stat the header chips read...
+        let stat = card.diff_stat.as_ref().expect("diff_stat builder stores the stat");
+        let (added, removed) = diff_stat_tags(stat);
+        assert_eq!((added.as_str(), removed.as_str()), ("+8", "−3"));
+        assert_eq!(diff_stat_files_label(stat), None);
+        // ...and with no `Edit` body there is no second source of chips.
+        assert!(!matches!(card.body, ToolBody::Edit { .. }));
+    }
+
+    #[test]
+    fn a_stat_card_with_an_edit_body_draws_exactly_one_pair() {
+        let diff = aui_protocol::Diff { path: "a.rs".into(), hunks: Vec::new(), added: 2, removed: 1 };
+        let card = tool_card("t", "Edited", "a.rs", ToolStatus::Success, ToolBody::Edit { diff })
+            .diff_stat(Some(DiffStat { added: 20, removed: 7, files: 4 }));
+        // The stat block draws its whole-patch pair...
+        let stat = card.diff_stat.as_ref().expect("diff_stat builder stores the stat");
+        let (added, removed) = diff_stat_tags(stat);
+        assert_eq!((added.as_str(), removed.as_str()), ("+20", "−7"));
+        assert_eq!(diff_stat_files_label(stat).as_deref(), Some("4 files"));
+        // ...and the `Edit` arm stands down, so the header holds one pair.
+        assert!(matches!(card.body, ToolBody::Edit { .. }));
+        assert!(!edit_draws_chips(card.diff_stat.as_ref()));
+    }
+
+    #[test]
+    fn an_edit_card_without_a_stat_still_draws_its_own_chips() {
+        let diff = aui_protocol::Diff { path: "a.rs".into(), hunks: Vec::new(), added: 2, removed: 1 };
+        let card = tool_card("t", "Edited", "a.rs", ToolStatus::Success, ToolBody::Edit { diff });
+        assert_eq!(card.diff_stat, None);
+        assert!(edit_draws_chips(card.diff_stat.as_ref()));
     }
 }

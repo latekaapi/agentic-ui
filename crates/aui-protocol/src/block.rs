@@ -257,6 +257,7 @@ impl Block {
                 status: *status,
                 duration_ms: *duration_ms,
                 body: body.clone(),
+                diff_stat: None,
             }),
             _ => None,
         }
