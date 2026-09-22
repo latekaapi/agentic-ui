@@ -231,10 +231,11 @@ impl AppShell {
         self
     }
 
-    /// The collapsed sidebar pane: the rail that replaces [`AppShell::sidebar`]
-    /// while `sidebar_open` is false. The expanded sidebar is never drawn into
-    /// the rail column — without a rail the column is simply empty, so
-    /// full-width content can never be clipped into it.
+    /// The collapsed sidebar pane: the rail shown while `sidebar_open` is
+    /// false. The rail is mounted beneath the sidebar on every frame, so it
+    /// is already underneath while the sidebar clips away during a collapse;
+    /// while open the opaque sidebar covers it. Without a rail the column is
+    /// simply empty, so full-width content can never be clipped into it.
     pub fn rail(mut self, el: impl IntoElement) -> Self {
         self.rail = Some(el.into_any_element());
         self
@@ -288,17 +289,23 @@ impl RenderOnce for AppShell {
         let right_inner = right_rest;
         // The pane keeps its resting width while the column springs, so the
         // content slides under the divider instead of reflowing every frame.
-        // While collapsing, the expanded sidebar stays in the column and is
-        // clipped by the shrinking width (the way a macOS sidebar closes); the
-        // rail replaces it only once the spring has settled, so the column is
-        // never an empty surface mid-motion. Expanding shows the sidebar at its
-        // resting width from the first frame.
+        // The rail is mounted beneath the sidebar on every frame: while
+        // collapsing, the expanded sidebar stays over it at its resting width
+        // and is clipped by the shrinking column (the way a macOS sidebar
+        // closes), so the rail is already present underneath when the
+        // sidebar's last pixels go and no subtree is swapped in by a
+        // threshold mid-motion. The sidebar unmounts only once the spring has
+        // settled, so the settled rail column is unchanged; while open the
+        // opaque sidebar covers the rail, so that state is unchanged too.
+        // Expanding shows the sidebar at its resting width from the first
+        // frame.
         let collapsing = !self.sidebar_open && sidebar_w > rail_width + px(1.0);
-        let (pane, pane_width) = if self.sidebar_open || collapsing { (self.sidebar, sidebar_rest) } else { (self.rail, rail_width) };
+        let show_sidebar = self.sidebar_open || collapsing;
+        let settled_pane_w = if show_sidebar { sidebar_rest } else { rail_width };
         // A steady header row keeps the sidebar cell (and its divider) at the
         // resting width however the pane below moves.
         let (header_w, header_pane_w) =
-            if self.header_follows_sidebar { (sidebar_w, pane_width) } else { (sidebar_rest, sidebar_rest) };
+            if self.header_follows_sidebar { (sidebar_w, settled_pane_w) } else { (sidebar_rest, sidebar_rest) };
 
         // Header cells: surface-1, bottom hairline. The sidebar cell owns the
         // first divider (its right border) and the right cell the second (its
@@ -338,11 +345,15 @@ impl RenderOnce for AppShell {
                     .w(sidebar_w)
                     .h_full()
                     .flex_none()
+                    .relative()
                     .overflow_hidden()
                     .border_r_1()
                     .border_color(p.line)
                     .bg(p.surface_1)
-                    .child(div().w(pane_width).h_full().flex_none().overflow_hidden().children(pane)),
+                    .child(div().absolute().left(px(0.0)).top(px(0.0)).bottom(px(0.0)).w(rail_width).children(self.rail))
+                    .when(show_sidebar, |d| {
+                        d.child(div().absolute().left(px(0.0)).top(px(0.0)).bottom(px(0.0)).w(sidebar_rest).overflow_hidden().children(self.sidebar))
+                    }),
             )
             .child(div().flex_1().h_full().min_w(px(0.0)).overflow_hidden().bg(p.bg).children(self.centre))
             .child(

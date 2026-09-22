@@ -166,12 +166,13 @@ pub struct FileTree {
     nodes: Vec<FileNode>,
     header: Option<SharedString>,
     footer: Option<SharedString>,
+    flush: bool,
     on_action: Option<ActionHandler>,
 }
 
 /// A file tree over a flat list of pre-expanded rows.
 pub fn file_tree(id: impl Into<ElementId>, nodes: Vec<FileNode>) -> FileTree {
-    FileTree { id: id.into(), nodes, header: None, footer: None, on_action: None }
+    FileTree { id: id.into(), nodes, header: None, footer: None, flush: false, on_action: None }
 }
 
 impl FileTree {
@@ -187,6 +188,18 @@ impl FileTree {
         self
     }
 
+    /// Drops the outer card chrome for a tree mounted as a full-height pane
+    /// or stacked with other panels, where the column already owns the
+    /// edges. The tree draws no outer radius or border today, so this is
+    /// already flush; the builder exists so all four pane components share
+    /// the same opt-in and a future border does not reappear unasked.
+    /// Keeps every internal divider, the header's bottom hairline and all
+    /// padding. Off by default.
+    pub fn flush(mut self) -> Self {
+        self.flush = true;
+        self
+    }
+
     /// Called with every intent the tree emits.
     pub fn on_action(mut self, f: impl Fn(&FileTreeAction, &mut Window, &mut App) + 'static) -> Self {
         self.on_action = Some(Rc::new(f));
@@ -198,6 +211,9 @@ impl RenderOnce for FileTree {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
+        // The tree draws no outer radius or border, so `flush` changes
+        // nothing visually; the read keeps the opt-in part of the build.
+        let _ = self.flush;
         let mut panel = v_flex().id(id.clone()).size_full().overflow_hidden().bg(p.surface_1);
 
         if let Some(name) = self.header {
