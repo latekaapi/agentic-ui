@@ -582,10 +582,13 @@ impl RenderOnce for AnsweredRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let mut change = button((id.clone(), "change"), "Change").xs().ghost();
-        if let Some(on_change) = self.on_change {
-            change = change.on_click(move |e, w, cx| on_change(e, w, cx));
-        }
+        // The "Change" action renders only when a caller wired it. An action
+        // without a handler is a dead control, and a settled approval genuinely
+        // cannot be re-answered — the server refuses a second decision — so for
+        // that caller the button must not exist rather than sit there inert.
+        let change = self.on_change.map(|on_change| {
+            button((id.clone(), "change"), "Change").xs().ghost().on_click(move |e, w, cx| on_change(e, w, cx))
+        });
         let answered = self.outcome.answered();
         let clarification = match &self.outcome {
             QuestionOutcome::Clarified(text) => Some(text.clone()),
@@ -610,6 +613,6 @@ impl RenderOnce for AnsweredRow {
             .children(clarification.map(|text| div().flex_1().min_w(px(0.0)).truncate().text_color(p.ink_2).child(text)))
             .children(self.chips.into_iter().enumerate().map(|(i, label)| chip((id.clone(), SharedString::from(format!("chip-{i}"))), label)))
             .child(div().flex_1())
-            .child(change)
+            .children(change)
     }
 }
