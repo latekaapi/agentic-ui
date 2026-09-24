@@ -6,16 +6,24 @@ use aui_icons::{icon, IconName};
 use aui_motion::{icon_morph, tween, IconMorph, Tween};
 use aui_protocol::{Attachment, AttachmentKind, TurnMeta};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
-use gpui::{div, prelude::*, px, relative, App, Bounds, ElementId, IntoElement, Pixels, SharedString, TextRun, Window};
+use gpui::{
+    div, prelude::*, px, relative, App, Bounds, ElementId, IntoElement, Pixels, SharedString,
+    TextRun, Window,
+};
 use gpui_kit::base::ElementExt;
 use std::cell::RefCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::time::Duration;
 use std::rc::Rc;
 use std::sync::{LazyLock, Mutex};
+use std::time::Duration;
 
-use crate::transcript::{caret_top_in_line, caret_visible, ProseStyle, CARET_H, CARET_MARGIN_LEFT, CARET_W};
-use crate::transcript::{LinkTarget, MessageSelection, SelectionHandler, SpanEvent, SpanHandler, TextSelection, last_block_runs, markdown, markdown_selected_text, message_selected_text, LinkHandler};
+use crate::transcript::{
+    caret_top_in_line, caret_visible, ProseStyle, CARET_H, CARET_MARGIN_LEFT, CARET_W,
+};
+use crate::transcript::{
+    last_block_runs, markdown, markdown_selected_text, message_selected_text, LinkHandler,
+    LinkTarget, MessageSelection, SelectionHandler, SpanEvent, SpanHandler, TextSelection,
+};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, icon_content_button, ButtonSize};
@@ -61,7 +69,6 @@ const BOTTOM_IDLE: f32 = 0.55;
 /// clears the [`UserTurn::copied`] / [`AssistantTurn::copied`] flag it owns.
 pub const COPY_HOLD: Duration = Duration::from_millis(1200);
 
-
 /// Actions on a user turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UserTurnAction {
@@ -75,8 +82,11 @@ pub enum UserTurnAction {
 
 impl UserTurnAction {
     /// The full set, in draw order: edit, copy, resend.
-    pub const ALL: &'static [UserTurnAction] =
-        &[UserTurnAction::Edit, UserTurnAction::Copy, UserTurnAction::Resend];
+    pub const ALL: &'static [UserTurnAction] = &[
+        UserTurnAction::Edit,
+        UserTurnAction::Copy,
+        UserTurnAction::Resend,
+    ];
 }
 
 /// Actions on an assistant turn.
@@ -112,7 +122,9 @@ fn user_action_spec(action: UserTurnAction) -> (&'static str, IconName, UserTurn
 }
 
 /// Element id, glyph and action for one assistant-turn button, in draw order.
-fn assistant_action_spec(action: AssistantTurnAction) -> (&'static str, IconName, AssistantTurnAction) {
+fn assistant_action_spec(
+    action: AssistantTurnAction,
+) -> (&'static str, IconName, AssistantTurnAction) {
     match action {
         AssistantTurnAction::Copy => ("copy", IconName::Copy, action),
         AssistantTurnAction::Retry => ("retry", IconName::Refresh, action),
@@ -125,7 +137,13 @@ fn assistant_action_spec(action: AssistantTurnAction) -> (&'static str, IconName
 /// element the code block header shows (copy glyph in the rail's ink, check in
 /// `success`, swapping on the swap spring), sampled under `(turn_id,
 /// "copy-morph")` so neighbouring turns never share a phase.
-fn copy_morph(turn_id: &ElementId, copied: bool, p: &Palette, window: &mut Window, cx: &mut App) -> IconMorph {
+fn copy_morph(
+    turn_id: &ElementId,
+    copied: bool,
+    p: &Palette,
+    window: &mut Window,
+    cx: &mut App,
+) -> IconMorph {
     let sample = icon_morph((turn_id.clone(), "copy-morph"), copied, window, cx);
     let size = px(ACTS_GLYPH);
     IconMorph::new(
@@ -161,7 +179,22 @@ pub struct UserTurn {
 /// A user turn; `markdown` may carry mentions as inline code (`` `@src/checkout` ``),
 /// which render as mention chips.
 pub fn user_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> UserTurn {
-    UserTurn { id: id.into(), markdown: markdown.into(), attachments: Vec::new(), age: None, max_width: USER_MAX, copied: false, actions: UserTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None, span: None, on_span: None }
+    UserTurn {
+        id: id.into(),
+        markdown: markdown.into(),
+        attachments: Vec::new(),
+        age: None,
+        max_width: USER_MAX,
+        copied: false,
+        actions: UserTurnAction::ALL.to_vec(),
+        actions_bottom: false,
+        on_action: None,
+        on_link: None,
+        selection: None,
+        on_selection_change: None,
+        span: None,
+        on_span: None,
+    }
 }
 
 impl UserTurn {
@@ -228,7 +261,10 @@ impl UserTurn {
     }
 
     /// Hover-action handler.
-    pub fn on_action(mut self, f: impl Fn(UserTurnAction, &mut Window, &mut App) + 'static) -> Self {
+    pub fn on_action(
+        mut self,
+        f: impl Fn(UserTurnAction, &mut Window, &mut App) + 'static,
+    ) -> Self {
         self.on_action = Some(std::rc::Rc::new(f));
         self
     }
@@ -250,7 +286,10 @@ impl UserTurn {
     /// Selection intents, passed straight through to the inner
     /// `markdown(...)`: drags and word / paragraph picks arrive as `Some`,
     /// plain clicks elsewhere in a cell arrive as `None` (clearing).
-    pub fn on_selection_change(mut self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self {
+    pub fn on_selection_change(
+        mut self,
+        f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static,
+    ) -> Self {
         self.on_selection_change = Some(std::rc::Rc::new(f));
         self
     }
@@ -294,8 +333,21 @@ pub fn turn_span_selected_text(
 }
 
 /// Prose style shared by both turns: inline code on `code_bg` in the mono face.
-fn prose_style(p: &Palette, size: f32, line_height: f32, code_bg: gpui::Hsla, code_ink: gpui::Hsla) -> ProseStyle {
-    ProseStyle { ink: p.ink, code_ink, code_bg, size, line_height, paragraph_gap: PARAGRAPH_GAP }
+fn prose_style(
+    p: &Palette,
+    size: f32,
+    line_height: f32,
+    code_bg: gpui::Hsla,
+    code_ink: gpui::Hsla,
+) -> ProseStyle {
+    ProseStyle {
+        ink: p.ink,
+        code_ink,
+        code_bg,
+        size,
+        line_height,
+        paragraph_gap: PARAGRAPH_GAP,
+    }
 }
 
 fn attachment_chip(p: &Palette, index: usize, attachment: &Attachment) -> impl IntoElement {
@@ -340,32 +392,59 @@ impl RenderOnce for UserTurn {
         let max_width = self.max_width;
         let bottom = self.actions_bottom;
         let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let acts_opacity = tween((id.clone(), "acts"), if flags.hovered { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
+        let acts_opacity = tween(
+            (id.clone(), "acts"),
+            if flags.hovered { 1.0f32 } else { 0.0 },
+            Tween::FAST,
+            window,
+            cx,
+        );
 
         // The column is definite (`w_full` capped at `USER_MAX`) so the
         // percentage resolves; `items_end` keeps a short bubble hugging the
         // right. The bubble below is capped at the column, so long markdown
         // wraps inside it instead of sizing it to its longest line.
+        //
+        // `ml_auto` is what puts the CAPPED COLUMN on the right. Without it
+        // the column is left-anchored and only the bubble inside it is
+        // right-aligned, so the whole turn sits in a band starting at the
+        // left edge: a short message stops a cap's width short of the right
+        // edge, and a message long enough to fill the band READS AS
+        // LEFT-ALIGNED. Reported against Cockpit as "chat is misaligned",
+        // and it is the same dead space reported earlier as ~300px beside
+        // every sent message. Making the cap configurable (v0.1.1) changed
+        // its width and never its anchor.
         let mut col = v_flex()
             .id(id.clone())
             .relative()
             .w_full()
             .max_w(relative(max_width))
+            .ml_auto()
             .items_end()
             .gap(px(USER_GAP))
             .track_interaction(&state);
         if !bottom && !self.actions.is_empty() {
-            let mut acts = h_flex().absolute().left(px(USER_ACTS_LEFT)).top(px(USER_ACTS_TOP)).gap(px(ACTS_GAP)).opacity(acts_opacity);
+            let mut acts = h_flex()
+                .absolute()
+                .left(px(USER_ACTS_LEFT))
+                .top(px(USER_ACTS_TOP))
+                .gap(px(ACTS_GAP))
+                .opacity(acts_opacity);
             for (name, glyph, action) in self.actions.iter().map(|a| user_action_spec(*a)) {
                 if action == UserTurnAction::Copy {
                     let morph = copy_morph(&id, self.copied, &p, window, cx);
-                    let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs);
+                    let mut b = icon_content_button((id.clone(), name), morph)
+                        .ghost()
+                        .size(ButtonSize::Xs);
                     if let Some(h) = self.on_action.clone() {
                         b = b.on_click(move |_, w, cx| h(action, w, cx));
                     }
                     acts = acts.child(b);
                 } else {
-                    let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                    let mut b = icon_button((id.clone(), name), glyph)
+                        .ghost()
+                        .size(ButtonSize::Xs)
+                        .icon_size(px(ACTS_GLYPH));
                     if let Some(h) = self.on_action.clone() {
                         b = b.on_click(move |_, w, cx| h(action, w, cx));
                     }
@@ -401,17 +480,24 @@ impl RenderOnce for UserTurn {
                 .ui(BUBBLE_TEXT)
                 .text_color(p.ink)
                 .child({
-                    let mut body = markdown((id.clone(), "text"), self.markdown.clone(), prose_style(&p, BUBBLE_TEXT, scale::LH_UI, p.surface_3, p.accent_ink));
+                    let mut body = markdown(
+                        (id.clone(), "text"),
+                        self.markdown.clone(),
+                        prose_style(&p, BUBBLE_TEXT, scale::LH_UI, p.surface_3, p.accent_ink),
+                    );
                     if let Some(on_link) = self.on_link.clone() {
                         body = body.on_link(move |target, window, cx| on_link(target, window, cx));
                     }
                     body = body.selection(self.selection.as_ref());
                     if let Some(on_change) = self.on_selection_change.clone() {
-                        body = body.on_selection_change(move |next, window, cx| on_change(next, window, cx));
+                        body = body.on_selection_change(move |next, window, cx| {
+                            on_change(next, window, cx)
+                        });
                     }
                     body = body.span_selection(self.span.as_ref());
                     if let Some(on_span) = self.on_span.clone() {
-                        body = body.on_span_event(move |event, window, cx| on_span(event, window, cx));
+                        body =
+                            body.on_span_event(move |event, window, cx| on_span(event, window, cx));
                     }
                     body
                 }),
@@ -428,18 +514,29 @@ impl RenderOnce for UserTurn {
             );
         }
         if bottom && !self.actions.is_empty() {
-            let row_opacity = tween((id.clone(), "acts-bottom"), if flags.hovered { 1.0f32 } else { BOTTOM_IDLE }, Tween::FAST, window, cx);
+            let row_opacity = tween(
+                (id.clone(), "acts-bottom"),
+                if flags.hovered { 1.0f32 } else { BOTTOM_IDLE },
+                Tween::FAST,
+                window,
+                cx,
+            );
             let mut row = h_flex().gap(px(ACTS_GAP)).opacity(row_opacity);
             for (name, glyph, action) in self.actions.iter().map(|a| user_action_spec(*a)) {
                 if action == UserTurnAction::Copy {
                     let morph = copy_morph(&id, self.copied, &p, window, cx);
-                    let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs);
+                    let mut b = icon_content_button((id.clone(), name), morph)
+                        .ghost()
+                        .size(ButtonSize::Xs);
                     if let Some(h) = self.on_action.clone() {
                         b = b.on_click(move |_, w, cx| h(action, w, cx));
                     }
                     row = row.child(b);
                 } else {
-                    let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                    let mut b = icon_button((id.clone(), name), glyph)
+                        .ghost()
+                        .size(ButtonSize::Xs)
+                        .icon_size(px(ACTS_GLYPH));
                     if let Some(h) = self.on_action.clone() {
                         b = b.on_click(move |_, w, cx| h(action, w, cx));
                     }
@@ -471,8 +568,25 @@ pub struct AssistantTurn {
 }
 
 /// An assistant turn rendering `markdown`.
-pub fn assistant_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> AssistantTurn {
-    AssistantTurn { id: id.into(), markdown: markdown.into(), streaming: false, footer: Vec::new(), copied: false, actions: AssistantTurnAction::ALL.to_vec(), actions_bottom: false, on_action: None, on_link: None, selection: None, on_selection_change: None, span: None, on_span: None }
+pub fn assistant_turn(
+    id: impl Into<ElementId>,
+    markdown: impl Into<SharedString>,
+) -> AssistantTurn {
+    AssistantTurn {
+        id: id.into(),
+        markdown: markdown.into(),
+        streaming: false,
+        footer: Vec::new(),
+        copied: false,
+        actions: AssistantTurnAction::ALL.to_vec(),
+        actions_bottom: false,
+        on_action: None,
+        on_link: None,
+        selection: None,
+        on_selection_change: None,
+        span: None,
+        on_span: None,
+    }
 }
 
 impl AssistantTurn {
@@ -543,7 +657,10 @@ impl AssistantTurn {
     }
 
     /// Toolbar handler.
-    pub fn on_action(mut self, f: impl Fn(AssistantTurnAction, &mut Window, &mut App) + 'static) -> Self {
+    pub fn on_action(
+        mut self,
+        f: impl Fn(AssistantTurnAction, &mut Window, &mut App) + 'static,
+    ) -> Self {
         self.on_action = Some(std::rc::Rc::new(f));
         self
     }
@@ -565,7 +682,10 @@ impl AssistantTurn {
     /// Selection intents, passed straight through to the inner
     /// `markdown(...)`: drags and word / paragraph picks arrive as `Some`,
     /// plain clicks elsewhere in a cell arrive as `None` (clearing).
-    pub fn on_selection_change(mut self, f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static) -> Self {
+    pub fn on_selection_change(
+        mut self,
+        f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static,
+    ) -> Self {
         self.on_selection_change = Some(std::rc::Rc::new(f));
         self
     }
@@ -627,7 +747,13 @@ fn caret_key(text: &str, font_size: Pixels, runs: &[TextRun], wrap_width: Pixels
 /// text when a chunk lands, so without a cache this shapes the closing block
 /// again for every frame in between. The cache holds
 /// [`CARET_MEASURE_CAP`] entries, most recent last.
-fn last_line_width(window: &Window, text: SharedString, font_size: Pixels, runs: &[TextRun], wrap_width: Pixels) -> Option<Pixels> {
+fn last_line_width(
+    window: &Window,
+    text: SharedString,
+    font_size: Pixels,
+    runs: &[TextRun],
+    wrap_width: Pixels,
+) -> Option<Pixels> {
     let key = caret_key(&text, font_size, runs, wrap_width);
     if let Ok(cache) = CARET_WIDTHS.lock() {
         if let Some((_, width)) = cache.iter().rev().find(|(cached, _)| *cached == key) {
@@ -645,14 +771,28 @@ fn last_line_width(window: &Window, text: SharedString, font_size: Pixels, runs:
 }
 
 /// [`last_line_width`] without the memo: the shaping pass itself.
-fn shape_last_line_width(window: &Window, text: SharedString, font_size: Pixels, runs: &[TextRun], wrap_width: Pixels) -> Option<Pixels> {
-    let lines = window.text_system().shape_text(text, font_size, runs, Some(wrap_width), None).ok()?;
+fn shape_last_line_width(
+    window: &Window,
+    text: SharedString,
+    font_size: Pixels,
+    runs: &[TextRun],
+    wrap_width: Pixels,
+) -> Option<Pixels> {
+    let lines = window
+        .text_system()
+        .shape_text(text, font_size, runs, Some(wrap_width), None)
+        .ok()?;
     let line = lines.last()?;
     let layout = &line.unwrapped_layout;
     match line.wrap_boundaries.last() {
         None => Some(layout.width),
         Some(boundary) => {
-            let index = layout.runs.get(boundary.run_ix)?.glyphs.get(boundary.glyph_ix)?.index;
+            let index = layout
+                .runs
+                .get(boundary.run_ix)?
+                .glyphs
+                .get(boundary.glyph_ix)?
+                .index;
             Some(layout.width - layout.x_for_index(index))
         }
     }
@@ -694,8 +834,11 @@ pub fn footer_items(meta: &TurnMeta) -> Vec<SharedString> {
         n if n >= 1000 => format!("{:.1}k tokens", n as f64 / 1000.0),
         n => format!("{n} tokens"),
     };
-    let mut items: Vec<SharedString> =
-        vec![meta.model.clone().into(), format!("{:.1} s", meta.duration_ms as f64 / 1000.0).into(), tokens.into()];
+    let mut items: Vec<SharedString> = vec![
+        meta.model.clone().into(),
+        format!("{:.1} s", meta.duration_ms as f64 / 1000.0).into(),
+        tokens.into(),
+    ];
     // A provider that reports no model label leaves an empty cell, as does the
     // token cell above at zero, and an empty cell renders as a stray
     // separator; drop it rather than draw it.
@@ -718,8 +861,20 @@ impl RenderOnce for AssistantTurn {
         let id = self.id.clone();
         let bottom = self.actions_bottom;
         let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let tb_opacity = tween((id.clone(), "tb-opacity"), if flags.hovered { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
-        let tb_rise = tween((id.clone(), "tb-rise"), if flags.hovered { 0.0f32 } else { TOOLBAR_RISE }, Tween::BASE.with_easing(aui_tokens::Easing::OUT), window, cx);
+        let tb_opacity = tween(
+            (id.clone(), "tb-opacity"),
+            if flags.hovered { 1.0f32 } else { 0.0 },
+            Tween::FAST,
+            window,
+            cx,
+        );
+        let tb_rise = tween(
+            (id.clone(), "tb-rise"),
+            if flags.hovered { 0.0f32 } else { TOOLBAR_RISE },
+            Tween::BASE.with_easing(aui_tokens::Easing::OUT),
+            window,
+            cx,
+        );
 
         let mut toolbar = h_flex()
             .absolute()
@@ -735,13 +890,18 @@ impl RenderOnce for AssistantTurn {
         for (name, glyph, action) in self.actions.iter().map(|a| assistant_action_spec(*a)) {
             if action == AssistantTurnAction::Copy {
                 let morph = copy_morph(&id, self.copied, &p, window, cx);
-                let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs);
+                let mut b = icon_content_button((id.clone(), name), morph)
+                    .ghost()
+                    .size(ButtonSize::Xs);
                 if let Some(h) = self.on_action.clone() {
                     b = b.on_click(move |_, w, cx| h(action, w, cx));
                 }
                 toolbar = toolbar.child(b);
             } else {
-                let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                let mut b = icon_button((id.clone(), name), glyph)
+                    .ghost()
+                    .size(ButtonSize::Xs)
+                    .icon_size(px(ACTS_GLYPH));
                 if let Some(h) = self.on_action.clone() {
                     b = b.on_click(move |_, w, cx| h(action, w, cx));
                 }
@@ -757,8 +917,12 @@ impl RenderOnce for AssistantTurn {
         // positioned sibling of the prose: last frame's prose bounds give the
         // wrap width, the last paragraph is re-shaped with the same runs the
         // prose paints, and the caret lands after the final visual line.
-        let bounds: Rc<RefCell<Option<Bounds<Pixels>>>> =
-            window.use_keyed_state((id.clone(), "caret-bounds"), cx, |_, _| Rc::new(RefCell::new(None))).read(cx).clone();
+        let bounds: Rc<RefCell<Option<Bounds<Pixels>>>> = window
+            .use_keyed_state((id.clone(), "caret-bounds"), cx, |_, _| {
+                Rc::new(RefCell::new(None))
+            })
+            .read(cx)
+            .clone();
         let scale_factor = cx.aui().text_scale;
         let caret = if self.streaming {
             let visible = caret_visible((id.clone(), "caret"), window, cx);
@@ -768,10 +932,13 @@ impl RenderOnce for AssistantTurn {
                     let font_size = window.rem_size() * (BODY_TEXT / scale::FS_13);
                     let line_height = font_size * scale::LH_BODY;
                     last_block_runs(&self.markdown, &style, p.accent)
-                        .and_then(|(text, runs)| last_line_width(window, text.into(), font_size, &runs, b.size.width))
+                        .and_then(|(text, runs)| {
+                            last_line_width(window, text.into(), font_size, &runs, b.size.width)
+                        })
                         .map(|x| {
                             let height = px(CARET_H * scale_factor);
-                            let top = b.size.height - line_height + caret_top_in_line(line_height, height, scale_factor);
+                            let top = b.size.height - line_height
+                                + caret_top_in_line(line_height, height, scale_factor);
                             div()
                                 .absolute()
                                 .left(x + px(CARET_MARGIN_LEFT * scale_factor))
@@ -808,36 +975,61 @@ impl RenderOnce for AssistantTurn {
             div()
                 .relative()
                 .w_full()
-                .child(div().w_full().on_prepaint(move |b, _, _| *bounds.borrow_mut() = Some(b)).child({
-                    let mut body = markdown((id.clone(), "text"), self.markdown.clone(), style);
-                    if let Some(on_link) = self.on_link.clone() {
-                        body = body.on_link(move |target, window, cx| on_link(target, window, cx));
-                    }
-                    body = body.selection(self.selection.as_ref());
-                    if let Some(on_change) = self.on_selection_change.clone() {
-                        body = body.on_selection_change(move |next, window, cx| on_change(next, window, cx));
-                    }
-                    body = body.span_selection(self.span.as_ref());
-                    if let Some(on_span) = self.on_span.clone() {
-                        body = body.on_span_event(move |event, window, cx| on_span(event, window, cx));
-                    }
-                    body
-                }))
+                .child(
+                    div()
+                        .w_full()
+                        .on_prepaint(move |b, _, _| *bounds.borrow_mut() = Some(b))
+                        .child({
+                            let mut body =
+                                markdown((id.clone(), "text"), self.markdown.clone(), style);
+                            if let Some(on_link) = self.on_link.clone() {
+                                body = body
+                                    .on_link(move |target, window, cx| on_link(target, window, cx));
+                            }
+                            body = body.selection(self.selection.as_ref());
+                            if let Some(on_change) = self.on_selection_change.clone() {
+                                body = body.on_selection_change(move |next, window, cx| {
+                                    on_change(next, window, cx)
+                                });
+                            }
+                            body = body.span_selection(self.span.as_ref());
+                            if let Some(on_span) = self.on_span.clone() {
+                                body = body.on_span_event(move |event, window, cx| {
+                                    on_span(event, window, cx)
+                                });
+                            }
+                            body
+                        }),
+                )
                 .children(caret),
         );
         if bottom && !self.actions.is_empty() {
-            let row_opacity = tween((id.clone(), "tb-bottom"), if flags.hovered { 1.0f32 } else { BOTTOM_IDLE }, Tween::FAST, window, cx);
-            let mut row = h_flex().mt(px(BOTTOM_TOP)).gap(px(ACTS_GAP)).opacity(row_opacity);
+            let row_opacity = tween(
+                (id.clone(), "tb-bottom"),
+                if flags.hovered { 1.0f32 } else { BOTTOM_IDLE },
+                Tween::FAST,
+                window,
+                cx,
+            );
+            let mut row = h_flex()
+                .mt(px(BOTTOM_TOP))
+                .gap(px(ACTS_GAP))
+                .opacity(row_opacity);
             for (name, glyph, action) in self.actions.iter().map(|a| assistant_action_spec(*a)) {
                 if action == AssistantTurnAction::Copy {
                     let morph = copy_morph(&id, self.copied, &p, window, cx);
-                    let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs);
+                    let mut b = icon_content_button((id.clone(), name), morph)
+                        .ghost()
+                        .size(ButtonSize::Xs);
                     if let Some(h) = self.on_action.clone() {
                         b = b.on_click(move |_, w, cx| h(action, w, cx));
                     }
                     row = row.child(b);
                 } else {
-                    let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                    let mut b = icon_button((id.clone(), name), glyph)
+                        .ghost()
+                        .size(ButtonSize::Xs)
+                        .icon_size(px(ACTS_GLYPH));
                     if let Some(h) = self.on_action.clone() {
                         b = b.on_click(move |_, w, cx| h(action, w, cx));
                     }
@@ -848,7 +1040,14 @@ impl RenderOnce for AssistantTurn {
         }
 
         if !self.footer.is_empty() {
-            let mut footer = h_flex().mt(px(FOOTER_TOP)).gap(px(FOOTER_GAP)).font_family(scale::FONT_MONO).text_px(scale::FS_11).line_height(relative(1.0)).medium().text_color(p.ink_4);
+            let mut footer = h_flex()
+                .mt(px(FOOTER_TOP))
+                .gap(px(FOOTER_GAP))
+                .font_family(scale::FONT_MONO)
+                .text_px(scale::FS_11)
+                .line_height(relative(1.0))
+                .medium()
+                .text_color(p.ink_4);
             for (i, item) in self.footer.iter().enumerate() {
                 if i > 0 {
                     footer = footer.child("·");
@@ -897,7 +1096,11 @@ mod tests {
     #[test]
     fn user_width_override_outside_the_unit_range_falls_back() {
         for bad in [-1.0, 1.5, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-            assert_eq!(user_turn("t", "hi").max_width_fraction(bad).max_width, USER_MAX, "fraction {bad} was trusted instead of falling back");
+            assert_eq!(
+                user_turn("t", "hi").max_width_fraction(bad).max_width,
+                USER_MAX,
+                "fraction {bad} was trusted instead of falling back"
+            );
         }
     }
 
@@ -997,7 +1200,14 @@ mod tests {
     fn turns_draw_no_age_until_the_caller_passes_one() {
         assert!(user_turn("t", "hi").age.is_none());
         assert!(assistant_turn("t", "hi").footer.is_empty());
-        assert_eq!(assistant_turn("t", "hi").age("2m ago").footer.last().map(SharedString::as_ref), Some("2m ago"));
+        assert_eq!(
+            assistant_turn("t", "hi")
+                .age("2m ago")
+                .footer
+                .last()
+                .map(SharedString::as_ref),
+            Some("2m ago")
+        );
     }
 
     /// A turn whose usage the wire never reported draws no token cell at all,
@@ -1013,11 +1223,24 @@ mod tests {
             ..TurnMeta::default()
         };
         let cells = footer_items(&meta(0, 0));
-        assert!(!cells.iter().any(|c| c.contains("token")), "an unreported count was drawn: {cells:?}");
-        assert_eq!(cells, vec![SharedString::from("muse-spark-1.3"), SharedString::from("2.3 s")]);
+        assert!(
+            !cells.iter().any(|c| c.contains("token")),
+            "an unreported count was drawn: {cells:?}"
+        );
+        assert_eq!(
+            cells,
+            vec![
+                SharedString::from("muse-spark-1.3"),
+                SharedString::from("2.3 s")
+            ]
+        );
 
         // A reported count still draws, in both spellings.
-        assert!(footer_items(&meta(400, 19)).iter().any(|c| c.as_ref() == "419 tokens"));
-        assert!(footer_items(&meta(59_000, 200)).iter().any(|c| c.as_ref() == "59.2k tokens"));
+        assert!(footer_items(&meta(400, 19))
+            .iter()
+            .any(|c| c.as_ref() == "419 tokens"));
+        assert!(footer_items(&meta(59_000, 200))
+            .iter()
+            .any(|c| c.as_ref() == "59.2k tokens"));
     }
 }
