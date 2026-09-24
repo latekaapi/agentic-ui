@@ -101,6 +101,11 @@ const TABLE_HEADER_TEXT: f32 = scale::FS_11;
 const TABLE_BODY_TEXT: f32 = 11.0;
 const TABLE_CELL_PAD_Y: f32 = 6.0;
 const TABLE_CELL_PAD_X: f32 = 8.0;
+/// The narrowest a table column is ever drawn: 72 px holds "Female" plus the
+/// cell's horizontal padding at the 11 px body size. A table whose columns
+/// would squeeze past this keeps its natural width and scrolls sideways
+/// instead.
+pub const TABLE_MIN_COL_W: f32 = 72.0;
 const TABLE_GAP: f32 = 12.0;
 /// Images sit 12 px from their neighbours; the caller picks the logical size.
 const IMAGE_GAP: f32 = 12.0;
@@ -700,6 +705,48 @@ pub fn cell_span_width(widths: &[f32], col_count: usize, index: usize, col_span:
     }
 }
 
+/// Column pixel widths for one table, and whether the table must scroll.
+/// Pure numbers in, numbers out, so tests need no window; [`paint_table`]
+/// consumes the result instead of redoing the arithmetic.
+///
+/// Fractions come from `widths` (equal columns when `widths` is shorter than
+/// `col_count`, as in [`cell_span_width`]) and the natural width is
+/// `col_count * TABLE_MIN_COL_W`. When the natural width fits `usable_width`
+/// the columns fill the paper exactly as before; otherwise each column keeps
+/// at least `TABLE_MIN_COL_W` and the painter lays the table out at its
+/// natural width inside a scrolling frame.
+pub fn table_layout(widths: &[f32], col_count: usize, usable_width: f32) -> (Vec<f32>, bool) {
+    if col_count == 0 {
+        return (Vec::new(), false);
+    }
+    if !usable_width.is_finite() || usable_width <= 0.0 {
+        return (vec![TABLE_MIN_COL_W; col_count], true);
+    }
+    let mut fracs = vec![0.0f32; col_count];
+    if widths.len() >= col_count {
+        let sum: f32 = widths[..col_count].iter().map(|w| w.max(0.0)).sum();
+        if sum > 0.0 {
+            for (frac, w) in fracs.iter_mut().zip(widths.iter()) {
+                *frac = w.max(0.0) / sum;
+            }
+        } else {
+            for frac in fracs.iter_mut() {
+                *frac = 1.0 / (col_count as f32);
+            }
+        }
+    } else {
+        for frac in fracs.iter_mut() {
+            *frac = 1.0 / (col_count as f32);
+        }
+    }
+    let natural = col_count as f32 * TABLE_MIN_COL_W;
+    if natural <= usable_width {
+        (fracs.iter().map(|f| (f * usable_width).max(TABLE_MIN_COL_W)).collect(), false)
+    } else {
+        (fracs.iter().map(|f| (f * natural).max(TABLE_MIN_COL_W)).collect(), true)
+    }
+}
+
 /// The page the document pane shows.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DocPage {
@@ -772,6 +819,8 @@ impl RenderOnce for DocPane {
             );
 
         let count = self.page.blocks.len();
+        let paper_pad_x = self.paper_pad.map(|(_, x)| x).unwrap_or(PAPER_PAD_X);
+        let usable_width = self.paper_width - paper_pad_x * 2.0;
         let mut body = v_flex()
             .w_full()
             .font_family(PAPER_FONT)
@@ -825,7 +874,10 @@ impl RenderOnce for DocPane {
                         .child(StyledText::new(text).with_runs(text_runs))
                         .into_any_element()
                 }
-                DocBlock::Table(table) => paint_table(table, ink),
+                DocBlock::Table(table) => {
+                    let scroll_id: ElementId = (self.id.clone(), SharedString::from(format!("table-{index}-scroll"))).into();
+                    paint_table(table, ink, usable_width, scroll_id)
+                }
                 DocBlock::Image(image) => div()
                     .w_full()
                     .flex()
@@ -863,23 +915,46 @@ impl RenderOnce for DocPane {
 /// text goes through [`page_runs`] so Bold and Changed runs work exactly as
 /// they do in a paragraph; cells wrap, never truncate. A malformed table (no
 /// rows, ragged spans) paints what it can instead of panicking.
-fn paint_table(table: &DocTable, ink: Hsla) -> AnyElement {
+///
+/// Column widths come from [`table_layout`] ONCE for the whole table, so every
+/// row shares the same boundaries. When the columns fit `usable_width` the
+/// cells size by `relative` fraction exactly as before; when they do not, the
+/// table lays out at its natural width inside a horizontally scrolling frame,
+/// like the transcript's markdown tables. Padding is counted INSIDE the
+/// computed width: `TABLE_MIN_COL_W` already holds the 8 px pads on each side
+/// plus the word "Female", so flooring the outer width at the minimum keeps
+/// the usable text readable instead of letting the pads eat the column.
+fn paint_table(table: &DocTable, ink: Hsla, usable_width: f32, scroll_id: ElementId) -> AnyElement {
     if table.rows.is_empty() {
         return div().w_full().into_any_element();
     }
     let edge: Hsla = rgb(TABLE_BORDER).into();
     let col_count = table.rows.iter().map(|row| row.iter().map(|cell| cell.col_span.max(1)).sum::<usize>()).max().unwrap_or(0);
-    let mut grid = v_flex().w_full().border_1().border_color(edge);
+    if col_count == 0 {
+        return div().w_full().into_any_element();
+    }
+    let (col_widths, scroll) = table_layout(&table.widths, col_count, usable_width);
+    let total: f32 = col_widths.iter().sum();
+    let mut grid = if scroll { v_flex().w(px(total)).flex_none() } else { v_flex().w_full() };
+    grid = grid.border_1().border_color(edge);
     let last_row = table.rows.len() - 1;
     for (ri, row) in table.rows.iter().enumerate() {
-        let mut line = h_flex().w_full();
+        let mut line = if scroll { h_flex().w(px(total)).flex_none() } else { h_flex().w_full() };
         let mut index = 0usize;
         let last_cell = row.len().saturating_sub(1);
         for (ci, cell) in row.iter().enumerate() {
-            let frac = cell_span_width(&table.widths, col_count, index, cell.col_span);
+            let start = index.min(col_count);
+            let end = index.saturating_add(cell.col_span.max(1)).min(col_count);
+            let cell_px: f32 = if end <= start { TABLE_MIN_COL_W } else { col_widths[start..end].iter().sum() };
             index += cell.col_span.max(1);
             let (text, mut text_runs) = page_runs(&cell.runs, ink);
-            let mut el = div().w(relative(frac)).min_w(px(0.0)).px(px(TABLE_CELL_PAD_X)).py(px(TABLE_CELL_PAD_Y)).border_color(edge);
+            let mut el = if scroll {
+                div().w(px(cell_px)).flex_none()
+            } else {
+                let frac = if total > 0.0 { cell_px / total } else { 1.0 / (col_count as f32) };
+                div().w(relative(frac)).min_w(px(0.0))
+            };
+            el = el.px(px(TABLE_CELL_PAD_X)).py(px(TABLE_CELL_PAD_Y)).border_color(edge);
             if cell.header {
                 // The runs carry the serif face; a header speaks in the UI
                 // face instead, semibold at 11 px.
@@ -904,7 +979,14 @@ fn paint_table(table: &DocTable, ink: Hsla) -> AnyElement {
         }
         grid = grid.child(line);
     }
-    grid.into_any_element()
+    if scroll {
+        // Like the transcript's markdown tables, a wide table gets its own
+        // horizontally scrolling frame instead of squeezing its columns; the
+        // id keeps the scroll position across re-renders.
+        div().w_full().id(scroll_id).overflow_x_scroll().child(grid).into_any_element()
+    } else {
+        grid.into_any_element()
+    }
 }
 
 /// Turns the page runs into styled text: bold clause openers keep the serif
