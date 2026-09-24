@@ -4,7 +4,7 @@
 
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
-use gpui::{div, font, prelude::*, px, relative, App, ElementId, Font, FontWeight, IntoElement, SharedString, StyledText, TextRun, Window};
+use gpui::{div, font, prelude::*, px, relative, AnyElement, App, ElementId, Font, FontWeight, IntoElement, SharedString, StyledText, TextRun, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, icon_button, pill, ButtonSize, PillVariant};
@@ -96,15 +96,22 @@ pub struct PdfPane {
     page_count: u32,
     zoom: SharedString,
     cited_as: Option<u8>,
+    raster: Option<(gpui::ImageSource, f32, f32)>,
     on_action: Option<ActionHandler>,
 }
 
 /// A pane showing `page`, page `page_no` of `page_count`.
 pub fn pdf_pane(id: impl Into<ElementId>, page: PdfPage, page_no: u32, page_count: u32) -> PdfPane {
-    PdfPane { id: id.into(), page, page_no, page_count, zoom: "100%".into(), cited_as: None, on_action: None }
+    PdfPane { id: id.into(), page, page_no, page_count, zoom: "100%".into(), cited_as: None, raster: None, on_action: None }
 }
 
 impl PdfPane {
+    /// Paint a rasterised page image instead of the text page, at this exact logical size.
+    pub fn raster(mut self, source: gpui::ImageSource, width: f32, height: f32) -> Self {
+        self.raster = Some((source, width, height));
+        self
+    }
+
     /// The zoom label.
     pub fn zoom(mut self, zoom: impl Into<SharedString>) -> Self {
         self.zoom = zoom.into();
@@ -189,23 +196,33 @@ impl RenderOnce for PdfPane {
 
         let paper_ink = gpui::rgb(PAPER_INK).into();
         let highlight = p.accent.alpha(HIGHLIGHT_ALPHA);
-        let mut page = v_flex()
-            .w(px(PAGE_W))
-            .flex_none()
-            .py(px(PAGE_PAD_Y))
-            .px(px(PAGE_PAD_X))
-            .bg(gpui::rgb(PAPER_BG))
-            .shadow(p.shadow(2))
-            .font_family(PAPER_SERIF)
-            .text_px(PAGE_TEXT)
-            .line_height(relative(PAGE_LH))
-            .text_color(paper_ink)
-            .child(div().mb(px(HEADING_GAP)).ui(HEADING_TEXT).line_height(relative(HEADING_LH)).semibold().text_color(paper_ink).child(self.page.heading.clone()));
-        let count = self.page.paragraphs.len();
-        for (i, para) in self.page.paragraphs.iter().enumerate() {
-            page = page.child(div().w_full().when(i + 1 < count, |d| d.mb(px(PARAGRAPH_GAP))).child(paragraph(para, paper_ink, highlight)));
-        }
-        page = page.child(div().mt(px(FOOTER_TOP)).text_px(FOOTER_TEXT).text_color(gpui::rgb(PAPER_MUTED)).child(self.page.footer.clone()));
+        let page: AnyElement = match self.raster.clone() {
+            Some((source, width, height)) => v_flex()
+                .flex_none()
+                .bg(gpui::rgb(PAPER_BG))
+                .shadow(p.shadow(2))
+                .child(gpui::img(source).w(px(width)).h(px(height)))
+                .into_any_element(),
+            None => {
+                let mut text = v_flex()
+                    .w(px(PAGE_W))
+                    .flex_none()
+                    .py(px(PAGE_PAD_Y))
+                    .px(px(PAGE_PAD_X))
+                    .bg(gpui::rgb(PAPER_BG))
+                    .shadow(p.shadow(2))
+                    .font_family(PAPER_SERIF)
+                    .text_px(PAGE_TEXT)
+                    .line_height(relative(PAGE_LH))
+                    .text_color(paper_ink)
+                    .child(div().mb(px(HEADING_GAP)).ui(HEADING_TEXT).line_height(relative(HEADING_LH)).semibold().text_color(paper_ink).child(self.page.heading.clone()));
+                let count = self.page.paragraphs.len();
+                for (i, para) in self.page.paragraphs.iter().enumerate() {
+                    text = text.child(div().w_full().when(i + 1 < count, |d| d.mb(px(PARAGRAPH_GAP))).child(paragraph(para, paper_ink, highlight)));
+                }
+                text.child(div().mt(px(FOOTER_TOP)).text_px(FOOTER_TEXT).text_color(gpui::rgb(PAPER_MUTED)).child(self.page.footer.clone())).into_any_element()
+            }
+        };
 
         v_flex()
             .id(id)

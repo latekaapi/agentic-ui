@@ -86,6 +86,27 @@ const LIST_INDENT: f32 = 18.0;
 /// the 18 px indent and the marker's glyphs end 4 px before it.
 const LIST_MARKER_GAP: f32 = 4.0;
 const LIST_GAP: f32 = PAPER_TEXT;
+/// Headings: the UI face, bold — 13 px, 12 px, 11.5 px, 15 px above, 5 px below.
+const HEADING_1: f32 = 13.0;
+const HEADING_2: f32 = 12.0;
+const HEADING_3: f32 = 11.5;
+const HEADING_GAP_TOP: f32 = 15.0;
+const HEADING_GAP_BOTTOM: f32 = 5.0;
+/// Tables: hairline `#DDD` borders, a `#F5F6F9` header ground carrying the UI
+/// face at 11 px semibold, Georgia body cells at 11 px, 6 px vertical and 8 px
+/// horizontal cell padding, 12 px above and below.
+const TABLE_BORDER: u32 = 0xDDDDDD;
+const TABLE_HEADER_GROUND: u32 = 0xF5F6F9;
+const TABLE_HEADER_TEXT: f32 = scale::FS_11;
+const TABLE_BODY_TEXT: f32 = 11.0;
+const TABLE_CELL_PAD_Y: f32 = 6.0;
+const TABLE_CELL_PAD_X: f32 = 8.0;
+const TABLE_GAP: f32 = 12.0;
+/// Images sit 12 px from their neighbours; the caller picks the logical size.
+const IMAGE_GAP: f32 = 12.0;
+/// A rule is a 1 px `#DDD` hairline with 16 px above and below.
+const RULE_COLOUR: u32 = 0xDDDDDD;
+const RULE_GAP: f32 = 16.0;
 /// `.paper{font-family:Georgia,"Times New Roman",serif}` — the single place
 /// the design leaves the UI face, and the tokens carry no serif family.
 const PAPER_FONT: &str = "Georgia";
@@ -506,6 +527,70 @@ impl DocRun {
     }
 }
 
+/// One cell of a [`DocTable`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct DocCell {
+    /// The cell's text.
+    pub runs: Vec<DocRun>,
+    /// Columns this cell spans; 1 when not merged.
+    pub col_span: usize,
+    /// Rows this cell spans; 1 when not merged. Carried for the caller's
+    /// benefit and NOT painted by this pane — a merged-down cell draws as a
+    /// single row.
+    pub row_span: usize,
+    /// Header styling (the `#F5F6F9` ground, UI face) rather than body styling.
+    pub header: bool,
+}
+
+impl DocCell {
+    /// A body cell of plain text.
+    pub fn text(s: impl Into<SharedString>) -> Self {
+        Self { runs: vec![DocRun::text(s)], col_span: 1, row_span: 1, header: false }
+    }
+
+    /// A header cell of plain text.
+    pub fn header(s: impl Into<SharedString>) -> Self {
+        Self { runs: vec![DocRun::text(s)], col_span: 1, row_span: 1, header: true }
+    }
+}
+
+/// A table: proportional column widths and rows of cells.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DocTable {
+    /// Column widths as fractions summing to 1.0. If empty, columns are equal.
+    pub widths: Vec<f32>,
+    /// Rows of cells.
+    pub rows: Vec<Vec<DocCell>>,
+}
+
+/// An image block.
+#[derive(Clone)]
+pub struct DocImage {
+    /// Where the pixels come from.
+    pub source: gpui::ImageSource,
+    /// The accessible name carried as the element's accessibility label.
+    pub alt: SharedString,
+    /// Logical size the caller wants it painted at.
+    pub width: f32,
+    /// Logical size the caller wants it painted at.
+    pub height: f32,
+}
+
+impl std::fmt::Debug for DocImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DocImage").field("alt", &self.alt).field("width", &self.width).field("height", &self.height).finish()
+    }
+}
+
+/// `gpui::ImageSource` carries loader closures and cached pixels, so it is
+/// neither `PartialEq` nor a useful part of equality: two images are the same
+/// block when their accessible name and logical size match.
+impl PartialEq for DocImage {
+    fn eq(&self, other: &Self) -> bool {
+        self.alt == other.alt && self.width == other.width && self.height == other.height
+    }
+}
+
 /// One block of the page.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DocBlock {
@@ -513,6 +598,19 @@ pub enum DocBlock {
     Paragraph(Vec<DocRun>),
     /// A numbered list (`.paper ol`); items are numbered from 1.
     List(Vec<Vec<DocRun>>),
+    /// A heading: the UI face, bold, sized by level (1–3).
+    Heading {
+        /// The heading level, clamped to 1–3 when painted.
+        level: u8,
+        /// The heading text.
+        runs: Vec<DocRun>,
+    },
+    /// A real grid with proportional columns.
+    Table(DocTable),
+    /// A centred image at its logical size.
+    Image(DocImage),
+    /// A 1 px hairline rule.
+    Rule,
 }
 
 impl DocBlock {
@@ -526,11 +624,20 @@ impl DocBlock {
         DocBlock::List(items.into_iter().map(|i| vec![DocRun::text(i)]).collect())
     }
 
+    /// A heading of plain text at `level` (clamped to 1–3 when painted).
+    pub fn heading(level: u8, text: impl Into<SharedString>) -> Self {
+        DocBlock::Heading { level, runs: vec![DocRun::text(text)] }
+    }
+
     /// The block's top margin, for CSS-style margin collapsing.
     fn margin_top(&self) -> f32 {
         match self {
             DocBlock::Paragraph(_) => 0.0,
             DocBlock::List(_) => LIST_GAP,
+            DocBlock::Heading { .. } => HEADING_GAP_TOP,
+            DocBlock::Table(_) => TABLE_GAP,
+            DocBlock::Image(_) => IMAGE_GAP,
+            DocBlock::Rule => RULE_GAP,
         }
     }
 
@@ -539,6 +646,56 @@ impl DocBlock {
         match self {
             DocBlock::Paragraph(_) => PARAGRAPH_GAP,
             DocBlock::List(_) => LIST_GAP,
+            DocBlock::Heading { .. } => HEADING_GAP_BOTTOM,
+            DocBlock::Table(_) => TABLE_GAP,
+            DocBlock::Image(_) => IMAGE_GAP,
+            DocBlock::Rule => RULE_GAP,
+        }
+    }
+}
+
+/// The collapsed vertical gap between two adjacent blocks: CSS collapses
+/// adjacent margins, so the larger of the upper block's bottom margin and the
+/// lower block's top margin wins.
+pub fn collapsed_margin(upper: &DocBlock, lower: &DocBlock) -> f32 {
+    upper.margin_bottom().max(lower.margin_top())
+}
+
+/// Clamps a heading `level` into 1–3: 0 maps to 1, anything above 3 maps to 3.
+pub fn clamp_heading_level(level: u8) -> u8 {
+    level.clamp(1, 3)
+}
+
+/// The UI-face size of a heading level (clamped): 13 px, 12 px, 11.5 px.
+pub fn heading_text_size(level: u8) -> f32 {
+    match clamp_heading_level(level) {
+        1 => HEADING_1,
+        2 => HEADING_2,
+        _ => HEADING_3,
+    }
+}
+
+/// The fraction of the row width a cell at `index` spanning `col_span`
+/// columns occupies. Sums `widths[index..index + col_span]`, clamped to the
+/// table so a span past the end covers what is left (at most 1.0); when
+/// `widths` is empty or shorter than `col_count` the columns are equal. Never
+/// divides by zero and never indexes out of bounds: a malformed table paints
+/// something instead of panicking.
+pub fn cell_span_width(widths: &[f32], col_count: usize, index: usize, col_span: usize) -> f32 {
+    let span = col_span.max(1);
+    if col_count == 0 {
+        return 1.0;
+    }
+    if widths.len() < col_count {
+        let remaining = col_count.saturating_sub(index.min(col_count)).max(1);
+        (span.min(remaining) as f32) / (col_count as f32)
+    } else {
+        let start = index.min(widths.len());
+        let end = index.saturating_add(span).min(widths.len());
+        if end <= start {
+            1.0 / (col_count as f32)
+        } else {
+            widths[start..end].iter().sum::<f32>().min(1.0)
         }
     }
 }
@@ -622,7 +779,7 @@ impl RenderOnce for DocPane {
             .line_height(relative(PAPER_LH));
         for (index, block) in self.page.blocks.iter().enumerate() {
             // CSS collapses adjacent vertical margins; the larger of the two wins.
-            let gap = if index + 1 == count { 0.0 } else { block.margin_bottom().max(self.page.blocks[index + 1].margin_top()) };
+            let gap = if index + 1 == count { 0.0 } else { collapsed_margin(block, &self.page.blocks[index + 1]) };
             let el = match block {
                 DocBlock::Paragraph(runs) => {
                     let (text, text_runs) = page_runs(runs, ink);
@@ -652,6 +809,35 @@ impl RenderOnce for DocPane {
                     }
                     list.into_any_element()
                 }
+                DocBlock::Heading { level, runs } => {
+                    let (text, mut text_runs) = page_runs(runs, ink);
+                    // The runs carry the serif face; a heading speaks in the UI
+                    // face instead, bold at its level's size.
+                    let ui = font(scale::FONT_UI);
+                    for run in &mut text_runs {
+                        run.font.family = ui.family.clone();
+                        run.font.weight = FontWeight::BOLD;
+                    }
+                    div()
+                        .w_full()
+                        .ui(heading_text_size(*level))
+                        .font_weight(FontWeight::BOLD)
+                        .child(StyledText::new(text).with_runs(text_runs))
+                        .into_any_element()
+                }
+                DocBlock::Table(table) => paint_table(table, ink),
+                DocBlock::Image(image) => div()
+                    .w_full()
+                    .flex()
+                    .justify_center()
+                    .child(
+                        gpui::img(image.source.clone())
+                            .w(px(image.width))
+                            .h(px(image.height))
+                            .aria_label(image.alt.clone()),
+                    )
+                    .into_any_element(),
+                DocBlock::Rule => div().w_full().h(px(1.0)).bg(rgb(RULE_COLOUR)).into_any_element(),
             };
             body = body.child(div().w_full().mb(px(gap)).child(el));
         }
@@ -669,6 +855,56 @@ impl RenderOnce for DocPane {
             .overflow_hidden()
             .child(paper)
     }
+}
+
+/// Paints a [`DocTable`] as a real grid: rows of cells sized in the caller's
+/// proportions, hairline `#DDD` borders with no doubled outer edge, header
+/// cells on the `#F5F6F9` ground in the UI face, body cells in Georgia. Cell
+/// text goes through [`page_runs`] so Bold and Changed runs work exactly as
+/// they do in a paragraph; cells wrap, never truncate. A malformed table (no
+/// rows, ragged spans) paints what it can instead of panicking.
+fn paint_table(table: &DocTable, ink: Hsla) -> AnyElement {
+    if table.rows.is_empty() {
+        return div().w_full().into_any_element();
+    }
+    let edge: Hsla = rgb(TABLE_BORDER).into();
+    let col_count = table.rows.iter().map(|row| row.iter().map(|cell| cell.col_span.max(1)).sum::<usize>()).max().unwrap_or(0);
+    let mut grid = v_flex().w_full().border_1().border_color(edge);
+    let last_row = table.rows.len() - 1;
+    for (ri, row) in table.rows.iter().enumerate() {
+        let mut line = h_flex().w_full();
+        let mut index = 0usize;
+        let last_cell = row.len().saturating_sub(1);
+        for (ci, cell) in row.iter().enumerate() {
+            let frac = cell_span_width(&table.widths, col_count, index, cell.col_span);
+            index += cell.col_span.max(1);
+            let (text, mut text_runs) = page_runs(&cell.runs, ink);
+            let mut el = div().w(relative(frac)).min_w(px(0.0)).px(px(TABLE_CELL_PAD_X)).py(px(TABLE_CELL_PAD_Y)).border_color(edge);
+            if cell.header {
+                // The runs carry the serif face; a header speaks in the UI
+                // face instead, semibold at 11 px.
+                let ui = font(scale::FONT_UI);
+                for run in &mut text_runs {
+                    run.font.family = ui.family.clone();
+                    run.font.weight = FontWeight::SEMIBOLD;
+                }
+                el = el.bg(rgb(TABLE_HEADER_GROUND)).ui(TABLE_HEADER_TEXT).font_weight(FontWeight::SEMIBOLD);
+            } else {
+                el = el.font_family(PAPER_FONT).text_px(TABLE_BODY_TEXT);
+            }
+            // The table's own border draws the outer edge; cells only rule
+            // their inner sides.
+            if ci != last_cell {
+                el = el.border_r_1();
+            }
+            if ri != last_row {
+                el = el.border_b_1();
+            }
+            line = line.child(el.child(StyledText::new(text).with_runs(text_runs)));
+        }
+        grid = grid.child(line);
+    }
+    grid.into_any_element()
 }
 
 /// Turns the page runs into styled text: bold clause openers keep the serif
