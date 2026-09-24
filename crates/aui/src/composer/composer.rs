@@ -1,6 +1,6 @@
 //! `.cp`: the floating composer card — context chips, the text area, the
-//! toolbar with `+`, model / mode / effort chips, context percentage and the
-//! send ↔ stop button; plus the optional meta strip above it.
+//! toolbar with `+`, provider / model / mode / effort chips, context percentage
+//! and the send ↔ stop button; plus the optional meta strip above it.
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
 use aui_motion::{icon_morph, spring_phase, tween, IconMorph, SpringKind, Tween};
@@ -87,6 +87,8 @@ pub enum ComposerChipKind {
 /// Which toolbar control a [`Composer::chip_menu`] hangs off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ComposerChipAnchor {
+    /// The provider chip.
+    Provider,
     /// The model chip.
     Model,
     /// The approval-mode chip.
@@ -150,6 +152,8 @@ pub enum ComposerIntent {
     Stop,
     /// Toggle the `+` menu.
     TogglePlus,
+    /// Open the provider picker.
+    Provider,
     /// Open the model picker.
     Model,
     /// Open the mode picker.
@@ -208,6 +212,21 @@ pub struct Composer {
     plus_menu: Option<gpui::AnyElement>,
     chip_menus: Vec<(ComposerChipAnchor, gpui::AnyElement)>,
     on_intent: Option<IntentHandler>,
+}
+
+/// The human label for a provider on the provider chip (`Muse`,
+/// `Claude Code`, `Codex`, …). This is a user-visible string, so it is an
+/// explicit table — never the `Debug` form of the enum.
+pub fn provider_display_name(provider: Provider) -> SharedString {
+    match provider {
+        Provider::Muse => "Muse".into(),
+        Provider::Claude => "Claude Code".into(),
+        Provider::Codex => "Codex".into(),
+        Provider::Grok => "Grok".into(),
+        Provider::Gemini => "Gemini".into(),
+        Provider::Pi => "Pi".into(),
+        Provider::Cursor => "Cursor".into(),
+    }
 }
 
 /// A composer over `state` for `provider` / `model`.
@@ -493,8 +512,16 @@ impl RenderOnce for Composer {
             .px(px(if self.docked { DOCKED_BAR_PAD_X } else { BAR_PAD_X }))
             .pb(px(BAR_PAD_BOTTOM))
             .child(plus_holder);
-        let model_chip =
-            chip((id.clone(), "model"), self.model.clone()).composer().leading(provider_mark(self.provider).size(px(CHIP_MARK))).chevron().on_click(emit(ComposerIntent::Model));
+        // The provider chip carries the mark; the model chip carries only the
+        // model name, so the mark is never drawn twice in one row.
+        let provider_label = provider_display_name(self.provider);
+        let provider_chip = chip((id.clone(), "provider"), provider_label.clone())
+            .composer()
+            .leading(provider_mark(self.provider).size(px(CHIP_MARK)))
+            .chevron()
+            .accessibility_label(SharedString::from(format!("{provider_label}, provider")))
+            .on_click(emit(ComposerIntent::Provider));
+        let model_chip = chip((id.clone(), "model"), self.model.clone()).composer().chevron().on_click(emit(ComposerIntent::Model));
         let mode_chip = {
             let mode = chip((id.clone(), "mode"), self.mode.clone()).composer().on_click(emit(ComposerIntent::Mode));
             if self.knowledge_first {
@@ -522,9 +549,14 @@ impl RenderOnce for Composer {
             menus = rest;
             holder
         };
+        let provider_chip = anchored(ComposerChipAnchor::Provider, provider_chip.into_any_element());
         let model_chip = anchored(ComposerChipAnchor::Model, model_chip.into_any_element());
         let mode_chip = anchored(ComposerChipAnchor::Mode, mode_chip.into_any_element());
-        bar = if self.knowledge_first { bar.child(mode_chip).child(model_chip) } else { bar.child(model_chip).child(mode_chip) };
+        bar = if self.knowledge_first {
+            bar.child(mode_chip).child(provider_chip).child(model_chip)
+        } else {
+            bar.child(provider_chip).child(model_chip).child(mode_chip)
+        };
         if let Some(effort) = &self.effort {
             let effort_chip =
                 chip((id.clone(), "effort"), effort.clone()).composer().leading(icon(IconName::Brain).size(px(CHIP_GLYPH))).on_click(emit(ComposerIntent::Effort));

@@ -34,12 +34,13 @@ pub struct Chip {
     composer: bool,
     active: bool,
     accent: bool,
+    accessibility_label: Option<SharedString>,
     on_click: Option<ClickHandler>,
 }
 
 /// A chip with a label.
 pub fn chip(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Chip {
-    Chip { id: id.into(), label: label.into(), detail: None, leading: None, trailing: None, chevron: false, composer: false, active: false, accent: false, on_click: None }
+    Chip { id: id.into(), label: label.into(), detail: None, leading: None, trailing: None, chevron: false, composer: false, active: false, accent: false, accessibility_label: None, on_click: None }
 }
 
 impl Chip {
@@ -87,6 +88,14 @@ impl Chip {
     /// Accent-ink text (the "+ add" chip).
     pub fn accent(mut self) -> Self {
         self.accent = true;
+        self
+    }
+
+    /// The accessible name for this chip. Setting it also gives the chip the
+    /// button role, so a screen reader announces name, role and value
+    /// together (a chip without one keeps its previous silent shape).
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.accessibility_label = Some(label.into());
         self
     }
 
@@ -144,6 +153,9 @@ impl RenderOnce for Chip {
         }
         if let Some(trailing) = self.trailing {
             el = el.child(trailing);
+        }
+        if let Some(label) = self.accessibility_label {
+            el = el.role(gpui::Role::Button).aria_label(label);
         }
         if let Some(on_click) = self.on_click {
             el = el.on_click(move |e, w, cx| on_click(e, w, cx));
