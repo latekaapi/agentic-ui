@@ -87,6 +87,29 @@ pub enum PdfAction {
 
 type ActionHandler = std::rc::Rc<dyn Fn(PdfAction, &mut Window, &mut App)>;
 
+/// Which toolbar controls a [`PdfPane`] offers. `Default` is everything, matching the
+/// toolbar before this existed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PdfControls {
+    pub pages: bool,
+    pub zoom: bool,
+    pub search: bool,
+    pub insert_quote: bool,
+}
+
+impl Default for PdfControls {
+    fn default() -> Self {
+        Self { pages: true, zoom: true, search: true, insert_quote: true }
+    }
+}
+
+impl PdfControls {
+    /// Page stepping only: what a read-only preview can actually do.
+    pub fn reading_only() -> Self {
+        Self { pages: true, zoom: false, search: false, insert_quote: false }
+    }
+}
+
 /// The PDF pane. Build with [`pdf_pane`].
 #[derive(IntoElement)]
 pub struct PdfPane {
@@ -98,11 +121,12 @@ pub struct PdfPane {
     cited_as: Option<u8>,
     raster: Option<(gpui::ImageSource, f32, f32)>,
     on_action: Option<ActionHandler>,
+    controls: PdfControls,
 }
 
 /// A pane showing `page`, page `page_no` of `page_count`.
 pub fn pdf_pane(id: impl Into<ElementId>, page: PdfPage, page_no: u32, page_count: u32) -> PdfPane {
-    PdfPane { id: id.into(), page, page_no, page_count, zoom: "100%".into(), cited_as: None, raster: None, on_action: None }
+    PdfPane { id: id.into(), page, page_no, page_count, zoom: "100%".into(), cited_as: None, raster: None, on_action: None, controls: PdfControls::default() }
 }
 
 impl PdfPane {
@@ -127,6 +151,14 @@ impl PdfPane {
     /// Action handler.
     pub fn on_action(mut self, f: impl Fn(PdfAction, &mut Window, &mut App) + 'static) -> Self {
         self.on_action = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Show only the controls the host can honour. Defaults to all of them, so an
+    /// existing caller keeps today's toolbar; a read-only preview calls this to drop
+    /// the ones it cannot implement.
+    pub fn controls(mut self, controls: PdfControls) -> Self {
+        self.controls = controls;
         self
     }
 }
@@ -167,6 +199,7 @@ impl RenderOnce for PdfPane {
             el.h(px(SEL_H)).px(px(SEL_PAD)).gap(px(SEL_GAP)).rounded(px(SEL_RADIUS)).border_1().border_color(p.line).bg(p.surface_2).flex().items_center().text_color(p.ink)
         };
         let ghost = |name: &'static str, glyph: IconName| icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(TOOL_GLYPH));
+        let controls = self.controls;
         let mut toolbar = h_flex()
             .w_full()
             .h(cx.aui().metrics.panel_header)
@@ -175,24 +208,35 @@ impl RenderOnce for PdfPane {
             .px(px(TOOL_PAD))
             .border_b_1()
             .border_color(p.line)
-            .ui(scale::FS_12)
-            .child(ghost("prev", IconName::ArrowLeft).on_click(emit(PdfAction::Prev)))
-            .child(sel(div()).child(div().mono(scale::FS_12).child(self.page_no.to_string())).child(div().text_color(p.ink_3).child(format!("/ {}", self.page_count))))
-            .child(ghost("next", IconName::ArrowRight).on_click(emit(PdfAction::Next)))
-            .child(div().flex_none().w(px(1.0)).h(px(SEP_H)).mx(px(SEP_MARGIN)).bg(p.line))
-            .child(
+            .ui(scale::FS_12);
+        if controls.pages {
+            toolbar = toolbar
+                .child(ghost("prev", IconName::ArrowLeft).on_click(emit(PdfAction::Prev)))
+                .child(sel(div()).child(div().mono(scale::FS_12).child(self.page_no.to_string())).child(div().text_color(p.ink_3).child(format!("/ {}", self.page_count))))
+                .child(ghost("next", IconName::ArrowRight).on_click(emit(PdfAction::Next)));
+        }
+        if controls.pages && (controls.zoom || controls.search) {
+            toolbar = toolbar.child(div().flex_none().w(px(1.0)).h(px(SEP_H)).mx(px(SEP_MARGIN)).bg(p.line));
+        }
+        if controls.zoom {
+            toolbar = toolbar.child(
                 div()
                     .id((id.clone(), "zoom"))
                     .cursor_pointer()
                     .on_click(emit(PdfAction::Zoom))
                     .child(sel(div()).child(self.zoom.clone()).child(icon(IconName::ChevronDown).size(px(SMALL_GLYPH)))),
-            )
-            .child(ghost("search", IconName::Search).on_click(emit(PdfAction::Search)))
-            .child(div().flex_1());
+            );
+        }
+        if controls.search {
+            toolbar = toolbar.child(ghost("search", IconName::Search).on_click(emit(PdfAction::Search)));
+        }
+        toolbar = toolbar.child(div().flex_1());
         if let Some(n) = self.cited_as {
             toolbar = toolbar.child(pill(format!("cited as {n}")).variant(PillVariant::Line).leading(icon(IconName::Link).size(px(SMALL_GLYPH))));
         }
-        toolbar = toolbar.child(button((id.clone(), "insert"), "Insert quote").xs().on_click(emit(PdfAction::InsertQuote)));
+        if controls.insert_quote {
+            toolbar = toolbar.child(button((id.clone(), "insert"), "Insert quote").xs().on_click(emit(PdfAction::InsertQuote)));
+        }
 
         let paper_ink = gpui::rgb(PAPER_INK).into();
         let highlight = p.accent.alpha(HIGHLIGHT_ALPHA);

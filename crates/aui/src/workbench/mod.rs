@@ -28,5 +28,5 @@ pub use docs::{
     PaneStatusRow, cell_span_width, clamp_heading_level, collapsed_margin, heading_text_size, table_layout, TABLE_MIN_COL_W,
 };
 pub use citations::{cited_answer, citation, source_hover_card, sources_card, Citation, CitedAnswer, Source, SourceHoverCard, SourceTier, SourcesCard, ANSWER_MARGIN};
-pub use pdf::{pdf_pane, PdfPage, PdfPane, PdfRun};
+pub use pdf::{pdf_pane, PdfAction, PdfControls, PdfPage, PdfPane, PdfRun};
 pub use sheet::{sheet_pane, SheetCell, SheetPane};
