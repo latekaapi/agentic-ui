@@ -264,23 +264,34 @@ struct SegGeometry {
 /// `.seg`: a surface-2 track of 24 px segments; the active one wears a single
 /// surface-1 thumb at elevation 1 that *slides* between segments on the layout
 /// spring rather than cross-fading. Build with [`segmented`].
+///
+/// The track is one tab stop: `←` / `→` move the selection while it is
+/// focused and report through [`Segmented::on_select`] like a click does.
 #[derive(IntoElement)]
 pub struct Segmented {
     id: ElementId,
     labels: Vec<SharedString>,
     active: usize,
+    accessibility_label: Option<SharedString>,
     on_select: Option<SelectHandler>,
 }
 
 /// A segmented control over `labels` with `active` selected.
 pub fn segmented(id: impl Into<ElementId>, labels: Vec<SharedString>, active: usize) -> Segmented {
-    Segmented { id: id.into(), labels, active, on_select: None }
+    Segmented { id: id.into(), labels, active, accessibility_label: None, on_select: None }
 }
 
 impl Segmented {
     /// Called with the index of the segment that was clicked.
     pub fn on_select(mut self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
         self.on_select = Some(Rc::new(f));
+        self
+    }
+
+    /// The accessible name of the group (the track's `radiogroup` label).
+    /// Each segment already announces its own visible label as a `radio`.
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.accessibility_label = Some(label.into());
         self
     }
 }
@@ -330,6 +341,18 @@ impl RenderOnce for Segmented {
             }
         };
 
+        // One tab stop for the group; the arrows move the selection while it
+        // holds the keyboard. Nothing is focused on open: this only arms.
+        let focus = window
+            .use_keyed_state((id.clone(), "seg-focus"), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone()
+            .tab_stop(true);
+        let ring = focus.is_focused(window) && crate::keys::keyboard_nav(cx);
+        let key_select = self.on_select.clone();
+        let key_active = self.active;
+        let group_label = self.accessibility_label.clone();
+
         // The thumb is the track's first child so the labels paint over it.
         let mut track = h_flex()
             .id((id.clone(), "track"))
@@ -339,11 +362,41 @@ impl RenderOnce for Segmented {
             .gap(px(SEG_GAP))
             .rounded(px(scale::R_SM))
             .bg(p.surface_2)
+            .track_focus(&focus)
+            .on_key_down(move |event, window, cx| {
+                let held = &event.keystroke.modifiers;
+                if held.control || held.alt || held.shift || held.platform || held.function {
+                    return;
+                }
+                let next = match event.keystroke.key.as_str() {
+                    "left" => key_active.saturating_sub(1),
+                    "right" => (key_active + 1).min(count.saturating_sub(1)),
+                    _ => return,
+                };
+                cx.stop_propagation();
+                if next != key_active {
+                    if let Some(f) = &key_select {
+                        f(next, window, cx);
+                    }
+                }
+            })
             .on_prepaint({
                 let geometry = geometry.clone();
                 move |bounds, _, _| geometry.borrow_mut().track = Some(bounds)
             })
             .children(thumb);
+        if ring {
+            track = track.shadow(vec![gpui::BoxShadow {
+                color: p.accent_ring,
+                offset: gpui::point(px(0.0), px(0.0)),
+                blur_radius: px(0.0),
+                spread_radius: px(3.0),
+                inset: false,
+            }]);
+        }
+        if let Some(label) = group_label {
+            track = track.role(gpui::Role::RadioGroup).aria_label(label);
+        }
         for (i, label) in self.labels.into_iter().enumerate() {
             let on = i == self.active;
             let seg_id: ElementId = child_id(id.clone(), i);
@@ -365,6 +418,8 @@ impl RenderOnce for Segmented {
                     .line_height(relative(1.0))
                     .text_color(text)
                     .whitespace_nowrap()
+                    .role(gpui::Role::RadioButton)
+                    .aria_label(label.clone())
                     .on_prepaint({
                         let geometry = geometry.clone();
                         move |bounds, _, _| {

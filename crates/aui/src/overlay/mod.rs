@@ -2,7 +2,7 @@
 //! and popovers. Overlays render inside the window; the app decides when they
 //! are present and positions them.
 
-mod card;
+pub(crate) mod card;
 mod command_palette;
 mod dialog;
 mod settings;

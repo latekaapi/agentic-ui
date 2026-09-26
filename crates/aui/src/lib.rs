@@ -15,6 +15,7 @@
 //! | [`composer`] | 40–42 composer, slash/mention menus, attachments |
 //! | [`workbench`] | 50–54 terminal, browser, diff review, git, files and documents |
 //! | [`screens`] | full-window screens: sign-in |
+//! | [`skills`] | skills page: rows, sections, cost meter, detail, import |
 //! | [`data`] | shared data-display primitives: buttons, chips, pills, tags, dots, kbd |
 //!
 //! Every component takes data in (mostly [`aui_protocol`] types) and emits
@@ -40,6 +41,7 @@ pub mod nav;
 pub mod overlay;
 pub mod screens;
 pub mod shell;
+pub mod skills;
 pub mod transcript;
 pub mod util;
 pub mod workbench;

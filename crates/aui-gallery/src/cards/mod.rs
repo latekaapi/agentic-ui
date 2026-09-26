@@ -36,6 +36,7 @@ pub mod selection;
 pub mod settings;
 pub mod sidebar;
 pub mod sidebar_virtual;
+pub mod skills;
 pub mod summary_status;
 pub mod terminal;
 #[cfg(feature = "tui")]

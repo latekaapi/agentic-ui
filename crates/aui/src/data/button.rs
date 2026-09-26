@@ -108,6 +108,7 @@ pub struct Button {
     square: bool,
     muted: bool,
     disabled: bool,
+    accessibility_label: Option<SharedString>,
     on_click: Option<ClickHandler>,
 }
 
@@ -125,6 +126,7 @@ pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Butto
         square: false,
         muted: false,
         disabled: false,
+        accessibility_label: None,
         on_click: None,
     }
 }
@@ -221,6 +223,15 @@ impl Button {
     /// Non-interactive at 45 % opacity.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    /// The accessible name for this button. Setting it also gives the button
+    /// its role, so a screen reader announces name and role together; a
+    /// labelled button without one announces its visible label, while an
+    /// icon-only button without one stays silent.
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.accessibility_label = Some(label.into());
         self
     }
 
@@ -396,6 +407,11 @@ impl RenderOnce for Button {
                 // a focused element, so this one handler serves both inputs.
                 outer = outer.on_click(move |e, w, cx| on_click(e, w, cx));
             }
+        }
+        // An explicit label names the control; a visible label alone leaves
+        // the element's implicit name, so only the explicit one sets the role.
+        if let Some(label) = self.accessibility_label {
+            outer = outer.role(gpui::Role::Button).aria_label(label);
         }
         outer
     }
