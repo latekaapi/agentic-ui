@@ -107,6 +107,11 @@ Found the country-specific branch in `validateAddress`. Two things stand out:\n\
 - Canadian postal codes fall into the US ZIP branch.\n\n\
 I'll make the ZIP/postal path explicit and keep the checkout copy unchanged, then run the two focused test files";
 
+/// The same paste in both width rows, long enough to pass 78% of the card:
+/// the default bubble stops at the cap while the full-width one uses the
+/// whole column.
+const WIDTH_TEXT: &str = "Pasting circular 12/2026 into the pane to read it here: at the default cap this bubble stops at 78% of the column, while the full-width turn below uses the whole column.";
+
 /// Stores a card-level selection intent: drags, word and paragraph picks
 /// replace the stored selection, plain clicks clear it.
 fn track_selection(
@@ -243,6 +248,48 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .ui(scale::FS_12)
                 .text_color(p.ink_3)
                 .child("Long prompt above: eighty lines of markdown wrap inside the bubble, which never passes 78% of the column. The short prompts sit in short bubbles hugging the right."),
+        )
+        .child(
+            v_flex()
+                .id("card31-width-compare")
+                .role(Role::Group)
+                .aria_label("User bubble width: default 78 percent stacked above full width")
+                .w_full()
+                .gap(px(TURN_GAP))
+                .child(
+                    div()
+                        .id("card31-width-default")
+                        .role(Role::Group)
+                        .aria_label("User turn at the default 78 percent width")
+                        .w_full()
+                        .child(
+                            user_turn("card31-user-default78", WIDTH_TEXT)
+                                .selection(current.as_ref())
+                                .on_selection_change(track_selection(selection.clone())),
+                        ),
+                )
+                .child(
+                    div()
+                        .id("card31-width-full")
+                        .role(Role::Group)
+                        .aria_label("User turn at full width through max width fraction")
+                        .w_full()
+                        .child(
+                            user_turn("card31-user-full", WIDTH_TEXT)
+                                .max_width_fraction(1.0)
+                                .selection(current.as_ref())
+                                .on_selection_change(track_selection(selection.clone())),
+                        ),
+                ),
+        )
+        .child(
+            div()
+                .id("card31-width-caption")
+                .role(Role::Paragraph)
+                .aria_label("Caption: the user bubble width cap is the caller's choice")
+                .ui(scale::FS_12)
+                .text_color(p.ink_3)
+                .child("Reading width above: the same paste twice, stacked — the default bubble stops at 78% of the column while the full-width turn reaches the right edge through max_width_fraction(1.0). The width cap is the caller's choice, default 78%. Fenced code and tables keep their own scrolling frames."),
         )
         .child(
             div()

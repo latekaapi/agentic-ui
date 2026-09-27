@@ -21,7 +21,7 @@ use aui::transcript::{activity_group, answered_row, approval_card, question_card
 use aui::util::{interaction_flags, TrackInteraction};
 use aui::workbench::{
     artifact_strip, cited_answer, doc_pane, doc_toolbar, pane_status, pane_status_row, pdf_pane, sheet_pane, source_hover_card, sources_card, Artifact, ArtifactKind, DocBlock, DocPage,
-    DocRun, PdfPage, PdfRun, SheetCell, Source, SourceTier,
+    DocRun, PdfControls, PdfPage, PdfRun, SheetCell, Source, SourceTier,
 };
 use aui_icons::{icon, IconName, Provider, RoleIcon};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
@@ -627,7 +627,15 @@ impl AssistantMock {
                 };
                 v_flex()
                     .size_full()
-                    .child(div().flex_1().min_h(px(0.0)).w_full().child(pdf_pane("assistant-pdf", page, 31, 88).cited_as(1)))
+                    .child(div().flex_1().min_h(px(0.0)).w_full().child(pdf_pane("assistant-pdf", page.clone(), 31, 88).cited_as(1)))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_h(px(0.0))
+                            .w_full()
+                            .child(div().w_full().px(px(12.0)).pt(px(8.0)).ui(scale::FS_12).child("Read-only preview"))
+                            .child(div().flex_1().min_h(px(0.0)).w_full().child(pdf_pane("assistant-pdf-readonly", page, 31, 88).cited_as(1).controls(PdfControls::reading_only()))),
+                    )
                     .child(pane_status_row("assistant-pdf-status", vec![pane_status("Highlight from citation 1")], vec![pane_status("Opened from chat")]))
                     .into_any_element()
             }

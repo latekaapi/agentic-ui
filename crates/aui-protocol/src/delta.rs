@@ -11,7 +11,8 @@ use crate::turn::{Turn, TurnMeta};
 /// runs.
 ///
 /// Deltas are ordered. Most are additive; [`Delta::TurnRemoved`] and
-/// [`Delta::BlockRemoved`] take something away.
+/// [`Delta::BlockRemoved`] take something away, while
+/// [`Delta::TurnReplaced`] corrects a turn in place.
 ///
 /// # The fold contract
 ///
@@ -81,6 +82,19 @@ pub enum Delta {
     TurnRemoved {
         /// Turn to remove.
         turn_id: String,
+    },
+    /// An existing turn was replaced in place, keeping its position.
+    ///
+    /// A real server (muse 1.4) sends a user message twice: first
+    /// `item/completed` carrying the model input, then `item/updated`
+    /// carrying the `displayText` the transcript must show. The adapter folds
+    /// the second send into this delta so the rendered turn is corrected
+    /// without moving to the end. If no turn carries the replacement's id,
+    /// the delta is ignored and [`Session::apply`] returns `false` (it never
+    /// appends).
+    TurnReplaced {
+        /// The turn's new value; matched against the transcript by its id.
+        turn: Turn,
     },
     /// One block left a turn.
     BlockRemoved {
@@ -164,6 +178,13 @@ pub(crate) fn apply(session: &mut Session, delta: Delta) -> bool {
                 return false;
             };
             session.turns.remove(index);
+            true
+        }
+        Delta::TurnReplaced { turn } => {
+            let Some(index) = session.turns.iter().position(|t| t.id() == turn.id()) else {
+                return false;
+            };
+            session.turns[index] = turn;
             true
         }
         Delta::BlockRemoved { turn_id, block_index } => {

@@ -5,7 +5,7 @@
 use aui::shell::TabItem;
 use aui::workbench::{
     artifact_strip, doc_pane, doc_saved_hint, doc_tabs, doc_toolbar, file_tree, pane_status, pane_status_row, Artifact, ArtifactKind, DocBlock,
-    DocPage, DocRun, FileNode, FileTreeAction, GitBadge,
+    DocCell, DocPage, DocRun, DocTable, FileNode, FileTreeAction, GitBadge,
 };
 use aui::data::{icon_button, ButtonSize};
 use aui_icons::{FileType, IconName};
@@ -75,6 +75,60 @@ fn sample_page() -> DocPage {
                 "Document verification in line with GO 2024-18.",
                 "Onboarding support through the first term.",
             ]),
+            DocBlock::heading(2, "4. Island-wise position"),
+            DocBlock::Rule,
+            DocBlock::Table(DocTable {
+                widths: vec![0.658, 0.342],
+                rows: vec![
+                    vec![DocCell { col_span: 2, ..DocCell::header("ANDROTH Island at a glance") }],
+                    vec![DocCell::text("Total geographical Area"), DocCell::text("4.90 sq.Kms")],
+                    vec![DocCell::text("Maximum Length"), DocCell::text("4.66 km")],
+                    vec![DocCell::text("Total No. of Schools"), DocCell::text("6")],
+                ],
+            }),
+            DocBlock::Table(DocTable {
+                widths: vec![],
+                rows: vec![
+                    vec![
+                        DocCell::header("Sl No"),
+                        DocCell::header("Name of School"),
+                        DocCell::header("Class Range"),
+                        DocCell::header("Rooms"),
+                        DocCell { col_span: 2, ..DocCell::header("Students") },
+                        DocCell::header("Ratio"),
+                    ],
+                    vec![
+                        DocCell { header: true, ..DocCell::text("") },
+                        DocCell { header: true, ..DocCell::text("") },
+                        DocCell { header: true, ..DocCell::text("") },
+                        DocCell { header: true, ..DocCell::text("") },
+                        DocCell::header("Male"),
+                        DocCell::header("Female"),
+                        DocCell::header("Total"),
+                        DocCell { header: true, ..DocCell::text("") },
+                    ],
+                    vec![
+                        DocCell::text("1"),
+                        DocCell::text("Govt. Model School, Androth"),
+                        DocCell::text("VI–XII"),
+                        DocCell::text("12"),
+                        DocCell::text("85"),
+                        DocCell::text("79"),
+                        DocCell::text("164"),
+                        DocCell::text("1:27"),
+                    ],
+                    vec![
+                        DocCell::text("2"),
+                        DocCell::text("Govt. High School, Kalpeni"),
+                        DocCell::text("VI–X"),
+                        DocCell::text("9"),
+                        DocCell::text("62"),
+                        DocCell::text("58"),
+                        DocCell::text("120"),
+                        DocCell::text("1:24"),
+                    ],
+                ],
+            }),
         ],
     )
 }

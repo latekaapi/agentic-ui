@@ -32,6 +32,7 @@
 
 #![warn(missing_docs)]
 
+pub mod a11y_text;
 pub mod assets;
 pub mod composer;
 pub mod data;

@@ -766,3 +766,49 @@ fn approval_bodies_default_to_commands_and_round_trip() {
         assert_eq!(&back, block);
     }
 }
+
+fn user_turn(id: &str, text: &str) -> Turn {
+    Turn::User {
+        id: id.into(),
+        text: text.into(),
+        attachments: Vec::new(),
+        mentions: Vec::new(),
+        timestamp: None,
+    }
+}
+
+#[test]
+fn turn_replaced_corrects_the_middle_turn_in_place() {
+    let mut session = Session::new("s1", aui_protocol::Provider::Muse, "muse-spark-1.4", "~/work");
+    session.turns.push(user_turn("t1", "first"));
+    session.turns.push(user_turn("t2", "model input"));
+    session.turns.push(user_turn("t3", "third"));
+
+    assert!(session.apply(Delta::TurnReplaced { turn: user_turn("t2", "displayText") }));
+
+    let ids: Vec<&str> = session.turns.iter().map(Turn::id).collect();
+    assert_eq!(ids, vec!["t1", "t2", "t3"]);
+    match &session.turns[1] {
+        Turn::User { text, .. } => assert_eq!(text, "displayText"),
+        other => panic!("expected a user turn, got {other:?}"),
+    }
+}
+
+#[test]
+fn turn_replaced_with_an_unknown_id_is_a_no_op() {
+    let mut session = Session::new("s1", aui_protocol::Provider::Muse, "muse-spark-1.4", "~/work");
+    session.turns.push(user_turn("t1", "first"));
+    let before = session.clone();
+
+    assert!(!session.apply(Delta::TurnReplaced { turn: user_turn("nope", "displayText") }));
+    assert_eq!(session, before);
+}
+
+#[test]
+fn turn_replaced_round_trips_through_json() {
+    let delta = Delta::TurnReplaced { turn: user_turn("t2", "displayText") };
+    let json = serde_json::to_value(&delta).expect("serialize");
+    assert_eq!(json["kind"], "turn_replaced");
+    let back: Delta = serde_json::from_value(json).expect("deserialize");
+    assert_eq!(back, delta);
+}
