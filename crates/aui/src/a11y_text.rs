@@ -11,6 +11,17 @@
 //! gpui's test harness cannot dispatch an [`accesskit::ActionRequest`] to a
 //! window (`Window::handle_a11y_action` is `pub(crate)`, and listeners only
 //! register while a11y is active).
+//!
+//! macOS delivery note (AUI-A11Y-2, accesskit_macos 0.26.3): only
+//! `setAccessibilityValue:` (AXValue → `SetValue`) and
+//! `setAccessibilitySelectedTextRange:` (→ `SetTextSelection`) are implemented
+//! upstream. There is no `setAccessibilitySelectedText:` method, so an
+//! AXSelectedText write never becomes an [`accesskit::ActionRequest`] and the
+//! `ReplaceSelectedText` arm below is unreachable from macOS automation —
+//! that write path can only be fixed upstream. AXValue writes do reach the
+//! frame (and the inner gpui-component input, which handles `SetValue`
+//! itself). IME/dictation insertion bypasses all of this via
+//! `NSTextInputClient::insertText:` into the focused input state.
 
 use gpui::accesskit::ActionData;
 use gpui::{
