@@ -7,7 +7,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use aui::workbench::{cell_span_width, clamp_heading_level, collapsed_margin, doc_pane, table_layout, DocBlock, DocCell, DocPage, DocTable, TABLE_MIN_COL_W};
-use gpui::{px, size, Context, IntoElement, Render, TestAppContext, Window};
+use gpui::{px, size, Context, IntoElement, Render, ScrollHandle, TestAppContext, Window};
 
 /// A cell at index 0 spanning 2 columns of `[0.5, 0.3, 0.2]` is 0.8.
 #[test]
@@ -155,6 +155,37 @@ fn zero_usable_width_does_not_panic_or_divide_by_zero() {
         assert!(w.is_finite(), "width must be finite, got {w}");
         assert!(w >= TABLE_MIN_COL_W, "width {w} is below the {TABLE_MIN_COL_W}px minimum");
     }
+}
+
+/// The host view for the scroll test: the page fills the window and the
+/// tracked handle reports what the pane measured.
+struct ScrollHost {
+    page: DocPage,
+    handle: ScrollHandle,
+}
+
+impl Render for ScrollHost {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        doc_pane("workbench-docs-scroll", self.page.clone()).track_scroll(&self.handle)
+    }
+}
+
+/// A page taller than the pane scrolls: sixty paragraphs in a 400x300
+/// window leave the tracked handle with room to move. Before the pane
+/// scrolled, the handle's maximum offset stayed at zero.
+#[gpui::test]
+fn a_tall_page_scrolls_vertically(cx: &mut TestAppContext) {
+    cx.update(|cx| aui::init(aui::tokens::ThemeKind::Dark, cx));
+    let blocks: Vec<DocBlock> = (0..60).map(|n| DocBlock::text(format!("Paragraph {n}: the Directorate invites proposals for the 2027 academic year."))).collect();
+    let page = DocPage::new("Request for Proposal", "Directorate of Education · Draft v3", blocks);
+    let handle = ScrollHandle::new();
+    let _window = cx.open_window(size(px(400.0), px(300.0)), {
+        let handle = handle.clone();
+        move |_, _| ScrollHost { page: page.clone(), handle: handle.clone() }
+    });
+    cx.run_until_parked();
+    let max = handle.max_offset();
+    assert!(max.y > px(0.0), "a 60-paragraph page in a 300 px pane must scroll, got max offset {max:?}");
 }
 
 #[gpui::test]

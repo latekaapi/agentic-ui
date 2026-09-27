@@ -212,6 +212,7 @@ pub struct Composer {
     plus_menu: Option<gpui::AnyElement>,
     chip_menus: Vec<(ComposerChipAnchor, gpui::AnyElement)>,
     on_intent: Option<IntentHandler>,
+    model_choices: Option<usize>,
 }
 
 /// The human label for a provider on the provider chip (`Muse`,
@@ -252,6 +253,7 @@ pub fn composer(id: impl Into<ElementId>, state: &Entity<TextareaState>, provide
         plus_menu: None,
         chip_menus: Vec::new(),
         on_intent: None,
+        model_choices: None,
     }
 }
 
@@ -353,6 +355,20 @@ impl Composer {
         self
     }
 
+    /// How many models the model chip can pick from. The chip shows its
+    /// chevron and stays clickable only with more than one choice; unset
+    /// keeps the current behaviour (chevron shown, clickable).
+    pub fn model_choices(mut self, n: usize) -> Self {
+        self.model_choices = Some(n);
+        self
+    }
+
+    /// Whether the model chip opens the model picker: more than one choice,
+    /// or unset (which keeps the current behaviour).
+    fn model_selectable(&self) -> bool {
+        self.model_choices.map(|n| n > 1).unwrap_or(true)
+    }
+
     /// Intent handler.
     pub fn on_intent(mut self, f: impl Fn(ComposerIntent, &mut Window, &mut App) + 'static) -> Self {
         self.on_intent = Some(std::rc::Rc::new(f));
@@ -364,6 +380,7 @@ impl RenderOnce for Composer {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
+        let model_selectable = self.model_selectable();
         let control = cx.aui().metrics.control_md;
         let handler = self.on_intent.clone();
         let emit = move |intent: ComposerIntent| {
@@ -524,7 +541,10 @@ impl RenderOnce for Composer {
             .chevron()
             .accessibility_label(SharedString::from(format!("{provider_label}, provider")))
             .on_click(emit(ComposerIntent::Provider));
-        let model_chip = chip((id.clone(), "model"), self.model.clone()).composer().chevron().on_click(emit(ComposerIntent::Model));
+        let mut model_chip = chip((id.clone(), "model"), self.model.clone()).composer();
+        if model_selectable {
+            model_chip = model_chip.chevron().on_click(emit(ComposerIntent::Model));
+        }
         let mode_chip = {
             let mode = chip((id.clone(), "mode"), self.mode.clone()).composer().on_click(emit(ComposerIntent::Mode));
             if self.knowledge_first {

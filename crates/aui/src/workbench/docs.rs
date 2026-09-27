@@ -17,8 +17,8 @@ use aui_icons::{icon, IconName};
 use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{
-    div, font, prelude::*, px, relative, rgb, AnyElement, App, ElementId, FontWeight, Hsla, IntoElement, SharedString, StyledText, TextRun,
-    UnderlineStyle, Window,
+    div, font, prelude::*, px, relative, rgb, AnyElement, App, ElementId, FontWeight, Hsla, IntoElement, ScrollHandle, SharedString, StyledText,
+    TextRun, UnderlineStyle, Window,
 };
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -153,6 +153,7 @@ const STATUS_PAD: f32 = 12.0;
 const STATUS_TEXT: f32 = scale::FS_11;
 
 type SelectHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
+type MoreHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 
 // ---------------------------------------------------------------------------
 // Tab band
@@ -773,11 +774,12 @@ pub struct DocPane {
     page: DocPage,
     paper_width: f32,
     paper_pad: Option<(f32, f32)>,
+    scroll: Option<ScrollHandle>,
 }
 
 /// The pane's page on its surface-2 ground.
 pub fn doc_pane(id: impl Into<ElementId>, page: DocPage) -> DocPane {
-    DocPane { id: id.into(), page, paper_width: PAPER_W, paper_pad: None }
+    DocPane { id: id.into(), page, paper_width: PAPER_W, paper_pad: None, scroll: None }
 }
 
 impl DocPane {
@@ -785,6 +787,14 @@ impl DocPane {
     pub fn paper(mut self, width: f32, pad_y: f32, pad_x: f32) -> Self {
         self.paper_width = width;
         self.paper_pad = Some((pad_y, pad_x));
+        self
+    }
+
+    /// Tracks the pane's vertical scroll position with `handle`, so a host
+    /// can read or restore the offset. The pane scrolls vertically whether
+    /// or not a handle is given.
+    pub fn track_scroll(mut self, handle: &ScrollHandle) -> Self {
+        self.scroll = Some(handle.clone());
         self
     }
 }
@@ -895,17 +905,24 @@ impl RenderOnce for DocPane {
         }
 
         paper = paper.child(body);
-        div()
+        let mut root = div()
             .id(self.id)
             .flex_1()
             .min_h(px(0.0))
             .w_full()
             .flex()
             .justify_center()
+            // Top-align: the row's default cross-axis stretch would size the
+            // paper to the pane and leave nothing to scroll.
+            .items_start()
             .p(px(DOC_PAD))
             .bg(p.surface_2)
             .overflow_hidden()
-            .child(paper)
+            .overflow_y_scroll();
+        if let Some(handle) = &self.scroll {
+            root = root.track_scroll(handle);
+        }
+        root.child(paper)
     }
 }
 
@@ -1025,12 +1042,18 @@ pub enum ArtifactKind {
     Doc,
     /// A spreadsheet (`sheet`, tinted success).
     Sheet,
+    /// A slide deck.
+    Slides,
     /// A PDF.
     Pdf,
+    /// A source file.
+    Code,
     /// A plain note or markdown file.
     Note,
     /// An image.
     Image,
+    /// Anything else.
+    Other,
 }
 
 impl ArtifactKind {
@@ -1039,9 +1062,12 @@ impl ArtifactKind {
         match self {
             ArtifactKind::Doc => IconName::Doc,
             ArtifactKind::Sheet => IconName::Sheet,
+            ArtifactKind::Slides => IconName::Layout,
             ArtifactKind::Pdf => IconName::Pdf,
+            ArtifactKind::Code => IconName::Terminal,
             ArtifactKind::Note => IconName::File,
             ArtifactKind::Image => IconName::Image,
+            ArtifactKind::Other => IconName::File,
         }
     }
 
@@ -1050,7 +1076,7 @@ impl ArtifactKind {
         match self {
             ArtifactKind::Doc => Some(colors.info),
             ArtifactKind::Sheet => Some(colors.success),
-            ArtifactKind::Pdf | ArtifactKind::Note | ArtifactKind::Image => None,
+            ArtifactKind::Slides | ArtifactKind::Pdf | ArtifactKind::Code | ArtifactKind::Note | ArtifactKind::Image | ArtifactKind::Other => None,
         }
     }
 }
@@ -1095,11 +1121,19 @@ pub struct ArtifactStrip {
     artifacts: Vec<Artifact>,
     max_visible: Option<usize>,
     on_select: Option<SelectHandler>,
+    on_more: Option<MoreHandler>,
 }
 
 /// The strip of artifacts the chat produced, under the page.
 pub fn artifact_strip(id: impl Into<ElementId>, artifacts: Vec<Artifact>) -> ArtifactStrip {
-    ArtifactStrip { id: id.into(), label: "Created in chat".into(), artifacts, max_visible: None, on_select: None }
+    ArtifactStrip { id: id.into(), label: "Created in chat".into(), artifacts, max_visible: None, on_select: None, on_more: None }
+}
+
+/// Splits `total` artifacts into the visible chips and the hidden count
+/// behind the `+N` chip under the `max_visible` cap.
+fn overflow_counts(total: usize, max_visible: Option<usize>) -> (usize, usize) {
+    let visible = max_visible.unwrap_or(total).min(total);
+    (visible, total - visible)
 }
 
 impl ArtifactStrip {
@@ -1121,6 +1155,13 @@ impl ArtifactStrip {
     /// Called with the artifact's name when a chip is clicked.
     pub fn on_select(mut self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self {
         self.on_select = Some(Rc::new(f));
+        self
+    }
+
+    /// Called when the `+N` overflow chip is clicked; when set, the chip is
+    /// a button, and when unset it renders exactly as before.
+    pub fn on_more(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_more = Some(Rc::new(f));
         self
     }
 }
@@ -1147,8 +1188,7 @@ impl RenderOnce for ArtifactStrip {
                     .text_color(p.ink_3)
                     .child(self.label.to_uppercase()),
             );
-        let visible = self.max_visible.unwrap_or(self.artifacts.len()).min(self.artifacts.len());
-        let hidden = self.artifacts.len() - visible;
+        let (visible, hidden) = overflow_counts(self.artifacts.len(), self.max_visible);
         for artifact in self.artifacts.into_iter().take(visible) {
             let chip_id: ElementId = (id.clone(), artifact.name.clone()).into();
             let (border, bg, text) = if artifact.active {
@@ -1196,21 +1236,23 @@ impl RenderOnce for ArtifactStrip {
             strip = strip.child(el);
         }
         if hidden > 0 {
-            strip = strip.child(
-                h_flex()
-                    .id((id, "more"))
-                    .flex_none()
-                    .h(px(ART_H))
-                    .px(px(ART_MORE_PAD))
-                    .rounded(px(scale::R_SM))
-                    .border_1()
-                    .border_color(p.line)
-                    .text_color(p.ink_3)
-                    .ui(ART_TEXT)
-                    .whitespace_nowrap()
-                    .cursor_pointer()
-                    .child(format!("+{hidden}")),
-            );
+            let mut more = h_flex()
+                .id((id, "more"))
+                .flex_none()
+                .h(px(ART_H))
+                .px(px(ART_MORE_PAD))
+                .rounded(px(scale::R_SM))
+                .border_1()
+                .border_color(p.line)
+                .text_color(p.ink_3)
+                .ui(ART_TEXT)
+                .whitespace_nowrap()
+                .cursor_pointer()
+                .child(format!("+{hidden}"));
+            if let Some(f) = self.on_more.clone() {
+                more = more.on_click(move |_, w, cx| f(w, cx));
+            }
+            strip = strip.child(more);
         }
         strip
     }
@@ -1279,5 +1321,48 @@ impl RenderOnce for PaneStatusRow {
             .children(self.left.into_iter().map(item))
             .child(div().flex_1().min_w(px(0.0)))
             .children(self.right.into_iter().map(item))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn artifacts(n: usize) -> Vec<Artifact> {
+        (0..n).map(|i| Artifact::new(format!("file-{i}.md"), ArtifactKind::Note)).collect()
+    }
+
+    /// The `+N` chip only exists past the cap: everything fits without one.
+    #[test]
+    fn no_overflow_chip_at_or_below_the_cap() {
+        assert_eq!(overflow_counts(2, Some(2)), (2, 0), "two artifacts fit two slots with nothing hidden");
+        assert_eq!(overflow_counts(1, Some(2)), (1, 0), "one artifact fits two slots with nothing hidden");
+        assert_eq!(overflow_counts(2, None), (2, 0), "with no cap nothing is hidden");
+    }
+
+    /// Past the cap the rest gather behind the `+N` chip.
+    #[test]
+    fn overflow_chip_counts_what_the_cap_hides() {
+        assert_eq!(overflow_counts(3, Some(2)), (2, 1), "three artifacts over two slots hide one");
+        assert_eq!(overflow_counts(5, Some(2)), (2, 3), "five artifacts over two slots hide three");
+    }
+
+    /// `on_more` presence toggles the `+N` chip being a button.
+    #[test]
+    fn on_more_presence_toggles_the_overflow_button() {
+        let plain = artifact_strip("strip", artifacts(3)).max_visible(2);
+        assert!(plain.on_more.is_none(), "with no handler the chip renders as today");
+        let wired = artifact_strip("strip", artifacts(3)).max_visible(2).on_more(|_, _| {});
+        assert!(wired.on_more.is_some(), "with a handler the chip is a button");
+    }
+
+    /// The scroll handle is stored when set, so the pane can report it.
+    #[test]
+    fn track_scroll_stores_the_handle() {
+        let handle = ScrollHandle::new();
+        let plain = doc_pane("pane", DocPage::new("Title", "Subtitle", Vec::new()));
+        assert!(plain.scroll.is_none(), "no handle is tracked by default");
+        let tracked = doc_pane("pane", DocPage::new("Title", "Subtitle", Vec::new())).track_scroll(&handle);
+        assert!(tracked.scroll.is_some(), "the handle is stored when set");
     }
 }
