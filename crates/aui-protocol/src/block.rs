@@ -234,6 +234,40 @@ pub enum Block {
         /// The one-line text to render.
         text: String,
     },
+    /// A session moved from one provider to another as an honest, lossy
+    /// re-prompt — never pretended continuity.
+    ///
+    /// The destination starts a fresh session seeded with a context pack (the
+    /// conversation summarised, recent turns, open todos, touched files). The
+    /// card shows exactly what was carried and what was lost; a same-provider
+    /// model change is not a handoff but a native model switch and never
+    /// produces this block.
+    Handoff {
+        /// Stable id, echoed back in handoff intents.
+        id: String,
+        /// Provider the session is leaving.
+        from: crate::session::Provider,
+        /// Provider the fresh session starts on.
+        to: crate::session::Provider,
+        /// Model label on the source side, as the provider reports it.
+        from_model: String,
+        /// Model label the destination session starts with.
+        to_model: String,
+        /// Where the move is in its lifecycle.
+        state: HandoffState,
+        /// What the context pack carries over.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        carried: Vec<HandoffItem>,
+        /// What does not carry over; always shown, never hidden.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lost: Vec<HandoffItem>,
+        /// Size of the context pack in tokens, when the host measured it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pack_tokens: Option<u64>,
+        /// Id of the fresh destination session, once it exists.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        destination_session: Option<String>,
+    },
 }
 
 impl Block {
@@ -676,4 +710,44 @@ pub enum MarkerKind {
     ViewGap,
     /// This session was forked from another one.
     ForkedFrom,
+}
+
+/// Where a provider handoff is in its lifecycle.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum HandoffState {
+    /// The person asked for the move; the host has not started it yet.
+    Requested,
+    /// The source session is going quiet before the pack is built.
+    Quiescing,
+    /// The source session stopped and its state was captured.
+    Checkpointed,
+    /// The context pack is built and ready to seed the destination.
+    Prepared,
+    /// The destination provider accepted the pack.
+    Acknowledged,
+    /// The fresh session is running on the destination provider.
+    Activated,
+    /// The destination provider refused the pack.
+    Refused {
+        /// Why the destination said no, in its own words.
+        reason: String,
+    },
+    /// The move failed midway.
+    Failed {
+        /// What went wrong, in the host's words.
+        reason: String,
+    },
+    /// The person cancelled the move before it activated.
+    Cancelled,
+}
+
+/// One line of what a handoff carries over — or leaves behind.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HandoffItem {
+    /// Short label, e.g. `"Conversation summary"`.
+    pub label: String,
+    /// Supporting detail, e.g. `"12 turns, ~4 min of work"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }

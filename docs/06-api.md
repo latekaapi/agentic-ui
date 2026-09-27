@@ -1166,6 +1166,10 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn generic_item_card(id: impl Into<ElementId>, kind: impl Into<SharedString>, status: impl Into<SharedString>, text: impl Into<SharedString>) -> GenericItemCard`
 - **fn** `goal_card` — The objective and the provider’s own status string.
   - `pub fn goal_card(id: impl Into<ElementId>, objective: impl Into<SharedString>, status: impl Into<SharedString>) -> GoalCard`
+- **fn** `handoff_card` — A handoff from `from` to `to`, landing on `to_model`, in `state`.
+  - `pub fn handoff_card(id: impl Into<ElementId>, from: Provider, to: Provider, to_model: impl Into<SharedString>, state: HandoffState) -> HandoffCard`
+- **fn** `handoff_confirm` — The confirm dialog the host shows before starting a handoff.
+  - `pub fn handoff_confirm(id: impl Into<ElementId>, to: Provider, to_model: impl Into<SharedString>, carried: &[HandoffItem], lost: &[HandoffItem]) -> Dialog`
 - **fn** `jump_pill` — A jump pill with `label` (`Jump to latest`); `JumpPill::count` adds the new-turn badge.
   - `pub fn jump_pill(id: impl Into<ElementId>, label: impl Into<SharedString>) -> JumpPill`
 - **fn** `last_block_runs` — The text and runs of the block that closes `source`, built exactly as `Markdown` builds them, so a caller that has to measure where the text ends (the streaming caret) shapes the same glyphs that are painted. [...]
@@ -1319,6 +1323,13 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn percent(self, percent: Option<f32>) -> Self` — How far along the provider says it is, verbatim.
 - **struct** `HandOff` — A hand-off between two agents, shown as a pill with both marks.
   - fields: `from`, `to`
+- **struct** `HandoffCard` — The handoff card. Build with `handoff_card`.
+  - `pub fn carried(self, carried: Vec<HandoffItem>) -> Self` — What the context pack carries over.
+  - `pub fn destination_session(self, session: Option<String>) -> Self` — The fresh destination session; shows `Open the new session`.
+  - `pub fn from_model(self, model: impl Into<SharedString>) -> Self` — The model label on the source side, shown under the header.
+  - `pub fn lost(self, lost: Vec<HandoffItem>) -> Self` — What does not carry over; always drawn, never hidden.
+  - `pub fn on_intent(self, f: impl Fn(HandoffIntent, &mut Window, &mut App) + 'static) -> Self` — The person pressed `Open the new session` or `Cancel`.
+  - `pub fn pack_tokens(self, tokens: Option<u64>) -> Self` — The measured pack size, drawn as `~N tokens of context`.
 - **struct** `JumpPill` — The floating jump-to-latest pill. Build with `jump_pill`.
   - `pub fn count(self, count: u32) -> Self` — The number of new turns below the reader.
   - `pub fn on_jump(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — The pill was pressed.
@@ -1472,6 +1483,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - variants: `Wrap`, `Open`, `Copy`, `Unfold`, `HostAction`
 - **enum** `DiffBlockAction` — Actions on a diff block.
   - variants: `Unified`, `Split`, `OpenInDiff`, `AddNote`, `SaveNote`, `CancelNote`
+- **enum** `HandoffIntent` — What the person asked for on a handoff card.
+  - variants: `OpenSession`, `Cancel`
 - **enum** `LinkTarget` — Where a link points.
   - variants: `Url`, `Path`
 - **enum** `MarkdownBlock` — One block of a parsed transcript.
@@ -1512,6 +1525,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub const COPY_HOLD: Duration;`
 - **const** `GROUP_PREVIEW` — Collapsed preview rows before the `+k more` row (the image3 idiom: two rows, then the overflow count).
   - `pub const GROUP_PREVIEW: usize = 2;`
+- **const** `HANDOFF_FRESH_NOTE` — The honest note every confirm dialog carries, verbatim.
+  - `pub const HANDOFF_FRESH_NOTE: &str;`
 - **const** `SHELL_FOLD` — Shell output folds after this many lines (the card shows six, then `14 more lines`).
   - `pub const SHELL_FOLD: usize = 6;`
 
@@ -2310,6 +2325,8 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
   - fields: `kind`, `old_no`, `new_no`, `text`
 - **struct** `FileChange` — One file row in a `Block::Summary`.
   - fields: `path`, `change`, `added`, `removed`
+- **struct** `HandoffItem` — One line of what a handoff carries over — or leaves behind.
+  - fields: `label`, `detail`
 - **struct** `Hunk` — One `@@` hunk of a `Diff`.
   - fields: `header`, `lines`
 - **struct** `Mention` — An `@` mention chip inside a user turn.
@@ -2355,7 +2372,7 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
   - variants: `Image`, `File`, `Text`
 - **enum** `Block` — One renderable unit inside an assistant turn.
   - variants: `Text`, `Thinking`, `Activity`, `ToolCall`, `ToolGroup`, `Approval`, `Question`,
-    `Plan`, `Todo`, `Summary`, `Error`, `Goal`, `Generic`, `Marker`
+    `Plan`, `Todo`, `Summary`, `Error`, `Goal`, `Generic`, `Marker`, `Handoff`
   - `pub fn approval(id: impl Into<String>, tool: impl Into<String>, command: impl Into<String>, reason: impl Into<String>, cwd: impl Into<String>, capabilities: Vec<String>, scope: ApprovalScope, state: ApprovalState, rule: Option<String>) -> Self` — A pending `Block::Approval` with the MSP-only fields left empty.
   - `pub fn as_tool_call(&self) -> Option<ToolCall>` — The `ToolCall` shape of a `Block::ToolCall`; `None` for any other variant, so a grouping pass can collect runs of tool calls without matching the variant itself.
   - `pub fn complete_approval(&mut self, exit_code: i32, duration_ms: u64) -> bool` — Settle an approval that was `ApprovalState::Approving` once the command has exited. Returns `false` if the block was in any other state.
@@ -2371,6 +2388,9 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
   - variants: `Context`, `Add`, `Del`
 - **enum** `Environment` — Where the agent process runs.
   - variants: `Local`, `Ssh`, `Server`, `CloudVm`
+- **enum** `HandoffState` — Where a provider handoff is in its lifecycle.
+  - variants: `Requested`, `Quiescing`, `Checkpointed`, `Prepared`, `Acknowledged`, `Activated`,
+    `Refused`, `Failed`, `Cancelled`
 - **enum** `Intent` — Something the person did that the app must act on.
   - variants: `Send`, `Queue`, `Stop`, `Approve`, `Answer`, `AcceptPlan`, `RejectPlan`,
     `EditPlan`, `OpenFile`, `OpenDiff`, `SendNotes`, `ChangeView`, `ToggleRightPane`, `Steer`,

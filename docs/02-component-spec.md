@@ -145,6 +145,14 @@ Conventions used below: **anatomy** (parts, left to right / top to bottom), **si
 - Needs-you banner (warning-soft) pinned above the composer with "Jump to it" primary xs; enters with 6 px rise.
 - Jump-to-latest pill: 28 px, overlay ground, 1 px line-strong, elevation 2, chevron-down + label + count badge (ink on bg). Appears when the reader scrolls away from the tail; counts new turns.
 
+### 3.10 Handoff card and confirm
+- Card: 1 px line, radius 12, surface-1. Header: from mark + arrow + to mark (16 px), title 13 600 "Handed off to \<Provider> · \<model>", muted 11.5 source line "From \<Provider> · \<model>", state pill right (quiet while moving, success once active, danger on refusal or failure).
+- State line 12 px ink-2: a quiet progress label while Requested…Acknowledged ("Pack ready — handing over to …"); Refused/Failed show the reason in the danger tone; Activated reads "Continued in a new \<Provider> session"; Cancelled reads "Handoff cancelled."
+- Lists: caps "Carried" / "Not carried" with 12.5 rows (label + muted "· detail"); lost rows in ink-3; both sections are always drawn, never folded away.
+- Pack size as a muted mono tag "~8,400 tokens of context". Action row (hint, spacer, Cancel secondary while Requested…Prepared, "Open the new session" primary once the destination session exists). Every button has an accessibility role and label. Intents: `HandoffIntent::OpenSession(session_id)` / `HandoffIntent::Cancel`.
+- Confirm: the existing modal titled "Hand off to \<Provider>?", whose body names the destination model, states what will be carried and not carried as sentences, and carries the honest note "The new session starts fresh with a summary. Tool state, pending approvals and the provider's own memory do not carry over." Actions Cancel / "Hand off".
+- Data: a same-provider model change is NOT a handoff (it is a native model switch). A handoff always crosses providers.
+
 ---
 
 ## 4. Composer
@@ -219,4 +227,4 @@ Conventions used below: **anatomy** (parts, left to right / top to bottom), **si
 - assistant-Main / Sources / Sheet: light theme, role sections, grounded answer with citations, docx / pdf / xlsx panes.
 
 ## 7. Data model the transcript renders (`aui-protocol`)
-Session { id, agent, model, mode, cwd, branch, environment } → Turn (User { text, attachments, mentions } | Assistant { blocks, meta }) → Block: Text(stream), Thinking { text, elapsed, summary, state }, Activity { steps[], summary, elapsed, state }, ToolCall { kind: Shell|Read|Edit|Write|Search|Web|Browser|SubAgent|Mcp, target, status, duration, body }, Approval { tool, command, reason, scope, state, rule }, Question { prompt, options[], multi, answer }, Plan { items[], state }, Todo { items[] }, Summary { files[], checks[], cost }, Error { title, detail, retry }, Marker { kind, text }. The library exposes intents back to the app: Send, Queue, Stop, Approve(once|always|deny), Answer, AcceptPlan, OpenFile, OpenDiff, SendNotes, ChangeView, ToggleRightPane.
+Session { id, agent, model, mode, cwd, branch, environment } → Turn (User { text, attachments, mentions } | Assistant { blocks, meta }) → Block: Text(stream), Thinking { text, elapsed, summary, state }, Activity { steps[], summary, elapsed, state }, ToolCall { kind: Shell|Read|Edit|Write|Search|Web|Browser|SubAgent|Mcp, target, status, duration, body }, Approval { tool, command, reason, scope, state, rule }, Question { prompt, options[], multi, answer }, Plan { items[], state }, Todo { items[] }, Summary { files[], checks[], cost }, Error { title, detail, retry }, Marker { kind, text }, Handoff { from, to, from_model, to_model, state, carried[], lost[], pack_tokens, destination_session }. The library exposes intents back to the app: Send, Queue, Stop, Approve(once|always|deny), Answer, AcceptPlan, OpenFile, OpenDiff, SendNotes, ChangeView, ToggleRightPane, HandoffIntent::OpenSession / Cancel.

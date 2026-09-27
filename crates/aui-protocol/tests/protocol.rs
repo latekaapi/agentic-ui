@@ -564,6 +564,119 @@ fn sample_tool_groups_fold_sample_calls() {
 }
 
 #[test]
+fn handoff_block_round_trips_with_its_kind_tag() {
+    use aui_protocol::{HandoffItem, HandoffState, Provider};
+    let item = |label: &str, detail: Option<&str>| HandoffItem {
+        label: label.into(),
+        detail: detail.map(Into::into),
+    };
+    let handoff = Block::Handoff {
+        id: "ho-1".into(),
+        from: Provider::Muse,
+        to: Provider::Claude,
+        from_model: "muse-spark-1.3".into(),
+        to_model: "opus 4.6".into(),
+        state: HandoffState::Prepared,
+        carried: vec![
+            item("Conversation summary", None),
+            item("Recent turns", Some("last 12 turns")),
+        ],
+        lost: vec![item("Pending approvals", None)],
+        pack_tokens: Some(8_400),
+        destination_session: None,
+    };
+    let json = serde_json::to_value(&handoff).expect("serialize");
+    assert_eq!(json["kind"], "handoff");
+    assert_eq!(json["state"]["kind"], "prepared");
+    assert_eq!(json["pack_tokens"], 8_400);
+    assert!(json.get("destination_session").is_none(), "None stays off the wire: {json}");
+    let back: Block = serde_json::from_value(json).expect("deserialize");
+    assert_eq!(back, handoff);
+
+    // Every lifecycle state round-trips, reasons included.
+    let states = vec![
+        HandoffState::Requested,
+        HandoffState::Quiescing,
+        HandoffState::Checkpointed,
+        HandoffState::Prepared,
+        HandoffState::Acknowledged,
+        HandoffState::Activated,
+        HandoffState::Refused { reason: "A question is waiting for your answer".into() },
+        HandoffState::Failed { reason: "destination unreachable".into() },
+        HandoffState::Cancelled,
+    ];
+    for state in states {
+        let json = serde_json::to_value(&state).expect("serialize");
+        let back: HandoffState = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(back, state);
+    }
+}
+
+#[test]
+fn old_handoff_blocks_without_the_optional_fields_decode_with_nones() {
+    // Payloads written before the pack size, the destination id and the item
+    // lists existed carry none of those keys; the block still decodes.
+    let back: Block = serde_json::from_value(serde_json::json!({
+        "kind": "handoff",
+        "id": "ho-1",
+        "from": "muse",
+        "to": "claude",
+        "from_model": "muse-spark-1.3",
+        "to_model": "opus 4.6",
+        "state": { "kind": "requested" },
+    }))
+    .expect("deserialize");
+    match &back {
+        Block::Handoff { carried, lost, pack_tokens, destination_session, .. } => {
+            assert!(carried.is_empty());
+            assert!(lost.is_empty());
+            assert_eq!(*pack_tokens, None);
+            assert_eq!(*destination_session, None);
+        }
+        other => panic!("expected a handoff, got {other:?}"),
+    }
+}
+
+#[test]
+fn handoff_blocks_apply_like_other_blocks() {
+    use aui_protocol::HandoffState;
+    let handoff = |state: HandoffState| Block::Handoff {
+        id: "ho-1".into(),
+        from: aui_protocol::Provider::Muse,
+        to: aui_protocol::Provider::Codex,
+        from_model: "muse-spark-1.3".into(),
+        to_model: "gpt-5.6".into(),
+        state,
+        carried: Vec::new(),
+        lost: Vec::new(),
+        pack_tokens: None,
+        destination_session: None,
+    };
+    let mut session = Session::new("s1", aui_protocol::Provider::Muse, "muse-spark-1.3", "~/work");
+    session.turns.push(Turn::Assistant {
+        id: "t1".into(),
+        blocks: Vec::new(),
+        meta: TurnMeta::default(),
+        timestamp: None,
+    });
+    // Added by id…
+    assert!(session.apply(Delta::BlockAdded {
+        turn_id: "t1".into(),
+        block: handoff(HandoffState::Requested),
+    }));
+    // …and replaced wholesale as the move progresses, like any other block.
+    assert!(session.apply(Delta::BlockUpdated {
+        turn_id: "t1".into(),
+        block_index: 0,
+        block: handoff(HandoffState::Activated),
+    }));
+    assert!(matches!(
+        &session.turn("t1").unwrap().blocks()[0],
+        Block::Handoff { state: HandoffState::Activated, .. }
+    ));
+}
+
+#[test]
 fn turn_timestamp_is_additive_and_round_trips() {
     // Old payloads carry no `timestamp`: they decode with `None`.
     let user: Turn = serde_json::from_value(serde_json::json!({
