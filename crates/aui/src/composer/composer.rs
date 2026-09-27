@@ -213,6 +213,7 @@ pub struct Composer {
     chip_menus: Vec<(ComposerChipAnchor, gpui::AnyElement)>,
     on_intent: Option<IntentHandler>,
     model_choices: Option<usize>,
+    single_provider: bool,
 }
 
 /// The human label for a provider on the provider chip (`Muse`,
@@ -253,7 +254,7 @@ pub fn composer(id: impl Into<ElementId>, state: &Entity<TextareaState>, provide
         plus_menu: None,
         chip_menus: Vec::new(),
         on_intent: None,
-        model_choices: None,
+        model_choices: None, single_provider: false,
     }
 }
 
@@ -360,6 +361,13 @@ impl Composer {
     /// keeps the current behaviour (chevron shown, clickable).
     pub fn model_choices(mut self, n: usize) -> Self {
         self.model_choices = Some(n);
+        self
+    }
+
+    /// A host with exactly one provider: no provider chip (there is nothing to
+    /// pick), and the model chip carries the provider mark instead.
+    pub fn single_provider(mut self, single: bool) -> Self {
+        self.single_provider = single;
         self
     }
 
@@ -542,6 +550,9 @@ impl RenderOnce for Composer {
             .accessibility_label(SharedString::from(format!("{provider_label}, provider")))
             .on_click(emit(ComposerIntent::Provider));
         let mut model_chip = chip((id.clone(), "model"), self.model.clone()).composer();
+        if self.single_provider {
+            model_chip = model_chip.leading(provider_mark(self.provider).size(px(CHIP_MARK)));
+        }
         if model_selectable {
             model_chip = model_chip.chevron().on_click(emit(ComposerIntent::Model));
         }
@@ -575,10 +586,11 @@ impl RenderOnce for Composer {
         let provider_chip = anchored(ComposerChipAnchor::Provider, provider_chip.into_any_element());
         let model_chip = anchored(ComposerChipAnchor::Model, model_chip.into_any_element());
         let mode_chip = anchored(ComposerChipAnchor::Mode, mode_chip.into_any_element());
-        bar = if self.knowledge_first {
-            bar.child(mode_chip).child(provider_chip).child(model_chip)
-        } else {
-            bar.child(provider_chip).child(model_chip).child(mode_chip)
+        bar = match (self.knowledge_first, self.single_provider) {
+            (true, false) => bar.child(mode_chip).child(provider_chip).child(model_chip),
+            (true, true) => bar.child(mode_chip).child(model_chip),
+            (false, false) => bar.child(provider_chip).child(model_chip).child(mode_chip),
+            (false, true) => bar.child(model_chip).child(mode_chip),
         };
         if let Some(effort) = &self.effort {
             let effort_chip =

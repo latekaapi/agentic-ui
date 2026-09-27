@@ -30,6 +30,7 @@ type Log = Rc<RefCell<Vec<String>>>;
 struct ModelHost {
     log: Log,
     choices: usize,
+    single: bool,
 }
 
 impl gpui::Render for ModelHost {
@@ -40,6 +41,7 @@ impl gpui::Render for ModelHost {
         let log = self.log.clone();
         composer("model-chip", &text, Provider::Muse, "muse-spark-1.3-contributor")
             .model_choices(self.choices)
+            .single_provider(self.single)
             .on_intent(move |intent, _, _| {
                 log.borrow_mut().push(format!("{intent:?}"));
             })
@@ -49,10 +51,14 @@ impl gpui::Render for ModelHost {
 /// Clicks across the toolbar band; returns what the composer reported. Only
 /// the `+` button and clickable chips have handlers, so only they can log.
 fn sweep_toolbar(cx: &mut TestAppContext, choices: usize) -> Vec<String> {
+    sweep(cx, choices, false)
+}
+
+fn sweep(cx: &mut TestAppContext, choices: usize, single: bool) -> Vec<String> {
     let log: Log = Rc::new(RefCell::new(Vec::new()));
     let (_host, vcx) = cx.add_window_view({
         let log = log.clone();
-        |_, _| ModelHost { log, choices }
+        |_, _| ModelHost { log, choices, single }
     });
     let vcx: &mut VisualTestContext = vcx;
     let mut y = SWEEP_TOP;
@@ -91,4 +97,13 @@ fn model_chip_with_one_choice_is_quiet(cx: &mut TestAppContext) {
 #[test]
 fn model_intent_debug_name_is_stable() {
     assert_eq!(format!("{:?}", ComposerIntent::Model), "Model");
+}
+
+/// One provider: no provider chip to click, while the mode chip still reports.
+#[gpui::test]
+fn single_provider_draws_no_provider_chip(cx: &mut TestAppContext) {
+    cx.update(|cx| aui::init(aui::tokens::ThemeKind::Dark, cx));
+    let log = sweep(cx, 1, true);
+    assert!(!log.iter().any(|entry| entry == "Provider"), "no provider chip with a single provider, got {log:?}");
+    assert!(log.iter().any(|entry| entry == "Mode"), "the sweep must still reach the mode chip, got {log:?}");
 }
