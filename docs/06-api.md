@@ -775,16 +775,20 @@ Overlays: the command palette (card 12), the modal dialog, and later menus and p
 - **struct** `Dialog` — A modal dialog. Build with `dialog`.
   - `pub fn at_rest(self) -> Self` — Skips the enter: the dialog is drawn at rest on its first frame, for a static capture.
   - `pub fn body(self, text: impl Into<SharedString>) -> Self` — The body paragraph, in the muted body ink.
+  - `pub fn body_text(&self) -> Option<SharedString>` — The plain body paragraph, if one was set.
   - `pub fn danger(self, danger: bool) -> Self` — Draws the primary as the outlined danger button instead of the accent fill, for an action that destroys something.
   - `pub fn detail(self, text: impl Into<SharedString>) -> Self` — An optional mono detail line under the body (a path, an id, an error code).
+  - `pub fn has_rich_body(&self) -> bool` — Whether a structured body replaces the plain paragraph.
   - `pub fn kind(self, kind: DialogKind) -> Self` — What the dialog is about; picks the tile.
   - `pub fn on_dismiss(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The scrim was clicked. A click on the card itself does not reach this.
   - `pub fn on_primary(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The primary was pressed.
   - `pub fn on_secondary(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The secondary was pressed.
   - `pub fn present(self, present: bool) -> Self` — Whether the dialog is open; `false` plays the exit.
   - `pub fn primary(self, label: impl Into<SharedString>) -> Self` — The label of the primary button at the far right.
+  - `pub fn rich_body(self, f: impl Fn(&Palette) -> AnyElement + 'static) -> Self` — A structured body drawn in place of the plain paragraph, built with the active palette when the dialog renders.
   - `pub fn secondary(self, label: impl Into<SharedString>) -> Self` — The label of the secondary button; without one only the primary is drawn.
   - `pub fn width(self, width: f32) -> Self` — Overrides the card width.
+  - `pub fn width_px(&self) -> f32` — The card width in px.
 - **struct** `PaletteItem` — One row of the palette.
   - fields: `id`, `icon`, `label`, `matched`, `context`, `badge`, `keys`
   - `pub fn badge(self, badge: impl Into<SharedString>) -> Self` — Adds the status pill after the label.
@@ -1169,7 +1173,9 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
 - **fn** `handoff_card` — A handoff from `from` to `to`, landing on `to_model`, in `state`.
   - `pub fn handoff_card(id: impl Into<ElementId>, from: Provider, to: Provider, to_model: impl Into<SharedString>, state: HandoffState) -> HandoffCard`
 - **fn** `handoff_confirm` — The confirm dialog the host shows before starting a handoff.
-  - `pub fn handoff_confirm(id: impl Into<ElementId>, to: Provider, to_model: impl Into<SharedString>, carried: &[HandoffItem], lost: &[HandoffItem]) -> Dialog`
+  - `pub fn handoff_confirm(id: impl Into<ElementId>, to: Provider, to_model: impl Into<SharedString>, carried: &[HandoffItem], lost: &[HandoffItem], pack_tokens: Option<u64>) -> Dialog`
+- **fn** `handoff_confirm_destination` — `Starts a new Claude Code session · opus 4.6` — the confirm's destination line, without the mark.
+  - `pub fn handoff_confirm_destination(to: Provider, to_model: &str) -> SharedString`
 - **fn** `jump_pill` — A jump pill with `label` (`Jump to latest`); `JumpPill::count` adds the new-turn badge.
   - `pub fn jump_pill(id: impl Into<ElementId>, label: impl Into<SharedString>) -> JumpPill`
 - **fn** `last_block_runs` — The text and runs of the block that closes `source`, built exactly as `Markdown` builds them, so a caller that has to measure where the text ends (the streaming caret) shapes the same glyphs that are painted. [...]
@@ -1525,6 +1531,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub const COPY_HOLD: Duration;`
 - **const** `GROUP_PREVIEW` — Collapsed preview rows before the `+k more` row (the image3 idiom: two rows, then the overflow count).
   - `pub const GROUP_PREVIEW: usize = 2;`
+- **const** `HANDOFF_CONFIRM_WIDTH` — The confirm dialog's width: wider than the default modal so the shared list rows fit without wrapping their labels.
+  - `pub const HANDOFF_CONFIRM_WIDTH: f32 = 520.0;`
 - **const** `HANDOFF_FRESH_NOTE` — The honest note every confirm dialog carries, verbatim.
   - `pub const HANDOFF_FRESH_NOTE: &str;`
 - **const** `SHELL_FOLD` — Shell output folds after this many lines (the card shows six, then `14 more lines`).

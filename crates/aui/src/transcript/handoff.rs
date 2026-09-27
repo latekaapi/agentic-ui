@@ -10,14 +10,15 @@
 //! button carries an accessibility role and label.
 //!
 //! [`handoff_confirm`] is the dialog content the host shows before starting:
-//! the same lists as sentences over the existing modal, with the honest note
-//! that the new session starts fresh.
+//! the destination row with the provider mark, the same shared lists the
+//! card draws, the pack size, and the honest note that the new session
+//! starts fresh — over the existing modal, with Cancel / Hand off.
 
 use std::rc::Rc;
 
 use aui_protocol::{HandoffItem, HandoffState, Provider as WireProvider};
-use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
-use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
+use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::composer::provider_display_name;
@@ -48,6 +49,10 @@ const ACTIONS_GAP: f32 = 8.0;
 /// The honest note every confirm dialog carries, verbatim.
 pub const HANDOFF_FRESH_NOTE: &str =
     "The new session starts fresh with a summary. Tool state, pending approvals and the provider's own memory do not carry over.";
+
+/// The confirm dialog's width: wider than the default modal so the shared
+/// list rows fit without wrapping their labels.
+pub const HANDOFF_CONFIRM_WIDTH: f32 = 520.0;
 
 type IntentHandler = Rc<dyn Fn(HandoffIntent, &mut Window, &mut App)>;
 
@@ -87,12 +92,62 @@ fn grouped_tokens(n: u64) -> String {
     out
 }
 
-/// `"Recent turns (last 12)"` or just `"Conversation summary"`.
-fn item_text(item: &HandoffItem) -> String {
-    match &item.detail {
-        Some(detail) => format!("{} ({detail})", item.label),
-        None => item.label.clone(),
+/// `Starts a new Claude Code session · opus 4.6` — the confirm's
+/// destination line, without the mark.
+pub fn handoff_confirm_destination(to: WireProvider, to_model: &str) -> SharedString {
+    SharedString::from(format!("Starts a new {} session · {to_model}", provider_display_name(mark(to))))
+}
+
+/// The `Carried` list the card and the confirm dialog share: one row per
+/// item, the label in ink, the muted detail after it.
+fn carried_list(p: &Palette, carried: &[HandoffItem]) -> AnyElement {
+    let mut list =
+        v_flex().w_full().gap(px(2.0)).child(div().text_role(TextRole::Caps).text_color(p.ink_3).child("Carried"));
+    if carried.is_empty() {
+        list = list.child(div().ui(ITEM_TEXT).text_color(p.ink_3).child("Nothing carried over."));
     }
+    for item in carried {
+        list = list.child(
+            h_flex()
+                .w_full()
+                .gap(px(scale::SP_2))
+                .ui(ITEM_TEXT)
+                .child(div().flex_none().text_color(p.ink).child(item.label.clone()))
+                .children(item.detail.clone().map(|d| {
+                    div().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).text_color(p.ink_3).child(format!("· {d}"))
+                })),
+        );
+    }
+    list.into_any_element()
+}
+
+/// The `Not carried` list the card and the confirm dialog share: the same
+/// rows in ink-3, never hidden behind a fold.
+fn lost_list(p: &Palette, lost: &[HandoffItem]) -> AnyElement {
+    let mut list =
+        v_flex().w_full().gap(px(2.0)).child(div().text_role(TextRole::Caps).text_color(p.ink_3).child("Not carried"));
+    if lost.is_empty() {
+        list = list.child(div().ui(ITEM_TEXT).text_color(p.ink_3).child("Nothing left behind."));
+    }
+    for item in lost {
+        list = list.child(
+            h_flex()
+                .w_full()
+                .gap(px(scale::SP_2))
+                .ui(ITEM_TEXT)
+                .text_color(p.ink_3)
+                .child(div().flex_none().child(item.label.clone()))
+                .children(item.detail.clone().map(|d| {
+                    div().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).child(format!("· {d}"))
+                })),
+        );
+    }
+    list.into_any_element()
+}
+
+/// The pack size both the card and the confirm dialog draw.
+fn pack_line(tokens: u64) -> AnyElement {
+    div().w_full().child(tag(format!("~{} tokens of context", grouped_tokens(tokens)))).into_any_element()
 }
 
 /// The handoff card. Build with [`handoff_card`].
@@ -249,51 +304,15 @@ impl RenderOnce for HandoffCard {
             div().w_full().ui(STATE_TEXT).text_color(if failed { p.danger } else { p.ink_2 }).child(state_line),
         );
 
-        // Carried and Not carried: the same rows, the lost ones in ink-3 and
-        // never hidden behind a fold.
-        let mut carried =
-            v_flex().w_full().gap(px(2.0)).child(div().text_role(TextRole::Caps).text_color(p.ink_3).child("Carried"));
-        if self.carried.is_empty() {
-            carried = carried.child(div().ui(ITEM_TEXT).text_color(p.ink_3).child("Nothing carried over."));
-        }
-        for item in &self.carried {
-            carried = carried.child(
-                h_flex()
-                    .w_full()
-                    .gap(px(scale::SP_2))
-                    .ui(ITEM_TEXT)
-                    .child(div().flex_none().text_color(p.ink).child(item.label.clone()))
-                    .children(item.detail.clone().map(|d| {
-                        div().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).text_color(p.ink_3).child(format!("· {d}"))
-                    })),
-            );
-        }
-        let mut lost =
-            v_flex().w_full().gap(px(2.0)).child(div().text_role(TextRole::Caps).text_color(p.ink_3).child("Not carried"));
-        if self.lost.is_empty() {
-            lost = lost.child(div().ui(ITEM_TEXT).text_color(p.ink_3).child("Nothing left behind."));
-        }
-        for item in &self.lost {
-            lost = lost.child(
-                h_flex()
-                    .w_full()
-                    .gap(px(scale::SP_2))
-                    .ui(ITEM_TEXT)
-                    .text_color(p.ink_3)
-                    .child(div().flex_none().child(item.label.clone()))
-                    .children(item.detail.clone().map(|d| {
-                        div().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).child(format!("· {d}"))
-                    })),
-            );
-        }
+        // Carried and Not carried share their rendering with the confirm
+        // dialog: the same rows, the lost ones in ink-3, never hidden
+        // behind a fold.
         body = body
-            .child(div().w_full().mt(px(SECTION_GAP_TOP)).child(carried.into_any_element()))
-            .child(div().w_full().child(lost.into_any_element()));
+            .child(div().w_full().mt(px(SECTION_GAP_TOP)).child(carried_list(&p, &self.carried)))
+            .child(div().w_full().child(lost_list(&p, &self.lost)));
 
         if let Some(tokens) = self.pack_tokens {
-            body = body.child(
-                div().w_full().child(tag(format!("~{} tokens of context", grouped_tokens(tokens)))),
-            );
+            body = body.child(pack_line(tokens));
         }
 
         let mut card = v_flex()
@@ -348,34 +367,58 @@ impl RenderOnce for HandoffCard {
 
 /// The confirm dialog the host shows before starting a handoff.
 ///
-/// Built on the existing modal ([`dialog`]): the title names the destination,
-/// the body carries the destination model, what will be carried and not
-/// carried as sentences, and the honest note that the new session starts
-/// fresh. Actions are Cancel (secondary) and Hand off (primary); the host
-/// owns what they do through the dialog's own handlers.
+/// Built on the existing modal ([`dialog`]): the title names the destination
+/// and the structured body carries the destination row with the provider
+/// mark, the [`carried_list`] / [`lost_list`] rows the card draws, the pack
+/// size, and the honest note as its own paragraph in ink-3. Actions are
+/// Cancel (secondary) and Hand off (primary); the host owns what they do
+/// through the dialog's own handlers.
 pub fn handoff_confirm(
     id: impl Into<ElementId>,
     to: WireProvider,
     to_model: impl Into<SharedString>,
     carried: &[HandoffItem],
     lost: &[HandoffItem],
+    pack_tokens: Option<u64>,
 ) -> Dialog {
     let to_name = provider_display_name(mark(to));
     let to_model = to_model.into();
-    let list = |items: &[HandoffItem]| {
-        if items.is_empty() {
-            "nothing".to_string()
-        } else {
-            items.iter().map(item_text).collect::<Vec<_>>().join("; ")
-        }
-    };
-    let body: SharedString = SharedString::from(format!(
-        "Starts on {to_name} · {to_model}. Will carry: {}. Will not carry: {}. {HANDOFF_FRESH_NOTE}",
-        list(carried),
-        list(lost)
-    ));
+    let carried = carried.to_vec();
+    let lost = lost.to_vec();
     dialog(id, SharedString::from(format!("Hand off to {to_name}?")))
-        .body(body)
+        .width(HANDOFF_CONFIRM_WIDTH)
+        .rich_body(move |p| {
+            v_flex()
+                .w_full()
+                .gap(px(BODY_GAP))
+                .child(
+                    h_flex()
+                        .w_full()
+                        .items_center()
+                        .gap(px(scale::SP_2))
+                        .child(provider_mark(mark(to)).size(px(MARK)))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .ui(ITEM_TEXT)
+                                .semibold()
+                                .text_color(p.ink)
+                                .child(handoff_confirm_destination(to, &to_model)),
+                        ),
+                )
+                .child(carried_list(p, &carried))
+                .child(lost_list(p, &lost))
+                .children(pack_tokens.map(pack_line))
+                .child(
+                    div()
+                        .w_full()
+                        .ui(DETAIL_TEXT)
+                        .text_color(p.ink_3)
+                        .child(HANDOFF_FRESH_NOTE),
+                )
+                .into_any_element()
+        })
         .secondary("Cancel")
         .primary("Hand off")
 }

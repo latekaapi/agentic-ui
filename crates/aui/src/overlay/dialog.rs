@@ -40,7 +40,7 @@ use std::rc::Rc;
 use aui_icons::{icon, IconName};
 use aui_motion::EnterExit;
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
-use gpui::{div, prelude::*, px, relative, App, ElementId, Hsla, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, relative, AnyElement, App, ElementId, Hsla, IntoElement, SharedString, Window};
 use gpui_kit::base::h_flex;
 
 use crate::data::{button, ButtonSize};
@@ -90,6 +90,11 @@ impl DialogKind {
 
 type Handler = ModalIntent;
 
+/// A structured body drawn in place of the plain paragraph, built with the
+/// active palette at render time — for content (lists, marks) that shares
+/// its rendering with a transcript card.
+type RichBody = Rc<dyn Fn(&Palette) -> AnyElement>;
+
 /// A modal dialog. Build with [`dialog`].
 ///
 /// The rendered element is `absolute().inset_0()`: it covers the window it is
@@ -102,6 +107,7 @@ pub struct Dialog {
     title: SharedString,
     kind: DialogKind,
     body: Option<SharedString>,
+    rich: Option<RichBody>,
     detail: Option<SharedString>,
     primary: SharedString,
     secondary: Option<SharedString>,
@@ -121,6 +127,7 @@ pub fn dialog(id: impl Into<ElementId>, title: impl Into<SharedString>) -> Dialo
         title: title.into(),
         kind: DialogKind::Info,
         body: None,
+        rich: None,
         detail: None,
         primary: "OK".into(),
         secondary: None,
@@ -145,6 +152,28 @@ impl Dialog {
     pub fn body(mut self, text: impl Into<SharedString>) -> Self {
         self.body = Some(text.into());
         self
+    }
+
+    /// A structured body drawn in place of the plain paragraph, built with
+    /// the active palette when the dialog renders.
+    pub fn rich_body(mut self, f: impl Fn(&Palette) -> AnyElement + 'static) -> Self {
+        self.rich = Some(Rc::new(f));
+        self
+    }
+
+    /// Whether a structured body replaces the plain paragraph.
+    pub fn has_rich_body(&self) -> bool {
+        self.rich.is_some()
+    }
+
+    /// The plain body paragraph, if one was set.
+    pub fn body_text(&self) -> Option<SharedString> {
+        self.body.clone()
+    }
+
+    /// The card width in px.
+    pub fn width_px(&self) -> f32 {
+        self.width
     }
 
     /// An optional mono detail line under the body (a path, an id, an error
@@ -241,7 +270,9 @@ impl RenderOnce for Dialog {
                     .child(div().flex_1().min_w(px(0.0)).text_role(TextRole::Title).text_color(p.ink).child(self.title.clone())),
             );
 
-        if let Some(body) = self.body.clone() {
+        if let Some(rich) = self.rich.clone() {
+            card = card.child(rich(&p));
+        } else if let Some(body) = self.body.clone() {
             card = card.child(
                 div()
                     .w_full()

@@ -81,7 +81,7 @@ pub fn build_confirm(_window: &mut Window, _cx: &mut App) -> AnyElement {
         .relative()
         .size_full()
         .child(
-            handoff_confirm("handoff-confirm", Provider::Claude, "gpt-5.6", &carried(), &lost())
+            handoff_confirm("handoff-confirm", Provider::Claude, "opus 4.6", &carried(), &lost(), Some(8_400))
                 .at_rest()
                 .on_primary(|_, _| {})
                 .on_secondary(|_, _| {})

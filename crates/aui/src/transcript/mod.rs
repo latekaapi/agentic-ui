@@ -46,7 +46,10 @@ pub use tool_group::{
     GROUP_PREVIEW,
 };
 pub use approval::{approval_card, ApprovalCard};
-pub use handoff::{handoff_card, handoff_confirm, HandoffCard, HandoffIntent, HANDOFF_FRESH_NOTE};
+pub use handoff::{
+    handoff_card, handoff_confirm, handoff_confirm_destination, HandoffCard, HandoffIntent, HANDOFF_CONFIRM_WIDTH,
+    HANDOFF_FRESH_NOTE,
+};
 pub use question::{answered_row, question_card, AnsweredRow, QuestionCard, QuestionOutcome};
 pub use item::{generic_item_card, goal_card, GenericItemCard, GoalCard};
 pub use plan::{plan_card, PlanCard};
