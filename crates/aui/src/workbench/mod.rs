@@ -6,6 +6,7 @@ mod browser;
 mod citations;
 mod diff_review;
 mod docs;
+mod file_card;
 mod files;
 mod git;
 mod pdf;
@@ -23,6 +24,7 @@ pub use browser::{
 };
 pub use diff_review::{diff_review, segmented, DiffHighlight, DiffReview, DiffReviewAction, DiffScope, DiffView, ReviewFile, ReviewNote, Segmented};
 pub use git::{git_changes, pr_check, pr_form, GitAction, GitChanges, PrAction, PrCheck, PrDescription, PrForm};
+pub use file_card::{file_card, FileCard};
 pub use files::{file_tree, FileNode, FileTree, FileTreeAction, GitBadge};
 pub use docs::{
     artifact_strip, doc_pane, doc_saved_hint, doc_tabs, doc_toolbar, pane_status, pane_status_row, Artifact, ArtifactKind, ArtifactStrip,

@@ -10,7 +10,7 @@
 use std::time::Duration;
 
 use aui::composer::{composer, composer_state_rows, plus_menu, ComposerIntent, PlusMenuItem};
-use aui::data::{button, status_dot};
+use aui::data::status_dot;
 use aui::feedback::{toast_stack, ToastData};
 use aui::keys::{ApproveAlways, ApproveOnce, Cancel, Confirm, Deny as DenyAction, FocusNext, FocusPrev, SelectNext, SelectPrev, ToggleRightPane, ToggleSidebar, TogglePalette};
 use aui::nav::{rail, role_section, sidebar_footer, Project, RailItem, Role, RoleSession, SessionKind};
@@ -20,10 +20,10 @@ use aui::shell::{app_shell, centre_header, right_header, sidebar_header, tab_str
 use aui::transcript::{activity_group, answered_row, approval_card, question_card, user_turn, ProseStyle};
 use aui::util::{interaction_flags, TrackInteraction};
 use aui::workbench::{
-    artifact_strip, cited_answer, doc_pane, doc_toolbar, pane_status, pane_status_row, pdf_pane, sheet_pane, source_hover_card, sources_card, Artifact, ArtifactKind, DocBlock, DocPage,
-    DocRun, PdfControls, PdfPage, PdfRun, SheetCell, Source, SourceTier,
+    artifact_strip, cited_answer, doc_pane, doc_toolbar, file_card, pane_status, pane_status_row, pdf_pane, sheet_pane, source_hover_card, sources_card, Artifact, ArtifactKind,
+    DocBlock, DocPage, DocRun, PdfControls, PdfPage, PdfRun, SheetCell, Source, SourceTier,
 };
-use aui_icons::{icon, IconName, Provider, RoleIcon};
+use aui_icons::{IconName, Provider, RoleIcon};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::input::TextareaState;
@@ -37,14 +37,6 @@ const TRANSCRIPT_PAD_TOP: f32 = 18.0;
 const TRANSCRIPT_PAD_X: f32 = 32.0;
 const BLOCK_GAP: f32 = 16.0;
 const STATUS_PAD_BOTTOM: f32 = 12.0;
-/// `.fc{gap:12px;padding:10px 12px}` with a 36 px icon tile.
-const FILE_CARD_GAP: f32 = 12.0;
-const FILE_CARD_PAD_Y: f32 = 10.0;
-const FILE_CARD_PAD_X: f32 = 12.0;
-const FILE_CARD_TILE: f32 = 36.0;
-const FILE_CARD_TILE_RADIUS: f32 = 8.0;
-/// `.fc .ic svg{width:18px;height:18px}`.
-const FILE_CARD_GLYPH: f32 = 18.0;
 /// The passage the `assistant-Sources` hover card quotes, and the span the
 /// retrieval matched (`<mark>` in the screen source).
 const SOURCE_QUOTE: &str =
@@ -425,50 +417,26 @@ impl AssistantMock {
         )
     }
 
-    /// `.fc`: the artifact card under the answer. The tile is surface-2 with
-    /// the file type's tint, as `file_card()` builds it in the screen source.
+    /// `.fc`: the artifact card under the answer, from the library.
     fn file_card(&self, id: SharedString, sheet: bool, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = cx.aui().colors;
-        let (glyph, tint, name, desc) = if sheet {
-            (IconName::Sheet, p.success, "vendor-scoring.xlsx", "Scores, Matrix and Notes sheets \u{b7} formulas live \u{b7} v1")
+        let (kind, name, desc) = if sheet {
+            (ArtifactKind::Sheet, "vendor-scoring.xlsx", "Scores, Matrix and Notes sheets \u{b7} formulas live \u{b7} v1")
         } else {
-            (IconName::Doc, p.info, "RFP-draft-v3.docx", "Section 2 rewritten \u{b7} 3 changes highlighted \u{b7} v3")
+            (ArtifactKind::Doc, "RFP-draft-v3.docx", "Section 2 rewritten \u{b7} 3 changes highlighted \u{b7} v3")
         };
         let tab = if sheet { RightTab::Sheet } else { RightTab::Doc };
-        h_flex()
-            .id(ElementId::from(id))
-            .w_full()
-            .gap(px(FILE_CARD_GAP))
-            .py(px(FILE_CARD_PAD_Y))
-            .px(px(FILE_CARD_PAD_X))
-            .rounded(px(scale::R_LG))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.surface_1)
-            .child(
-                div()
-                    .flex_none()
-                    .size(px(FILE_CARD_TILE))
-                    .rounded(px(FILE_CARD_TILE_RADIUS))
-                    .bg(p.surface_2)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(icon(glyph).size(px(FILE_CARD_GLYPH)).color(tint)),
-            )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .child(div().ui(scale::FS_13).semibold().text_color(p.ink).child(name))
-                    .child(div().ui(scale::FS_12).text_color(p.ink_3).child(desc)),
-            )
-            .child(button("assistant-download", "Download").ghost().sm())
-            .child(button("assistant-open-pane", "Open in pane").sm().on_click(cx.listener(move |this, _, _, cx| {
-                this.right_open = true;
-                this.right_tab = tab;
-                cx.notify();
-            })))
+        file_card(ElementId::from(id), name)
+            .kind(kind)
+            .meta(desc)
+            .action("download", "Download")
+            .action("open", "Open in pane")
+            .on_action(cx.listener(move |this, action: &SharedString, _, cx| {
+                if action.as_ref() == "open" {
+                    this.right_open = true;
+                    this.right_tab = tab;
+                    cx.notify();
+                }
+            }))
     }
 
     fn render_composer(&self, cx: &mut Context<Self>) -> impl IntoElement {

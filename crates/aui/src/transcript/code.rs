@@ -9,7 +9,7 @@ use std::ops::Range;
 use aui_motion::{icon_morph, spring_phase, tween, IconMorph, SpringKind, Tween};
 use aui_protocol::{Diff, DiffKind};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
-use gpui::{div, prelude::*, px, relative, App, ElementId, Hsla, IntoElement, SharedString, StyledText, Window};
+use gpui::{div, prelude::*, px, relative, App, ClipboardItem, ElementId, Hsla, IntoElement, SharedString, StyledText, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, icon_button, pill, record_ax_label, ButtonSize, PillVariant};
@@ -251,8 +251,18 @@ impl CodeBlock {
     }
 }
 
+/// Copies `code` to the clipboard and reports [`CodeBlockAction::Copy`];
+/// the clipboard write is the default, so a block with no host handler
+/// still copies, and a host handler only adds behaviour.
+fn emit_copy(code: &SharedString, on_copy: &Option<CodeHandler>, window: &mut Window, cx: &mut App) {
+    cx.write_to_clipboard(ClipboardItem::new_string(code.to_string()));
+    if let Some(h) = on_copy {
+        h(CodeBlockAction::Copy, window, cx);
+    }
+}
+
 /// The copy ↔ check morph, keyed per block; the check holds for [`COPY_HOLD`](super::turns::COPY_HOLD), the same hold the turn rails use.
-fn copy_button(id: &ElementId, p: &Palette, on_copy: Option<CodeHandler>, window: &mut Window, cx: &mut App) -> impl IntoElement {
+fn copy_button(id: &ElementId, p: &Palette, code: SharedString, on_copy: Option<CodeHandler>, window: &mut Window, cx: &mut App) -> impl IntoElement {
     let copied = window.use_keyed_state((id.clone(), "copied"), cx, |_, _| false);
     let is_copied = *copied.read(cx);
     let sample = icon_morph((id.clone(), "copy-morph"), is_copied, window, cx);
@@ -275,9 +285,7 @@ fn copy_button(id: &ElementId, p: &Palette, on_copy: Option<CodeHandler>, window
         .text_color(p.ink_2)
         .hover(|s| s.bg(p.surface_2))
         .on_click(move |_, w, cx| {
-            if let Some(h) = &on_copy {
-                h(CodeBlockAction::Copy, w, cx);
-            }
+            emit_copy(&code, &on_copy, w, cx);
             state.update(cx, |c, cx| {
                 *c = true;
                 cx.notify();
@@ -356,7 +364,7 @@ impl RenderOnce for CodeBlock {
         let mut actions: Vec<gpui::AnyElement> = vec![
             ghost("wrap", IconName::List, "Toggle soft wrap").on_click(emit(CodeBlockAction::Wrap)).into_any_element(),
             ghost("open", IconName::Edit, "Open in editor").on_click(emit(CodeBlockAction::Open)).into_any_element(),
-            copy_button(&id, &p, self.on_action.clone(), window, cx).into_any_element(),
+            copy_button(&id, &p, self.code.clone(), self.on_action.clone(), window, cx).into_any_element(),
         ];
         // The host action trails Copy. With none set the header builds
         // exactly as before.
