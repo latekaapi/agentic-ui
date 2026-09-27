@@ -912,6 +912,9 @@ impl RenderOnce for DocPane {
             .w_full()
             .flex()
             .justify_center()
+            // Top-align: the row's default cross-axis stretch would size the
+            // paper to the pane and leave nothing to scroll.
+            .items_start()
             .p(px(DOC_PAD))
             .bg(p.surface_2)
             .overflow_hidden()
