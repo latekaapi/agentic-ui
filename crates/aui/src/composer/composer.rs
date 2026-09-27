@@ -422,8 +422,11 @@ impl RenderOnce for Composer {
             chips_row = chips_row.child(el);
         }
 
-        // Text area.
-        let text = div()
+        // Text area. The a11y frame is the node assistive technology sees:
+        // role, the "Message" label and the live value, with SetValue /
+        // ReplaceSelectedText / Focus routed into the state so dictation,
+        // VoiceOver and automation write through it instead of into the void.
+        let text = crate::a11y_text::a11y_text_field((id.clone(), "text"), "Message", &self.state, true, cx)
             .w_full()
             .min_h(px(if self.docked { DOCKED_TEXT_MIN_H } else { TEXT_MIN_H }))
             .pt(px((TEXT_PAD_TOP - KIT_EDITOR_PAD_Y).max(0.0)))
