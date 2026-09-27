@@ -11,7 +11,7 @@ use gpui::{div, linear_color_stop, linear_gradient, prelude::*, px, relative, Ap
 use gpui_kit::base::{h_flex, v_flex};
 use std::cell::RefCell;
 
-use crate::data::{button, glyph_err, glyph_ok, pill, spinner, tag, PillVariant};
+use crate::data::{button, glyph_err, glyph_ok, pill, record_ax_label, spinner, tag, PillVariant};
 use crate::icons::{icon, IconName};
 use crate::transcript::ansi::{ansi_runs, ansi_spans};
 use crate::transcript::transcript_card;
@@ -398,9 +398,25 @@ fn fold_row(p: &Palette, ground: gpui::Hsla, overlap: bool, label: String, open_
     }
     let unfold = emit(ToolCardIntent::Unfold);
     let open = emit(ToolCardIntent::OpenInPane);
-    row.child(h_flex().id("unfold").gap(px(MORE_GAP)).cursor_pointer().on_click(move |e, w, cx| unfold(e, w, cx)).child(icon(IconName::ChevronDown).size(px(MORE_GLYPH))).child(label))
-        .child(div().flex_1())
-        .child(div().id("open").cursor_pointer().on_click(move |e, w, cx| open(e, w, cx)).child(open_label))
+    // Both halves of the fold row are controls: the chevron half unfolds the
+    // body in place ("Show 14 more lines"), the trailing half opens the full
+    // output elsewhere ("open in terminal" / "open in Diff").
+    let unfold_label = format!("Show {label}");
+    record_ax_label(&unfold_label);
+    record_ax_label(open_label);
+    row.child(
+        h_flex()
+            .id("unfold")
+            .gap(px(MORE_GAP))
+            .cursor_pointer()
+            .role(gpui::Role::Button)
+            .aria_label(unfold_label.clone())
+            .on_click(move |e, w, cx| unfold(e, w, cx))
+            .child(icon(IconName::ChevronDown).size(px(MORE_GLYPH)))
+            .child(label),
+    )
+    .child(div().flex_1())
+    .child(div().id("open").cursor_pointer().role(gpui::Role::Button).aria_label(open_label).on_click(move |e, w, cx| open(e, w, cx)).child(open_label))
 }
 
 fn shell_body(p: &Palette, _id: &ElementId, lines: &[String], emit: impl Fn(ToolCardIntent) -> Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)> + Clone + 'static) -> impl IntoElement {

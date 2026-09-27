@@ -111,6 +111,25 @@ fn user_action_spec(action: UserTurnAction) -> (&'static str, IconName, UserTurn
     }
 }
 
+/// The accessible name for one user-turn icon button, naming the action.
+fn user_action_label(action: UserTurnAction) -> &'static str {
+    match action {
+        UserTurnAction::Edit => "Edit message",
+        UserTurnAction::Copy => "Copy message",
+        UserTurnAction::Resend => "Resend message",
+    }
+}
+
+/// The accessible name for one assistant-turn icon button, naming the action.
+fn assistant_action_label(action: AssistantTurnAction) -> &'static str {
+    match action {
+        AssistantTurnAction::Copy => "Copy reply",
+        AssistantTurnAction::Retry => "Retry turn",
+        AssistantTurnAction::Fork => "Fork conversation",
+        AssistantTurnAction::Pin => "Pin turn",
+    }
+}
+
 /// Element id, glyph and action for one assistant-turn button, in draw order.
 fn assistant_action_spec(action: AssistantTurnAction) -> (&'static str, IconName, AssistantTurnAction) {
     match action {
@@ -366,13 +385,13 @@ impl RenderOnce for UserTurn {
             for (name, glyph, action) in self.actions.iter().map(|a| user_action_spec(*a)) {
                 if action == UserTurnAction::Copy {
                     let morph = copy_morph(&id, self.copied, &p, window, cx);
-                    let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs);
+                    let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs).accessibility_label(user_action_label(action));
                     if let Some(h) = self.on_action.clone() {
                         b = b.on_click(move |_, w, cx| h(action, w, cx));
                     }
                     acts = acts.child(b);
                 } else {
-                    let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                    let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH)).accessibility_label(user_action_label(action));
                     if let Some(h) = self.on_action.clone() {
                         b = b.on_click(move |_, w, cx| h(action, w, cx));
                     }
@@ -446,13 +465,13 @@ impl RenderOnce for UserTurn {
             for (name, glyph, action) in self.actions.iter().map(|a| user_action_spec(*a)) {
                 if action == UserTurnAction::Copy {
                     let morph = copy_morph(&id, self.copied, &p, window, cx);
-                    let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs);
+                    let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs).accessibility_label(user_action_label(action));
                     if let Some(h) = self.on_action.clone() {
                         b = b.on_click(move |_, w, cx| h(action, w, cx));
                     }
                     row = row.child(b);
                 } else {
-                    let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                    let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH)).accessibility_label(user_action_label(action));
                     if let Some(h) = self.on_action.clone() {
                         b = b.on_click(move |_, w, cx| h(action, w, cx));
                     }
@@ -773,13 +792,13 @@ impl RenderOnce for AssistantTurn {
         for (name, glyph, action) in self.actions.iter().map(|a| assistant_action_spec(*a)) {
             if action == AssistantTurnAction::Copy {
                 let morph = copy_morph(&id, self.copied, &p, window, cx);
-                let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs);
+                let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs).accessibility_label(assistant_action_label(action));
                 if let Some(h) = self.on_action.clone() {
                     b = b.on_click(move |_, w, cx| h(action, w, cx));
                 }
                 toolbar = toolbar.child(b);
             } else {
-                let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH)).accessibility_label(assistant_action_label(action));
                 if let Some(h) = self.on_action.clone() {
                     b = b.on_click(move |_, w, cx| h(action, w, cx));
                 }
@@ -875,13 +894,13 @@ impl RenderOnce for AssistantTurn {
             for (name, glyph, action) in self.actions.iter().map(|a| assistant_action_spec(*a)) {
                 if action == AssistantTurnAction::Copy {
                     let morph = copy_morph(&id, self.copied, &p, window, cx);
-                    let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs);
+                    let mut b = icon_content_button((id.clone(), name), morph).ghost().size(ButtonSize::Xs).accessibility_label(assistant_action_label(action));
                     if let Some(h) = self.on_action.clone() {
                         b = b.on_click(move |_, w, cx| h(action, w, cx));
                     }
                     row = row.child(b);
                 } else {
-                    let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH));
+                    let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(ACTS_GLYPH)).accessibility_label(assistant_action_label(action));
                     if let Some(h) = self.on_action.clone() {
                         b = b.on_click(move |_, w, cx| h(action, w, cx));
                     }

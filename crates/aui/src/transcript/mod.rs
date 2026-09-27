@@ -28,6 +28,7 @@ mod tool_group;
 mod prose;
 mod turns;
 
+pub use crate::data::{arm_ax_probe, record_ax_label, take_ax_labels};
 pub use activity::{activity_group, ActivityGroup};
 pub use card::{transcript_card, TranscriptCard};
 pub use thinking::{thinking_block, ThinkingBlock};

@@ -35,10 +35,11 @@ const NOTE_MEASURE: f32 = 640.0;
 
 /// Turns one sample [`Block::Approval`] into a card.
 fn card(id: &'static str, block: &Block) -> ApprovalCard {
-    let Block::Approval { tool, command, reason, cwd, capabilities, scope, state, rule, .. } = block else {
+    let Block::Approval { tool, command, reason, cwd, capabilities, scope, state, rule, body_kind, .. } = block else {
         unreachable!("sample::approvals yields approval blocks only")
     };
     let mut el = approval_card(id, tool.clone(), command.clone(), state.clone())
+        .body_kind(*body_kind)
         .reason(reason.clone())
         .cwd(cwd.clone())
         .capabilities(capabilities.clone())
@@ -53,12 +54,13 @@ fn card(id: &'static str, block: &Block) -> ApprovalCard {
 /// Turns one sample [`Block::Approval`] from [`sample::muse_approvals`] into a
 /// card, choices, stages, badges and resolution included.
 fn muse_card(id: &'static str, block: &Block) -> ApprovalCard {
-    let Block::Approval { tool, command, reason, cwd, capabilities, scope, state, choices, stages, current_stage, badges, feedback, resolved_by, .. } = block
+    let Block::Approval { tool, command, reason, cwd, capabilities, scope, state, choices, stages, current_stage, badges, feedback, resolved_by, body_kind, .. } = block
     else {
         unreachable!("sample::muse_approvals yields approval blocks only")
     };
     let mut el = approval_card(id, tool.clone(), command.clone(), state.clone())
         .title("Allow Muse to run this command?")
+        .body_kind(*body_kind)
         .reason(reason.clone())
         .cwd(cwd.clone())
         .capabilities(capabilities.clone())
@@ -79,6 +81,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
     let blocks = sample::approvals();
     let muse = sample::muse_approvals();
+    let kinds = sample::approval_body_kinds();
     // The feedback field is the host's, as it is in the harness: the card is
     // handed an element and never a character of text.
     let feedback = window.use_keyed_state("card35-feedback-input", cx, |window, cx| {
@@ -123,6 +126,10 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                         .on_feedback_toggle(|_, _, _| {}),
                 )
                 .child(muse_card("card35-badges", &muse[2]).on_choose(|_, _, _, _| {}).on_feedback_toggle(|_, _, _| {}))
+                .child(section("Bodies by tool kind", &p))
+                .child(card("card35-kind-command", &kinds[0]).on_decide(|_, _, _| {}).into_any_element())
+                .child(card("card35-kind-file", &kinds[1]).on_decide(|_, _, _| {}).into_any_element())
+                .child(card("card35-kind-other", &kinds[2]).on_decide(|_, _, _| {}).into_any_element())
                 .child(section("Resolved without asking", &p))
                 .child(row(muse_card("card35-policy-allowed", &muse[3]).into_any_element(), muse_card("card35-policy-denied", &muse[4]).into_any_element()))
                 .child(row(muse_card("card35-judge-denied", &muse[5]).into_any_element(), muse_card("card35-user-denied", &muse[6]).into_any_element())),

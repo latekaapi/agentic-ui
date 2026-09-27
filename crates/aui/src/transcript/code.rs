@@ -12,7 +12,7 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::{div, prelude::*, px, relative, App, ElementId, Hsla, IntoElement, SharedString, StyledText, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{button, icon_button, pill, ButtonSize, PillVariant};
+use crate::data::{button, icon_button, pill, record_ax_label, ButtonSize, PillVariant};
 use crate::icons::{icon, IconName};
 use crate::transcript::selectable::{
     SelectionEndpoint, intersect_range, selectable_text, MessageSelection, SelectionHandler,
@@ -259,6 +259,8 @@ fn copy_button(id: &ElementId, p: &Palette, on_copy: Option<CodeHandler>, window
     let glyph_size = px(HEADER_GLYPH);
     let morph = IconMorph::new(sample, glyph_size, icon(IconName::Copy).size(glyph_size), icon(IconName::CheckBold).size(glyph_size).color(p.success));
     let state = copied.clone();
+    // The copy target names itself, like the turn rails' copy buttons do.
+    record_ax_label("Copy code");
     div()
         .id((id.clone(), "copy"))
         .flex_none()
@@ -268,6 +270,8 @@ fn copy_button(id: &ElementId, p: &Palette, on_copy: Option<CodeHandler>, window
         .items_center()
         .justify_center()
         .cursor_pointer()
+        .role(gpui::Role::Button)
+        .aria_label("Copy code")
         .text_color(p.ink_2)
         .hover(|s| s.bg(p.surface_2))
         .on_click(move |_, w, cx| {
@@ -346,10 +350,12 @@ impl RenderOnce for CodeBlock {
                 }
             }
         };
-        let ghost = |name: &'static str, glyph: IconName| icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(HEADER_GLYPH));
+        let ghost = |name: &'static str, glyph: IconName, label: &'static str| {
+            icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(HEADER_GLYPH)).accessibility_label(label)
+        };
         let mut actions: Vec<gpui::AnyElement> = vec![
-            ghost("wrap", IconName::List).on_click(emit(CodeBlockAction::Wrap)).into_any_element(),
-            ghost("open", IconName::Edit).on_click(emit(CodeBlockAction::Open)).into_any_element(),
+            ghost("wrap", IconName::List, "Toggle soft wrap").on_click(emit(CodeBlockAction::Wrap)).into_any_element(),
+            ghost("open", IconName::Edit, "Open in editor").on_click(emit(CodeBlockAction::Open)).into_any_element(),
             copy_button(&id, &p, self.on_action.clone(), window, cx).into_any_element(),
         ];
         // The host action trails Copy. With none set the header builds
@@ -499,6 +505,8 @@ impl RenderOnce for CodeBlock {
             .child(header)
             .child(body);
         if self.hidden_lines > 0 {
+            let fold_label = format!("Show {} more lines", self.hidden_lines);
+            record_ax_label(&fold_label);
             block = block.child(
                 h_flex()
                     .id((id.clone(), "fold"))
@@ -512,9 +520,11 @@ impl RenderOnce for CodeBlock {
                     .ui(scale::FS_11)
                     .text_color(p.ink_3)
                     .cursor_pointer()
+                    .role(gpui::Role::Button)
+                    .aria_label(fold_label.clone())
                     .on_click(emit(CodeBlockAction::Unfold))
                     .child(icon(IconName::ChevronDown).size(px(FOLD_GLYPH)))
-                    .child(format!("Show {} more lines", self.hidden_lines)),
+                    .child(fold_label),
             );
         }
         block
@@ -717,7 +727,9 @@ impl RenderOnce for DiffBlock {
                     .child(div().flex_1().min_w(px(0.0)).child(format!("{sign} {}", line.text)));
                 if line_flags.hovered {
                     let add = emit(DiffBlockAction::AddNote(target_line));
-                    row = row.on_click(move |e, w, cx| add(e, w, cx));
+                    let note_label = format!("Add note on line {target_line}");
+                    record_ax_label(&note_label);
+                    row = row.role(gpui::Role::Button).aria_label(note_label).on_click(move |e, w, cx| add(e, w, cx));
                 }
                 body = body.child(row);
                 for (n, note) in self.notes.iter().enumerate() {

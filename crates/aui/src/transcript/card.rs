@@ -9,6 +9,7 @@ use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::data::record_ax_label;
 use crate::nav::chevron;
 use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
 
@@ -108,7 +109,11 @@ impl RenderOnce for TranscriptCard {
             header = header.child(chevron((id.clone(), "chevron"), self.open, p.ink_3, window, cx));
         }
         if let Some(on_toggle) = self.on_toggle {
-            header = header.on_click(move |e, w, cx| on_toggle(e, w, cx));
+            // The header is the expand/collapse control: it names itself so
+            // the toggle is reachable by label ("Expand tool output").
+            let label = if self.open { "Collapse section" } else { "Expand section" };
+            record_ax_label(label);
+            header = header.role(gpui::Role::Button).aria_label(label).on_click(move |e, w, cx| on_toggle(e, w, cx));
         }
 
         let mut card = v_flex()

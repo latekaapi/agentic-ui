@@ -28,7 +28,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use aui_motion::{presence, stagger_delay, EnterExit, PresenceStyle};
-use aui_protocol::{ApprovalBadges, ApprovalChoice, ApprovalDecision, ApprovalScope, ApprovalStage, ApprovalState, ResolvedBy};
+use aui_protocol::{ApprovalBadges, ApprovalBodyKind, ApprovalChoice, ApprovalDecision, ApprovalScope, ApprovalStage, ApprovalState, ResolvedBy};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, font, prelude::*, px, relative, AnyElement, App, ElementId, Font, Hsla, InteractiveText, IntoElement, SharedString, StyledText, TextRun, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -106,6 +106,7 @@ pub struct ApprovalCard {
     title: SharedString,
     tool: SharedString,
     command: SharedString,
+    body_kind: ApprovalBodyKind,
     reason: SharedString,
     cwd: SharedString,
     capabilities: Vec<SharedString>,
@@ -140,6 +141,7 @@ pub fn approval_card(id: impl Into<ElementId>, tool: impl Into<SharedString>, co
         title: PENDING_TITLE.into(),
         tool: tool.into(),
         command: command.into(),
+        body_kind: ApprovalBodyKind::Command,
         reason: SharedString::default(),
         cwd: SharedString::default(),
         capabilities: Vec::new(),
@@ -247,6 +249,16 @@ impl ApprovalCard {
     /// it when the open field was confirmed.
     pub fn on_choose(mut self, f: impl Fn(String, Option<String>, &mut Window, &mut App) + 'static) -> Self {
         self.on_choose = Some(Rc::new(f));
+        self
+    }
+
+    /// How the subject body renders: `$ ` prompt for commands, plain path
+    /// for file writes/edits, plain otherwise. Defaults to
+    /// [`ApprovalBodyKind::Command`], which is what every block written
+    /// before the kind existed already is; mirrors
+    /// [`aui_protocol::Block::Approval::body_kind`].
+    pub fn body_kind(mut self, kind: ApprovalBodyKind) -> Self {
+        self.body_kind = kind;
         self
     }
 
@@ -651,9 +663,12 @@ impl RenderOnce for ApprovalCard {
             return card;
         }
 
-        // `$ command` on the terminal ground.
-        card = card.child(
-            h_flex()
+        // The subject body, shaped by its kind: a command keeps the `$ `
+        // prompt on the terminal ground, a file write/edit shows the path
+        // plain on the same ground with no prompt, and anything else is
+        // plain UI-face text.
+        card = card.child(match self.body_kind {
+            ApprovalBodyKind::Command => h_flex()
                 .mx(px(BODY_INSET_X))
                 .mb(px(BODY_INSET_BOTTOM))
                 .gap(px(CMD_GAP))
@@ -666,8 +681,35 @@ impl RenderOnce for ApprovalCard {
                 .line_height(relative(CMD_LINE_HEIGHT))
                 .text_color(p.term_fg)
                 .child(div().flex_none().text_color(p.term_dim).child("$"))
-                .child(div().flex_1().min_w(px(0.0)).child(self.command.clone())),
-        );
+                .child(div().flex_1().min_w(px(0.0)).child(self.command.clone()))
+                .into_any_element(),
+            ApprovalBodyKind::FileWrite => h_flex()
+                .mx(px(BODY_INSET_X))
+                .mb(px(BODY_INSET_BOTTOM))
+                .gap(px(CMD_GAP))
+                .px(px(CMD_PAD_X))
+                .py(px(CMD_PAD_Y))
+                .rounded(px(scale::R_SM))
+                .bg(p.term_bg)
+                .font_family(scale::FONT_MONO)
+                .text_px(scale::FS_12)
+                .line_height(relative(CMD_LINE_HEIGHT))
+                .text_color(p.term_fg)
+                .child(div().flex_1().min_w(px(0.0)).child(self.command.clone()))
+                .into_any_element(),
+            ApprovalBodyKind::Other => div()
+                .mx(px(BODY_INSET_X))
+                .mb(px(BODY_INSET_BOTTOM))
+                .px(px(CMD_PAD_X))
+                .py(px(CMD_PAD_Y))
+                .rounded(px(scale::R_SM))
+                .bg(p.surface_2)
+                .ui(scale::FS_12)
+                .line_height(relative(CMD_LINE_HEIGHT))
+                .text_color(p.ink)
+                .child(self.command.clone())
+                .into_any_element(),
+        });
 
         // The stage strip: a pipeline is decided one stage at a time, so the
         // card says which stage this decision is for. One stage needs no strip.

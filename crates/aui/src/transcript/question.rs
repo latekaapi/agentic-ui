@@ -13,7 +13,7 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, Hsla, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{button, chip, glyph_ok, kbd, pill, PillVariant};
+use crate::data::{button, chip, glyph_ok, kbd, pill, record_ax_label, PillVariant};
 use crate::icons::{icon, IconName};
 use crate::transcript::ProseStyle;
 use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
@@ -402,7 +402,11 @@ impl RenderOnce for QuestionCard {
                 row = row.child(kbd(option.key.clone()));
             }
             if let Some(on_select) = self.on_select.clone() {
-                row = row.on_click(move |_, w, cx| on_select(index, w, cx));
+                // The row is the radio/checkbox control: it carries the
+                // option's label as its accessible name.
+                let role = if self.multi { gpui::Role::CheckBox } else { gpui::Role::RadioButton };
+                record_ax_label(&option.label);
+                row = row.role(role).aria_label(SharedString::from(option.label.clone())).on_click(move |_, w, cx| on_select(index, w, cx));
             }
             card = card.child(row);
 
@@ -411,6 +415,12 @@ impl RenderOnce for QuestionCard {
             let Some(preview) = &option.preview else { continue };
             let open = self.previews_open.contains(&index);
             let toggle_id: ElementId = (id.clone(), SharedString::from(format!("preview-{index}"))).into();
+            let preview_label = SharedString::from(format!(
+                "{} preview for {}",
+                if open { "Hide" } else { "Show" },
+                option.label
+            ));
+            record_ax_label(&preview_label);
             let mut chevron = h_flex()
                 .id(toggle_id)
                 .mx(px(OPT_MARGIN_X + OPT_PAD_X))
@@ -420,6 +430,8 @@ impl RenderOnce for QuestionCard {
                 .ui(PREVIEW_TEXT)
                 .text_color(p.ink_3)
                 .cursor_pointer()
+                .role(gpui::Role::Button)
+                .aria_label(preview_label)
                 .child(icon(if open { IconName::ChevronDown } else { IconName::Chevron }).size(px(PREVIEW_GLYPH)).color(p.ink_3))
                 .child("Preview");
             if let Some(on_toggle) = self.on_toggle_preview.clone() {
@@ -445,6 +457,7 @@ impl RenderOnce for QuestionCard {
 
         if self.allow_other {
             let other_id: ElementId = (id.clone(), "other").into();
+            record_ax_label("Other, type your own answer");
             let mut other = h_flex()
                 .id(other_id)
                 .items_center()
@@ -460,6 +473,8 @@ impl RenderOnce for QuestionCard {
                 .ui(OTHER_TEXT)
                 .text_color(p.ink_3)
                 .cursor_pointer()
+                .role(gpui::Role::Button)
+                .aria_label("Other, type your own answer")
                 .child(icon(IconName::Edit).size(px(OTHER_GLYPH)).color(p.ink_3))
                 .child("Other, type your own…");
             if let Some(on_other) = self.on_other {

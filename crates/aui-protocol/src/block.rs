@@ -94,6 +94,12 @@ pub enum Block {
         capabilities: Vec<String>,
         /// How far an "always allow" would reach.
         scope: ApprovalScope,
+        /// How the card renders the subject body: `$ ` prompt for commands,
+        /// plain path for file writes/edits, plain otherwise. Defaults to
+        /// [`ApprovalBodyKind::Command`], which is what every block written
+        /// before this field existed already is.
+        #[serde(default)]
+        body_kind: ApprovalBodyKind,
         /// Where the request is in its lifecycle.
         state: ApprovalState,
         /// The rule an "always allow" would remember, e.g. `"apt install"`.
@@ -335,6 +341,7 @@ impl Block {
             cwd: cwd.into(),
             capabilities,
             scope,
+            body_kind: ApprovalBodyKind::Command,
             state,
             rule,
             choices: Vec::new(),
@@ -445,6 +452,20 @@ pub enum StepState {
     Done,
     /// Finished with an error.
     Failed,
+}
+
+/// How an approval card renders its subject body.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalBodyKind {
+    /// A shell command, shown with the `$ ` prompt. The default: what every
+    /// block written before this field existed already is.
+    #[default]
+    Command,
+    /// A file write/edit: the path is shown plain, with no prompt.
+    FileWrite,
+    /// Anything else, shown plain, with no prompt.
+    Other,
 }
 
 /// How far an "always allow" decision reaches.

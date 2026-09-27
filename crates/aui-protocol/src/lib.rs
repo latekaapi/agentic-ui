@@ -62,10 +62,10 @@ mod turn;
 pub mod sample;
 
 pub use block::{
-    ActivityState, Answer, ApprovalBadges, ApprovalChoice, ApprovalScope, ApprovalStage,
-    ApprovalState, Block, Check, ChangeKind, FileChange, HandoffItem, HandoffState, MarkerKind,
-    PlanSection, PlanState, QuestionOption, QuestionPreview, ResolvedBy, Step, StepState,
-    ThinkingState, TodoItem, TodoState,
+    ActivityState, Answer, ApprovalBadges, ApprovalBodyKind, ApprovalChoice, ApprovalScope,
+    ApprovalStage, ApprovalState, Block, Check, ChangeKind, FileChange, HandoffItem, HandoffState,
+    MarkerKind, PlanSection, PlanState, QuestionOption, QuestionPreview, ResolvedBy, Step,
+    StepState, ThinkingState, TodoItem, TodoState,
 };
 pub use delta::Delta;
 pub use intent::{ApprovalDecision, Intent, Note, WorkbenchView};

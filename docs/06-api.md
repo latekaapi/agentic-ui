@@ -30,7 +30,7 @@ The asset source an `aui` application installs: the design’s own glyphs (`icon
 
 ### `aui::composer`
 
-Composer: the auto-growing input with context chips, the `+` menu, model / mode / effort chips, the send ↔ stop morph, queued messages and suggestion chips (cards 40–42, spec §4). [...]
+Composer: the auto-growing input with context chips, the `+` menu, provider / model / mode / effort chips, the send ↔ stop morph, queued messages and suggestion chips (cards 40–42, spec §4). [...]
 
 - **fn** `attachment_row` — A ready file row showing `name` over one line of `meta`.
   - `pub fn attachment_row(id: impl Into<ElementId>, name: impl Into<SharedString>, meta: impl Into<SharedString>) -> AttachmentRow`
@@ -54,6 +54,8 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
   - `pub fn model_menu(id: impl Into<ElementId>, rows: Vec<PickerRow>, selected: usize, open: bool) -> PickerMenu`
 - **fn** `plus_menu` — A menu over `items`; render it as a child of the `+` button’s holder.
   - `pub fn plus_menu(id: impl Into<ElementId>, items: Vec<PlusMenuItem>, open: bool) -> PlusMenu`
+- **fn** `provider_display_name` — The human label for a provider on the provider chip (`Muse`, `Claude Code`, `Codex`, …). This is a user-visible string, so it is an explicit table — never the `Debug` form of the enum.
+  - `pub fn provider_display_name(provider: Provider) -> SharedString`
 - **fn** `queue_row` — A queued message.
   - `pub fn queue_row(id: impl Into<ElementId>, text: impl Into<SharedString>) -> QueueRow`
 - **fn** `queue_strip` — The strip for `rows`, newest last, in server order.
@@ -156,12 +158,12 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
   - variants: `Ready`, `Uploading`, `Failed`, `Hint`
   - `pub fn from_upload(state: &UploadState) -> Self` — Maps the protocol’s `UploadState` onto a row state.
 - **enum** `ComposerChipAnchor` — Which toolbar control a `Composer::chip_menu` hangs off.
-  - variants: `Model`, `Mode`, `Effort`
+  - variants: `Provider`, `Model`, `Mode`, `Effort`
 - **enum** `ComposerChipKind` — What a context chip stands for.
   - variants: `Mention`, `Image`, `File`, `Skill`
 - **enum** `ComposerIntent` — What the composer asks for.
-  - variants: `Send`, `Stop`, `TogglePlus`, `Model`, `Mode`, `Effort`, `RemoveChip`, `Steer`,
-    `ExitPlan`, `Attach`, `Compact`
+  - variants: `Send`, `Stop`, `TogglePlus`, `Provider`, `Model`, `Mode`, `Effort`, `RemoveChip`,
+    `Steer`, `ExitPlan`, `Attach`, `Compact`
 - **enum** `MentionIcon` — The leading glyph of a mention row.
   - variants: `Glyph`, `Symbol`, `Dot`
 - **enum** `QueueIntent` — What a queue row asks for.
@@ -174,6 +176,8 @@ Composer: the auto-growing input with context chips, the `+` menu, model / mode 
 
 Shared data-display primitives every card is built from (`base.css`): buttons, chips, pills, tags, status dots, kbd, avatars, status glyphs, the provider usage meter and the context-window meter. [...]
 
+- **fn** `arm_ax_probe` — Arms (`true`) or disarms the AX-label probe. Disarmed — the default — nothing is recorded and rendering is byte-for-byte what it was.
+  - `pub fn arm_ax_probe(armed: bool)`
 - **fn** `avatar` — The person’s initial in a circle.
   - `pub fn avatar(initial: impl Into<SharedString>) -> Avatar`
 - **fn** `button` — A labelled button (secondary by default).
@@ -194,6 +198,8 @@ Shared data-display primitives every card is built from (`base.css`): buttons, c
   - `pub fn kbd(keys: impl Into<SharedString>) -> Kbd`
 - **fn** `pill` — A quiet pill.
   - `pub fn pill(label: impl Into<SharedString>) -> Pill`
+- **fn** `record_ax_label` — Records one effective AX label when the probe is armed; a no-op otherwise. [...]
+  - `pub fn record_ax_label(label: &str)`
 - **fn** `secret_field` — The caller’s `state` in the library’s bordered control box, with a trailing ghost eye button that reports back through `.on_toggle_reveal`.
   - `pub fn secret_field(id: impl Into<ElementId>, state: &Entity<InputState>) -> SecretField`
 - **fn** `spinner` — A spinning ring; `id` keys its rotation.
@@ -202,12 +208,15 @@ Shared data-display primitives every card is built from (`base.css`): buttons, c
   - `pub fn status_dot(id: impl Into<ElementId>, state: AgentState) -> StatusDot`
 - **fn** `tag` — Mono 10.5 / 500 / ink-3.
   - `pub fn tag(text: impl Into<SharedString>) -> Tag`
+- **fn** `take_ax_labels` — Drains the effective AX labels recorded since the last call, in draw order. [...]
+  - `pub fn take_ax_labels() -> Vec<String>`
 - **fn** `usage_meter` — `fraction` in `0..=1`.
   - `pub fn usage_meter(provider: Provider, fraction: f32) -> UsageMeter`
 
 - **struct** `Avatar` — An avatar. Build with `avatar`.
   - `pub fn size(self, size: impl Into<Pixels>) -> Self` — Overrides the diameter (the rail uses 24); the initial scales with it.
 - **struct** `Button` — A button. Build with `button` or `icon_button`.
+  - `pub fn accessibility_label(self, label: impl Into<SharedString>) -> Self` — The accessible name for this button. Setting it also gives the button its role, so a screen reader announces name and role together; a labelled button without one announces its visible label, while an [...]
   - `pub fn danger(self) -> Self` — Outlined in danger.
   - `pub fn disabled(self, disabled: bool) -> Self` — Non-interactive at 45 % opacity.
   - `pub fn ghost(self) -> Self` — Quiet, transparent.
@@ -224,6 +233,7 @@ Shared data-display primitives every card is built from (`base.css`): buttons, c
   - `pub fn xs(self) -> Self` — 20 px.
 - **struct** `Chip` — A chip. Build with `chip`.
   - `pub fn accent(self) -> Self` — Accent-ink text (the “+ add” chip).
+  - `pub fn accessibility_label(self, label: impl Into<SharedString>) -> Self` — The accessible name for this chip. Setting it also gives the chip the button role, so a screen reader announces name, role and value together (a chip without one keeps its previous silent shape).
   - `pub fn active(self, active: bool) -> Self` — Selected: ink text and the line-strong border.
   - `pub fn chevron(self) -> Self` — A trailing chevron-down, for chips that open a menu.
   - `pub fn composer(self) -> Self` — The 28 px composer toolbar size.
@@ -806,6 +816,7 @@ Overlays: the command palette (card 12), the modal dialog, and later menus and p
   - `pub fn at_rest(self) -> Self` — Skips the enter: the dialog is drawn at rest on its first frame, for a static capture.
   - `pub fn on_dismiss(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The scrim was clicked, or the `esc` keycap, the close glyph or the `esc` key was pressed. A click on the card itself does not reach this.
   - `pub fn on_select_section(self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self` — A rail row was clicked; the argument is its index in `sections`. A rail row focused by `⇥` selects through `enter` / `space` too.
+  - `pub fn on_shortcut(self, f: impl Fn(&SharedString, ShortcutEdit, &mut Window, &mut App) + 'static) -> Self` — A shortcut row edit — by pressing the row (`ShortcutEdit::Record`), capturing a keystroke while recording (`ShortcutEdit::Set`), pressing the clear affordance (`ShortcutEdit::Clear`), or aborting the recording with `esc` (`ShortcutEdit::Cancel`). [...]
   - `pub fn on_switch(self, f: impl Fn(&SharedString, bool, &mut Window, &mut App) + 'static) -> Self` — A switch flipped — by clicking it, or by `enter` / `space` on the focused switch row. [...]
   - `pub fn present(self, present: bool) -> Self` — Whether the dialog is open; `false` plays the exit.
   - `pub fn width(self, width: f32) -> Self` — Overrides the card width.
@@ -821,7 +832,9 @@ Overlays: the command palette (card 12), the modal dialog, and later menus and p
 - **enum** `PaletteIcon` — The leading glyph of a palette row: an icon for actions and files, a status dot for worktrees, a project mark for projects.
   - variants: `Glyph`, `Dot`, `Mark`
 - **enum** `SettingsRow` — One row of a settings page.
-  - variants: `Switch`, `Note`, `Heading`
+  - variants: `Switch`, `Shortcut`, `Note`, `Heading`
+- **enum** `ShortcutEdit` — What a shortcut row asks for, reported through `SettingsDialog::on_shortcut`. The first argument to the handler is the row’s `SettingsRow::Shortcut` `id`; the host owns all state and stores the edit.
+  - variants: `Record`, `Set`, `Clear`, `Cancel`
 
 - **const** `POPOVER_LAYER` — The priority every popover in the library paints at. Deferred draws are painted in priority order, so a menu opened from inside another popover can ask for `POPOVER_LAYER` + 1 and land on top of it.
   - `pub const POPOVER_LAYER: usize = 1;`
@@ -858,6 +871,8 @@ App shell: the three-column layout with one 44 px header cell per column, contin
   - `pub fn app_shell(id: impl Into<ElementId>) -> AppShell`
 - **fn** `centre_header` — The centre header: provider mark + worktree name + branch tag, spacer, overflow menu, right-pane toggle. Nothing else lives here.
   - `pub fn centre_header(id: impl Into<ElementId>, title: impl Into<SharedString>) -> CentreHeader`
+- **fn** `clamp_right_width` — Clamps a drag width into the resizable range. The shell clamps its own target the same way, but call this on every drag move before notifying so the stored width never leaves the range.
+  - `pub fn clamp_right_width(width: f32) -> f32`
 - **fn** `clamp_sidebar_width` — Clamps a drag width into the resizable range. The shell clamps its own target the same way, but call this on every drag move before notifying so the stored width never leaves the range.
   - `pub fn clamp_sidebar_width(width: f32) -> f32`
 - **fn** `docked_composer` — A composer for `provider` / `model`.
@@ -893,9 +908,11 @@ App shell: the three-column layout with one 44 px header cell per column, contin
   - `pub fn header_follows_sidebar(self, follows: bool) -> Self` — Whether the header row’s sidebar cell follows the collapse (default true, today’s behaviour: the cell shrinks to the rail with the pane). [...]
   - `pub fn header_right(self, el: impl IntoElement) -> Self` — The right header cell content (the pane’s tab strip).
   - `pub fn header_sidebar(self, el: impl IntoElement) -> Self` — The sidebar header cell content.
-  - `pub fn rail(self, el: impl IntoElement) -> Self` — The collapsed sidebar pane: the rail that replaces `AppShell::sidebar` while `sidebar_open` is false. [...]
-  - `pub fn resizing(self, resizing: bool) -> Self` — A resize drag is in flight: the column feeds the width straight through and skips the layout spring so the divider tracks the pointer. [...]
+  - `pub fn rail(self, el: impl IntoElement) -> Self` — The collapsed sidebar pane: the rail shown while `sidebar_open` is false. [...]
+  - `pub fn resizing(self, resizing: bool) -> Self` — A resize drag is in flight: the dragged column feeds its width straight through and skips the layout spring so the divider tracks the pointer. [...]
   - `pub fn right(self, el: impl IntoElement) -> Self` — The right pane (workbench).
+  - `pub fn right_max_width(self, max: impl Into<Pixels>) -> Self` — Maximum right column width; the render target never goes above it while the right column is open. Defaults to `RIGHT_MAX_WIDTH`.
+  - `pub fn right_min_width(self, min: impl Into<Pixels>) -> Self` — Minimum right column width; the render target never goes below it while the right column is open. Defaults to `RIGHT_MIN_WIDTH`.
   - `pub fn right_open(self, open: bool) -> Self` — Whether the right pane is open; the column animates on the layout spring.
   - `pub fn right_width(self, width: impl Into<Pixels>) -> Self` — Overrides the right column width.
   - `pub fn sidebar(self, el: impl IntoElement) -> Self` — The sidebar pane.
@@ -987,6 +1004,10 @@ App shell: the three-column layout with one 44 px header cell per column, contin
   - `pub const RAIL_WIDTH_WITH_LIGHTS: f32 = 72.0;`
 - **const** `RESIZE_HANDLE_W` — Width of the resize strip: wide enough to grab, transparent so the divider beneath it keeps its own paint.
   - `pub const RESIZE_HANDLE_W: f32 = 6.0;`
+- **const** `RIGHT_MAX_WIDTH` — Maximum right column width while resizing: keeps the centre transcript usable on a 13-inch window.
+  - `pub const RIGHT_MAX_WIDTH: f32 = 720.0;`
+- **const** `RIGHT_MIN_WIDTH` — Minimum right column width while resizing: below this a diff hunk or a file tree row stops staying readable. Clamp every drag move with `clamp_right_width`.
+  - `pub const RIGHT_MIN_WIDTH: f32 = 280.0;`
 - **const** `RIGHT_WIDTH` — Right column width in the app (400; card 10 uses 392).
   - `pub const RIGHT_WIDTH: f32 = 400.0;`
 - **const** `SIDEBAR_MAX_WIDTH` — Maximum sidebar width while resizing: keeps the transcript usable.
@@ -998,137 +1019,133 @@ App shell: the three-column layout with one 44 px header cell per column, contin
 
 ### `aui::skills`
 
-Skills page: list rows, scope sections, the cost meter, the detail pane, the import preview and the Add skill menu rows. The segmented control is the diff review track (`aui::workbench::segmented`, now with `←` / `→` and radio roles), re-exported here so the page shares the one control.
+Skills page: the list rows, scope sections, cost meter, detail pane, import preview and add-skill menu rows (harness docs `15-skills.md` §4).
 
-- **fn** `switch` — A switch for `on`, non-interactive when `disabled`. Wraps the gpui-kit `Switch` the settings switch rows use.
-  - `pub fn switch(id: impl Into<ElementId>, on: bool, disabled: bool) -> Switch`
-- **fn** `checkbox` — The 16 px tri-state box in `state`, non-interactive when `disabled`.
-  - `pub fn checkbox(id: impl Into<ElementId>, state: CheckboxState, disabled: bool) -> Checkbox`
-- **fn** `mode_chip` — The mode chip (`Auto` / `Only /name`): a data chip with a chevron that opens its menu in `popover_layer`.
-  - `pub fn mode_chip(id: impl Into<ElementId>, mode: &SkillMode, name: impl Into<SharedString>) -> Chip`
-- **fn** `segmented` — Re-export of `aui::workbench::segmented`: the sliding-thumb track, one tab stop with `←` / `→`.
-  - `pub fn segmented(id: impl Into<ElementId>, labels: Vec<SharedString>, active: usize) -> Segmented`
-- **fn** `skill_row` — A row for `model` (≈56 px): name, chips, description, tokens, mode chip, switch.
-  - `pub fn skill_row(model: SkillRowModel) -> SkillRow`
-- **fn** `scope_section_header` — A scope header for `label` with the mono `hint_mono` and `count`.
-  - `pub fn scope_section_header(label: impl Into<SharedString>, hint_mono: Option<SharedString>, count: impl Into<SharedString>) -> ScopeSectionHeader`
-- **fn** `cost_meter` — A meter for `total_label` / `caption` over `segments`: big number, caption, 6 px ink-grey bar, legend.
-  - `pub fn cost_meter(total_label: impl Into<SharedString>, caption: impl Into<SharedString>, segments: Vec<CostSegment>) -> CostMeter`
-- **fn** `segment_widths` — Normalises `segments` to widths that sum to 1 (negatives clamp to 0; all-zero spreads nothing).
-  - `pub fn segment_widths(segments: &[CostSegment]) -> Vec<f32>`
-- **fn** `skill_detail` — A detail pane for `name`: header, state control, stats grid, section slots, footer action row.
-  - `pub fn skill_detail(id: impl Into<ElementId>, name: impl Into<SharedString>) -> SkillDetail`
-- **fn** `import_preview` — An import preview headed `title`, drawn through the shared modal chrome.
-  - `pub fn import_preview(id: impl Into<ElementId>, title: impl Into<SharedString>) -> ImportPreview`
-- **fn** `menu_row_two_line` — A two-line menu row with `icon`, `title` and `subtitle` for the Add skill menu.
-  - `pub fn menu_row_two_line(id: impl Into<ElementId>, icon: IconName, title: impl Into<SharedString>, subtitle: impl Into<SharedString>) -> MenuTwoLineRow`
-- **fn** `selected_rows` — The picked, importable rows: checked and not already installed.
-  - `pub fn selected_rows(rows: &[ImportRow]) -> Vec<&ImportRow>`
-- **fn** `added_tokens` — What the picked rows add to every session's startup context.
+- **fn** `added_tokens` — What the picked rows add to every session’s startup context.
   - `pub fn added_tokens(rows: &[ImportRow]) -> u32`
-- **fn** `format_tokens` — Formats a token count the way rows draw it (`640`, `1.1k`, `6.9k`).
-  - `pub fn format_tokens(n: u32) -> String`
+- **fn** `checkbox` — The 16 px box in `state`, non-interactive when `disabled`.
+  - `pub fn checkbox(id: impl Into<ElementId>, state: CheckboxState, disabled: bool) -> Checkbox`
+- **fn** `cost_meter` — A meter for `total_label` / `caption` over `segments`.
+  - `pub fn cost_meter(total_label: impl Into<SharedString>, caption: impl Into<SharedString>, segments: Vec<CostSegment>) -> CostMeter`
 - **fn** `default_primary_label` — The primary button label for `selected` picked rows.
   - `pub fn default_primary_label(selected: usize) -> String`
+- **fn** `format_tokens` — Formats a token count the way rows draw it: `640`, `1.1k`, `6.9k`.
+  - `pub fn format_tokens(n: u32) -> String`
+- **fn** `import_preview` — An import preview headed `title`, with an `Import` primary until one is set.
+  - `pub fn import_preview(id: impl Into<ElementId>, title: impl Into<SharedString>) -> ImportPreview`
+- **fn** `menu_row_two_line` — A two-line menu row with `icon`, `title` and `subtitle`.
+  - `pub fn menu_row_two_line(id: impl Into<ElementId>, icon: IconName, title: impl Into<SharedString>, subtitle: impl Into<SharedString>) -> MenuTwoLineRow`
+- **fn** `mode_chip` — The mode chip: `Auto` or `Only /{name}`, a data `chip` with a chevron that opens its menu in `popover_layer`. [...]
+  - `pub fn mode_chip(id: impl Into<ElementId>, mode: &SkillMode, name: impl Into<SharedString>) -> Chip`
+- **fn** `scope_section_header` — A scope section header for `label` with the mono `hint_mono` and `count`.
+  - `pub fn scope_section_header(label: impl Into<SharedString>, hint_mono: Option<SharedString>, count: impl Into<SharedString>) -> ScopeSectionHeader`
+- **fn** `segment_widths` — Normalises `segments` to widths that sum to 1: negatives clamp to 0, and an all-zero bar spreads nothing (every width 0).
+  - `pub fn segment_widths(segments: &[CostSegment]) -> Vec<f32>`
+- **fn** `selected_rows` — The picked, importable rows: checked and not already installed.
+  - `pub fn selected_rows(rows: &[ImportRow]) -> Vec<&ImportRow>`
+- **fn** `skill_detail` — A detail pane for `name`.
+  - `pub fn skill_detail(id: impl Into<ElementId>, name: impl Into<SharedString>) -> SkillDetail`
+- **fn** `skill_row` — A row for `model`.
+  - `pub fn skill_row(model: SkillRowModel) -> SkillRow`
+- **fn** `switch` — A switch for `on`, non-interactive when `disabled`.
+  - `pub fn switch(id: impl Into<ElementId>, on: bool, disabled: bool) -> Switch`
 
-- **struct** `Switch` — The skills switch. Build with `switch`.
-  - `pub fn accessibility_label(self, label: impl Into<SharedString>) -> Self` — The accessible name. Without one the switch falls back to announcing its state alone.
-  - `pub fn on_intent(self, f: impl Fn(SwitchIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler.
-- **struct** `Checkbox` — The tri-state skills checkbox. Build with `checkbox`.
-  - `pub fn accessibility_label(self, label: impl Into<SharedString>) -> Self` — The accessible name without the state word (the state is appended).
+- **struct** `Checkbox` — `.cb`: the 16 px skills checkbox. gpui-kit’s box is boolean-only, so this is the library’s own tri-state box in tokens: transparent + line-strong when `CheckboxState::Off`, accent + white check when `CheckboxState::On`, accent-soft + accent-ink dash when `CheckboxState::Mixed`. [...]
+  - `pub fn accessibility_label(self, label: impl Into<SharedString>) -> Self` — The accessible name without the state word (the state is appended: `Include pdf-tools, on`).
   - `pub fn on_intent(self, f: impl Fn(CheckboxIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler.
-- **struct** `SkillRowModel` — Everything a skill row draws. The app owns these; the component is stateless.
-  - fields: `id`, `name`, `description`, `chips`, `tokens`, `mode`, `on`, `dimmed`, `selected`
-  - `pub fn toggle_intent(&self) -> Option<SkillRowIntent>` — The intent a switch flip reports, or `None`: dimmed rows emit no `Toggle`.
-  - `pub fn select_intent(&self) -> Option<SkillRowIntent>` — The intent a row click reports (still `Some` on dimmed rows).
-  - `pub fn mode_intent(&self, mode: SkillMode) -> Option<SkillRowIntent>` — The intent a mode-menu pick reports, or `None` on dimmed rows.
-- **struct** `SkillRow` — The ≈56 px skill row. Build with `skill_row`.
-  - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — The row was clicked; the argument is `SkillRowModel::id`.
-  - `pub fn on_toggle(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — The switch was flipped; the argument is `SkillRowModel::id`.
-  - `pub fn on_set_mode(self, f: impl Fn(&SharedString, SkillMode, &mut Window, &mut App) + 'static) -> Self` — The mode menu picked a mode.
-- **struct** `SkillChip` — One chip on a row.
-  - fields: `label`, `tone`
-  - `pub fn new(label: impl Into<SharedString>, tone: ChipTone) -> Self` — A chip with a label and a tone.
-- **struct** `ScopeSectionHeader` — The caps scope label, mono hint, hairline rule and count. Build with `scope_section_header`.
-- **struct** `CostSegment` — One slice of the cost bar.
+- **struct** `CostMeter` — The cost meter: the big startup number, its caption, the 6 px segmented bar in ink greys and the legend. [...]
+- **struct** `CostSegment` — One slice of the cost bar: `label` for the legend, `fraction` of the bar, `level` for its grey.
   - fields: `label`, `fraction`, `level`
   - `pub fn new(label: impl Into<SharedString>, fraction: f32, level: InkLevel) -> Self` — A bar slice.
-- **struct** `CostMeter` — The cost meter. Build with `cost_meter`.
-- **struct** `SkillDetail` — The skill detail pane. Build with `skill_detail`.
-  - `pub fn scope(self, scope: impl Into<SharedString>) -> Self` — The scope chip.
-  - `pub fn path(self, path: impl Into<SharedString>) -> Self` — The mono path under the name.
-  - `pub fn state(self, state: SkillState) -> Self` — The state the segmented control shows.
-  - `pub fn stat(self, key: impl Into<SharedString>, value: impl Into<SharedString>) -> Self` — A stats-grid cell.
-  - `pub fn section(self, title: impl Into<SharedString>, body: impl IntoElement) -> Self` — A titled section around the caller's body slot.
-  - `pub fn hint(self, hint: impl Into<SharedString>) -> Self` — The footer hint on the left.
-  - `pub fn action(self, action: DetailAction) -> Self` — A footer action (secondary, or the one primary on the far right).
-  - `pub fn overflow(self, label: impl Into<SharedString>) -> Self` — Draws the `⋯` overflow button with this accessible name.
-  - `pub fn on_intent(self, f: impl Fn(SkillDetailIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler.
 - **struct** `DetailAction` — One footer action: a secondary button, or the primary on the far right.
   - fields: `id`, `label`, `primary`
   - `pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>, primary: bool) -> Self` — A footer action.
-- **struct** `DetailSection` — One titled section of the detail pane; the body is the caller's slot.
+- **struct** `DetailSection` — One titled section of the detail pane; the body is the caller’s slot (description text, rendered SKILL.md, the file list, diagnostics).
   - fields: `title`, `body`
   - `pub fn new(title: impl Into<SharedString>, body: impl IntoElement) -> Self` — A titled section around `body`.
-- **struct** `ImportRow` — One import candidate.
+- **struct** `ImportPreview` — The import preview: title, subtitle, a checkbox row per candidate (each with its status chip and tokens), the summary note and the action row — hint left, spacer, Cancel, Import. [...]
+  - `pub fn at_rest(self) -> Self` — Skips the enter: the dialog is drawn at rest on its first frame, for a static composition rather than one the person just opened.
+  - `pub fn cancel_label(self, label: impl Into<SharedString>) -> Self` — Overrides the secondary label (`Cancel`).
+  - `pub fn hint(self, hint: impl Into<SharedString>) -> Self` — The action-row hint on the left (`Nothing is copied until you import`).
+  - `pub fn on_intent(self, f: impl Fn(ImportPreviewIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler.
+  - `pub fn present(self, present: bool) -> Self` — Whether the dialog is open; `false` plays the exit.
+  - `pub fn primary_label(self, label: impl Into<SharedString>) -> Self` — Overrides the primary label (by default `default_primary_label` for the picked count).
+  - `pub fn row(self, row: ImportRow) -> Self` — A candidate row.
+  - `pub fn subtitle(self, subtitle: impl Into<SharedString>) -> Self` — The subtitle under the title (what was found, and where it lands).
+  - `pub fn summary(self, summary: impl Into<SharedString>) -> Self` — The summary note above the action row (`Adds 1.8k tokens …`).
+- **struct** `ImportRow` — One import candidate: a checkbox, the name over its description, the status chip and the mono tokens.
   - fields: `id`, `name`, `description`, `status`, `tokens`, `weight`, `checked`
   - `pub fn new(id: impl Into<SharedString>, name: impl Into<SharedString>, description: impl Into<SharedString>, status: ImportStatus, tokens: impl Into<SharedString>, weight: u32) -> Self` — A picked candidate.
+  - `pub fn toggle_intent(&self) -> Option<SkillRowIntent>` — The intent a checkbox press reports, or `None`: installed rows are already there, so their boxes are dead like dimmed skill rows.
   - `pub fn unchecked(self) -> Self` — Unchecks the row (installed rows stay unchecked).
-  - `pub fn toggle_intent(&self) -> Option<SkillRowIntent>` — The intent a checkbox press reports, or `None` on installed rows.
-- **struct** `ImportPreview` — The import preview. Build with `import_preview`.
-  - `pub fn subtitle(self, subtitle: impl Into<SharedString>) -> Self` — The subtitle under the title.
-  - `pub fn row(self, row: ImportRow) -> Self` — A candidate row.
-  - `pub fn summary(self, summary: impl Into<SharedString>) -> Self` — The summary note above the action row.
-  - `pub fn hint(self, hint: impl Into<SharedString>) -> Self` — The action-row hint on the left.
-  - `pub fn cancel_label(self, label: impl Into<SharedString>) -> Self` — Overrides the secondary label.
-  - `pub fn primary_label(self, label: impl Into<SharedString>) -> Self` — Overrides the primary label.
-  - `pub fn present(self, present: bool) -> Self` — Whether the dialog is open; `false` plays the exit.
-  - `pub fn at_rest(self) -> Self` — Skips the enter (static captures).
-  - `pub fn on_intent(self, f: impl Fn(ImportPreviewIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler.
-- **struct** `MenuTwoLineRow` — One row of the Add skill menu. Build with `menu_row_two_line`.
-  - `pub fn key(self, key: impl Into<SharedString>) -> Self` — The identity handed back by `on_activate` (by default the title).
-  - `pub fn subtitle_mono(self) -> Self` — Draws the subtitle in mono (a source path).
-  - `pub fn trailing(self, trailing: impl Into<SharedString>) -> Self` — Muted text at the row's right edge.
+- **struct** `MenuTwoLineRow` — One row of the Add skill menu: the leading icon, the title over its subtitle, and muted trailing text (`3 new`, `none`, `uses a turn`). [...]
   - `pub fn accessibility_label(self, label: impl Into<SharedString>) -> Self` — Overrides the accessible name (by default `title, subtitle`).
-  - `pub fn on_activate(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — The row was activated; the argument is the row's key.
+  - `pub fn key(self, key: impl Into<SharedString>) -> Self` — The identity handed back by `on_activate` (by default the title).
+  - `pub fn on_activate(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — The row was activated; the argument is the row’s id.
+  - `pub fn subtitle_mono(self) -> Self` — Draws the subtitle in mono (a source path like `~/.claude/skills`).
+  - `pub fn trailing(self, trailing: impl Into<SharedString>) -> Self` — Muted text at the row’s right edge.
+- **struct** `ScopeSectionHeader` — `.sect`: the caps scope label, the mono discovery-dirs hint, the hairline rule and the mono count (`This project · .agents/skills — 3`). Build with `scope_section_header`.
+- **struct** `SkillChip` — One chip on a row (`Overrides built-in git`, `threejs plugin`, `1 issue`).
+  - fields: `label`, `tone`
+  - `pub fn new(label: impl Into<SharedString>, tone: ChipTone) -> Self` — A chip with a label and a tone.
+- **struct** `SkillDetail` — The skill detail pane: header (name, scope chip, mono path), the state segmented control, the 2-column stats grid, titled sections with caller slots, and the footer action row — hint left, spacer, secondary buttons, primary right, per the design rules. [...]
+  - `pub fn action(self, action: DetailAction) -> Self` — A footer action (secondary, or the one primary on the far right).
+  - `pub fn hint(self, hint: impl Into<SharedString>) -> Self` — The footer hint on the left (`Applies to open sessions`).
+  - `pub fn on_intent(self, f: impl Fn(SkillDetailIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler.
+  - `pub fn overflow(self, label: impl Into<SharedString>) -> Self` — Draws the `⋯` overflow button with this accessible name.
+  - `pub fn path(self, path: impl Into<SharedString>) -> Self` — The mono path under the name.
+  - `pub fn scope(self, scope: impl Into<SharedString>) -> Self` — The scope chip (`This project`, `Personal`, `Built-in`).
+  - `pub fn section(self, title: impl Into<SharedString>, body: impl IntoElement) -> Self` — A titled section around the caller’s body slot.
+  - `pub fn stat(self, key: impl Into<SharedString>, value: impl Into<SharedString>) -> Self` — A stats-grid cell (`At startup` / `290 tokens`).
+  - `pub fn state(self, state: SkillState) -> Self` — The state the segmented control shows.
+- **struct** `SkillRow` — `.row`: the ≈56 px skill row — name (500) with its chips, the one-line description in ink-3, mono ink-4 tokens right-aligned, the mode chip, the switch. [...]
+  - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — The row was clicked; the argument is `SkillRowModel::id`.
+  - `pub fn on_set_mode(self, f: impl Fn(&SharedString, SkillMode, &mut Window, &mut App) + 'static) -> Self` — The mode menu picked a mode; the arguments are `SkillRowModel::id` and the mode.
+  - `pub fn on_toggle(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — The switch was flipped; the argument is `SkillRowModel::id`.
+- **struct** `SkillRowModel` — Everything a skill row draws. The app owns these; the component is stateless.
+  - fields: `id`, `name`, `description`, `chips`, `tokens`, `mode`, `on`, `dimmed`, `selected`
+  - `pub fn mode_intent(&self, mode: SkillMode) -> Option<SkillRowIntent>` — The intent a mode-menu pick reports, or `None` on dimmed rows.
+  - `pub fn select_intent(&self) -> Option<SkillRowIntent>` — The intent a row click reports. Selection still works on dimmed rows: the loser is viewable, just not flippable.
+  - `pub fn toggle_intent(&self) -> Option<SkillRowIntent>` — The intent a switch flip reports, or `None`: dimmed rows emit no `Toggle` — the row renders the switch disabled and drops the press.
+- **struct** `Switch` — `.sw`: the 30 × 18 track with a knob, an accent fill when on and a focus ring. [...]
+  - `pub fn accessibility_label(self, label: impl Into<SharedString>) -> Self` — The accessible name (`Turn {name} on`). Without one the switch falls back to announcing its state alone.
+  - `pub fn on_intent(self, f: impl Fn(SwitchIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler.
 
-- **enum** `SwitchIntent` — What the skills switch asks for.
-  - variants: `Toggle`
+- **enum** `CheckboxIntent` — What the skills checkbox asks for.
+  - variants: `Set`
 - **enum** `CheckboxState` — The three states of an import-preview checkbox.
   - variants: `Off`, `On`, `Mixed`
-  - `pub fn checked(&self) -> bool` — Whether the box reads as checked (only `On`).
-  - `pub fn toggled(&self) -> Self` — The state a click lands on.
-  - `pub fn state_word(&self) -> &'static str` — The state word for accessible names.
-- **enum** `CheckboxIntent` — What the skills checkbox asks for.
-  - variants: `Set(CheckboxState)`
-- **enum** `SkillMode` — How a skill runs: `on` versus `user-invocable-only`, named plainly.
-  - variants: `Auto`, `Only`
-  - `pub fn chip_label(&self, name: &str) -> String` — The mode chip label.
-  - `pub fn menu_label(&self, name: &str) -> String` — The mode menu row label.
+  - `pub fn checked(&self) -> bool` — Whether the box reads as checked (only `CheckboxState::On`).
+  - `pub fn state_word(&self) -> &'static str` — The state word for accessible names (`off` / `on` / `mixed`).
+  - `pub fn toggled(&self) -> Self` — The state a click lands on: `Off` → `On`, `On` → `Off`, `Mixed` → `On`.
 - **enum** `ChipTone` — The tone of a row chip: quiet or carrying a warning.
   - variants: `Muted`, `Warning`
-- **enum** `SkillRowIntent` — What a skill row asks for.
-  - variants: `Select`, `Toggle`, `SetMode(SkillMode)`
-- **enum** `InkLevel` — One ink-grey of the cost bar.
-  - variants: `Ink`, `Ink2`, `Ink3`, `Ink4`
-  - `pub fn color(&self, p: &Palette) -> Hsla` — The palette ink for this level.
-- **enum** `SkillState` — The detail pane's three states, in segment order.
-  - variants: `Automatic`, `OnlyMention`, `Off`
-  - `pub fn index(&self) -> usize` — The segment index of this state.
-  - `pub fn from_index(ix: usize) -> Self` — The state for a segment index.
-  - `pub fn segment_labels() -> [SharedString; 3]` — The three segment labels in order.
-  - `pub fn from_activation(on: bool, mode: &SkillMode) -> Self` — The state for an `on` switch and a mode.
-  - `pub fn hint(&self) -> &'static str` — The helper line under the control for this state.
-- **enum** `SkillDetailIntent` — What the detail pane asks for.
-  - variants: `SetState(SkillState)`, `Action(SharedString)`
-- **enum** `ImportStatus` — Whether an import candidate is new, replaces, or is installed.
+- **enum** `ImportPreviewIntent` — What the import preview asks for.
+  - variants: `ToggleRow`, `Cancel`, `Import`
+- **enum** `ImportStatus` — Whether an import candidate is new, replaces a personal skill, or is already installed (and therefore unchecked and dead).
   - variants: `New`, `Replaces`, `Installed`
   - `pub fn chip_label(&self) -> Option<&'static str>` — The status chip label, if the row carries one.
-  - `pub fn selectable(&self) -> bool` — Whether the row's checkbox is interactive.
-- **enum** `ImportPreviewIntent` — What the import preview asks for.
-  - variants: `ToggleRow(SharedString)`, `Cancel`, `Import`
-
-Also extended in this slice: `Segmented::accessibility_label` (the group name for the track's `radiogroup`; each segment already announces its visible label as a `radio`, and `←` / `→` move the selection while the track is focused) and `Button::accessibility_label` (names the control and sets its role, for icon-only and overflow buttons).
+  - `pub fn selectable(&self) -> bool` — Whether the row’s checkbox is interactive.
+- **enum** `InkLevel` — One ink-grey of the cost bar. The meter carries cost in greys only — no hues — so each segment names which ink it wears.
+  - variants: `Ink`, `Ink2`, `Ink3`, `Ink4`
+  - `pub fn color(&self, p: &Palette) -> Hsla` — The palette ink for this level.
+- **enum** `SkillDetailIntent` — What the detail pane asks for.
+  - variants: `SetState`, `Action`
+- **enum** `SkillMode` — How a skill runs: Muse’s `on` versus `user-invocable-only`, named plainly.
+  - variants: `Auto`, `Only`
+  - `pub fn chip_label(&self, name: &str) -> String` — The mode chip label: `Auto`, or `Only /{name}`.
+  - `pub fn menu_label(&self, name: &str) -> String` — The mode menu row label: `Automatic`, or `Only /{name}`.
+- **enum** `SkillRowIntent` — What a skill row asks for.
+  - variants: `Select`, `Toggle`, `SetMode`
+- **enum** `SkillState` — The detail pane’s three states, in segment order.
+  - variants: `Automatic`, `OnlyMention`, `Off`
+  - `pub fn from_activation(on: bool, mode: &SkillMode) -> Self` — The state for an `on` switch and a mode.
+  - `pub fn from_index(ix: usize) -> Self` — The state for a segment index; anything past `Off` is `Automatic`.
+  - `pub fn hint(&self) -> &'static str` — The helper line under the control for this state.
+  - `pub fn index(&self) -> usize` — The segment index of this state.
+  - `pub fn segment_labels() -> [SharedString; 3]` — The three segment labels in order.
+- **enum** `SwitchIntent` — What the skills switch asks for.
+  - variants: `Toggle`
 
 ### `aui::transcript`
 
@@ -1142,6 +1159,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn answered_row(id: impl Into<ElementId>, chips: Vec<SharedString>) -> AnsweredRow`
 - **fn** `approval_card` — A permission request for `command` run through `tool`, in `state`.
   - `pub fn approval_card(id: impl Into<ElementId>, tool: impl Into<SharedString>, command: impl Into<SharedString>, state: ApprovalState) -> ApprovalCard`
+- **fn** `arm_chip_probe` — Arms (`true`) or disarms the chip probe. Disarmed — the default — nothing is recorded and rendering is byte-for-byte what it was.
+  - `pub fn arm_chip_probe(armed: bool)`
 - **fn** `assistant_turn` — An assistant turn rendering `markdown`.
   - `pub fn assistant_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) -> AssistantTurn`
 - **fn** `caret_top_in_line` — The caret’s offset from the top of the line box it closes: centred in the line, then dropped by `vertical-align`.
@@ -1174,7 +1193,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn handoff_card(id: impl Into<ElementId>, from: Provider, to: Provider, to_model: impl Into<SharedString>, state: HandoffState) -> HandoffCard`
 - **fn** `handoff_confirm` — The confirm dialog the host shows before starting a handoff.
   - `pub fn handoff_confirm(id: impl Into<ElementId>, to: Provider, to_model: impl Into<SharedString>, carried: &[HandoffItem], lost: &[HandoffItem], pack_tokens: Option<u64>) -> Dialog`
-- **fn** `handoff_confirm_destination` — `Starts a new Claude Code session · opus 4.6` — the confirm's destination line, without the mark.
+- **fn** `handoff_confirm_destination` — `Starts a new Claude Code session · opus 4.6` — the confirm’s destination line, without the mark.
   - `pub fn handoff_confirm_destination(to: Provider, to_model: &str) -> SharedString`
 - **fn** `jump_pill` — A jump pill with `label` (`Jump to latest`); `JumpPill::count` adds the new-turn badge.
   - `pub fn jump_pill(id: impl Into<ElementId>, label: impl Into<SharedString>) -> JumpPill`
@@ -1228,6 +1247,8 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub fn syntax_runs(line: &str, p: &Palette, mono_family: &'static str) -> Vec<TextRun>`
 - **fn** `syntax_runs_in` — `syntax_runs` for a line whose `language` is known; see `tokenize_line_in`.
   - `pub fn syntax_runs_in(line: &str, language: Option<&str>, p: &Palette, mono_family: &'static str) -> Vec<TextRun>`
+- **fn** `take_drawn_chips` — Drains the chip labels recorded since the last call, in draw order.
+  - `pub fn take_drawn_chips() -> Vec<String>`
 - **fn** `thinking_block` — A block over the trace `text`, with `elapsed` as shown (`14 s`).
   - `pub fn thinking_block(id: impl Into<ElementId>, text: impl Into<SharedString>, elapsed: impl Into<SharedString>, state: ThinkingState) -> ThinkingBlock`
 - **fn** `todo_list` — The agent’s task list over `items`.
@@ -1265,6 +1286,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
 - **struct** `ApprovalCard` — The approval card. Build with `approval_card`.
   - `pub fn at_rest(self) -> Self` — Skips the enter: the card and its buttons are drawn at rest on the first frame (parity captures, restored transcripts).
   - `pub fn badges(self, badges: ApprovalBadges) -> Self` — The header badges: a protected write, an escalation from the judge.
+  - `pub fn body_kind(self, kind: ApprovalBodyKind) -> Self` — How the subject body renders: `$ ` prompt for commands, plain path for file writes/edits, plain otherwise. [...]
   - `pub fn capabilities(self, capabilities: impl IntoIterator<Item = impl Into<SharedString>>) -> Self` — The capabilities being granted, e.g. `["modify files", "network"]`.
   - `pub fn choices(self, choices: Vec<ApprovalChoice>) -> Self` — The server’s own choice list, in the server’s order.
   - `pub fn cwd(self, cwd: impl Into<SharedString>) -> Self` — The directory the command would run in.
@@ -1442,6 +1464,7 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
 - **struct** `ToolCard` — A tool call card. Build with `tool_card`.
   - `pub fn action(self, action: ToolCardAction) -> Self` — One trailing header action after any already set. See `Self::actions`.
   - `pub fn actions(self, actions: Vec<ToolCardAction>) -> Self` — Trailing header actions, drawn after the duration in the order given and reported as `ToolCardIntent::Action` with their index. Empty by default; with none set the header renders exactly as before.
+  - `pub fn diff_stat(self, stat: Option<DiffStat>) -> Self` — Server-authored `+N`/`−N` counts for the header, drawn without a `ToolBody::Edit` diff: the provider’s whole-patch summary. [...]
   - `pub fn duration_ms(self, ms: Option<u64>) -> Self` — The duration shown in the header, formatted by `format_duration` once per card rather than once per frame.
   - `pub fn on_intent(self, f: impl Fn(ToolCardIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler.
   - `pub fn open(self, open: bool) -> Self` — Whether the body is shown.
@@ -1531,10 +1554,10 @@ Transcript: markers, user and assistant turns with streaming reveal, thinking bl
   - `pub const COPY_HOLD: Duration;`
 - **const** `GROUP_PREVIEW` — Collapsed preview rows before the `+k more` row (the image3 idiom: two rows, then the overflow count).
   - `pub const GROUP_PREVIEW: usize = 2;`
-- **const** `HANDOFF_CONFIRM_WIDTH` — The confirm dialog's width: wider than the default modal so the shared list rows fit without wrapping their labels.
+- **const** `HANDOFF_CONFIRM_WIDTH` — The confirm dialog’s width: wider than the default modal so the shared list rows fit without wrapping their labels.
   - `pub const HANDOFF_CONFIRM_WIDTH: f32 = 520.0;`
 - **const** `HANDOFF_FRESH_NOTE` — The honest note every confirm dialog carries, verbatim.
-  - `pub const HANDOFF_FRESH_NOTE: &str;`
+  - `pub const HANDOFF_FRESH_NOTE: &str = ...;`
 - **const** `SHELL_FOLD` — Shell output folds after this many lines (the card shows six, then `14 more lines`).
   - `pub const SHELL_FOLD: usize = 6;`
 
@@ -1670,6 +1693,7 @@ Workbench: the block terminal, terminal tabs and dock, and TUI pane, browser wit
 - **struct** `DiffHighlight` — A word-level `diff-add-strong` / `diff-del-strong` span inside one row, addressed by hunk and row index with byte offsets into `aui_protocol::DiffLine::text`.
   - fields: `hunk`, `line`, `start`, `end`
 - **struct** `DiffReview` — The diff review pane. Build with `diff_review`.
+  - `pub fn flush(self) -> Self` — Drops the outer card chrome (the radius and the outer border) for a pane mounted as a full-height pane or stacked with other panels, where the column already owns the edges. [...]
   - `pub fn highlights(self, highlights: Vec<DiffHighlight>) -> Self` — Word-level highlights inside diff rows.
   - `pub fn on_action(self, f: impl Fn(DiffReviewAction, &mut Window, &mut App) + 'static) -> Self` — Action handler.
   - `pub fn summary(self, lead: impl Into<SharedString>, added: u32, removed: u32) -> Self` — The summary beside the scope control: a lead (`"vs main · 3 files"`) followed by the totals, tinted success and danger.
@@ -1699,11 +1723,13 @@ Workbench: the block terminal, terminal tabs and dock, and TUI pane, browser wit
   - `pub fn is_dir(&self) -> bool` — Whether the row is a directory.
   - `pub fn selected(self, selected: bool) -> Self` — Marks the row selected.
 - **struct** `FileTree` — The file tree. Build with `file_tree`.
+  - `pub fn flush(self) -> Self` — Drops the outer card chrome for a tree mounted as a full-height pane or stacked with other panels, where the column already owns the edges. [...]
   - `pub fn footer(self, text: impl Into<SharedString>) -> Self` — The footer status line (“worktree checkout-flow-v2 · 2 modified · 1 added”).
   - `pub fn header(self, name: impl Into<SharedString>) -> Self` — The header’s repository or root name; without it the header is hidden.
   - `pub fn on_action(self, f: impl Fn(&FileTreeAction, &mut Window, &mut App) + 'static) -> Self` — Called with every intent the tree emits.
 - **struct** `GitChanges` — The Changes panel. Build with `git_changes`.
   - `pub fn branch(self, branch: impl Into<SharedString>) -> Self` — The branch name shown in the ahead / behind row.
+  - `pub fn flush(self) -> Self` — Drops the outer card chrome (the radius and the outer border) for a panel mounted as a full-height pane or stacked with other panels, where the column already owns the edges. [...]
   - `pub fn on_action(self, f: impl Fn(GitAction, &mut Window, &mut App) + 'static) -> Self` — The panel’s intents: toggling a file, redrafting, amending, committing and pushing.
 - **struct** `NotePopover` — The note popover. Build with `note_popover`.
   - `pub fn on_action(self, f: impl Fn(NoteAction, &mut Window, &mut App) + 'static) -> Self` — Called with `NoteAction` when Cancel or Save note is clicked.
@@ -1723,6 +1749,7 @@ Workbench: the block terminal, terminal tabs and dock, and TUI pane, browser wit
   - `pub fn detail(self, detail: impl Into<SharedString>) -> Self` — The detail after the name.
   - `pub fn running(self) -> Self` — Marks the check as still running.
 - **struct** `PrForm` — The Create pull request form. Build with `pr_form`.
+  - `pub fn flush(self) -> Self` — Drops the outer card chrome (the radius and the outer border) for a form mounted as a full-height pane or stacked with other panels, where the column already owns the edges. [...]
   - `pub fn issue(self, issue: impl Into<SharedString>) -> Self` — The tracker issue chip in the footer (`Linear ACM-412`).
   - `pub fn on_action(self, f: impl Fn(PrAction, &mut Window, &mut App) + 'static) -> Self` — The form’s intents: picking the base branch, cancelling, creating, and opening the linked issue.
   - `pub fn provider(self, provider: impl Into<SharedString>) -> Self` — The forge chip in the header (`GitHub`).
@@ -1731,6 +1758,7 @@ Workbench: the block terminal, terminal tabs and dock, and TUI pane, browser wit
 - **struct** `ReviewNote` — One note the reviewer left on a line.
   - fields: `file`, `line`, `text`, `summary`, `pending`
 - **struct** `Segmented` — `.seg`: a surface-2 track of 24 px segments; the active one wears a single surface-1 thumb at elevation 1 that slides between segments on the layout spring rather than cross-fading. [...]
+  - `pub fn accessibility_label(self, label: impl Into<SharedString>) -> Self` — The accessible name of the group (the track’s `radiogroup` label). Each segment already announces its own visible label as a `radio`.
   - `pub fn on_select(self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self` — Called with the index of the segment that was clicked.
 - **struct** `SheetCell` — One cell.
   - fields: `text`, `numeric`, `bold`
@@ -2331,6 +2359,8 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
   - fields: `path`, `hunks`, `added`, `removed`
 - **struct** `DiffLine` — One row of a `Hunk`.
   - fields: `kind`, `old_no`, `new_no`, `text`
+- **struct** `DiffStat` — Server-authored summary of a patch’s size, computed by the provider over the whole stored patch document.
+  - fields: `added`, `removed`, `files`
 - **struct** `FileChange` — One file row in a `Block::Summary`.
   - fields: `path`, `change`, `added`, `removed`
 - **struct** `HandoffItem` — One line of what a handoff carries over — or leaves behind.
@@ -2361,14 +2391,17 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
 - **struct** `TodoItem` — One row in a `Block::Todo` list.
   - fields: `label`, `state`, `elapsed_ms`
 - **struct** `ToolCall` — One tool invocation: what ran, how it went, and the payload the card renders.
-  - fields: `id`, `kind`, `verb`, `target`, `status`, `duration_ms`, `body`
+  - fields: `id`, `kind`, `verb`, `target`, `status`, `duration_ms`, `body`, `diff_stat`
 - **struct** `TurnMeta` — The mono footer under an assistant turn: `model · duration · tokens · cost`.
-  - fields: `model`, `duration_ms`, `tokens_in`, `tokens_out`, `reasoning_tokens`, `cost_usd`
+  - fields: `model`, `duration_ms`, `tokens_in`, `tokens_out`, `reasoning_tokens`, `cost_usd`,
+    `cache_read_tokens`, `cache_write_tokens`, `cached_tokens`
 - **struct** `WebResult` — One web result row.
   - fields: `title`, `url`, `domain`
 
 - **enum** `ActivityState` — Whether an activity group is still running.
   - variants: `Working`, `Done`, `Failed`
+- **enum** `ApprovalBodyKind` — How an approval card renders its subject body.
+  - variants: `Command`, `FileWrite`, `Other`
 - **enum** `ApprovalDecision` — What the person chose on an approval card.
   - variants: `Once`, `Always`, `Deny`, `ApprovedForSession`, `PolicyAmendment`,
     `DeniedPolicyAmendment`, `TimedOut`, `Abort`
@@ -2452,6 +2485,8 @@ Icon glyphs, provider marks and file-type icon mapping for the Agentic UI librar
 
 A realistic sample session, used by `aui-gallery` and the parity screenshots.
 
+- **fn** `approval_body_kinds` — One pending approval per `ApprovalBodyKind`, in kind order: a shell command (keeps the `$ ` prompt), a file write (the path plain, no prompt) and a non-command subject (plain). [...]
+  - `pub fn approval_body_kinds() -> Vec<Block>`
 - **fn** `approvals` — The five approval states from card 35, for the gallery’s state matrix.
   - `pub fn approvals() -> Vec<Block>`
 - **fn** `muse_approvals` — The approval shapes a provider-minted request adds to card 35: server choices, a staged subject, badges, and the resolutions nobody was asked for.

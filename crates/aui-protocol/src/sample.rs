@@ -7,10 +7,10 @@
 //! Change these strings only when the design cards change.
 
 use crate::block::{
-    ActivityState, Answer, ApprovalBadges, ApprovalChoice, ApprovalScope, ApprovalStage,
-    ApprovalState, Block, ChangeKind, Check, FileChange, MarkerKind, PlanSection, PlanState,
-    QuestionOption, QuestionPreview, ResolvedBy, Step, StepState, ThinkingState, TodoItem,
-    TodoState,
+    ActivityState, Answer, ApprovalBadges, ApprovalBodyKind, ApprovalChoice, ApprovalScope,
+    ApprovalStage, ApprovalState, Block, ChangeKind, Check, FileChange, MarkerKind, PlanSection,
+    PlanState, QuestionOption, QuestionPreview, ResolvedBy, Step, StepState, ThinkingState,
+    TodoItem, TodoState,
 };
 use crate::intent::ApprovalDecision;
 use crate::session::{Environment, PermissionMode, Provider, Session};
@@ -189,6 +189,55 @@ pub fn muse_approvals() -> Vec<Block> {
         judge_denied,
         user_denied,
     ]
+}
+
+/// One pending approval per [`ApprovalBodyKind`], in kind order: a shell
+/// command (keeps the `$ ` prompt), a file write (the path plain, no prompt)
+/// and a non-command subject (plain). The gallery draws all three.
+pub fn approval_body_kinds() -> Vec<Block> {
+    let mut command = Block::approval(
+        "ap-kind-command",
+        "Bash",
+        "sudo apt install -y libpq-dev",
+        "Needed to compile the pg native module before the test run.",
+        "~/work/acme/checkout-flow-v2",
+        vec!["modify files".into(), "network".into()],
+        ApprovalScope::ThisWorktree,
+        ApprovalState::Pending,
+        Some("apt install".into()),
+    );
+    if let Block::Approval { body_kind, .. } = &mut command {
+        *body_kind = ApprovalBodyKind::Command;
+    }
+    let mut file_write = Block::approval(
+        "ap-kind-file",
+        "Write",
+        "~/work/acme/checkout-flow-v2/src/checkout.ts",
+        "Writing the new checkout flow the plan describes.",
+        "~/work/acme/checkout-flow-v2",
+        vec!["modify files".into()],
+        ApprovalScope::ThisWorktree,
+        ApprovalState::Pending,
+        None,
+    );
+    if let Block::Approval { body_kind, .. } = &mut file_write {
+        *body_kind = ApprovalBodyKind::FileWrite;
+    }
+    let mut other = Block::approval(
+        "ap-kind-other",
+        "Browser",
+        "Open the checkout preview and confirm the total renders",
+        "Checking the preview before calling the work done.",
+        "~/work/acme/checkout-flow-v2",
+        vec!["open pages".into()],
+        ApprovalScope::ThisWorktree,
+        ApprovalState::Pending,
+        None,
+    );
+    if let Block::Approval { body_kind, .. } = &mut other {
+        *body_kind = ApprovalBodyKind::Other;
+    }
+    vec![command, file_write, other]
 }
 
 /// A question with everything MSP's `userInput/request` can attach: a header,

@@ -727,3 +727,42 @@ fn turn_timestamp_is_additive_and_round_trips() {
     let json = serde_json::to_value(&plain).expect("serialize");
     assert!(json.get("timestamp").is_none(), "absent timestamp was drawn: {json}");
 }
+
+#[test]
+fn approval_bodies_default_to_commands_and_round_trip() {
+    // Blocks written before the kind existed decode to `Command`: the `$ `
+    // prompt behaviour is the default, not a migration.
+    let json = serde_json::json!({
+        "kind": "approval",
+        "id": "ap-1",
+        "tool": "Bash",
+        "command": "ls",
+        "reason": "",
+        "cwd": "~/work",
+        "capabilities": [],
+        "scope": "this_worktree",
+        "state": { "kind": "pending" },
+        "rule": null,
+    });
+    let block: Block = serde_json::from_value(json).unwrap();
+    assert!(
+        matches!(block, Block::Approval { body_kind: aui_protocol::ApprovalBodyKind::Command, .. }),
+        "a body_kind-less approval renders as a command, got {block:?}"
+    );
+    // The constructor agrees, and every kind survives JSON.
+    let kinds = aui_protocol::sample::approval_body_kinds();
+    assert_eq!(kinds.len(), 3, "one of each kind");
+    for (block, want) in kinds.iter().zip([
+        aui_protocol::ApprovalBodyKind::Command,
+        aui_protocol::ApprovalBodyKind::FileWrite,
+        aui_protocol::ApprovalBodyKind::Other,
+    ]) {
+        match block {
+            Block::Approval { body_kind, .. } => assert_eq!(*body_kind, want),
+            other => panic!("expected an approval, got {other:?}"),
+        }
+        let json = serde_json::to_value(block).expect("serialize");
+        let back: Block = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(&back, block);
+    }
+}

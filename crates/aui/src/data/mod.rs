@@ -20,7 +20,7 @@ mod secret_field;
 mod tag;
 
 pub use avatar::{avatar, Avatar};
-pub use button::{button, icon_button, icon_content_button, Button, ButtonSize, ButtonVariant};
+pub use button::{arm_ax_probe, button, icon_button, icon_content_button, record_ax_label, take_ax_labels, Button, ButtonSize, ButtonVariant};
 pub use chip::{chip, Chip};
 pub use context_meter::{context_meter, ContextMeter, ContextMeterState, ContextPressure};
 pub use dot::{status_dot, StatusDot};

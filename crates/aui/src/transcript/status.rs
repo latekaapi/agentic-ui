@@ -8,7 +8,7 @@ use aui_tokens::{scale, scaled, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, App, ElementId, FontWeight, HighlightStyle, IntoElement, SharedString, StyledText, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{button, kbd, spinner};
+use crate::data::{button, kbd, record_ax_label, spinner};
 use crate::icons::{icon, IconName};
 use crate::util::ClickHandler;
 
@@ -96,12 +96,15 @@ impl RenderOnce for ErrorCard {
         let id = self.id.clone();
         let mut body = h_flex().w_full().ui(scale::FS_12).text_color(p.ink_2).gap(px(LINK_GAP)).child(div().flex_none().child(self.detail.clone()));
         if let Some((label, on_click)) = self.link {
+            record_ax_label(&label);
             body = body.child(
                 div()
                     .id((id.clone(), "link"))
                     .flex_none()
                     .text_color(p.danger)
                     .cursor_pointer()
+                    .role(gpui::Role::Link)
+                    .aria_label(label.clone())
                     .on_click(move |e, window, cx| on_click(e, window, cx))
                     .child(label),
             );
@@ -373,7 +376,7 @@ impl RenderOnce for JumpPill {
             .text_color(p.ink)
             .whitespace_nowrap()
             .child(icon(IconName::ChevronDown).size(px(JUMP_GLYPH)))
-            .child(self.label);
+            .child(self.label.clone());
         if let Some(count) = self.count {
             pill = pill.child(
                 div()
@@ -391,7 +394,8 @@ impl RenderOnce for JumpPill {
             );
         }
         if let Some(on_jump) = self.on_jump {
-            pill = pill.cursor_pointer().on_click(move |e, window, cx| on_jump(e, window, cx));
+            record_ax_label(&self.label);
+            pill = pill.role(gpui::Role::Button).aria_label(self.label.clone()).cursor_pointer().on_click(move |e, window, cx| on_jump(e, window, cx));
         }
         pill
     }

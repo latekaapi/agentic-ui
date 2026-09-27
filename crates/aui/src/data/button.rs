@@ -20,6 +20,42 @@ use gpui::{div, point, prelude::*, px, AnyElement, App, BoxShadow, ElementId, Hs
 
 use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
 
+use std::cell::RefCell;
+
+// Test probe for accessible names: gpui offers no accessibility-tree query,
+// so a test arms this, draws cards in a real window, and reads back the
+// effective AX label of every rendered button — the AX analogue of
+// `Window::painted_quads` and the [`crate::transcript::take_drawn_chips`]
+// chip probe. Arming records; it changes nothing drawn.
+thread_local! {
+    static AX_PROBE_ARMED: RefCell<bool> = const { RefCell::new(false) };
+    static DRAWN_AX_LABELS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Arms (`true`) or disarms the AX-label probe. Disarmed — the default —
+/// nothing is recorded and rendering is byte-for-byte what it was.
+pub fn arm_ax_probe(armed: bool) {
+    AX_PROBE_ARMED.with(|flag| *flag.borrow_mut() = armed);
+}
+
+/// Drains the effective AX labels recorded since the last call, in draw
+/// order. An empty string is an icon-only button with no
+/// [`Button::accessibility_label`]: a control the accessibility tree has no
+/// name for.
+pub fn take_ax_labels() -> Vec<String> {
+    DRAWN_AX_LABELS.with(|labels| std::mem::take(&mut *labels.borrow_mut()))
+}
+
+/// Records one effective AX label when the probe is armed; a no-op
+/// otherwise. Interactive `div`s (option rows, fold rows, card headers) call
+/// this with the same label they put in `aria_label`, so one probe covers
+/// every transcript control, not just [`Button`]s.
+pub fn record_ax_label(label: &str) {
+    if AX_PROBE_ARMED.with(|flag| *flag.borrow()) {
+        DRAWN_AX_LABELS.with(|labels| labels.borrow_mut().push(label.to_owned()));
+    }
+}
+
 /// `.btn` variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonVariant {
@@ -368,7 +404,7 @@ impl RenderOnce for Button {
         } else if let Some(glyph) = self.icon {
             inner = inner.child(icon(glyph).size(glyph_size).color(text));
         }
-        if let Some(label) = self.label.filter(|l| !l.is_empty()) {
+        if let Some(label) = self.label.clone().filter(|l| !l.is_empty()) {
             inner = inner.child(label);
         }
         if let Some(trailing) = self.trailing {
@@ -408,9 +444,16 @@ impl RenderOnce for Button {
                 outer = outer.on_click(move |e, w, cx| on_click(e, w, cx));
             }
         }
-        // An explicit label names the control; a visible label alone leaves
-        // the element's implicit name, so only the explicit one sets the role.
-        if let Some(label) = self.accessibility_label {
+        // Every button names itself for the accessibility tree: the explicit
+        // label when one is set, otherwise the visible label. Only an
+        // icon-only button with no explicit label stays silent — and the
+        // probe below is how the transcript AX test finds those.
+        let effective: Option<SharedString> = self
+            .accessibility_label
+            .clone()
+            .or_else(|| self.label.clone().filter(|l| !l.is_empty()));
+        record_ax_label(effective.as_deref().unwrap_or(""));
+        if let Some(label) = effective {
             outer = outer.role(gpui::Role::Button).aria_label(label);
         }
         outer

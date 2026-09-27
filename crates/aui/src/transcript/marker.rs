@@ -115,7 +115,18 @@ impl RenderOnce for MarkerRow {
                 Run::Strong(t) => text.child(div().whitespace_nowrap().medium().text_color(p.ink).child(t)),
                 Run::Link(t, on_click) => {
                     let id: ElementId = (self.id.clone(), SharedString::from(format!("link-{i}"))).into();
-                    text.child(div().id(id).whitespace_nowrap().text_color(p.accent_ink).cursor_pointer().on_click(move |e, w, cx| on_click(e, w, cx)).child(t))
+                    crate::data::record_ax_label(&t);
+                    text.child(
+                        div()
+                            .id(id)
+                            .whitespace_nowrap()
+                            .text_color(p.accent_ink)
+                            .cursor_pointer()
+                            .role(gpui::Role::Link)
+                            .aria_label(t.clone())
+                            .on_click(move |e, w, cx| on_click(e, w, cx))
+                            .child(t),
+                    )
                 }
             };
         }
