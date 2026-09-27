@@ -46,8 +46,9 @@
 //! - [`Block::Goal`] mirrors `session/goalChanged`, and [`Block::Generic`] is
 //!   the mandated fallback card for an item kind this client does not model.
 //! - [`Delta::ThinkingDelta`], [`Delta::ToolOutputDelta`],
-//!   [`Delta::TurnRemoved`] and [`Delta::BlockRemoved`] cover streamed
-//!   reasoning, streamed tool output, and retraction/unqueue.
+//!   [`Delta::TurnRemoved`], [`Delta::TurnReplaced`] and
+//!   [`Delta::BlockRemoved`] cover streamed reasoning, streamed tool output,
+//!   retraction/unqueue, and in-place turn correction.
 
 #![deny(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
