@@ -271,7 +271,26 @@ impl WebviewState {
             return;
         }
         self.obscured = obscured;
+        if obscured {
+            // The page is covered: a native view that kept first responder
+            // would eat the keystrokes meant for whatever covers it.
+            self.release_keyboard();
+        }
         self.sync_visibility();
+    }
+
+    /// Whether the page currently holds the keyboard. See
+    /// [`WebBackend::holds_keyboard`](crate::backend::WebBackend::holds_keyboard).
+    pub fn holds_keyboard(&self) -> bool {
+        self.backend.holds_keyboard()
+    }
+
+    /// Gives the keyboard back to the host view. A no-op unless the page
+    /// holds it — safe to call whenever the pane stops wanting page input.
+    pub fn release_keyboard(&mut self) {
+        if self.backend.holds_keyboard() {
+            self.backend.set_focused(false);
+        }
     }
 
     /// Whether the host has the page covered.
@@ -584,6 +603,15 @@ impl WebviewState {
     }
 }
 
+impl Drop for WebviewState {
+    /// Gives the keyboard back as the pane goes away: a dropped native view
+    /// that kept first responder would leave the window's keystrokes aimed at
+    /// a view that is no longer on screen.
+    fn drop(&mut self) {
+        self.release_keyboard();
+    }
+}
+
 /// What a person types in a URL field is rarely a URL. Anything with a scheme
 /// is taken as it is; a bare host gets `https://`; anything with a space is a
 /// search. This is the whole of the pane's address-bar cleverness.
@@ -878,5 +906,39 @@ mod tests {
         assert_eq!(answers[0].1, Ok(String::from("\"Simple pricing\"")));
         let drained: Vec<(u64, Result<String, String>)> = state.update(cx, |state, _| state.take_eval_results());
         assert!(drained.is_empty());
+    }
+
+    /// `release_keyboard` hands focus back when the page holds it, and is a
+    /// no-op otherwise.
+    #[gpui::test]
+    fn release_keyboard_gives_the_keyboard_back(cx: &mut gpui::TestAppContext) {
+        use gpui::AppContext as _;
+        let state = cx.new(|cx| WebviewState::new(Box::new(FakeWebBackend::new()), cx));
+        state.update(cx, |state, _| {
+            assert!(!state.holds_keyboard());
+            // A no-op release records nothing on the backend.
+            state.release_keyboard();
+            assert!(!state.holds_keyboard());
+        });
+        state.update(cx, |state, _| state.backend.set_focused(true));
+        state.update(cx, |state, _| {
+            assert!(state.holds_keyboard());
+            state.release_keyboard();
+            assert!(!state.holds_keyboard());
+        });
+    }
+
+    /// Covering the page hands the keyboard back, so the overlay — not the
+    /// hidden page — reads the next keystroke.
+    #[gpui::test]
+    fn obscuring_the_page_releases_the_keyboard(cx: &mut gpui::TestAppContext) {
+        use gpui::AppContext as _;
+        let state = cx.new(|cx| WebviewState::new(Box::new(FakeWebBackend::new()), cx));
+        state.update(cx, |state, _| state.backend.set_focused(true));
+        state.update(cx, |state, _| {
+            assert!(state.holds_keyboard());
+            state.set_obscured(true);
+            assert!(!state.holds_keyboard());
+        });
     }
 }
