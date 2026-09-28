@@ -214,7 +214,9 @@ impl RenderOnce for FileTree {
         // The tree draws no outer radius or border, so `flush` changes
         // nothing visually; the read keeps the opt-in part of the build.
         let _ = self.flush;
-        let mut panel = v_flex().id(id.clone()).size_full().overflow_hidden().bg(p.surface_1);
+        // The tree fills its pane (the empty area keeps the panel ground) and
+        // scrolls its own rows; the header and footer stay pinned.
+        let mut panel = v_flex().id(id.clone()).size_full().flex_1().min_h(px(0.0)).overflow_hidden().bg(p.surface_1);
 
         if let Some(name) = self.header {
             let search = self.on_action.clone();
@@ -259,7 +261,7 @@ impl RenderOnce for FileTree {
             );
         }
 
-        let mut tree = v_flex().w_full().flex_none().p(px(TREE_PAD)).ui(TREE_TEXT);
+        let mut tree = v_flex().id((id.clone(), "rows")).w_full().flex_1().min_h(px(0.0)).overflow_hidden().overflow_y_scroll().p(px(TREE_PAD)).ui(TREE_TEXT);
         for node in self.nodes {
             tree = tree.child(tree_row((id.clone(), node.id.clone()), node, self.on_action.clone(), window, cx));
         }

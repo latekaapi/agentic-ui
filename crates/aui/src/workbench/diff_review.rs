@@ -589,6 +589,7 @@ fn review_note(p: &Palette, id: ElementId, index: usize, note: &ReviewNote, on_a
         el.child(
             h_flex()
                 .w_full()
+                .flex_wrap()
                 .mt(px(NOTE_PENDING_TOP))
                 .gap(px(NOTE_PENDING_GAP))
                 .justify_end()
@@ -598,6 +599,7 @@ fn review_note(p: &Palette, id: ElementId, index: usize, note: &ReviewNote, on_a
     } else {
         el.child(
             h_flex()
+                .flex_wrap()
                 .mt(px(NOTE_SAVED_TOP))
                 .gap(px(NOTE_SAVED_GAP))
                 .child(button((id.clone(), "edit"), "Edit").xs().ghost().on_click(emit(DiffReviewAction::EditNote(index))))
@@ -653,30 +655,44 @@ impl RenderOnce for DiffReview {
                 run(1, scale::FONT_UI, p.ink_3, None),
                 run(minus.len(), scale::FONT_UI, p.danger, None),
             ];
-            div().flex_none().ui(SUMMARY_TEXT).text_color(p.ink_3).whitespace_nowrap().child(StyledText::new(text).with_runs(runs))
+            // The summary is the lowest-priority header text: it shrinks first
+            // and truncates with an ellipsis, so the scope/view controls,
+            // search and Collapse survive intact at narrow widths.
+            div().flex_initial().min_w(px(0.0)).truncate().ui(SUMMARY_TEXT).text_color(p.ink_3).child(StyledText::new(text).with_runs(runs))
         });
+        // The header wraps to a second line below ~460 px instead of clipping:
+        // every control stays full-size and clickable down to the 280 px pane
+        // minimum. The fixed height becomes a minimum so one line still
+        // measures exactly as before.
         let top = h_flex()
             .w_full()
-            .h(px(TOP_H))
+            .min_h(px(TOP_H))
             .flex_none()
+            .flex_wrap()
             .gap(px(TOP_GAP))
             .px(px(TOP_PAD_X))
             .border_b_1()
             .border_color(p.line)
             .child(scopes)
             .children(summary)
-            .child(div().flex_1())
+            .child(div().flex_1().min_w(px(0.0)))
             .child(views)
             .child(icon_button((id.clone(), "search"), IconName::Search).ghost().size(ButtonSize::Sm).on_click(emit(DiffReviewAction::Search)))
             .child(button((id.clone(), "collapse"), "Collapse all").sm().ghost().on_click(emit(DiffReviewAction::CollapseAll)));
 
         // ── files column ────────────────────────────────────────────────────
+        // The column keeps its 230 px design width in wide panes but yields
+        // to the diff body below ~575 px, so the Open/Stage actions still
+        // fit their own wrapped lines at the 280 px pane minimum.
         let mut files = v_flex()
+            .id((id.clone(), "files"))
             .w(px(FILES_W))
+            .max_w(relative(0.4))
             .flex_none()
             .h_full()
             .p(px(FILES_PAD))
             .overflow_hidden()
+            .overflow_y_scroll()
             .border_r_1()
             .border_color(p.line)
             .ui(FILES_TEXT)
@@ -740,8 +756,9 @@ impl RenderOnce for DiffReview {
         // ── diff body ───────────────────────────────────────────────────────
         let file_head = h_flex()
             .w_full()
-            .h(px(FILE_HEAD_H))
+            .min_h(px(FILE_HEAD_H))
             .flex_none()
+            .flex_wrap()
             .gap(px(FILE_HEAD_GAP))
             .px(px(FILE_HEAD_PAD_X))
             .bg(p.surface_2)
@@ -757,7 +774,7 @@ impl RenderOnce for DiffReview {
             .child(button((id.clone(), "open"), "Open in editor").xs().ghost().on_click(emit(DiffReviewAction::OpenInEditor)))
             .child(button((id.clone(), "stage"), "Stage").xs().ghost().on_click(emit(DiffReviewAction::Stage)));
 
-        let mut body = v_flex().flex_1().min_w(px(0.0)).h_full().overflow_hidden().mono(DIFF_TEXT).line_height(relative(DIFF_LH)).text_color(p.ink).child(file_head);
+        let mut body = v_flex().id((id.clone(), "body")).flex_1().min_w(px(0.0)).min_h(px(0.0)).h_full().overflow_hidden().overflow_y_scroll().mono(DIFF_TEXT).line_height(relative(DIFF_LH)).text_color(p.ink).child(file_head);
         for (h, hunk) in self.diff.hunks.iter().enumerate() {
             body = body.child(
                 h_flex()
@@ -863,14 +880,15 @@ impl RenderOnce for DiffReview {
         );
         let bottom = h_flex()
             .w_full()
-            .h(px(BOTTOM_H))
+            .min_h(px(BOTTOM_H))
             .flex_none()
+            .flex_wrap()
             .gap(px(BOTTOM_GAP))
             .px(px(BOTTOM_PAD_X))
             .bg(p.surface_2)
             .border_t_1()
             .border_color(p.line)
-            .child(div().flex_none().ui(HINT_TEXT).text_color(p.ink_3).whitespace_nowrap().child(hint))
+            .child(div().flex_initial().min_w(px(0.0)).truncate().ui(HINT_TEXT).text_color(p.ink_3).child(hint))
             .child(div().flex_1())
             .child(button((id.clone(), "clear"), "Clear").sm().ghost().on_click(emit(DiffReviewAction::Clear)))
             .child(send.on_click(emit(DiffReviewAction::Send)));
@@ -883,5 +901,78 @@ impl RenderOnce for DiffReview {
             .child(top)
             .child(h_flex().w_full().flex_1().min_h(px(0.0)).items_start().child(files).child(body))
             .child(bottom)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    /// `+8 −3`, dropping a zero side; the minus is U+2212 as in the design.
+    #[test]
+    fn counts_drops_a_zero_side() {
+        assert_eq!(counts(8, 3), "+8 −3");
+        assert_eq!(counts(41, 0), "+41");
+        assert_eq!(counts(0, 3), "−3");
+        assert_eq!(counts(0, 0), "");
+    }
+
+    /// Mounts the pane at the 280 px pane minimum and records every painted
+    /// child bound, like the shell's right-column probe does.
+    struct NarrowHost {
+        seen: Rc<RefCell<Vec<Bounds<Pixels>>>>,
+    }
+
+    impl gpui::Render for NarrowHost {
+        fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            let seen = self.seen.clone();
+            let files = vec![ReviewFile {
+                change: FileChange { path: "src/main.rs".into(), change: ChangeKind::Modified, added: 8, removed: 3 },
+                notes: 0,
+                selected: true,
+            }];
+            let diff = Diff {
+                path: "src/main.rs".into(),
+                hunks: vec![aui_protocol::Hunk {
+                    header: "@@ -1,2 +1,2 @@".into(),
+                    lines: vec![
+                        aui_protocol::DiffLine { kind: aui_protocol::DiffKind::Del, old_no: Some(1), new_no: None, text: "old".into() },
+                        aui_protocol::DiffLine { kind: aui_protocol::DiffKind::Add, old_no: None, new_no: Some(1), text: "new".into() },
+                    ],
+                }],
+                added: 8,
+                removed: 3,
+            };
+            div()
+                .w(px(280.0))
+                .on_children_prepainted(move |bounds, _, _| seen.borrow_mut().extend(bounds))
+                .child(
+                    diff_review("x6b-narrow-test", files, diff, Vec::new(), DiffScope::ThisTurn, DiffView::Unified)
+                        .summary("vs main · 1 file", 8, 3),
+                )
+        }
+    }
+
+    /// The X6b header contract: at 280 px nothing may lay out past the pane
+    /// edge (controls wrap or truncate instead of clipping mid-glyph).
+    #[gpui::test]
+    fn header_controls_stay_inside_a_280px_pane(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+        let seen: Rc<RefCell<Vec<Bounds<Pixels>>>> = Rc::new(RefCell::new(Vec::new()));
+        let _host = cx.open_window(gpui::size(px(280.0), px(700.0)), {
+            let seen = seen.clone();
+            move |_, _| NarrowHost { seen }
+        });
+        cx.run_until_parked();
+        let seen = seen.borrow();
+        assert!(!seen.is_empty(), "the narrow pane must paint");
+        // Origins are window-relative, so measure against the leftmost
+        // painted edge rather than zero.
+        let left = seen.iter().map(|b| f32::from(b.origin.x)).fold(f32::INFINITY, f32::min);
+        for bounds in seen.iter() {
+            let right = f32::from(bounds.origin.x + bounds.size.width) - left;
+            assert!(right <= 281.0, "a header child paints past the 280 px pane edge at {right}px");
+        }
     }
 }

@@ -264,11 +264,14 @@ impl RenderOnce for BrowserNav {
             url = url.on_click(move |_, window, cx| handler(BrowserAction::FocusUrl, window, cx));
         }
 
+        // The row wraps below ~300 px instead of clipping its trailing
+        // controls; one line still measures exactly as before.
         h_flex()
             .relative()
             .w_full()
-            .h(px(NAV_HEIGHT))
+            .min_h(px(NAV_HEIGHT))
             .flex_none()
+            .flex_wrap()
             .px(px(NAV_PAD_X))
             .gap(px(NAV_GAP))
             .border_b_1()
@@ -720,25 +723,32 @@ impl RenderOnce for AnnotationsPanel {
             .child(div().flex_1())
             .child(close);
 
+        // The panel keeps its 272 px base width but shrinks with a narrow
+        // pane instead of overflowing it; the rows scroll under the pinned
+        // head and the pinned action footer.
         let mut panel = v_flex()
             .flex_none()
             .w(px(PANEL_WIDTH))
+            .max_w(relative(1.0))
+            .flex_shrink_1()
             .h_full()
             .min_h(px(0.0))
+            .overflow_hidden()
             .border_l_1()
             .border_color(p.line)
             .bg(p.surface_1)
             .child(head);
 
+        let mut middle = v_flex().id((id.clone(), "rows")).w_full().flex_1().min_h(px(0.0)).overflow_hidden().overflow_y_scroll();
         for (position, annotation) in self.annotations.iter().enumerate() {
-            panel = panel.child(annotation_row((id.clone(), SharedString::from(format!("row-{position}"))), annotation, self.selected == Some(position), handler.clone(), window, cx));
+            middle = middle.child(annotation_row((id.clone(), SharedString::from(format!("row-{position}"))), annotation, self.selected == Some(position), handler.clone(), window, cx));
         }
 
         if let Some(pins) = self.screenshot {
-            panel = panel.child(screenshot_tile(pins, p));
+            middle = middle.child(screenshot_tile(pins, p));
         }
 
-        panel = panel.child(
+        middle = middle.child(
             div()
                 .w_full()
                 .py(px(META_PAD_Y))
@@ -750,6 +760,7 @@ impl RenderOnce for AnnotationsPanel {
                 .text_color(p.ink_3)
                 .child(METADATA_NOTE),
         );
+        panel = panel.child(middle);
 
         let action = |key: &'static str, label: SharedString, variant: ButtonVariant, intent: AnnotatorAction, handler: &Option<AnnotatorHandler>| {
             let mut b = button((id.clone(), key), label).size(ButtonSize::Sm).variant(variant);
@@ -772,6 +783,7 @@ impl RenderOnce for AnnotationsPanel {
                 .w_full()
                 .mt_auto()
                 .flex_none()
+                .flex_wrap()
                 .gap(px(ACTIONS_GAP))
                 .py(px(ACTIONS_PAD_Y))
                 .px(px(PANEL_PAD_X))

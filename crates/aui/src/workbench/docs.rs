@@ -378,11 +378,14 @@ impl RenderOnce for DocToolbar {
                 }
             }
         };
+        // The row wraps below ~460 px instead of clipping its trailing
+        // controls; one line still measures exactly as before.
         let mut bar = h_flex()
             .id(id.clone())
             .w_full()
             .flex_none()
-            .h(px(TOOLBAR_H))
+            .min_h(px(TOOLBAR_H))
+            .flex_wrap()
             .gap(px(TOOLBAR_GAP))
             .px(px(TOOLBAR_PAD))
             .border_b_1()
@@ -803,9 +806,12 @@ impl RenderOnce for DocPane {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let ink: Hsla = rgb(PAPER_INK).into();
+        // The paper caps at the pane width so a 520 px sheet in a 280 px
+        // pane wraps its text instead of clipping mid-glyph on both sides.
         let mut paper = v_flex()
             .flex_none()
             .w(px(self.paper_width))
+            .max_w(relative(1.0))
             .px(px(self.paper_pad.map(|(_, x)| x).unwrap_or(PAPER_PAD_X)))
             .py(px(self.paper_pad.map(|(y, _)| y).unwrap_or(PAPER_PAD_Y)))
             .bg(rgb(PAPER_BG))

@@ -27,6 +27,7 @@ pub mod markdown;
 pub mod markers;
 pub mod menus;
 pub mod motion;
+pub mod narrow_panes;
 pub mod panel_chrome;
 pub mod pickers;
 pub mod project_mark;

@@ -105,3 +105,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   divider in the shell and screens, a class-collision fix in card 38, the
   card 50 tab indicator moved to ink/bottom, a notes-column line number on
   card 52, and PR description block flow on card 53.
+- The diff review header survives narrow panes: below ~460 px it wraps to a
+  second line while the summary and the action-row hint shrink with an
+  ellipsis, so every control stays clickable down to the 280 px pane
+  minimum; the files column and diff body scroll their own overflow.
+- Workbench panels fill their pane: the file tree, changes list, PR form
+  body and annotations list take the free column space (`flex_1` +
+  `min_h(0)`) with their own scroll regions and pinned headers/footers, the
+  annotations panel shrinks below its 272 px base width instead of
+  overflowing, and the document paper caps at the pane width so its text
+  wraps instead of clipping. The document toolbar and browser nav row wrap
+  to a second line at narrow widths instead of clipping their trailing
+  controls (one line still measures as before).
+- The gallery captures fluid cards at explicit widths (`--width <px>`,
+  overriding the entry width for `--screenshot`) and adds narrow-pane
+  entries (`workbench/diff-narrow`, `git-narrow`, `files-narrow`,
+  `browser-narrow`, `docs-narrow`) for the 280/360/520 px pane loop.

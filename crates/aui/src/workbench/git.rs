@@ -259,7 +259,9 @@ impl RenderOnce for GitChanges {
             // ink-3 text.
             .child(div().flex_none().font_weight(gpui::FontWeight::NORMAL).text_color(p.ink_3).child(self.files.len().to_string()));
 
-        let mut rows = v_flex().w_full().flex_none();
+        // The file list takes the free space and scrolls; the draft, commit
+        // and ahead/behind rows stay pinned top and bottom.
+        let mut rows = v_flex().id((id.clone(), "rows")).w_full().flex_1().min_h(px(0.0)).overflow_hidden().overflow_y_scroll();
         for (file, on) in &self.files {
             let (letter, colour) = change_letter(file.change, &p);
             let path = SharedString::from(file.path.clone());
@@ -383,13 +385,15 @@ impl RenderOnce for GitChanges {
             .text_color(p.ink_3)
             .mono(AHEAD_TEXT)
             .medium()
-            .child(div().child(format!("{BRANCH_GLYPH} {}", self.branch)))
+            .child(div().min_w(px(0.0)).truncate().child(format!("{BRANCH_GLYPH} {}", self.branch)))
             .child(div().flex_1())
             .child(div().flex_none().text_color(p.success).child(format!("↑{}", self.ahead)))
             .child(div().flex_none().child(format!("↓{}", self.behind)))
             .child(push);
 
-        let mut panel = v_flex().id(id).size_full().bg(p.surface_1).overflow_hidden();
+        // The panel fills its pane (the empty area keeps the panel ground,
+        // not the pane behind it) wherever the column bounds its height.
+        let mut panel = v_flex().id(id).size_full().flex_1().min_h(px(0.0)).bg(p.surface_1).overflow_hidden();
         if !self.flush {
             panel = panel.rounded(px(PANEL_RADIUS)).border_1().border_color(p.line);
         }
@@ -658,15 +662,21 @@ impl RenderOnce for PrForm {
             .child(footer_button("Cancel", ButtonVariant::Ghost, PrAction::Cancel, &self.on_action))
             .child(footer_button("Create PR", ButtonVariant::Primary, PrAction::Create, &self.on_action));
 
-        let mut panel = v_flex().id(id).size_full().bg(p.surface_1).overflow_hidden();
+        let mut panel = v_flex().id(id.clone()).size_full().flex_1().min_h(px(0.0)).bg(p.surface_1).overflow_hidden();
         if !self.flush {
             panel = panel.rounded(px(PANEL_RADIUS)).border_1().border_color(p.line);
         }
         panel.child(head)
             .child(
+                // The form body takes the free space and scrolls; the head
+                // and footer stay pinned.
                 v_flex()
+                    .id((id.clone(), "body"))
                     .w_full()
-                    .flex_none()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .overflow_hidden()
+                    .overflow_y_scroll()
                     .p(px(FORM_PAD))
                     .child(field_label("Base branch", &p))
                     .child(base)

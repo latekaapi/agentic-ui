@@ -14,15 +14,19 @@ pub struct Gallery {
     selected: &'static Entry,
     /// Screenshot mode: no chrome, the card fills the window.
     bare: bool,
+    /// `--width` override for bare captures: the card (and window) render at
+    /// this width instead of the entry's declared width.
+    card_width: Option<f32>,
     focus: FocusHandle,
 }
 
 impl Gallery {
     /// Creates the gallery, opening `entry` (or the first one).
-    pub fn new(entry: Option<&'static Entry>, bare: bool, _window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(entry: Option<&'static Entry>, bare: bool, card_width: Option<f32>, _window: &mut Window, cx: &mut Context<Self>) -> Self {
         Self {
             selected: entry.unwrap_or(&ENTRIES[0]),
             bare,
+            card_width,
             focus: cx.focus_handle(),
         }
     }
@@ -133,8 +137,9 @@ impl Gallery {
         // Cards follow the active theme; the design's theme only picks the
         // default for a parity screenshot.
         let colors = cx.aui().colors;
+        let width = self.card_width.unwrap_or(entry.width);
         div()
-            .w(px(entry.width))
+            .w(px(width))
             .h(px(entry.height))
             .flex_none()
             .overflow_hidden()

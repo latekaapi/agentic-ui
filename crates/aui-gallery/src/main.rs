@@ -46,11 +46,14 @@ struct Args {
     /// `--idle-frames <ms>`: count the frames the settled card draws over this
     /// window, print the count and quit. See [`idle`].
     idle_ms: Option<u64>,
+    /// `--width <px>`: override the screenshot window (and card) width, so a
+    /// fluid card can be captured at narrow pane widths (280, 360, 520).
+    width: Option<f32>,
 }
 
 fn parse_args() -> Args {
     let mut args = std::env::args().skip(1);
-    let mut out = Args { theme: None, entry: None, screenshot: None, window_shot: None, delay_ms: 350, text_scale: None, idle_ms: None };
+    let mut out = Args { theme: None, entry: None, screenshot: None, window_shot: None, delay_ms: 350, text_scale: None, idle_ms: None, width: None };
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--theme" => {
@@ -83,6 +86,10 @@ fn parse_args() -> Args {
                 let value = args.next().unwrap_or_default();
                 out.text_scale = Some(value.parse().unwrap_or_else(|_| usage("--text-scale needs a factor such as 1.1")));
             }
+            "--width" => {
+                let value = args.next().unwrap_or_default();
+                out.width = Some(value.parse().unwrap_or_else(|_| usage("--width needs pixels such as 280")));
+            }
             "--list" => {
                 for e in ENTRIES {
                     println!("{:<32} {:>4}×{:<4} {:?}  {}", e.id, e.width, e.height, e.theme, e.title);
@@ -101,7 +108,7 @@ fn usage(err: &str) -> ! {
         eprintln!("error: {err}\n");
     }
     eprintln!(
-        "usage: aui-gallery [--theme light|dark] [--entry <id>] [--screenshot <id> <out.png>] [--screenshot-window <out.png>] [--screenshot-delay <ms>] [--idle-frames <ms>] [--text-scale <factor>] [--list]"
+        "usage: aui-gallery [--theme light|dark] [--entry <id>] [--screenshot <id> <out.png>] [--screenshot-window <out.png>] [--screenshot-delay <ms>] [--idle-frames <ms>] [--text-scale <factor>] [--width <px>] [--list]"
     );
     std::process::exit(if err.is_empty() { 0 } else { 2 });
 }
@@ -131,7 +138,7 @@ fn main() {
         aui_tokens::AuiTheme::set_text_scale(text_scale, None, cx);
 
         let window_size = match (bare_mode, entry) {
-            (true, Some(e)) => size(px(e.width), px(e.height)),
+            (true, Some(e)) => size(px(args.width.unwrap_or(e.width)), px(e.height)),
             _ => size(px(1280.0), px(820.0)),
         };
         // Parity renders sit at the display's top-left corner, away from the
@@ -160,9 +167,10 @@ fn main() {
         };
 
         let shot_mode = bare_mode;
+        let card_width = args.width;
         let handle = cx
             .open_window(options, |window, cx| {
-                let view = cx.new(|cx| Gallery::new(entry, shot_mode, window, cx));
+                let view = cx.new(|cx| Gallery::new(entry, shot_mode, card_width, window, cx));
                 cx.new(|cx| Root::new(view, window, cx))
             })
             .expect("open gallery window");
