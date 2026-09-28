@@ -2,6 +2,7 @@
 //! rail, the three groupings (status / project / date) with the view-options
 //! menu, and the assistant's role sections (cards 20–23, spec §2).
 
+mod account_menu;
 mod detail;
 mod folder_drop;
 mod parts;
@@ -15,6 +16,7 @@ mod view_menu;
 mod views;
 mod virtual_sidebar;
 
+pub use account_menu::{account_menu, AccountMenu, AccountMenuItem};
 pub use detail::{
     anchored_session_detail, anchored_session_detail_at_sidebar, detail_keys, session_detail, session_detail_side_origin,
     SessionDetail, SessionDetailData, SESSION_DETAIL_ASK_LINES, SESSION_DETAIL_ATTENTION_LINES, SESSION_DETAIL_DELAY,

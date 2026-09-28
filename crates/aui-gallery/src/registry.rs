@@ -281,6 +281,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::folder_drop::build,
     },
     Entry {
+        id: "nav/account-menu",
+        group: "Sidebar",
+        title: "Account menu",
+        subtitle: "One sectioned panel: header, a usage section with a compact row per provider, then the menu rows; plus a narrow variant proving long reasons wrap",
+        width: 760.0,
+        height: 640.0,
+        theme: CardTheme::Both,
+        build: crate::cards::account_menu::build,
+    },
+    Entry {
         id: "nav/gutter",
         group: "Sidebar",
         title: "Sidebar gutter",
