@@ -276,6 +276,11 @@ impl WryBackend {
         let webview = WebViewBuilder::new()
             .with_url(url)
             .with_bounds(bounds)
+            // Every navigation the page itself starts (a link, a redirect, a
+            // form) meets the same scheme rule a host applies to the URLs it
+            // opens: an agent that clicks a `javascript:`/`data:` link gets
+            // nowhere.
+            .with_navigation_handler(|url: String| navigation_allowed(&url))
             .with_initialization_script(ANNOTATOR_JS)
             .with_ipc_handler(move |request: wry::http::Request<String>| {
                 on_ipc(&ipc, request.body());
@@ -488,6 +493,15 @@ impl WebBackend for WryBackend {
     }
 }
 
+/// The schemes a page may navigate to: the web, local files, and
+/// `about:` (blank pages). Everything else — `javascript:`, `data:`,
+/// `blob:`, `vbscript:`, custom app schemes — is refused. Case and
+/// leading whitespace do not smuggle a scheme past the check.
+pub fn navigation_allowed(url: &str) -> bool {
+    let url = url.trim_start().to_ascii_lowercase();
+    ["http://", "https://", "file://", "about:"].iter().any(|scheme| url.starts_with(scheme))
+}
+
 /// Encodes an `NSImage` as PNG the long way round: TIFF representation into an
 /// `NSBitmapImageRep`, then that rep out as PNG. `NSImage` has no PNG encoder
 /// of its own, and this is the encode AppKit itself uses.
@@ -518,6 +532,17 @@ fn png_bytes(image: &NSImage) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn page_navigations_meet_the_scheme_rule() {
+        for ok in ["https://example.com", "http://localhost:3000/x", "file:///tmp/a.html", "about:blank", "HTTPS://A.B"] {
+            assert!(super::navigation_allowed(ok), "{ok} should be allowed");
+        }
+        for bad in ["javascript:alert(1)", " JavaScript:alert(1)", "\tjavascript:x", "data:text/html,<b>x</b>", "blob:https://a/b", "vbscript:x", "baaz://x", ""] {
+            assert!(!super::navigation_allowed(bad), "{bad:?} should be refused");
+        }
+    }
+
     use super::*;
 
     /// One IPC message, as `ANNOTATOR_JS` builds it.
