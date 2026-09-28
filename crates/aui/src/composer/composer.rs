@@ -438,6 +438,8 @@ impl RenderOnce for Composer {
                             div()
                                 .id(named_child(&id, "chip-x-", &c.id))
                                 .cursor_pointer()
+                                .role(gpui::Role::Button)
+                                .aria_label(SharedString::from(format!("Remove {}", c.label)))
                                 .on_click(remove)
                                 .child(icon(IconName::X).size(px(CHIP_X)).color(p.ink_4)),
                         );
@@ -461,7 +463,13 @@ impl RenderOnce for Composer {
             }
             if c.removable {
                 let remove = emit(ComposerIntent::RemoveChip(c.id.clone()));
-                el = el.trailing(div().id(named_child(&id, "chip-x-", &c.id)).cursor_pointer().on_click(remove).child(icon(IconName::X).size(px(CHIP_X)).color(p.ink_4)));
+                el = el.trailing(
+                    div()
+                        .id(named_child(&id, "chip-x-", &c.id))
+                        .cursor_pointer()
+                        .role(gpui::Role::Button)
+                        .aria_label(SharedString::from(format!("Remove {}", c.label)))
+                        .on_click(remove).child(icon(IconName::X).size(px(CHIP_X)).color(p.ink_4)));
             }
             chips_row = chips_row.child(el);
         }
@@ -486,7 +494,9 @@ impl RenderOnce for Composer {
 
         // Toolbar.
         let plus_turn = spring_phase((id.clone(), "plus"), self.plus_open, SpringKind::Swap, window, cx);
-        let plus = icon_button((id.clone(), "plus"), IconName::Plus).on_click(emit(ComposerIntent::TogglePlus));
+        let plus = icon_button((id.clone(), "plus"), IconName::Plus)
+            .accessibility_label("Attach or add")
+            .on_click(emit(ComposerIntent::TogglePlus));
         let plus_glyph_turn = radians(plus_turn * PLUS_TURN);
         let plus_holder = div()
             .relative()
@@ -528,6 +538,8 @@ impl RenderOnce for Composer {
                     .justify_center()
                     .cursor_pointer()
                     .track_interaction(&send_state)
+                    .role(gpui::Role::Button)
+                    .aria_label(if self.streaming { "Stop" } else { "Send" })
                     .on_click(emit(if self.streaming { ComposerIntent::Stop } else { ComposerIntent::Send }))
                     .child(IconMorph::new(sample, px(SEND_ICON), glyph(IconName::ArrowUp), glyph(IconName::Stop))),
             );
@@ -549,7 +561,9 @@ impl RenderOnce for Composer {
             .chevron()
             .accessibility_label(SharedString::from(format!("{provider_label}, provider")))
             .on_click(emit(ComposerIntent::Provider));
-        let mut model_chip = chip((id.clone(), "model"), self.model.clone()).composer();
+        let mut model_chip = chip((id.clone(), "model"), self.model.clone())
+            .composer()
+            .accessibility_label(SharedString::from(format!("{}, model", self.model)));
         if self.single_provider {
             model_chip = model_chip.leading(provider_mark(self.provider).size(px(CHIP_MARK)));
         }
@@ -557,7 +571,14 @@ impl RenderOnce for Composer {
             model_chip = model_chip.chevron().on_click(emit(ComposerIntent::Model));
         }
         let mode_chip = {
-            let mode = chip((id.clone(), "mode"), self.mode.clone()).composer().on_click(emit(ComposerIntent::Mode));
+            let mode = chip((id.clone(), "mode"), self.mode.clone())
+                .composer()
+                .accessibility_label(SharedString::from(format!(
+                    "{}, {}",
+                    self.mode,
+                    if self.knowledge_first { "grounding" } else { "approval mode" }
+                )))
+                .on_click(emit(ComposerIntent::Mode));
             if self.knowledge_first {
                 // The grounding chip: what the answer is grounded in, read left to right.
                 mode.leading(icon(IconName::Book).size(px(CHIP_GLYPH))).chevron()
@@ -594,7 +615,11 @@ impl RenderOnce for Composer {
         };
         if let Some(effort) = &self.effort {
             let effort_chip =
-                chip((id.clone(), "effort"), effort.clone()).composer().leading(icon(IconName::Brain).size(px(CHIP_GLYPH))).on_click(emit(ComposerIntent::Effort));
+                chip((id.clone(), "effort"), effort.clone())
+                    .composer()
+                    .leading(icon(IconName::Brain).size(px(CHIP_GLYPH)))
+                    .accessibility_label(SharedString::from(format!("{effort}, reasoning effort")))
+                    .on_click(emit(ComposerIntent::Effort));
             bar = bar.child(anchored(ComposerChipAnchor::Effort, effort_chip.into_any_element()));
         }
         if self.plan {
@@ -606,6 +631,7 @@ impl RenderOnce for Composer {
                     .active(true)
                     .leading(icon(IconName::List).size(px(CHIP_GLYPH)))
                     .trailing(icon(IconName::X).size(px(CHIP_X)).color(p.ink_4))
+                    .accessibility_label("Plan mode on, turn off")
                     .on_click(emit(ComposerIntent::ExitPlan)),
             );
         }
