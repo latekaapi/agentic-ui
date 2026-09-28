@@ -53,3 +53,48 @@ pub fn build(_window: &mut Window, _cx: &mut App) -> AnyElement {
         )
         .into_any_element()
 }
+
+/// A long page: 40+ shortcut rows under headings, to prove the page scrolls
+/// inside the bounded card while the header and the section rail stay fixed.
+fn long_sections() -> Vec<SettingsSection> {
+    fn shortcuts(group: &str, n: usize) -> Vec<SettingsRow> {
+        (0..n)
+            .map(|i| SettingsRow::Shortcut {
+                id: format!("{group}-{i}").into(),
+                label: format!("Shortcut action {i}").into(),
+                detail: Some(format!("What {group} shortcut {i} does.").into()),
+                keystroke: Some(format!("cmd-{i}").into()),
+                recording: false,
+                editable: true,
+            })
+            .collect()
+    }
+
+    let mut rows = vec![SettingsRow::Heading { text: "General".into() }];
+    rows.extend(shortcuts("general", 15));
+    rows.push(SettingsRow::Heading { text: "Terminal".into() });
+    rows.extend(shortcuts("terminal", 15));
+    rows.push(SettingsRow::Heading { text: "Sessions".into() });
+    rows.extend(shortcuts("session", 12));
+    vec![
+        SettingsSection { id: "sidebar".into(), label: "Sidebar".into(), rows: sections()[0].rows.clone() },
+        SettingsSection { id: "shortcuts".into(), label: "Shortcuts".into(), rows },
+    ]
+}
+
+/// Builds the long-page content: the Shortcuts section open.
+pub fn build_long(_window: &mut Window, _cx: &mut App) -> AnyElement {
+    div()
+        .relative()
+        .size_full()
+        .child(
+            settings_dialog("card-settings-long", long_sections(), 1)
+                // A static capture: no enter motion to blur it.
+                .at_rest()
+                .on_select_section(|_, _, _| {})
+                .on_switch(|_, _, _, _| {})
+                .on_shortcut(|_, _, _, _| {})
+                .on_dismiss(|_, _| {}),
+        )
+        .into_any_element()
+}

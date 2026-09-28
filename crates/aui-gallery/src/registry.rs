@@ -151,6 +151,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::command_palette::build,
     },
     Entry {
+        id: "shell/command-palette-long",
+        group: "Shell",
+        title: "Command palette, selection past the fold",
+        subtitle: "Sixteen action rows under a lead section with row 13 selected: the list scrolls the selection into view",
+        width: 760.0,
+        height: 520.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::command_palette::build_scrolled,
+    },
+    Entry {
         id: "shell/toasts",
         group: "Shell",
         title: "Toasts and banners",
@@ -179,6 +189,16 @@ pub static ENTRIES: &[Entry] = &[
         height: 480.0,
         theme: CardTheme::Both,
         build: crate::cards::settings::build,
+    },
+    Entry {
+        id: "overlay/settings-long",
+        group: "Shell",
+        title: "Settings dialog, long page",
+        subtitle: "Forty-two shortcut rows under headings: the card stays inside the window and the page scrolls under its fixed header and rail",
+        width: 760.0,
+        height: 560.0,
+        theme: CardTheme::Both,
+        build: crate::cards::settings::build_long,
     },
     Entry {
         id: "overlay/anchored",

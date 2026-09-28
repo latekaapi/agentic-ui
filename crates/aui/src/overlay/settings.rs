@@ -30,12 +30,13 @@
 //! merely returning would swallow the keystroke) so the key-down capture
 //! below still sees the exact key.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use aui_icons::IconName;
 use aui_motion::{tint_fade, EnterExit, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
-use gpui::{div, prelude::*, px, relative, App, ElementId, FocusHandle, IntoElement, Keystroke, SharedString, Window};
+use gpui::{div, prelude::*, px, relative, App, ElementId, FocusHandle, IntoElement, Keystroke, ScrollHandle, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::switch::Switch;
 
@@ -48,9 +49,8 @@ use crate::util::{interaction_flags, TrackInteraction};
 const SETTINGS_W: f32 = 640.0;
 /// The section rail: section labels are short ("Sidebar", "Appearance").
 const RAIL_W: f32 = 180.0;
-/// Card padding and the header/body gap, the dialog's measure.
+/// Card padding, the dialog's measure.
 const CARD_PAD: f32 = scale::SP_5;
-const CARD_GAP: f32 = scale::SP_4;
 /// The gutter the rail/page divider sits in, and the rows' side padding.
 const BODY_GUTTER: f32 = scale::SP_4;
 const ROW_PAD_X: f32 = scale::SP_3;
@@ -71,6 +71,9 @@ const HEAD_GAP: f32 = scale::SP_2;
 /// clearly not interactive. A ratio, not a colour, size or duration, matching
 /// the disabled-button precedent elsewhere in the library.
 const RESERVED_OPACITY: f32 = 0.55;
+/// The scrim left visible above and below the card: a page taller than the
+/// window scrolls inside the card instead of running off both edges.
+const CARD_MARGIN: f32 = 48.0;
 
 type SectionHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 type SwitchHandler = Rc<dyn Fn(&SharedString, bool, &mut Window, &mut App)>;
@@ -297,6 +300,47 @@ impl SettingsDialog {
     }
 }
 
+/// What the page asked its scroll container for: the direct-child index and
+/// whether it has been seen in view since. The handle only learns the
+/// overflow from paint, so a first-frame `scroll_to_item` lands before it
+/// knows it scrolls and is dropped; the flag below re-fires until the row
+/// arrives instead of trusting the first request.
+#[derive(Clone, Copy)]
+struct PageScroll {
+    target: usize,
+    settled: bool,
+}
+
+/// The direct-child index of the `focused`-th arrow stop inside the scrolling
+/// page: page children alternate row, divider, row, … with no trailing
+/// divider, so row `n` sits at child `2 * n`. Notes and headings are never
+/// stops and contribute no index; `None` when `focused` is past the last stop.
+fn focus_child_index(rows: &[SettingsRow], focused: usize) -> Option<usize> {
+    let mut stops = 0usize;
+    for (n, row) in rows.iter().enumerate() {
+        match row {
+            SettingsRow::Switch { .. } | SettingsRow::Shortcut { .. } => {
+                if stops == focused {
+                    return Some(2 * n);
+                }
+                stops += 1;
+            }
+            SettingsRow::Note { .. } | SettingsRow::Heading { .. } => {}
+        }
+    }
+    None
+}
+
+/// Whether the `target`th direct child is inside the scrolled viewport.
+/// `false` while the container never painted (no bounds, no children yet),
+/// which is exactly when the request needs (re-)firing.
+fn page_row_visible(scroll: &ScrollHandle, target: usize) -> bool {
+    if scroll.bounds_for_item(target).is_none() {
+        return false;
+    }
+    target >= scroll.top_item() && target <= scroll.bottom_item()
+}
+
 /// Moves the row focus one step: `+1` for `↓`, `-1` for `↑`. From no focus,
 /// `↓` lands on the first switch and `↑` on the last; at either end the focus
 /// stops, the way the palette's arrow keys stop at the first and last rows.
@@ -415,6 +459,35 @@ impl RenderOnce for SettingsDialog {
         }
         let focus_count = order.len();
         let focused = state.read(cx).focused.filter(|at| *at < focus_count);
+        // The page's scroll container, and the focused row's scroll request:
+        // the card never outgrows the window (`CARD_MARGIN` of scrim stays
+        // visible above and below it) and the page scrolls inside while the
+        // header and the rail stay fixed. A page that fits never reaches the
+        // cap and draws exactly as before. The request fires only when the
+        // keyboard moves the focus — hover never touches `focused` — and
+        // re-fires until the row is seen in view (see [`PageScroll`]).
+        let page_rows: &[SettingsRow] = self.sections.get(selected).map(|s| s.rows.as_slice()).unwrap_or(&[]);
+        let scroll: ScrollHandle =
+            window.use_keyed_state((id.clone(), "page-scroll"), cx, |_, _| ScrollHandle::new()).read(cx).clone();
+        let scrolled: Rc<RefCell<PageScroll>> = window
+            .use_keyed_state((id.clone(), "page-scrolled"), cx, |_, _| Rc::new(RefCell::new(PageScroll { target: usize::MAX, settled: false })))
+            .read(cx)
+            .clone();
+        if let Some(target) = focused.and_then(|at| focus_child_index(page_rows, at)) {
+            let mut kept = scrolled.borrow_mut();
+            if kept.target != target {
+                kept.target = target;
+                kept.settled = false;
+            }
+            if !kept.settled {
+                if page_row_visible(&scroll, target) {
+                    kept.settled = true;
+                } else {
+                    scroll.scroll_to_item(target);
+                    window.request_animation_frame();
+                }
+            }
+        }
         // The recording row, if any: its id owns every keystroke until the
         // host clears `recording`.
         let recording: Option<SharedString> = shortcuts.iter().find(|s| s.recording).map(|s| s.id.clone());
@@ -457,9 +530,15 @@ impl RenderOnce for SettingsDialog {
         let dismiss_key = dismiss.clone();
         let capture_shortcut = self.on_shortcut.clone();
         let capture_recording = recording.clone();
+        // Bound the card by the window: with the header and the body stacked
+        // as a flex column under this cap, the page (below) shrinks and
+        // scrolls instead of running off both edges.
+        let card_max_h = window.viewport_size().height - px(CARD_MARGIN * 2.0);
         let mut card = modal_card(&p, self.width, &style)
             .p(px(CARD_PAD))
-            .gap(px(CARD_GAP))
+            .flex()
+            .flex_col()
+            .max_h(card_max_h)
             .key_context(SETTINGS_CONTEXT)
             .track_focus(&card_focus)
             .on_action({
@@ -587,6 +666,7 @@ impl RenderOnce for SettingsDialog {
             &order,
             &switches,
             &shortcuts,
+            &scroll,
             self.on_select_section.clone(),
             self.on_switch.clone(),
             self.on_shortcut.clone(),
@@ -610,6 +690,7 @@ fn header(id: &ElementId, p: &Palette, on_dismiss: Option<ModalIntent>) -> impl 
         close = close.on_click(move |_, w, cx| handler(w, cx));
     }
     h_flex()
+        // Fixed while the page scrolls: never shrinks under the card's cap.
         .flex_none()
         .w_full()
         .items_center()
@@ -633,6 +714,7 @@ fn body(
     order: &[PageFocus],
     switches: &[SwitchData],
     shortcuts: &[ShortcutData],
+    scroll: &ScrollHandle,
     on_select_section: Option<SectionHandler>,
     on_switch: Option<SwitchHandler>,
     on_shortcut: Option<ShortcutHandler>,
@@ -650,7 +732,18 @@ fn body(
         rail = rail.child(rail_row(id, p, row_h, section, i, i == selected, on_select_section.clone(), window, cx));
     }
 
-    let mut page = v_flex().flex_1().min_w(px(0.0)).pl(px(BODY_GUTTER));
+    // The page scrolls inside the bounded card under its own stable id while
+    // the header and the rail stay fixed. A page that fits never overflows
+    // and draws exactly as before.
+    let mut page = v_flex()
+        .id((id.clone(), "page"))
+        .flex_1()
+        .min_w(px(0.0))
+        .min_h(px(0.0))
+        .h_full()
+        .pl(px(BODY_GUTTER))
+        .overflow_y_scroll()
+        .track_scroll(scroll);
     let rows = sections.get(selected).map(|s| s.rows.as_slice()).unwrap_or(&[]);
     // The focus stop of each switch / shortcut row, for the highlight: the
     // focused index into `order`, or nothing when it points elsewhere.
@@ -718,7 +811,9 @@ fn body(
         }
     }
 
-    h_flex().flex_none().w_full().items_start().child(rail).child(page)
+    // The body yields under the card's cap so the page (above) shrinks and
+    // scrolls; at its natural height it draws exactly as before.
+    h_flex().flex_1().min_h(px(0.0)).w_full().items_start().child(rail).child(page)
 }
 
 /// One rail row: the section label at 12 px, on the surface step while
@@ -947,4 +1042,42 @@ fn shortcut_control(
 /// The hairline between two page rows.
 fn divider(p: &Palette) -> impl IntoElement {
     div().flex_none().w_full().h(px(1.0)).bg(p.line)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn switch(id: &str) -> SettingsRow {
+        SettingsRow::Switch { id: id.into(), label: id.into(), detail: None, on: false }
+    }
+
+    fn shortcut(id: &str) -> SettingsRow {
+        SettingsRow::Shortcut { id: id.into(), label: id.into(), detail: None, keystroke: None, recording: false, editable: true }
+    }
+
+    #[test]
+    fn focus_child_index_skips_headings_and_notes_and_counts_dividers() {
+        let rows = vec![
+            SettingsRow::Heading { text: "Group".into() },
+            switch("a"),
+            SettingsRow::Note { text: "A note.".into() },
+            shortcut("b"),
+            shortcut("c"),
+        ];
+        // Row `n` sits at child `2 * n`: headings and notes hold a child but
+        // never take a stop.
+        assert_eq!(focus_child_index(&rows, 0), Some(2));
+        assert_eq!(focus_child_index(&rows, 1), Some(6));
+        assert_eq!(focus_child_index(&rows, 2), Some(8));
+        assert_eq!(focus_child_index(&rows, 3), None);
+    }
+
+    #[test]
+    fn focus_child_index_without_stops_is_none() {
+        let rows = vec![SettingsRow::Heading { text: "Group".into() }, SettingsRow::Note { text: "A note.".into() }];
+        assert_eq!(focus_child_index(&rows, 0), None);
+        let empty: Vec<SettingsRow> = Vec::new();
+        assert_eq!(focus_child_index(&empty, 0), None);
+    }
 }

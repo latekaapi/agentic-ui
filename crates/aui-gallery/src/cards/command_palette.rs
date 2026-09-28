@@ -55,6 +55,50 @@ fn sections(p: &aui_tokens::Palette) -> Vec<PaletteSection> {
     ]
 }
 
+/// A long list with its selection past the fold: the Projects lead and its
+/// rows, then sixteen action rows, with row 13 selected — past the body's
+/// 320 px cap — to prove the list scrolls the selection into view.
+pub fn build_scrolled(_window: &mut Window, cx: &mut App) -> AnyElement {
+    let p = cx.aui().colors;
+    let actions: Vec<PaletteItem> = (0..16)
+        .map(|i| {
+            PaletteItem::new(
+                format!("action-{i}"),
+                PaletteIcon::Glyph(IconName::File),
+                format!("Action number {i}"),
+            )
+            .key("K")
+        })
+        .collect();
+    let sections = vec![
+        PaletteSection::new(
+            "Projects",
+            vec![
+                PaletteItem::new(
+                    "acme-web",
+                    PaletteIcon::Mark { initial: "A".into(), colour: p.label(5) },
+                    "acme-web",
+                )
+                .context("main")
+                .key("↩"),
+                PaletteItem::new("orca", PaletteIcon::Mark { initial: "O".into(), colour: p.label(3) }, "orca").context("v2.4"),
+            ],
+        )
+        .lead(folder_drop_card("card12-long-folder-drop")),
+        PaletteSection::new("Actions", actions),
+    ];
+    palette_scrim(
+        command_palette("card12-palette-long", QUERY, sections, 13)
+            .placeholder(PLACEHOLDER)
+            // The card is a static composition, not a palette the person just
+            // opened: draw it at rest so the enter does not blur the capture.
+            .at_rest()
+            .on_select(move |_, _, _| {})
+            .on_dismiss(move |_, _| {}),
+    )
+    .into_any_element()
+}
+
 /// Builds the card content.
 pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     // Hovering or clicking a row moves the highlight, so the pointer and the

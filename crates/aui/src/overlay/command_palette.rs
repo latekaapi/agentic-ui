@@ -6,6 +6,7 @@
 //! draws the dimmed ground the design card puts behind it, and the app is free
 //! to place the palette itself.
 
+use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -13,8 +14,8 @@ use aui_icons::{icon, IconName};
 use aui_motion::{presence, tint_fade, tween, EnterExit, PresenceStyle, Tween};
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette, TextRole};
 use gpui::{
-    black, div, linear_color_stop, linear_gradient, prelude::*, px, App, ElementId, FontWeight, HighlightStyle, Hsla, IntoElement, SharedString,
-    StyledText, Window,
+    black, div, linear_color_stop, linear_gradient, prelude::*, px, App, ElementId, FontWeight, HighlightStyle, Hsla, IntoElement, ScrollHandle,
+    SharedString, StyledText, Window,
 };
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -273,6 +274,56 @@ impl CommandPalette {
     }
 }
 
+/// What the list asked its scroll container for: the selection it scrolled
+/// and whether that row has been seen in view since. The handle only learns
+/// the overflow from paint, so a first-frame `scroll_to_item` lands before
+/// it knows it scrolls and is dropped; the flag below re-fires until the row
+/// arrives instead of trusting the first request.
+#[derive(Clone, Copy)]
+struct PaletteScroll {
+    selected: usize,
+    settled: bool,
+}
+
+/// The direct-child index of the `selected`th row inside the scrolling body:
+/// every section draws its caps title, its optional lead and then its rows
+/// as direct children, so the child index leads the row index by the titles
+/// and leads before it. Sections with no rows still draw their title (and
+/// lead); `None` when `selected` is past the last row.
+fn selected_child_index(counts: &[usize], leads: &[bool], selected: usize) -> Option<usize> {
+    let mut child = 0usize;
+    let mut remaining = selected;
+    for (i, count) in counts.iter().enumerate() {
+        // The caps title every section draws, even an empty one.
+        child += 1;
+        if leads.get(i).copied().unwrap_or(false) {
+            child += 1;
+        }
+        if remaining < *count {
+            return Some(child + remaining);
+        }
+        remaining -= *count;
+        child += *count;
+    }
+    None
+}
+
+/// The per-section shapes `selected_child_index` needs: the row count and
+/// whether the section draws a lead.
+fn child_shapes(sections: &[PaletteSection]) -> (Vec<usize>, Vec<bool>) {
+    (sections.iter().map(|s| s.items.len()).collect(), sections.iter().map(|s| s.lead.is_some()).collect())
+}
+
+/// Whether the `target`th direct child is inside the scrolled viewport.
+/// `false` while the container never painted (no bounds, no children yet),
+/// which is exactly when the request needs (re-)firing.
+fn palette_row_visible(scroll: &ScrollHandle, target: usize) -> bool {
+    if scroll.bounds_for_item(target).is_none() {
+        return false;
+    }
+    target >= scroll.top_item() && target <= scroll.bottom_item()
+}
+
 impl RenderOnce for CommandPalette {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
@@ -305,8 +356,27 @@ impl RenderOnce for CommandPalette {
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
             .child(query_row(&id, &p, &self.query, &self.placeholder, self.query_slot, self.on_dismiss.clone()));
         // The list scrolls inside a bounded body; the query row and the
-        // footer stay put.
-        let mut body = v_flex().id((id.clone(), "body")).flex_none().w_full().max_h(px(BODY_MAX_H)).overflow_y_scroll();
+        // footer stay put. Every section draws its caps title, its optional
+        // lead and then its rows as direct children of the body, so the
+        // scroll handle can address the selected row (see
+        // [`selected_child_index`]); the paddings match the old per-section
+        // blocks exactly, so a list that fits draws as before.
+        let (counts, leads) = child_shapes(&self.sections);
+        let scroll: ScrollHandle =
+            window.use_keyed_state((id.clone(), "scroll"), cx, |_, _| ScrollHandle::new()).read(cx).clone();
+        let scrolled: Rc<RefCell<PaletteScroll>> = window
+            .use_keyed_state((id.clone(), "scrolled"), cx, |_, _| Rc::new(RefCell::new(PaletteScroll { selected: usize::MAX, settled: false })))
+            .read(cx)
+            .clone();
+        let mut body = v_flex()
+            .id((id.clone(), "body"))
+            .flex_none()
+            .w_full()
+            .px(px(SEC_PAD_X))
+            .pb(px(SEC_PAD_BOTTOM))
+            .max_h(px(BODY_MAX_H))
+            .overflow_y_scroll()
+            .track_scroll(&scroll);
 
         // One highlight, not one per row. The pointer and the arrow keys drive
         // the same row: while the pointer is over a row it owns the highlight,
@@ -328,37 +398,71 @@ impl RenderOnce for CommandPalette {
         }
         let active = hovered_row.unwrap_or(self.selected);
 
+        // Keyboard only: while the pointer owns the highlight (the hovered
+        // row is the selection) the list never scrolls under it; the arrow
+        // keys' `selected` scrolls into view the moment the pointer leaves.
+        if hovered_row.is_none_or(|hovered| hovered != self.selected) {
+            let mut kept = scrolled.borrow_mut();
+            if kept.selected != self.selected {
+                kept.selected = self.selected;
+                kept.settled = false;
+            }
+            if !kept.settled {
+                match selected_child_index(&counts, &leads, self.selected) {
+                    Some(target) if !palette_row_visible(&scroll, target) => {
+                        scroll.scroll_to_item(target);
+                        // The re-fire above may itself be dropped (see
+                        // [`PaletteScroll`]); ask for the frame that retries it.
+                        window.request_animation_frame();
+                    }
+                    _ => kept.settled = true,
+                }
+            }
+        }
+
         let mut index = 0usize;
-        for section in self.sections.into_iter() {
-            let mut block = v_flex()
-                .flex_none()
-                .w_full()
-                .pt(px(SEC_PAD_TOP))
-                .px(px(SEC_PAD_X))
-                .pb(px(SEC_PAD_BOTTOM))
-                .child(
-                    div()
-                        .flex_none()
-                        .px(px(CAPS_PAD_X))
-                        .pb(px(CAPS_PAD_BOTTOM))
-                        .text_role(TextRole::Caps)
-                        .line_height(gpui::relative(scale::LH_UI))
-                        .text_color(p.ink_3)
-                        .child(section.title.to_uppercase()),
-                );
+        let last_section = self.sections.len().saturating_sub(1);
+        for (s, section) in self.sections.into_iter().enumerate() {
+            body = body.child(
+                div()
+                    .flex_none()
+                    .pt(px(SEC_PAD_TOP))
+                    .px(px(CAPS_PAD_X))
+                    .pb(px(CAPS_PAD_BOTTOM))
+                    .text_role(TextRole::Caps)
+                    .line_height(gpui::relative(scale::LH_UI))
+                    .text_color(p.ink_3)
+                    .child(section.title.to_uppercase()),
+            );
             // The lead is not a row: it draws under the title with the
             // rows' horizontal padding and a `SP_2` gap below it, creates
             // no selection index and wires no hover, and scrolls with the
             // list because it lives inside the scrolling body.
             if let Some(lead) = section.lead {
-                block = block.child(div().flex_none().w_full().px(px(ITEM_PAD_X)).pb(px(scale::SP_2)).child(lead));
+                body = body.child(div().flex_none().w_full().px(px(ITEM_PAD_X)).pb(px(scale::SP_2)).child(lead));
             }
-            for item in section.items {
+            let last_row = section.items.len().saturating_sub(1);
+            for (r, item) in section.items.into_iter().enumerate() {
                 let (key, state) = rows[index].clone();
-                block = block.child(palette_row(key, state, &p, item, index, index == active, &self.on_select, &self.on_hover, window, cx));
+                // Every section used to end in its block's bottom padding;
+                // the last row carries it as a margin instead, except on the
+                // last section, where the body's own bottom padding does.
+                let trailing = r == last_row && s != last_section;
+                body = body.child(palette_row(
+                    key,
+                    state,
+                    &p,
+                    item,
+                    index,
+                    index == active,
+                    trailing,
+                    &self.on_select,
+                    &self.on_hover,
+                    window,
+                    cx,
+                ));
                 index += 1;
             }
-            body = body.child(block);
         }
 
         pal.child(body).child(footer(&p))
@@ -416,6 +520,7 @@ fn palette_row(
     item: PaletteItem,
     index: usize,
     on: bool,
+    trailing: bool,
     on_select: &Option<SelectHandler>,
     on_hover: &Option<HoverHandler>,
     window: &mut Window,
@@ -437,6 +542,11 @@ fn palette_row(
         .ui(scale::FS_13)
         .text_color(text_color)
         .cursor_pointer();
+    // The old per-section block ended in bottom padding; the flattened body
+    // moves it onto the section's last row, so sections keep their spacing.
+    if trailing {
+        row = row.mb(px(SEC_PAD_BOTTOM));
+    }
 
     // One `on_hover` per element is all gpui allows, so the row's own hover
     // tint and the caller's hover intent share a single handler instead of
@@ -558,5 +668,55 @@ impl RenderOnce for PaletteScrim {
             // so the palette fills the height left below the 56 px padding
             // (412 px) rather than shrinking to its rows.
             .child(h_flex().relative().w_full().h_full().items_stretch().justify_center().pt(px(SCRIM_PAD_TOP)).child(self.child))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(id: &str) -> PaletteItem {
+        PaletteItem::new(id, PaletteIcon::Glyph(IconName::Search), id)
+    }
+
+    fn section(title: &str, lead: bool, n: usize) -> PaletteSection {
+        let items = (0..n).map(|i| row(&format!("{title}-{i}"))).collect();
+        let section = PaletteSection::new(title, items);
+        if lead { section.lead(div().child("a lead")) } else { section }
+    }
+
+    #[test]
+    fn selected_child_index_counts_titles_but_not_rows() {
+        let sections = vec![section("a", false, 2), section("b", false, 3)];
+        let (counts, leads) = child_shapes(&sections);
+        // Section `a`: title at 0, rows at 1–2. Section `b`: title at 3,
+        // rows at 4–6.
+        assert_eq!(selected_child_index(&counts, &leads, 0), Some(1));
+        assert_eq!(selected_child_index(&counts, &leads, 1), Some(2));
+        assert_eq!(selected_child_index(&counts, &leads, 2), Some(4));
+        assert_eq!(selected_child_index(&counts, &leads, 4), Some(6));
+        assert_eq!(selected_child_index(&counts, &leads, 5), None);
+    }
+
+    #[test]
+    fn selected_child_index_skips_leads_and_empty_sections() {
+        let sections = vec![section("lead-only", true, 0), section("full", true, 2), section("plain", false, 1)];
+        let (counts, leads) = child_shapes(&sections);
+        // Children: title, lead (section one, no rows); title, lead, rows at
+        // 4–5 (section two); title, row at 7 (section three).
+        assert_eq!(selected_child_index(&counts, &leads, 0), Some(4));
+        assert_eq!(selected_child_index(&counts, &leads, 1), Some(5));
+        assert_eq!(selected_child_index(&counts, &leads, 2), Some(7));
+        assert_eq!(selected_child_index(&counts, &leads, 3), None);
+    }
+
+    #[test]
+    fn selected_child_index_without_rows_is_none() {
+        let sections = vec![section("empty", false, 0)];
+        let (counts, leads) = child_shapes(&sections);
+        assert_eq!(selected_child_index(&counts, &leads, 0), None);
+        let none: Vec<PaletteSection> = Vec::new();
+        let (counts, leads) = child_shapes(&none);
+        assert_eq!(selected_child_index(&counts, &leads, 0), None);
     }
 }

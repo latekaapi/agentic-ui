@@ -81,6 +81,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `block_terminal` scrolls and can track a `ScrollHandle`; the live terminal
   view follows the tail of a real session.
+- Long overlay lists scroll inside their cards: the settings dialog bounds
+  its card by the window (48 px top and bottom) and scrolls the open page
+  under its fixed header and section rail, scrolling the arrow-key focus
+  into view; the command palette tracks its list with a `ScrollHandle` and
+  scrolls the keyboard selection into view (pointer hover never scrolls).
+  Two gallery entries cover the states (`overlay/settings-long`,
+  `shell/command-palette-long`), with unit tests for the
+  selection-index → row-child mappings.
 
 ### Changed
 
