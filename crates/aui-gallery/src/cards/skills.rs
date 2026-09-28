@@ -225,6 +225,32 @@ pub fn build_page(_window: &mut Window, cx: &mut App) -> AnyElement {
     h_flex().size_full().child(list).child(detail).into_any_element()
 }
 
+// ── the narrow row ────────────────────────────────────────────────────────
+
+/// A narrow skill list (≈360 px of row width) with a long name and two long
+/// chips beside the `Auto` chip and `1.1k` tokens: the name truncates and the
+/// chips wrap inside the left block instead of painting over the right block.
+pub fn build_narrow_row(_window: &mut Window, _cx: &mut App) -> AnyElement {
+    v_flex()
+        .w_full()
+        .gap(px(8.0))
+        .child(row(
+            "decoction-long-narrow",
+            "decoction-with-a-very-long-name-that-must-truncate",
+            "Spec-anchored orchestration for long-running coding projects.",
+            vec![
+                SkillChip::new("Overrides personal decoction", ChipTone::Muted),
+                SkillChip::new("threejs plugin", ChipTone::Muted),
+            ],
+            "1.1k",
+            Some(SkillMode::Auto),
+            true,
+            false,
+            false,
+        ))
+        .into_any_element()
+}
+
 // ── the add menu ──────────────────────────────────────────────────────────
 
 /// The menu shell both library menus share, sized to the Add skill menu.

@@ -645,6 +645,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::skills::build_page,
     },
     Entry {
+        id: "skills/row-narrow",
+        group: "Skills",
+        title: "Skills row, narrow column",
+        subtitle: "One row with a long name and two long chips at ~360 px: the name truncates and the chips wrap inside the left block, clear of the tokens and Auto chip",
+        width: 400.0,
+        height: 220.0,
+        theme: CardTheme::Both,
+        build: crate::cards::skills::build_narrow_row,
+    },
+    Entry {
         id: "skills/add-menu",
         group: "Skills",
         title: "Add skill menu",
