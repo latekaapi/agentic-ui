@@ -456,13 +456,14 @@ pub struct DiffReview {
     highlights: Vec<DiffHighlight>,
     summary: Option<(SharedString, u32, u32)>,
     flush: bool,
+    fill: bool,
     on_action: Option<Handler>,
 }
 
 /// A review pane showing `diff` for the file selected in `files`, with `notes`
 /// collected across the change set.
 pub fn diff_review(id: impl Into<ElementId>, files: Vec<ReviewFile>, diff: Diff, notes: Vec<ReviewNote>, scope: DiffScope, view: DiffView) -> DiffReview {
-    DiffReview { id: id.into(), files, diff, notes, scope, view, highlights: Vec::new(), summary: None, flush: false, on_action: None }
+    DiffReview { id: id.into(), files, diff, notes, scope, view, highlights: Vec::new(), summary: None, flush: false, fill: false, on_action: None }
 }
 
 impl DiffReview {
@@ -486,6 +487,15 @@ impl DiffReview {
     /// default, so a floating card renders exactly as before.
     pub fn flush(mut self) -> Self {
         self.flush = true;
+        self
+    }
+
+    /// Fills its container's height instead of the fixed frame height, for
+    /// a review that IS the pane (the file column and the diff body then
+    /// scroll inside it). Off by default: a card or a stacked panel keeps
+    /// its fixed height.
+    pub fn fill(mut self) -> Self {
+        self.fill = true;
         self
     }
 
@@ -893,7 +903,8 @@ impl RenderOnce for DiffReview {
             .child(button((id.clone(), "clear"), "Clear").sm().ghost().on_click(emit(DiffReviewAction::Clear)))
             .child(send.on_click(emit(DiffReviewAction::Send)));
 
-        let mut frame = v_flex().id(id).w_full().h(px(FRAME_H)).bg(p.surface_1).overflow_hidden();
+        let mut frame = v_flex().id(id).w_full().bg(p.surface_1).overflow_hidden();
+        frame = if self.fill { frame.flex_1().h_full().min_h(px(0.0)) } else { frame.h(px(FRAME_H)) };
         if !self.flush {
             frame = frame.rounded(px(scale::R_LG)).border_1().border_color(p.line_strong);
         }
