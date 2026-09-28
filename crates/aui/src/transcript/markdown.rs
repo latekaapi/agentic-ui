@@ -946,17 +946,17 @@ pub fn parse_markdown_settled(source: &str, settled: bool) -> Vec<Block> {
 
 /// The settled-aware blocks for `source`: the memoised [`parsed_blocks`]
 /// unless `settled` and the whole source is a JSON document, in which case a
-/// fresh single-`json`-code-block vec. The JSON path deliberately skips the
-/// memo: it depends on `settled`, which is not part of the memo key, and a
-/// settled turn parses once per settled state rather than once per frame.
+/// single-`json`-code-block vec. Settled sources are memoised under their own
+/// scope, so the JSON check and pretty-print run once per settled source, not
+/// once per frame; streaming sources share the plain markdown memo.
 fn blocks_for(source: &str, settled: bool) -> Arc<Vec<Block>> {
     if settled {
-        if let Some(pretty) = aui_protocol::json::pretty_json_document(source) {
-            return Arc::new(vec![Block::CodeBlock {
-                lang: Some("json".into()),
-                text: pretty,
-            }]);
-        }
+        return PARSED.get_or_insert("settled", source, |source| {
+            match aui_protocol::json::pretty_json_document(source) {
+                Some(pretty) => vec![Block::CodeBlock { lang: Some("json".into()), text: pretty }],
+                None => parse_markdown(source),
+            }
+        });
     }
     parsed_blocks(source)
 }
