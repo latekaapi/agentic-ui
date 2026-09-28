@@ -2238,6 +2238,9 @@ impl gpui::RenderOnce for TerminalGrid {
         let advance =
             text_system.ch_advance(font_id, px(TERM_PX)).map(f32::from).unwrap_or(0.0);
         let line_height = TERM_PX * TERM_LH;
+        // The cursor's ink box, from the same face and size: ascent +
+        // descent, centred in the row by `cursor_rect`.
+        let glyph_h = cursor_glyph_height(text_system, font_id);
         // The cached grid (D20): blink frames share it instead of rebuilding
         // the whole snapshot at refresh rate.
         let snapshot = self.session.read(cx).snapshot_cached(&palette);
@@ -2313,7 +2316,7 @@ impl gpui::RenderOnce for TerminalGrid {
                 0.0
             };
             let on = blink_visible(want_blink, cx.reduce_motion(), phase);
-            let (x, y, w, h) = cursor_rect(&cursor, advance, line_height);
+            let (x, y, w, h) = cursor_rect(&cursor, advance, line_height, glyph_h);
             cursor_el = match cursor.shape {
                 // A hollow block is already the unfocused look: always an
                 // outline, whatever the focus.
@@ -2751,15 +2754,35 @@ fn blink_visible(want_blink: bool, reduce_motion: bool, phase: f32) -> bool {
 
 /// The cursor's pixel rect `(x, y, w, h)`: the grid cell's position — never
 /// measured from the row text, so wide lines cannot shift it — two cells wide
-/// when it sits on a wide character.
-fn cursor_rect(cursor: &CursorCell, advance: f32, line_height: f32) -> (f32, f32, f32, f32) {
+/// when it sits on a wide character. The height is the terminal face's ink
+/// box (`ascent + descent` at [`TERM_PX`], measured through the window's text
+/// system), centred in the row: glyphs are 12 px centred in a 19.2 px row, so
+/// a full-`line_height` block covers the leading above and below and spills
+/// past the baseline. `glyph_h` is that ink height; pass
+/// [`cursor_glyph_height`] from the render path, never `line_height`.
+fn cursor_rect(
+    cursor: &CursorCell,
+    advance: f32,
+    line_height: f32,
+    glyph_h: f32,
+) -> (f32, f32, f32, f32) {
     let width = if cursor.wide { 2.0 } else { 1.0 };
+    let y = cursor.row as f32 * line_height + (line_height - glyph_h) / 2.0;
     (
         cursor.col as f32 * advance,
-        cursor.row as f32 * line_height,
+        y,
         width * advance,
-        line_height,
+        glyph_h,
     )
+}
+
+/// The cursor's ink height for the terminal face: `ascent + descent` at
+/// [`TERM_PX`], so the block hugs the glyphs instead of the row's leading.
+fn cursor_glyph_height(text_system: &gpui::TextSystem, font_id: gpui::FontId) -> f32 {
+    let ascent = text_system.ascent(font_id, px(TERM_PX));
+    let descent = text_system.descent(font_id, px(TERM_PX));
+    let h: f32 = (ascent + descent).into();
+    if h > 0.0 { h } else { TERM_PX * TERM_LH }
 }
 
 /// Whole columns for a measured content width, however small the pane is
@@ -3250,6 +3273,9 @@ mod tests {
     /// plain line and for one with wide characters — and spans two cells on a
     /// wide char, in both themes. Without the fix the cursor is always one
     /// cell wide and carries no blink state.
+    ///
+    /// The block hugs the glyphs: its height is the ink box (`glyph_h`),
+    /// centred in the row, never the full `line_height`.
     #[test]
     fn cursor_rect_matches_the_grid_cell_with_and_without_wide_chars() {
         for palette in [dark(), light()] {
@@ -3258,18 +3284,40 @@ mod tests {
             let cursor = grid.cursor.expect("a cursor");
             assert_eq!((cursor.row, cursor.col), (0, 2));
             assert!(!cursor.wide, "plain line");
-            assert_eq!(cursor_rect(&cursor, 8.0, 16.0), (16.0, 0.0, 8.0, 16.0));
+            assert_eq!(cursor_rect(&cursor, 8.0, 16.0, 12.0), (16.0, 2.0, 8.0, 12.0));
             // A wide char, then two cells back onto it.
             let wide = pumped(vec!["あ".as_bytes(), b"\x1b[2D"], 20, 5);
             let grid = wide.snapshot(&palette);
             let cursor = grid.cursor.expect("a cursor");
             assert_eq!((cursor.row, cursor.col), (0, 0));
             assert!(cursor.wide, "cursor sits on a wide char");
-            let (x, y, w, h) = cursor_rect(&cursor, 8.0, 16.0);
-            assert_eq!((x, y), (0.0, 0.0));
+            let (x, y, w, h) = cursor_rect(&cursor, 8.0, 16.0, 12.0);
+            assert_eq!((x, y), (0.0, 2.0));
             assert_eq!(w, 16.0, "two cells wide");
-            assert_eq!(h, 16.0);
+            assert_eq!(h, 12.0, "ink height, not the row height");
         }
+    }
+
+    /// The cursor fits the text: a 19.2 px row (`TERM_PX * TERM_LH`) with a
+    /// 12 px ink box centres the block 3.6 px down, so it never covers the
+    /// leading above or spill below the baseline. Without the fix the rect
+    /// is the whole row (`y == 0`, `h == line_height`).
+    #[test]
+    fn cursor_block_is_centred_on_the_ink_box_not_the_row() {
+        let plain = pumped(vec![b"hi"], 20, 5);
+        let grid = plain.snapshot(&dark());
+        let cursor = grid.cursor.expect("a cursor");
+        let line_height = 12.0 * 1.6;
+        let glyph_h = 12.0;
+        let (x, y, w, h) = cursor_rect(&cursor, 8.0, line_height, glyph_h);
+        assert_eq!((x, w), (16.0, 8.0));
+        assert_eq!(h, glyph_h, "taller than the glyphs");
+        assert!(
+            (y - (line_height - glyph_h) / 2.0).abs() < 1e-4,
+            "not centred in the row: {y}"
+        );
+        assert!(y > 0.0, "sits on the row top: {y}");
+        assert!(y + h < line_height, "spills past the row: {} + {h}", y);
     }
 
     /// V5: at a realistic column the cursor's drawn x equals the painted
@@ -3297,7 +3345,7 @@ mod tests {
         }
         assert_eq!(&*term_font().family, aui_tokens::scale::FONT_MONO);
         let advance = 7.0f32;
-        let (x, _, w, _) = cursor_rect(&cursor, advance, 16.0);
+        let (x, _, w, _) = cursor_rect(&cursor, advance, 16.0, 12.0);
         assert_eq!(x, 48.0 * advance, "cursor x");
         assert_eq!(w, advance, "narrow cursor is one cell");
         // The painted text's own advance × column, via the background metric.

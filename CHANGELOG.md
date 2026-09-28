@@ -27,6 +27,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Transcript text selection spans blocks: markdown reports a
   `MessageSelection` through `span_selection` / `on_selection_change`, and
   `message_selected_text` extracts the covered text for copy.
+- A settled assistant or user message whose whole text is a JSON object or
+  array renders as a single `json` code block with the 2-space pretty-printed
+  document (`parse_markdown_settled`, `Markdown::settled`, wired from
+  `AssistantTurn`'s `streaming` flag; settled-aware copy/select-all/fence
+  lookups keep offsets on the drawn code). Streaming turns stay prose so
+  partial JSON never flips the layout mid-stream.
+- Provider surfaces (`screens::providers`, design 23 §4): a Settings provider
+  card (mark, name, status dot + headline, account line, version chip with
+  advisory, enabled switch, up to three intent-reported actions), the
+  first-run `connect_providers` screen (tally line, compact rows with a
+  checking spinner, Continue enabled once any provider is connected, Skip for
+  now), and a `usage_card` per provider (quota bars with "resets in …", plan
+  label, warning at ≥ 80%, "as of …" footnote, "Not reported yet" empty
+  state). A standalone row kind, not a `SettingsRow` variant, so no host
+  match breaks.
+- `aui-protocol::json::pretty_json_document`: the dependency-free
+  whole-document JSON check and 2-space pretty printer behind the transcript
+  rendering above.
+
+### Fixed
+
+- The terminal block cursor now fits the text: its height is the terminal
+  face's ink box (`ascent + descent` at 12 px via the text system), centred
+  in the row, instead of the full 19.2 px line height spilling past the
+  baseline.
 
 - Workspace scaffold, `aui-tokens` (colour, space, radius, type, shadow and
   motion tokens; light and dark themes generated for the `gpui-kit` theme

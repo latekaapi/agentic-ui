@@ -916,6 +916,51 @@ pub fn parse_markdown(source: &str) -> Vec<Block> {
     blocks_until(&events, &mut pos, None, 0)
 }
 
+/// Parses `source` into blocks for a message known to be `settled` (complete).
+/// When `settled` and the whole trimmed source is a JSON object or array (see
+/// [`aui_protocol::json::pretty_json_document`]), the result is a single
+/// `json` [`Block::CodeBlock`] with the 2-space pretty-printed document —
+/// otherwise this is exactly [`parse_markdown`].
+///
+/// Streaming turns must pass `false` (or use [`parse_markdown`]): partial
+/// JSON is not valid JSON, so gating on `settled` keeps a streaming message
+/// from flipping between paragraph and code block on every chunk. Hosts mark
+/// a view settled with [`Markdown::settled`]; the transcript entry wires it
+/// automatically — [`AssistantTurn`](super::AssistantTurn) passes
+/// `!streaming`, [`UserTurn`](super::UserTurn) passes `true` — so plain hosts
+/// get it for free.
+///
+/// Selection and copy stay consistent with what is drawn: the code cell's
+/// content IS the pretty-printed text, and every selection/copy lookup below
+/// (`selected_text`, span text, select-all, fences) resolves through the same
+/// settled-aware blocks via [`blocks_for`], so offsets address the drawn
+/// code, never the raw source.
+pub fn parse_markdown_settled(source: &str, settled: bool) -> Vec<Block> {
+    if settled {
+        if let Some(pretty) = aui_protocol::json::pretty_json_document(source) {
+            return vec![Block::CodeBlock { lang: Some("json".into()), text: pretty }];
+        }
+    }
+    parse_markdown(source)
+}
+
+/// The settled-aware blocks for `source`: the memoised [`parsed_blocks`]
+/// unless `settled` and the whole source is a JSON document, in which case a
+/// fresh single-`json`-code-block vec. The JSON path deliberately skips the
+/// memo: it depends on `settled`, which is not part of the memo key, and a
+/// settled turn parses once per settled state rather than once per frame.
+fn blocks_for(source: &str, settled: bool) -> Arc<Vec<Block>> {
+    if settled {
+        if let Some(pretty) = aui_protocol::json::pretty_json_document(source) {
+            return Arc::new(vec![Block::CodeBlock {
+                lang: Some("json".into()),
+                text: pretty,
+            }]);
+        }
+    }
+    parsed_blocks(source)
+}
+
 /// The memo behind [`parsed_markdown`].
 static PARSED: LazyLock<Memo<Vec<Block>>> = LazyLock::new(|| Memo::new(PARSED_CACHE_CAP));
 
@@ -962,6 +1007,15 @@ pub struct MarkdownFence {
 pub fn markdown_fences(source: &str) -> Vec<MarkdownFence> {
     let mut out = Vec::new();
     collect_fences(&parsed_blocks(source), &mut out);
+    out
+}
+
+/// [`markdown_fences`] for a message known to be `settled`: a settled
+/// whole-JSON message reports its single `json` block as fence 0, matching
+/// the renderer.
+pub fn markdown_fences_settled(source: &str, settled: bool) -> Vec<MarkdownFence> {
+    let mut out = Vec::new();
+    collect_fences(&blocks_for(source, settled), &mut out);
     out
 }
 
@@ -1686,6 +1740,7 @@ pub struct Markdown {
     on_span: Option<SpanHandler>,
     fence_buttons: Vec<(usize, CodeBlockHostButton)>,
     on_code_action: Option<FenceCodeHandler>,
+    settled: bool,
 }
 
 /// Renders `source` as markdown blocks in `style`.
@@ -1705,10 +1760,22 @@ pub fn markdown(
         on_span: None,
         fence_buttons: Vec::new(),
         on_code_action: None,
+        settled: false,
     }
 }
 
 impl Markdown {
+    /// Marks the message complete. A settled message whose whole trimmed
+    /// text is a JSON object or array renders as a single `json` code block
+    /// (see [`parse_markdown_settled`]); unset — the default — always renders
+    /// plain markdown, which is what a streaming turn wants so partial JSON
+    /// never flips the layout mid-stream. The transcript entry sets this
+    /// from the turn state; raw hosts set it when their message is done.
+    pub fn settled(mut self, settled: bool) -> Self {
+        self.settled = settled;
+        self
+    }
+
     /// Click handler for links: the argument is the clicked range's target.
     pub fn on_link(mut self, f: impl Fn(LinkTarget, &mut Window, &mut App) + 'static) -> Self {
         self.on_link = Some(std::rc::Rc::new(f));
@@ -1785,16 +1852,18 @@ impl Markdown {
     /// cell's shaped text (code spans and link labels read as plain words),
     /// or `None` when the key addresses no cell or the range is empty. The
     /// app puts this on the clipboard on ⌘C; the keybinding stays with the
-    /// app.
+    /// app. Reads the same settled-aware blocks the view paints, so a
+    /// settled whole-JSON message copies from the drawn code.
     pub fn selected_text(&self, selection: &TextSelection) -> Option<String> {
-        selected_text_in_blocks(&parsed_blocks(&self.source), selection)
+        selected_text_in_blocks(&blocks_for(&self.source, self.settled), selection)
     }
 
     /// Copies the selected text across `selection`'s cells in document order;
     /// see [`message_selected_text`]. The app puts this on the clipboard on
-    /// ⌘C when it holds a span; the keybinding stays with the app.
+    /// ⌘C when it holds a span; the keybinding stays with the app. Settled-
+    /// aware like [`selected_text`](Self::selected_text).
     pub fn span_selected_text(&self, selection: &MessageSelection) -> Option<String> {
-        message_selected_text(&self.source, selection)
+        selected_span_text(&blocks_for(&self.source, self.settled), selection)
     }
 }
 
@@ -1825,6 +1894,18 @@ fn spans_text(spans: &[Span]) -> String {
 /// [`turn_selected_text`](super::turn_selected_text).
 pub fn markdown_selected_text(source: &str, selection: &TextSelection) -> Option<String> {
     selected_text_in_blocks(&parsed_blocks(source), selection)
+}
+
+/// [`markdown_selected_text`] for a message known to be `settled`: reads the
+/// same settled-aware blocks [`Markdown::settled`] paints, so copy matches
+/// the drawn `json` code block. Pass `!streaming` for assistant turns, `true`
+/// for user turns (mirroring the transcript entry).
+pub fn markdown_selected_text_settled(
+    source: &str,
+    selection: &TextSelection,
+    settled: bool,
+) -> Option<String> {
+    selected_text_in_blocks(&blocks_for(source, settled), selection)
 }
 
 /// Slices `selection` out of already-parsed `blocks`: the shared lookup
@@ -2135,6 +2216,17 @@ pub fn message_selected_text(source: &str, selection: &MessageSelection) -> Opti
     selected_span_text(&parsed_blocks(source), selection)
 }
 
+/// [`message_selected_text`] for a message known to be `settled`: reads the
+/// same settled-aware blocks [`Markdown::settled`] paints. Streaming callers
+/// keep [`message_selected_text`].
+pub fn message_selected_text_settled(
+    source: &str,
+    selection: &MessageSelection,
+    settled: bool,
+) -> Option<String> {
+    selected_span_text(&blocks_for(source, settled), selection)
+}
+
 /// Copies the selected text across `selection`'s cells without building a
 /// view: the same lookup [`Markdown::span_selected_text`] uses, for callers
 /// that hold the source but never built the view.
@@ -2146,8 +2238,14 @@ pub fn markdown_span_selected_text(source: &str, selection: &MessageSelection) -
 /// last non-empty cell's end. `None` for sources with no selectable text.
 /// The app drives select-all through this; the keybinding stays with the app.
 pub fn message_select_all(source: &str) -> Option<MessageSelection> {
+    message_select_all_settled(source, false)
+}
+
+/// [`message_select_all`] for a message known to be `settled`: covers the
+/// drawn `json` code cell when the whole message is JSON.
+pub fn message_select_all_settled(source: &str, settled: bool) -> Option<MessageSelection> {
     let mut cells = Vec::new();
-    walk_slices(&parsed_blocks(source), "", 0, &mut cells);
+    walk_slices(&blocks_for(source, settled), "", 0, &mut cells);
     let first = cells.iter().find(|cell| !cell.text.is_empty())?;
     let last = cells.iter().rfind(|cell| !cell.text.is_empty())?;
     MessageSelection::new(
@@ -2165,7 +2263,9 @@ pub fn message_select_all(source: &str) -> Option<MessageSelection> {
 impl RenderOnce for Markdown {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let palette = cx.aui().colors;
-        let blocks = parsed_blocks(&self.source);
+        // Settled whole-JSON messages paint one `json` code block; streaming
+        // messages always paint plain markdown (see `Markdown::settled`).
+        let blocks = blocks_for(&self.source, self.settled);
         // Span mode is on when the app holds a span or listens for span
         // events; the order walk is keys only (no shaping), so this adds no
         // layout work beyond what the legacy path already does per frame.
@@ -2678,6 +2778,73 @@ mod tests {
         assert_eq!(fences[1].index, 1);
         assert_eq!(fences[1].language.as_deref(), Some("sh"));
         assert!(fences[1].code.contains("echo second"));
+    }
+
+    #[test]
+    fn settled_whole_json_object_becomes_one_json_code_block() {
+        let blocks = parse_markdown_settled(r#"{"b":1,"a":[1,2]}"#, true);
+        assert_eq!(blocks.len(), 1, "one block, not a paragraph: {blocks:?}");
+        let Block::CodeBlock { lang, text } = &blocks[0] else {
+            panic!("expected a code block, got {blocks:?}")
+        };
+        assert_eq!(lang, &Some("json".to_string()));
+        assert_eq!(text, "{\n  \"b\": 1,\n  \"a\": [\n    1,\n    2\n  ]\n}");
+    }
+
+    #[test]
+    fn unsettled_or_partial_json_stays_prose() {
+        // Streaming: the same bytes as a paragraph, never a flip-flopping
+        // code block.
+        let streaming = parse_markdown_settled(r#"{"b":1,"a":[1,2]}"#, false);
+        assert!(streaming.iter().all(|b| !matches!(b, Block::CodeBlock { .. })));
+        assert_eq!(parse_markdown(r#"{"b":1,"a":[1,2]}"#), streaming);
+        // Partial JSON is not valid JSON: settled but still prose.
+        let partial = parse_markdown_settled(r#"{"a":1"#, true);
+        assert!(partial.iter().all(|b| !matches!(b, Block::CodeBlock { .. })));
+        // Bare values are never documents.
+        for bare in ["42", "\"hi\"", "null", "true"] {
+            let blocks = parse_markdown_settled(bare, true);
+            assert!(
+                blocks.iter().all(|b| !matches!(b, Block::CodeBlock { .. })),
+                "bare {bare:?} became code: {blocks:?}"
+            );
+        }
+        // Arrays count; surrounding whitespace is trimmed, not kept.
+        let blocks = parse_markdown_settled("  [1, 2]\n", true);
+        let Block::CodeBlock { lang, text } = &blocks[0] else {
+            panic!("expected a code block, got {blocks:?}")
+        };
+        assert_eq!(lang, &Some("json".to_string()));
+        assert_eq!(text, "[\n  1,\n  2\n]");
+    }
+
+    #[test]
+    fn settled_json_copy_and_select_all_address_the_drawn_code() {
+        let source = r#"{"b":1}"#;
+        let pretty = "{\n  \"b\": 1\n}";
+        // Select-all covers the code cell with the pretty text's length.
+        let all = message_select_all_settled(source, true).expect("a span");
+        assert_eq!(all.anchor.cell, SelectionKey::code("", 0));
+        assert_eq!(all.focus.cell, SelectionKey::code("", 0));
+        assert_eq!(all.focus.offset, pretty.len());
+        // The whole span copies the pretty document, not the raw source.
+        assert_eq!(message_selected_text_settled(source, &all, true).as_deref(), Some(pretty));
+        // Single-cell copy agrees too.
+        let cell = TextSelection {
+            cell: SelectionKey::code("", 0),
+            range: 0..pretty.len(),
+        };
+        assert_eq!(
+            markdown_selected_text_settled(source, &cell, true).as_deref(),
+            Some(pretty)
+        );
+        // Fences list the drawn block as fence 0.
+        let fences = markdown_fences_settled(source, true);
+        assert_eq!(fences.len(), 1);
+        assert_eq!(fences[0].language.as_deref(), Some("json"));
+        assert_eq!(fences[0].code, pretty);
+        // Unsettled views see no code cell at all.
+        assert!(markdown_fences_settled(source, false).is_empty());
     }
 
     #[test]

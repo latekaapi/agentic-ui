@@ -18,7 +18,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use crate::transcript::{caret_top_in_line, caret_visible, ProseStyle, CARET_H, CARET_MARGIN_LEFT, CARET_W};
-use crate::transcript::{LinkTarget, MessageSelection, SelectionHandler, SpanEvent, SpanHandler, TextSelection, last_block_runs, markdown, markdown_selected_text, message_selected_text, CodeBlockAction, CodeBlockHostButton, LinkHandler};
+use crate::transcript::{LinkTarget, MessageSelection, SelectionHandler, SpanEvent, SpanHandler, TextSelection, last_block_runs, markdown, markdown_selected_text, markdown_selected_text_settled, message_selected_text, message_selected_text_settled, CodeBlockAction, CodeBlockHostButton, LinkHandler};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, icon_content_button, ButtonSize};
@@ -346,6 +346,17 @@ pub fn turn_selected_text(markdown_source: &str, selection: &TextSelection) -> O
     markdown_selected_text(markdown_source, selection)
 }
 
+/// [`turn_selected_text`] for a settled turn: reads the same settled-aware
+/// blocks the turn paints. Pass `!streaming` for assistant turns, `true` for
+/// user turns (mirroring the entry above).
+pub fn turn_selected_text_settled(
+    markdown_source: &str,
+    selection: &TextSelection,
+    settled: bool,
+) -> Option<String> {
+    markdown_selected_text_settled(markdown_source, selection, settled)
+}
+
 /// Copies the selected text across `selection`'s cells in document order
 /// without re-rendering; see [`message_selected_text`]. The app puts this on
 /// the clipboard on ⌘C when it holds a span; the keybinding stays with the
@@ -355,6 +366,17 @@ pub fn turn_span_selected_text(
     selection: &MessageSelection,
 ) -> Option<String> {
     message_selected_text(markdown_source, selection)
+}
+
+/// [`turn_span_selected_text`] for a settled turn: reads the same
+/// settled-aware blocks the turn paints. Pass `!streaming` for assistant
+/// turns, `true` for user turns (mirroring the entry above).
+pub fn turn_span_selected_text_settled(
+    markdown_source: &str,
+    selection: &MessageSelection,
+    settled: bool,
+) -> Option<String> {
+    message_selected_text_settled(markdown_source, selection, settled)
 }
 
 /// Prose style shared by both turns: inline code on `code_bg` in the mono face.
@@ -505,6 +527,9 @@ impl RenderOnce for UserTurn {
                         self.markdown.clone(),
                         prose_style(&p, BUBBLE_TEXT, scale::LH_UI, p.surface_3, p.accent_ink),
                     );
+                    // A user message is complete by definition: a settled
+                    // whole-JSON message draws its `json` code block.
+                    body = body.settled(true);
                     if let Some(on_link) = self.on_link.clone() {
                         body = body.on_link(move |target, window, cx| on_link(target, window, cx));
                     }
@@ -1001,6 +1026,10 @@ impl RenderOnce for AssistantTurn {
                 .w_full()
                 .child(div().w_full().on_prepaint(move |b, _, _| *bounds.borrow_mut() = Some(b)).child({
                     let mut body = markdown((id.clone(), "text"), self.markdown.clone(), style);
+                    // Settled once `streaming` clears: only then may a
+                    // whole-JSON message flip to its `json` code block, so a
+                    // streaming turn never flickers mid-chunk.
+                    body = body.settled(!self.streaming);
                     if let Some(on_link) = self.on_link.clone() {
                         body = body.on_link(move |target, window, cx| on_link(target, window, cx));
                     }
