@@ -4,13 +4,13 @@
 
 use aui::shell::TabItem;
 use aui::workbench::{
-    artifact_strip, doc_pane, doc_saved_hint, doc_tabs, doc_toolbar, file_tree, pane_status, pane_status_row, Artifact, ArtifactKind, DocBlock,
-    DocCell, DocPage, DocRun, DocTable, FileNode, FileTreeAction, GitBadge,
+    artifact_strip, doc_pane, doc_saved_hint, doc_tabs, doc_toolbar, file_tree, pane_status, pane_status_row, segmented, Artifact, ArtifactKind,
+    DocBlock, DocCell, DocPage, DocRun, DocTable, FileNode, FileTreeAction, GitBadge,
 };
 use aui::data::{icon_button, ButtonSize};
 use aui::transcript::{MessageSelection, SelectionEndpoint, SelectionKey, SpanSession};
 use aui_icons::{FileType, IconName};
-use aui_tokens::{scale, ActiveAui};
+use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
 use std::collections::HashSet;
 use gpui_kit::base::{h_flex, v_flex};
@@ -228,6 +228,12 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let doc_span = doc_select.read(cx).held.clone();
     let doc_setter = doc_select.clone();
 
+    // Flush vs framed: Cockpit passes the full pane width as the paper
+    // width, so the card previews both side by side via this toggle.
+    let flush_state = window.use_keyed_state("card54-flush", cx, |_, _| false);
+    let flush = *flush_state.read(cx);
+    let flush_setter = flush_state.clone();
+
     let band = doc_tabs("card54-tabs", tabs, current)
         .on_select(move |id, _, cx| {
             let i = ids.iter().position(|t| *t == id.as_ref()).unwrap_or(0);
@@ -255,7 +261,28 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                         .child(band)
                         .child(doc_toolbar("card54-toolbar", "Body text", "Georgia · 11"))
                         .child(
+                            h_flex()
+                                .flex_none()
+                                .w_full()
+                                .items_center()
+                                .gap(px(8.0))
+                                .px(px(12.0))
+                                .py(px(6.0))
+                                .child(div().flex_none().ui(scale::FS_11).text_color(p.ink_2).child("Paper"))
+                                .child(
+                                    segmented("card54-flush-toggle", vec!["Framed".into(), "Flush".into()], usize::from(flush)).on_select(
+                                        move |index, _, cx| {
+                                            flush_setter.update(cx, |v, cx| {
+                                                *v = index == 1;
+                                                cx.notify();
+                                            })
+                                        },
+                                    ),
+                                ),
+                        )
+                        .child(
                             doc_pane("card54-doc", sample_page())
+                                .flush(flush)
                                 .span_selection(doc_span.as_ref())
                                 .on_span_event(move |event, _, cx| {
                                     doc_setter.update(cx, |state, cx| {

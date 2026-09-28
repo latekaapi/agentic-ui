@@ -6,7 +6,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use aui::workbench::{cell_span_width, clamp_heading_level, collapsed_margin, doc_pane, table_layout, DocBlock, DocCell, DocPage, DocTable, TABLE_MIN_COL_W};
+use aui::workbench::{cell_span_width, clamp_heading_level, collapsed_margin, doc_pane, flush_paper_layout, table_layout, DocBlock, DocCell, DocPage, DocTable, TABLE_MIN_COL_W};
 use gpui::{px, size, Context, IntoElement, Render, ScrollHandle, TestAppContext, Window};
 
 /// A cell at index 0 spanning 2 columns of `[0.5, 0.3, 0.2]` is 0.8.
@@ -209,4 +209,72 @@ fn an_extended_page_draws_without_panicking(cx: &mut TestAppContext) {
         ],
     );
     assert!(draws_without_panicking(cx, page), "a page with heading, rule and table must draw without panicking");
+}
+
+/// A flush pane's paper is as wide as the pane: no gutters on the sides.
+#[test]
+fn a_flush_panes_paper_width_equals_the_pane_width() {
+    let (width, _) = flush_paper_layout(800.0, 600.0, 120.0);
+    assert_eq!(width, 800.0, "a flush paper spans the pane width, got {width}");
+}
+
+/// A flush pane with one short paragraph still fills the pane height, so
+/// no surface band shows below the paper; a long page keeps its height.
+#[test]
+fn a_flush_pane_with_short_content_fills_the_pane_height() {
+    let (_, short) = flush_paper_layout(800.0, 600.0, 120.0);
+    assert_eq!(short, 600.0, "a one-paragraph flush page fills the pane height, got {short}");
+    let (_, long) = flush_paper_layout(800.0, 600.0, 1400.0);
+    assert_eq!(long, 1400.0, "a long flush page keeps its height and scrolls, got {long}");
+}
+
+/// The flush host view: the page renders edge to edge, as Cockpit shows it.
+struct FlushHost {
+    page: DocPage,
+    handle: ScrollHandle,
+    drawn: Rc<Cell<bool>>,
+}
+
+impl Render for FlushHost {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        self.drawn.set(true);
+        doc_pane("workbench-docs-flush", self.page.clone()).flush(true).track_scroll(&self.handle)
+    }
+}
+
+/// A short flush page draws without panicking.
+#[gpui::test]
+fn a_short_flush_page_draws_without_panicking(cx: &mut TestAppContext) {
+    cx.update(|cx| aui::init(aui::tokens::ThemeKind::Dark, cx));
+    let page = DocPage::new("Title", "Subtitle", vec![DocBlock::text("One short paragraph.")]);
+    let drawn = Rc::new(Cell::new(false));
+    let handle = ScrollHandle::new();
+    let _window = cx.open_window(size(px(800.0), px(600.0)), {
+        let drawn = drawn.clone();
+        let handle = handle.clone();
+        move |_, _| FlushHost { page: page.clone(), handle: handle.clone(), drawn: drawn.clone() }
+    });
+    cx.run_until_parked();
+    assert!(drawn.get(), "a short flush page must draw without panicking");
+}
+
+/// A page taller than the pane still scrolls in flush mode: sixty
+/// paragraphs in a 400x300 window leave the tracked handle room to move.
+#[gpui::test]
+fn a_tall_flush_page_still_scrolls(cx: &mut TestAppContext) {
+    cx.update(|cx| aui::init(aui::tokens::ThemeKind::Dark, cx));
+    let blocks: Vec<DocBlock> =
+        (0..60).map(|n| DocBlock::text(format!("Paragraph {n}: the Directorate invites proposals for the 2027 academic year."))).collect();
+    let page = DocPage::new("Request for Proposal", "Directorate of Education · Draft v3", blocks);
+    let handle = ScrollHandle::new();
+    let drawn = Rc::new(Cell::new(false));
+    let _window = cx.open_window(size(px(400.0), px(300.0)), {
+        let handle = handle.clone();
+        let drawn = drawn.clone();
+        move |_, _| FlushHost { page: page.clone(), handle: handle.clone(), drawn: drawn.clone() }
+    });
+    cx.run_until_parked();
+    assert!(drawn.get(), "a tall flush page must draw without panicking");
+    let max = handle.max_offset();
+    assert!(max.y > px(0.0), "a 60-paragraph flush page in a 300 px pane must scroll, got max offset {max:?}");
 }

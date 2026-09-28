@@ -773,6 +773,15 @@ impl DocPage {
     }
 }
 
+/// Flush-mode paper geometry for [`DocPane::flush`]: the paper spans the
+/// pane's full width and stretches to at least its full height, so a short
+/// page leaves no surface band below. Returns
+/// `(paper_width, paper_min_height)`; a long page keeps its content height
+/// and scrolls exactly as in framed mode.
+pub fn flush_paper_layout(pane_width: f32, pane_height: f32, content_height: f32) -> (f32, f32) {
+    (pane_width, content_height.max(pane_height))
+}
+
 /// The paper area of the document pane (`.doc` + `.paper`). Build with
 /// [`doc_pane`].
 #[derive(IntoElement)]
@@ -781,6 +790,7 @@ pub struct DocPane {
     page: DocPage,
     paper_width: f32,
     paper_pad: Option<(f32, f32)>,
+    flush: bool,
     scroll: Option<ScrollHandle>,
     selection: Option<TextSelection>,
     on_selection_change: Option<SelectionHandler>,
@@ -795,6 +805,7 @@ pub fn doc_pane(id: impl Into<ElementId>, page: DocPage) -> DocPane {
         page,
         paper_width: PAPER_W,
         paper_pad: None,
+        flush: false,
         scroll: None,
         selection: None,
         on_selection_change: None,
@@ -808,6 +819,16 @@ impl DocPane {
     pub fn paper(mut self, width: f32, pad_y: f32, pad_x: f32) -> Self {
         self.paper_width = width;
         self.paper_pad = Some((pad_y, pad_x));
+        self
+    }
+
+    /// Edge-to-edge mode for hosts that pass the full pane width as the
+    /// paper width: no root gutters, no card chrome on the paper (it IS the
+    /// pane), and the paper's ground fills the pane height when the content
+    /// is short. The inner text padding from [`paper`](Self::paper) stays.
+    /// Off by default, so existing callers render exactly as before.
+    pub fn flush(mut self, flush: bool) -> Self {
+        self.flush = flush;
         self
     }
 
@@ -912,18 +933,21 @@ impl RenderOnce for DocPane {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let ink: Hsla = rgb(PAPER_INK).into();
-        // The paper caps at the pane width so a 520 px sheet in a 280 px
-        // pane wraps its text instead of clipping mid-glyph on both sides.
         let mut paper = v_flex()
-            .flex_none()
-            .w(px(self.paper_width))
-            .max_w(relative(1.0))
             .px(px(self.paper_pad.map(|(_, x)| x).unwrap_or(PAPER_PAD_X)))
             .py(px(self.paper_pad.map(|(y, _)| y).unwrap_or(PAPER_PAD_Y)))
             .bg(rgb(PAPER_BG))
-            .text_color(ink)
-            .shadow(p.shadow(2))
-            .child(
+            .text_color(ink);
+        if self.flush {
+            // The paper IS the pane: full width, at least the pane height
+            // when short, with no card chrome. The text padding above stays.
+            paper = paper.flex_1().w_full().min_h(relative(1.0));
+        } else {
+            // The paper caps at the pane width so a 520 px sheet in a 280 px
+            // pane wraps its text instead of clipping mid-glyph on both sides.
+            paper = paper.flex_none().w(px(self.paper_width)).max_w(relative(1.0)).shadow(p.shadow(2));
+        }
+        paper = paper.child(
                 div()
                     .mb(px(PAPER_TITLE_GAP))
                     .ui(PAPER_TITLE)
@@ -1041,13 +1065,19 @@ impl RenderOnce for DocPane {
             .w_full()
             .flex()
             .justify_center()
-            // Top-align: the row's default cross-axis stretch would size the
-            // paper to the pane and leave nothing to scroll.
-            .items_start()
-            .p(px(DOC_PAD))
-            .bg(p.surface_2)
             .overflow_hidden()
             .overflow_y_scroll();
+        if self.flush {
+            // Edge to edge: no gutters, on the paper's own ground so no
+            // surface band shows below a short page. Top-aligned exactly
+            // like the framed pane, so long content still scrolls; the
+            // paper's own minimum height fills short pages.
+            root = root.items_start().p(px(0.0)).bg(rgb(PAPER_BG));
+        } else {
+            // Top-align: the row's default cross-axis stretch would size the
+            // paper to the pane and leave nothing to scroll.
+            root = root.items_start().p(px(DOC_PAD)).bg(p.surface_2);
+        }
         if let Some(handle) = &self.scroll {
             root = root.track_scroll(handle);
         }
@@ -1758,6 +1788,36 @@ mod tests {
         assert!(plain.scroll.is_none(), "no handle is tracked by default");
         let tracked = doc_pane("pane", DocPage::new("Title", "Subtitle", Vec::new())).track_scroll(&handle);
         assert!(tracked.scroll.is_some(), "the handle is stored when set");
+    }
+
+    /// Flush mode is opt-in: every existing caller renders exactly as before.
+    #[test]
+    fn flush_is_off_by_default() {
+        let plain = doc_pane("pane", DocPage::new("Title", "Subtitle", Vec::new()));
+        assert!(!plain.flush, "no pane is flush unless asked");
+        let framed = doc_pane("pane", DocPage::new("Title", "Subtitle", Vec::new())).flush(false);
+        assert!(!framed.flush, "flush(false) keeps the framed pane");
+        let flush = doc_pane("pane", DocPage::new("Title", "Subtitle", Vec::new())).flush(true);
+        assert!(flush.flush, "flush(true) opts into the edge-to-edge pane");
+    }
+
+    /// Flush geometry: the paper spans the pane's full width.
+    #[test]
+    fn flush_paper_spans_the_pane_width() {
+        let (width, _) = flush_paper_layout(640.0, 500.0, 120.0);
+        assert_eq!(width, 640.0, "a flush paper is as wide as the pane, got {width}");
+        let (narrow, _) = flush_paper_layout(280.0, 500.0, 120.0);
+        assert_eq!(narrow, 280.0, "a flush paper in a narrow pane is as wide as the pane, got {narrow}");
+    }
+
+    /// Flush geometry: one short paragraph still fills the pane height,
+    /// while a long page keeps its content height and scrolls.
+    #[test]
+    fn flush_paper_fills_the_pane_height_when_short() {
+        let (_, short) = flush_paper_layout(640.0, 500.0, 120.0);
+        assert_eq!(short, 500.0, "a short page fills the pane height, got {short}");
+        let (_, long) = flush_paper_layout(640.0, 500.0, 1400.0);
+        assert_eq!(long, 1400.0, "a long page keeps its height and scrolls, got {long}");
     }
 
     fn select_page() -> DocPage {
