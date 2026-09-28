@@ -11,6 +11,7 @@
 //! the screens phase; they will reuse [`artifact_strip`] and
 //! [`pane_status_row`].
 
+use std::ops::Range;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
@@ -24,6 +25,9 @@ use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, chip, icon_button, ButtonSize};
 use crate::shell::TabItem;
+use crate::transcript::{
+    MessageSelection, SelectionEndpoint, SelectionHandler, SelectionKey, SpanHandler, TextSelection, selectable_text,
+};
 use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.dtabs{height:34px;gap:2px;padding:0 6px}`.
@@ -778,11 +782,25 @@ pub struct DocPane {
     paper_width: f32,
     paper_pad: Option<(f32, f32)>,
     scroll: Option<ScrollHandle>,
+    selection: Option<TextSelection>,
+    on_selection_change: Option<SelectionHandler>,
+    span: Option<MessageSelection>,
+    on_span: Option<SpanHandler>,
 }
 
 /// The pane's page on its surface-2 ground.
 pub fn doc_pane(id: impl Into<ElementId>, page: DocPage) -> DocPane {
-    DocPane { id: id.into(), page, paper_width: PAPER_W, paper_pad: None, scroll: None }
+    DocPane {
+        id: id.into(),
+        page,
+        paper_width: PAPER_W,
+        paper_pad: None,
+        scroll: None,
+        selection: None,
+        on_selection_change: None,
+        span: None,
+        on_span: None,
+    }
 }
 
 impl DocPane {
@@ -800,6 +818,94 @@ impl DocPane {
         self.scroll = Some(handle.clone());
         self
     }
+
+    /// The stored selection this render highlights: the app owns one
+    /// [`TextSelection`] and passes it back here. Ignored while span mode is
+    /// on (see [`span_selection`](Self::span_selection)).
+    pub fn selection(mut self, selection: Option<&TextSelection>) -> Self {
+        self.selection = selection.cloned();
+        self
+    }
+
+    /// Selection intents: drags and word / paragraph picks arrive as `Some`,
+    /// plain clicks elsewhere in a cell arrive as `None` (clearing). Not
+    /// wired while span mode is on — cells report [`SpanEvent`](crate::transcript::SpanEvent)s
+    /// instead, so wiring both would double-report drags.
+    pub fn on_selection_change(
+        mut self,
+        f: impl Fn(Option<TextSelection>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_selection_change = Some(Rc::new(f));
+        self
+    }
+
+    /// The stored cross-cell span this render highlights: the app owns one
+    /// [`MessageSelection`] per pane (plus its [`SpanSession`](crate::transcript::SpanSession))
+    /// and passes it back here. While span mode is on — a span or a span-event
+    /// handler is set — cells highlight from the span and [`selection`](Self::selection)
+    /// is ignored.
+    pub fn span_selection(mut self, selection: Option<&MessageSelection>) -> Self {
+        self.span = selection.cloned();
+        self
+    }
+
+    /// Cross-cell selection events for the pane's [`SpanSession`](crate::transcript::SpanSession):
+    /// presses, hovers while any button is held, releases, and word /
+    /// paragraph picks. A pane in span mode wires this instead of
+    /// [`on_selection_change`](Self::on_selection_change).
+    pub fn on_span_event(mut self, f: impl Fn(crate::transcript::SpanEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_span = Some(Rc::new(f));
+        self
+    }
+}
+
+/// Selection state threaded through the page render: the app's stored
+/// selection or span, the intents, and the highlight colour. Span mode is on
+/// when the app holds a span or listens for span events; then cells highlight
+/// from the span's document order and the legacy single-cell selection is
+/// ignored, exactly like the transcript.
+struct DocSel {
+    selection: Option<TextSelection>,
+    on_change: Option<SelectionHandler>,
+    span_order: Option<Rc<Vec<SelectionKey>>>,
+    span: Option<MessageSelection>,
+    on_span: Option<SpanHandler>,
+    color: Hsla,
+}
+
+/// One body-text cell: plain `StyledText` when no selection state and no
+/// intents are wired (existing callers paint exactly as before), otherwise a
+/// [`selectable_text`] cell carrying the same runs, so drags and word /
+/// paragraph picks report through the pane's handlers and the theme's
+/// selection colour highlights behind the glyphs.
+fn doc_text_cell(pane_id: &ElementId, key: SelectionKey, text: String, runs: Vec<TextRun>, sel: &DocSel) -> AnyElement {
+    if sel.selection.is_none() && sel.span.is_none() && sel.on_change.is_none() && sel.on_span.is_none() {
+        return StyledText::new(text).with_runs(runs).into_any_element();
+    }
+    if text.is_empty() {
+        return div().into_any_element();
+    }
+    let len = text.len();
+    let el_id: ElementId = (pane_id.clone(), SharedString::from(key.as_str())).into();
+    let mut el = selectable_text(el_id, key.clone(), text).runs(runs).selection_color(sel.color);
+    if let Some(order) = &sel.span_order {
+        if let Some(range) = sel.span.as_ref().and_then(|span| span.range_for_cell(&key, len, order)) {
+            el = el.selection(Some(range));
+        }
+        if let Some(handler) = &sel.on_span {
+            let handler = handler.clone();
+            el = el.on_span_event(move |event, window, cx| handler(event, window, cx));
+        }
+    } else {
+        if let Some(range) = sel.selection.as_ref().filter(|current| current.cell == key).map(|current| current.range.clone()) {
+            el = el.selection(Some(range));
+        }
+        if let Some(handler) = &sel.on_change {
+            let handler = handler.clone();
+            el = el.on_selection_change(move |next, window, cx| handler(next, window, cx));
+        }
+    }
+    el.into_any_element()
 }
 
 impl RenderOnce for DocPane {
@@ -837,6 +943,18 @@ impl RenderOnce for DocPane {
         let count = self.page.blocks.len();
         let paper_pad_x = self.paper_pad.map(|(_, x)| x).unwrap_or(PAPER_PAD_X);
         let usable_width = self.paper_width - paper_pad_x * 2.0;
+        // Span mode is on when the app holds a span or listens for span
+        // events; the order walk is keys only (no shaping), so this adds no
+        // layout work beyond what the legacy path already does per frame.
+        let span_mode = self.span.is_some() || self.on_span.is_some();
+        let sel = DocSel {
+            selection: self.selection.clone(),
+            on_change: self.on_selection_change.clone(),
+            span_order: span_mode.then(|| Rc::new(doc_order(&self.page))),
+            span: self.span.clone(),
+            on_span: self.on_span.clone(),
+            color: p.selection,
+        };
         let mut body = v_flex()
             .w_full()
             .font_family(PAPER_FONT)
@@ -848,7 +966,7 @@ impl RenderOnce for DocPane {
             let el = match block {
                 DocBlock::Paragraph(runs) => {
                     let (text, text_runs) = page_runs(runs, ink);
-                    div().w_full().child(StyledText::new(text).with_runs(text_runs)).into_any_element()
+                    div().w_full().child(doc_text_cell(&self.id, SelectionKey::paragraph("", index), text, text_runs, &sel)).into_any_element()
                 }
                 DocBlock::List(items) => {
                     let mut list = v_flex().w_full();
@@ -869,7 +987,12 @@ impl RenderOnce for DocPane {
                                         .justify_end()
                                         .child(format!("{}.", n + 1)),
                                 )
-                                .child(div().flex_1().min_w(px(0.0)).child(StyledText::new(text).with_runs(text_runs))),
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w(px(0.0))
+                                        .child(doc_text_cell(&self.id, SelectionKey::list_item("", index, true, n), text, text_runs, &sel)),
+                                ),
                         );
                     }
                     list.into_any_element()
@@ -887,12 +1010,12 @@ impl RenderOnce for DocPane {
                         .w_full()
                         .ui(heading_text_size(*level))
                         .font_weight(FontWeight::BOLD)
-                        .child(StyledText::new(text).with_runs(text_runs))
+                        .child(doc_text_cell(&self.id, SelectionKey::heading("", index), text, text_runs, &sel))
                         .into_any_element()
                 }
                 DocBlock::Table(table) => {
                     let scroll_id: ElementId = (self.id.clone(), SharedString::from(format!("table-{index}-scroll"))).into();
-                    paint_table(table, ink, usable_width, scroll_id)
+                    paint_table(table, ink, usable_width, scroll_id, &self.id, index, &sel)
                 }
                 DocBlock::Image(image) => div()
                     .w_full()
@@ -947,7 +1070,15 @@ impl RenderOnce for DocPane {
 /// computed width: `TABLE_MIN_COL_W` already holds the 8 px pads on each side
 /// plus the word "Female", so flooring the outer width at the minimum keeps
 /// the usable text readable instead of letting the pads eat the column.
-fn paint_table(table: &DocTable, ink: Hsla, usable_width: f32, scroll_id: ElementId) -> AnyElement {
+fn paint_table(
+    table: &DocTable,
+    ink: Hsla,
+    usable_width: f32,
+    scroll_id: ElementId,
+    pane_id: &ElementId,
+    block: usize,
+    sel: &DocSel,
+) -> AnyElement {
     if table.rows.is_empty() {
         return div().w_full().into_any_element();
     }
@@ -998,7 +1129,8 @@ fn paint_table(table: &DocTable, ink: Hsla, usable_width: f32, scroll_id: Elemen
             if ri != last_row {
                 el = el.border_b_1();
             }
-            line = line.child(el.child(StyledText::new(text).with_runs(text_runs)));
+            let key = SelectionKey::table_cell("", block, Some(ri), ci);
+            line = line.child(el.child(doc_text_cell(pane_id, key, text, text_runs, sel)));
         }
         grid = grid.child(line);
     }
@@ -1034,6 +1166,262 @@ fn page_runs(runs: &[DocRun], ink: Hsla) -> (String, Vec<TextRun>) {
         out.push(style);
     }
     (text, out)
+}
+
+// ---------------------------------------------------------------------------
+// Selection keys and copy text
+// ---------------------------------------------------------------------------
+
+/// The plain shaped text of `runs`: what [`page_runs`] draws, minus styling.
+fn doc_runs_text(runs: &[DocRun]) -> String {
+    let mut text = String::new();
+    for run in runs {
+        text.push_str(run.str());
+    }
+    text
+}
+
+/// The selectable cells of a page in render order: one key per paragraph,
+/// heading and list item, one per table cell row-major; images and rules are
+/// not text. The render builds this once per frame when span mode is on, so
+/// the keys cells paint with are the keys a span resolves against.
+fn doc_order(page: &DocPage) -> Vec<SelectionKey> {
+    let mut order = Vec::new();
+    for (index, block) in page.blocks.iter().enumerate() {
+        match block {
+            DocBlock::Paragraph(_) => order.push(SelectionKey::paragraph("", index)),
+            DocBlock::Heading { .. } => order.push(SelectionKey::heading("", index)),
+            DocBlock::List(items) => {
+                for (n, _) in items.iter().enumerate() {
+                    order.push(SelectionKey::list_item("", index, true, n));
+                }
+            }
+            DocBlock::Table(table) => {
+                for (r, row) in table.rows.iter().enumerate() {
+                    for (c, _) in row.iter().enumerate() {
+                        order.push(SelectionKey::table_cell("", index, Some(r), c));
+                    }
+                }
+            }
+            DocBlock::Image(_) | DocBlock::Rule => {}
+        }
+    }
+    order
+}
+
+/// The shaped text of the cell `key` addresses, or `None` for keys the page
+/// no longer renders — stale selections select nothing.
+fn doc_cell_text(page: &DocPage, key: &SelectionKey) -> Option<String> {
+    for (index, block) in page.blocks.iter().enumerate() {
+        match block {
+            DocBlock::Paragraph(runs) if *key == SelectionKey::paragraph("", index) => return Some(doc_runs_text(runs)),
+            DocBlock::Heading { runs, .. } if *key == SelectionKey::heading("", index) => return Some(doc_runs_text(runs)),
+            DocBlock::List(items) => {
+                for (n, item) in items.iter().enumerate() {
+                    if *key == SelectionKey::list_item("", index, true, n) {
+                        return Some(doc_runs_text(item));
+                    }
+                }
+            }
+            DocBlock::Table(table) => {
+                for (r, row) in table.rows.iter().enumerate() {
+                    for (c, cell) in row.iter().enumerate() {
+                        if *key == SelectionKey::table_cell("", index, Some(r), c) {
+                            return Some(doc_runs_text(&cell.runs));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Clamps a range to `text`, snapping both ends down to char boundaries;
+/// `None` when nothing remains. Every slice into cell text goes through here,
+/// so event indices can never panic a copy.
+fn clamp_bytes(range: Range<usize>, text: &str) -> Option<Range<usize>> {
+    if text.is_empty() {
+        return None;
+    }
+    let len = text.len();
+    let mut start = range.start.min(len);
+    let mut end = range.end.min(len);
+    while start > 0 && !text.is_char_boundary(start) {
+        start -= 1;
+    }
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    if start >= end { None } else { Some(start..end) }
+}
+
+/// Copies the selected text out of `selection`: the slice of the holding
+/// cell's shaped text, or `None` when the key addresses no cell or the range
+/// is empty. The app puts this on the clipboard on ⌘C; the keybinding stays
+/// with the app.
+pub fn doc_selected_text(page: &DocPage, selection: &TextSelection) -> Option<String> {
+    let cell = doc_cell_text(page, &selection.cell)?;
+    clamp_bytes(selection.range.clone(), &cell).map(|range| cell[range].to_string())
+}
+
+/// One selectable cell's copy text with its structure: list items carry their
+/// `N. ` marker so a copied span pastes back as the same list, and table
+/// cells carry their `(block, row)` so a span joins them as TSV.
+struct DocSlice {
+    /// The key the cell paints with.
+    key: SelectionKey,
+    /// The shaped text: what the cell draws, minus styling.
+    text: String,
+    /// The list block this item belongs to, for tight joining; `None` for
+    /// every other cell.
+    list: Option<usize>,
+    /// The structural marker prepended on copy, if any.
+    marker: Option<String>,
+    /// The `(block, row)` of a table cell, for TSV joining; `None` for every
+    /// other cell.
+    table: Option<(usize, usize)>,
+}
+
+/// Walks `page` in render order, pushing one [`DocSlice`] per selectable
+/// cell. The traversal mirrors [`doc_order`], so the keys found here are the
+/// keys cells paint with.
+fn doc_slices(page: &DocPage) -> Vec<DocSlice> {
+    let mut out = Vec::new();
+    for (index, block) in page.blocks.iter().enumerate() {
+        match block {
+            DocBlock::Paragraph(runs) => out.push(DocSlice {
+                key: SelectionKey::paragraph("", index),
+                text: doc_runs_text(runs),
+                list: None,
+                marker: None,
+                table: None,
+            }),
+            DocBlock::Heading { runs, .. } => out.push(DocSlice {
+                key: SelectionKey::heading("", index),
+                text: doc_runs_text(runs),
+                list: None,
+                marker: None,
+                table: None,
+            }),
+            DocBlock::List(items) => {
+                for (n, item) in items.iter().enumerate() {
+                    out.push(DocSlice {
+                        key: SelectionKey::list_item("", index, true, n),
+                        text: doc_runs_text(item),
+                        list: Some(index),
+                        marker: Some(format!("{}. ", n + 1)),
+                        table: None,
+                    });
+                }
+            }
+            DocBlock::Table(table) => {
+                for (r, row) in table.rows.iter().enumerate() {
+                    for (c, cell) in row.iter().enumerate() {
+                        out.push(DocSlice {
+                            key: SelectionKey::table_cell("", index, Some(r), c),
+                            text: doc_runs_text(&cell.runs),
+                            list: None,
+                            marker: None,
+                            table: Some((index, r)),
+                        });
+                    }
+                }
+            }
+            DocBlock::Image(_) | DocBlock::Rule => {}
+        }
+    }
+    out
+}
+
+/// Copies the selected text across `selection`'s cells in document order. The
+/// app puts this on the clipboard on ⌘C when it holds a span; the keybinding
+/// stays with the app.
+///
+/// Cells between the ends copy whole; the ends copy their overlapped slice.
+/// Fragments join with a blank line between blocks — the copy reads the way
+/// the pane renders — except consecutive items of one list, which join tight
+/// so the list pastes back as a list, and table cells, which join as TSV
+/// (tabs within a row, newlines across rows). Wholly selected list items keep
+/// their `N. ` markers, while partial slices read as plain words exactly like
+/// the legacy single-cell copy. Empty cells contribute nothing, so they never
+/// pile up blank lines. `None` when an endpoint key addresses no cell or
+/// nothing remains.
+pub fn doc_span_selected_text(page: &DocPage, selection: &MessageSelection) -> Option<String> {
+    let cells = doc_slices(page);
+    let position = |key: &SelectionKey| cells.iter().position(|cell| cell.key == *key);
+    let anchor_ix = position(&selection.anchor.cell)?;
+    let focus_ix = position(&selection.focus.cell)?;
+    let (lo_ix, lo_off, hi_ix, hi_off) = if anchor_ix <= focus_ix {
+        (anchor_ix, selection.anchor.offset, focus_ix, selection.focus.offset)
+    } else {
+        (focus_ix, selection.focus.offset, anchor_ix, selection.anchor.offset)
+    };
+    let mut out = String::new();
+    let mut prev_list: Option<usize> = None;
+    let mut prev_table: Option<(usize, usize)> = None;
+    for (ix, cell) in cells.iter().enumerate().skip(lo_ix).take(hi_ix - lo_ix + 1) {
+        let full = cell.text.as_str();
+        let bounds = if ix == lo_ix && ix == hi_ix {
+            let (start, end) = if lo_off <= hi_off { (lo_off, hi_off) } else { (hi_off, lo_off) };
+            start..end
+        } else if ix == lo_ix {
+            lo_off..full.len()
+        } else if ix == hi_ix {
+            0..hi_off
+        } else {
+            0..full.len()
+        };
+        let Some(slice) = clamp_bytes(bounds, full) else {
+            continue;
+        };
+        // Markers ride only on wholly selected cells: a partial slice reads
+        // exactly like the legacy single-cell copy, while fully covered
+        // items keep their structure so the span pastes back as a list.
+        let whole = slice.start == 0 && slice.end == full.len();
+        let fragment = if whole {
+            if let Some(marker) = &cell.marker {
+                marker.clone() + &full[slice]
+            } else {
+                full[slice].to_string()
+            }
+        } else {
+            full[slice].to_string()
+        };
+        if !out.is_empty() {
+            // Cells of one table row stay one TSV row; consecutive items of
+            // one list stay one list; rows of one table stay line-separated;
+            // every other boundary is a block boundary, hence a blank line.
+            let same_row = matches!((prev_table, cell.table), (Some(a), Some(b)) if a == b);
+            let tight_list = cell.list.is_some() && prev_list == cell.list;
+            let same_table = matches!((prev_table, cell.table), (Some(a), Some(b)) if a.0 == b.0);
+            out.push_str(if same_row {
+                "\t"
+            } else if tight_list || same_table {
+                "\n"
+            } else {
+                "\n\n"
+            });
+        }
+        out.push_str(&fragment);
+        prev_list = cell.list;
+        prev_table = cell.table;
+    }
+    if out.is_empty() { None } else { Some(out) }
+}
+
+/// The span covering a whole page: the first non-empty cell's start to the
+/// last non-empty cell's end. `None` for pages with no selectable text. The
+/// app drives select-all through this; the keybinding stays with the app.
+pub fn doc_select_all(page: &DocPage) -> Option<MessageSelection> {
+    let cells = doc_slices(page);
+    let first = cells.iter().find(|cell| !cell.text.is_empty())?;
+    let last = cells.iter().rfind(|cell| !cell.text.is_empty())?;
+    MessageSelection::new(
+        SelectionEndpoint { cell: first.key.clone(), offset: 0 },
+        SelectionEndpoint { cell: last.key.clone(), offset: last.text.len() },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1370,5 +1758,125 @@ mod tests {
         assert!(plain.scroll.is_none(), "no handle is tracked by default");
         let tracked = doc_pane("pane", DocPage::new("Title", "Subtitle", Vec::new())).track_scroll(&handle);
         assert!(tracked.scroll.is_some(), "the handle is stored when set");
+    }
+
+    fn select_page() -> DocPage {
+        DocPage::new(
+            "Title",
+            "Subtitle",
+            vec![
+                DocBlock::Paragraph(vec![DocRun::text("First paragraph.")]),
+                DocBlock::heading(1, "Section"),
+                DocBlock::list(["alpha", "beta"]),
+                DocBlock::Table(DocTable {
+                    widths: vec![],
+                    rows: vec![
+                        vec![DocCell::text("a1"), DocCell::text("b1")],
+                        vec![DocCell::text("a2"), DocCell::text("b2")],
+                    ],
+                }),
+                DocBlock::Paragraph(vec![DocRun::text("Last paragraph.")]),
+            ],
+        )
+    }
+
+    fn endpoint(cell: &SelectionKey, offset: usize) -> SelectionEndpoint {
+        SelectionEndpoint { cell: cell.clone(), offset }
+    }
+
+    /// A fresh pane holds no selection state, so existing callers render
+    /// exactly as before.
+    #[test]
+    fn a_plain_pane_holds_no_selection() {
+        let pane = doc_pane("pane", select_page());
+        assert!(pane.selection.is_none(), "no selection is held by default");
+        assert!(pane.on_selection_change.is_none(), "no selection handler by default");
+        assert!(pane.span.is_none(), "no span is held by default");
+        assert!(pane.on_span.is_none(), "no span handler by default");
+    }
+
+    /// A span across the whole page copies cells in document order: blank
+    /// lines between blocks, markers on wholly selected list items, TSV for
+    /// table cells.
+    #[test]
+    fn a_span_across_blocks_copies_in_document_order() {
+        let page = select_page();
+        let span = doc_select_all(&page).expect("the page has selectable text");
+        assert_eq!(
+            doc_span_selected_text(&page, &span).as_deref(),
+            Some("First paragraph.\n\nSection\n\n1. alpha\n2. beta\n\na1\tb1\na2\tb2\n\nLast paragraph."),
+            "blocks join with blank lines, lists keep markers, tables read as TSV"
+        );
+    }
+
+    /// Endpoint cells copy their overlapped slice without markers; middle
+    /// cells copy whole with markers; table cells join their row with tabs.
+    #[test]
+    fn a_partial_span_slices_its_ends_and_keeps_tsv_rows() {
+        use crate::transcript::SelectionKey as Key;
+        let page = select_page();
+        let span = MessageSelection {
+            anchor: endpoint(&Key::list_item("", 2, true, 0), 2),
+            focus: endpoint(&Key::table_cell("", 3, Some(0), 1), 1),
+        };
+        assert_eq!(
+            doc_span_selected_text(&page, &span).as_deref(),
+            Some("pha\n2. beta\n\na1\tb"),
+            "partial ends read as plain words, whole items keep markers, row cells tab-join"
+        );
+        // A reversed drag (focus before anchor) reads exactly the same.
+        let reversed = MessageSelection {
+            anchor: endpoint(&Key::table_cell("", 3, Some(0), 1), 1),
+            focus: endpoint(&Key::list_item("", 2, true, 0), 2),
+        };
+        assert_eq!(
+            doc_span_selected_text(&page, &reversed).as_deref(),
+            Some("pha\n2. beta\n\na1\tb"),
+            "reversed drags copy in document order"
+        );
+    }
+
+    /// A table-only span copies rows newline-separated: the TSV shape.
+    #[test]
+    fn a_table_span_copies_as_tsv() {
+        use crate::transcript::SelectionKey as Key;
+        let page = select_page();
+        let span = MessageSelection {
+            anchor: endpoint(&Key::table_cell("", 3, Some(0), 0), 0),
+            focus: endpoint(&Key::table_cell("", 3, Some(1), 1), 2),
+        };
+        assert_eq!(
+            doc_span_selected_text(&page, &span).as_deref(),
+            Some("a1\tb1\na2\tb2"),
+            "cells tab-join within a row, rows newline-join"
+        );
+    }
+
+    /// The legacy single-cell copy slices the holding cell and rejects stale
+    /// keys and empty ranges.
+    #[test]
+    fn a_single_cell_selection_slices_its_cell() {
+        use crate::transcript::SelectionKey as Key;
+        let page = select_page();
+        let word = TextSelection { cell: Key::paragraph("", 0), range: 0..5 };
+        assert_eq!(doc_selected_text(&page, &word).as_deref(), Some("First"), "the holding cell's slice");
+        let stale = TextSelection { cell: Key::paragraph("", 9), range: 0..5 };
+        assert_eq!(doc_selected_text(&page, &stale), None, "a stale key selects nothing");
+        let caret = TextSelection { cell: Key::paragraph("", 0), range: 3..3 };
+        assert_eq!(doc_selected_text(&page, &caret), None, "an empty range is never stored");
+    }
+
+    /// Spans over unknown keys or empty pages copy nothing.
+    #[test]
+    fn spans_over_unknown_keys_copy_nothing() {
+        use crate::transcript::SelectionKey as Key;
+        let page = select_page();
+        let span = MessageSelection {
+            anchor: endpoint(&Key::paragraph("", 9), 0),
+            focus: endpoint(&Key::paragraph("", 0), 5),
+        };
+        assert_eq!(doc_span_selected_text(&page, &span), None, "a stale endpoint selects nothing");
+        let empty = DocPage::new("Title", "Subtitle", vec![DocBlock::Rule]);
+        assert_eq!(doc_select_all(&empty), None, "a page with no text has no span");
     }
 }

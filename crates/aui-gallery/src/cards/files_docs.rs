@@ -8,6 +8,7 @@ use aui::workbench::{
     DocCell, DocPage, DocRun, DocTable, FileNode, FileTreeAction, GitBadge,
 };
 use aui::data::{icon_button, ButtonSize};
+use aui::transcript::{MessageSelection, SelectionEndpoint, SelectionKey, SpanSession};
 use aui_icons::{FileType, IconName};
 use aui_tokens::{scale, ActiveAui};
 use gpui::*;
@@ -23,6 +24,24 @@ const TREE_W: f32 = 240.0;
 const GRID_GAP: f32 = 14.0;
 /// Glyphs in the tab band's xs ghost button: 12 px.
 const SMALL_GLYPH: f32 = 12.0;
+
+/// What the gallery remembers about the document selection: the held
+/// cross-block span plus the drag session, the way an app would own them.
+#[derive(Clone)]
+struct DocSelectState {
+    held: Option<MessageSelection>,
+    session: SpanSession,
+}
+
+/// The scripted span: mid first paragraph into the second list item, so the
+/// paragraph tails, the middle paragraph and the head of the list highlight
+/// on the first frame.
+fn scripted_doc_span() -> MessageSelection {
+    MessageSelection {
+        anchor: SelectionEndpoint { cell: SelectionKey::paragraph("", 0), offset: 12 },
+        focus: SelectionEndpoint { cell: SelectionKey::list_item("", 3, true, 1), offset: 8 },
+    }
+}
 
 /// What the gallery remembers about the tree: which directories the reader
 /// collapsed or re-expanded, and which row they picked.
@@ -199,6 +218,16 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             })
         });
 
+    // The document selection lives in the gallery so a drag across
+    // paragraphs, the list and the tables can be exercised by hand; the app
+    // copies doc_span_selected_text on ⌘C.
+    let doc_select = window.use_keyed_state("card54-doc-select", cx, |_, _| DocSelectState {
+        held: Some(scripted_doc_span()),
+        session: SpanSession::default(),
+    });
+    let doc_span = doc_select.read(cx).held.clone();
+    let doc_setter = doc_select.clone();
+
     let band = doc_tabs("card54-tabs", tabs, current)
         .on_select(move |id, _, cx| {
             let i = ids.iter().position(|t| *t == id.as_ref()).unwrap_or(0);
@@ -225,7 +254,16 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                     panel(v_flex().flex_1().min_w(px(0.0)).h_full())
                         .child(band)
                         .child(doc_toolbar("card54-toolbar", "Body text", "Georgia · 11"))
-                        .child(doc_pane("card54-doc", sample_page()))
+                        .child(
+                            doc_pane("card54-doc", sample_page())
+                                .span_selection(doc_span.as_ref())
+                                .on_span_event(move |event, _, cx| {
+                                    doc_setter.update(cx, |state, cx| {
+                                        state.held = state.session.apply(state.held.clone(), &event);
+                                        cx.notify();
+                                    });
+                                }),
+                        )
                         .child(artifact_strip("card54-arts", sample_artifacts()))
                         .child(pane_status_row(
                             "card54-status",

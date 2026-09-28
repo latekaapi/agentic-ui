@@ -29,7 +29,8 @@ pub use files::{file_tree, FileNode, FileTree, FileTreeAction, GitBadge};
 pub use docs::{
     artifact_strip, doc_pane, doc_saved_hint, doc_tabs, doc_toolbar, pane_status, pane_status_row, Artifact, ArtifactKind, ArtifactStrip,
     DocBlock, DocCell, DocImage, DocPage, DocPane, DocRun, DocTable, DocTabs, DocToolbar, DocToolbarAction, FormatMark, PaneStatusItem,
-    PaneStatusRow, cell_span_width, clamp_heading_level, collapsed_margin, heading_text_size, table_layout, TABLE_MIN_COL_W,
+    PaneStatusRow, cell_span_width, clamp_heading_level, collapsed_margin, doc_select_all, doc_selected_text, doc_span_selected_text,
+    heading_text_size, table_layout, TABLE_MIN_COL_W,
 };
 pub use citations::{cited_answer, citation, source_hover_card, sources_card, Citation, CitedAnswer, Source, SourceHoverCard, SourceTier, SourcesCard, ANSWER_MARGIN};
 pub use pdf::{pdf_pane, PdfAction, PdfControls, PdfPage, PdfPane, PdfRun};
