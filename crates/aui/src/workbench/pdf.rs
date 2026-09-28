@@ -91,9 +91,13 @@ type ActionHandler = std::rc::Rc<dyn Fn(PdfAction, &mut Window, &mut App)>;
 /// toolbar before this existed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PdfControls {
+    /// The page counter and previous/next page buttons.
     pub pages: bool,
+    /// The zoom in/out controls.
     pub zoom: bool,
+    /// The find-in-document field.
     pub search: bool,
+    /// The "insert quote" action for the current selection.
     pub insert_quote: bool,
 }
 
