@@ -43,7 +43,8 @@ use std::sync::{Arc, Mutex};
 
 use aui::workbench::Annotation;
 use gpui::SharedString;
-use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage};
+use objc2::rc::Retained;
+use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage, NSView};
 use objc2_foundation::{NSDictionary, NSError};
 use raw_window_handle::HasWindowHandle;
 use serde::Deserialize;
@@ -368,6 +369,30 @@ fn on_ipc(shared: &Arc<Shared>, body: &str) {
     locked(&shared.events).push(WebEvent::Annotation(Annotation::new(index, hit.selector, "").pending(true)));
 }
 
+/// Whether the webview — or a view inside it, such as WKWebView's content
+/// view — is its window's first responder, and so eats the app's keystrokes.
+///
+/// wry 0.55 reports no focus change to track: there is no focus callback, the
+/// IPC channel carries only what the page's own scripts post, and a native
+/// page is hit-tested by AppKit so gpui never sees the mouse-down. A DOM
+/// focus/blur listener would not do either — DOM focus is not first
+/// responder, and a click on non-focusable content still steals the keyboard.
+/// So the check is this live AppKit query at the moment focus matters, not a
+/// flag, an event or mouse-down inference.
+fn holds_first_responder(webview: &wry::WryWebView) -> bool {
+    let Some(window) = webview.window() else { return false };
+    let Some(first) = window.firstResponder() else { return false };
+    if Retained::as_ptr(&first) as *const () == webview as *const wry::WryWebView as *const () {
+        return true;
+    }
+    // The usual case is a descendant (the content view), not the webview
+    // itself; anything that is not a view cannot be inside it.
+    match first.downcast::<NSView>() {
+        Ok(view) => view.isDescendantOf(webview),
+        Err(_) => false,
+    }
+}
+
 /// A `wry` rectangle from a top-left origin and a size, both logical pixels.
 fn logical_rect(origin: (f32, f32), size: (f32, f32)) -> Rect {
     Rect {
@@ -458,6 +483,12 @@ impl WebBackend for WryBackend {
         if visible == self.visible {
             return;
         }
+        if !visible && self.holds_keyboard() {
+            // A hidden webview that is still first responder keeps eating
+            // every keystroke (seen live: text input dead app-wide after one
+            // click in the page), so hand the keyboard back before hiding it.
+            self.set_focused(false);
+        }
         self.visible = visible;
         report("set_visible", self.webview.set_visible(visible));
     }
@@ -465,6 +496,10 @@ impl WebBackend for WryBackend {
     fn set_focused(&mut self, focused: bool) {
         let result = if focused { self.webview.focus() } else { self.webview.focus_parent() };
         report(if focused { "focus" } else { "focus_parent" }, result);
+    }
+
+    fn holds_keyboard(&self) -> bool {
+        holds_first_responder(&self.webview.webview())
     }
 
     fn capture(&mut self) {

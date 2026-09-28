@@ -204,6 +204,16 @@ pub trait WebBackend {
         let _ = focused;
     }
 
+    /// Whether the page currently holds the keyboard: a native page is its
+    /// window's first responder (or contains it) after a click inside it, and
+    /// while it does gpui text input gets nothing. The pane asks before it
+    /// hides the page or reads a keystroke of its own, so hiding a focused
+    /// page can hand the keyboard back first. Defaults to `false`; backends
+    /// without a native surface never hold it.
+    fn holds_keyboard(&self) -> bool {
+        false
+    }
+
     /// The pointer moved to `at` in page coordinates, or left the page
     /// (`None`). Only backends that hit-test in Rust — the mock — use this; a
     /// real webview does its own hit-testing inside the page, so the default

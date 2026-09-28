@@ -61,6 +61,15 @@ pub struct FakeWebBackend {
     eval_results: Vec<(u64, Result<String, String>)>,
     /// What [`crate::agent_js::type_text`] scripts have set, by selector.
     typed: HashMap<String, String>,
+    /// Whether the page holds the keyboard: set by [`WebBackend::set_focused`]
+    /// and inferred on [`WebBackend::point_clicked`] (a mouse-down inside a
+    /// real page makes its webview first responder), cleared by handing focus
+    /// back. The scripted page is gpui elements and cannot steal AppKit focus,
+    /// so this is tracked, not queried.
+    focused: bool,
+    /// Every [`WebBackend::set_focused`] argument, oldest first: the record
+    /// the keyboard hand-back tests assert against.
+    focus_calls: Vec<bool>,
 }
 
 impl Default for FakeWebBackend {
@@ -84,6 +93,8 @@ impl FakeWebBackend {
             queue: Vec::new(),
             eval_results: Vec::new(),
             typed: HashMap::new(),
+            focused: false,
+            focus_calls: Vec::new(),
         };
         backend.announce();
         backend
@@ -343,6 +354,24 @@ impl WebBackend for FakeWebBackend {
         }
     }
 
+    fn set_visible(&mut self, visible: bool) {
+        // Hiding a page that holds the keyboard must hand it back first: a
+        // hidden webview that is still first responder keeps eating every
+        // keystroke. An unfocused hide records nothing.
+        if !visible && self.focused {
+            self.set_focused(false);
+        }
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        self.focus_calls.push(focused);
+        self.focused = focused;
+    }
+
+    fn holds_keyboard(&self) -> bool {
+        self.focused
+    }
+
     fn poll_events(&mut self) -> Vec<WebEvent> {
         std::mem::take(&mut self.queue)
     }
@@ -363,6 +392,9 @@ impl WebBackend for FakeWebBackend {
     }
 
     fn point_clicked(&mut self, at: (f32, f32)) {
+        // Any mouse-down inside the page makes a real webview first responder
+        // — annotate mode or not — so the page holds the keyboard from here.
+        self.focused = true;
         if !self.annotate {
             return;
         }
@@ -463,6 +495,36 @@ mod tests {
         let mut backend = FakeWebBackend::new();
         let (_, answer) = ask(&mut backend, 8, "document.querySelector('h1').remove()");
         assert_eq!(answer, Err(String::from("unsupported in the fake page")));
+    }
+
+    #[test]
+    fn a_mouse_down_in_the_page_takes_the_keyboard() {
+        use crate::page::fake_elements;
+        let mut backend = FakeWebBackend::new();
+        assert!(!backend.holds_keyboard());
+        // Annotate mode is off: the click pins nothing, but a real webview
+        // would still become first responder.
+        let element = &fake_elements()[0];
+        backend.point_clicked((element.origin.0 + 1.0, element.origin.1 + 1.0));
+        assert!(backend.holds_keyboard());
+    }
+
+    #[test]
+    fn hiding_a_focused_webview_hands_the_keyboard_back_first() {
+        let mut backend = FakeWebBackend::new();
+        backend.set_focused(true);
+        backend.set_visible(false);
+        assert_eq!(backend.focus_calls, vec![true, false]);
+        assert!(!backend.holds_keyboard());
+    }
+
+    #[test]
+    fn hiding_an_unfocused_webview_calls_nothing() {
+        let mut backend = FakeWebBackend::new();
+        assert!(!backend.holds_keyboard());
+        backend.set_visible(false);
+        backend.set_visible(true);
+        assert!(backend.focus_calls.is_empty());
     }
 
     #[test]
