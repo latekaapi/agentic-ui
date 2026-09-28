@@ -18,8 +18,22 @@
 //! [`WebBackend::element_info`]. That keeps [`WebEvent`] small and lets a
 //! backend that knows nothing about source maps simply return `None`.
 
+use std::cell::RefCell;
+
 use aui::workbench::Annotation;
 use gpui::SharedString;
+
+std::thread_local! {
+    /// The fallback queue behind the default [`WebBackend::eval_with_result`]
+    /// and [`WebBackend::take_eval_results`].
+    ///
+    /// A trait cannot hold state, so a backend that supports none of this
+    /// answers through one shared per-thread queue: each `eval_with_result`
+    /// pushes its `Err("not supported")` here, and `take_eval_results` drains
+    /// it. Backends with real answers (the mock, the real page) override both
+    /// methods with their own storage and never touch this.
+    static DEFAULT_EVAL_RESULTS: RefCell<Vec<(u64, Result<String, String>)>> = const { RefCell::new(Vec::new()) };
+}
 
 /// One element of the page, as the annotator sees it.
 ///
@@ -93,7 +107,8 @@ pub enum WebEvent {
 ///
 /// Every method is a command; nothing returns a result, because a real webview
 /// answers asynchronously. Answers come back through [`Self::poll_events`],
-/// which the pane drains on a timer.
+/// which the pane drains on a timer — except evaluation answers, which come
+/// back through [`Self::take_eval_results`], drained the same way.
 pub trait WebBackend {
     /// Loads `url`.
     fn navigate(&mut self, url: &str);
@@ -109,6 +124,29 @@ pub trait WebBackend {
 
     /// Runs `js` in the page.
     fn eval(&mut self, js: &str);
+
+    /// Runs `js` in the page and routes its answer to
+    /// [`Self::take_eval_results`] under `request_id`.
+    ///
+    /// The answer is the script's completion value, JSON-stringified, or the
+    /// thrown exception's message. A real page answers asynchronously, so this
+    /// only queues the request; the default queues
+    /// `Err("not supported")` immediately, through the fallback queue
+    /// [`Self::take_eval_results`] drains.
+    ///
+    /// Results travel on this separate channel — not as a new [`WebEvent`]
+    /// variant — so hosts matching on `WebEvent` exhaustively keep compiling.
+    fn eval_with_result(&mut self, request_id: u64, js: &str) {
+        let _ = js;
+        DEFAULT_EVAL_RESULTS.with(|slot| slot.borrow_mut().push((request_id, Err(String::from("not supported")))));
+    }
+
+    /// Takes every evaluation answer since the last call, by request id.
+    /// Backends that override [`Self::eval_with_result`] with real answers
+    /// override this too; the default drains the fallback queue above.
+    fn take_eval_results(&mut self) -> Vec<(u64, Result<String, String>)> {
+        DEFAULT_EVAL_RESULTS.with(|slot| std::mem::take(&mut *slot.borrow_mut()))
+    }
 
     /// Turns annotate mode on or off. Off clears the hovered element.
     fn set_annotate(&mut self, on: bool);
@@ -187,5 +225,36 @@ pub trait WebBackend {
     fn element_info(&self, index: usize) -> Option<ElementInfo> {
         let _ = index;
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A backend implementing only the required methods.
+    struct Minimal;
+
+    impl WebBackend for Minimal {
+        fn navigate(&mut self, url: &str) {
+            let _ = url;
+        }
+        fn back(&mut self) {}
+        fn forward(&mut self) {}
+        fn reload(&mut self) {}
+        fn eval(&mut self, _js: &str) {}
+        fn set_annotate(&mut self, _on: bool) {}
+        fn poll_events(&mut self) -> Vec<WebEvent> {
+            Vec::new()
+        }
+    }
+
+    #[test]
+    fn the_default_eval_impl_answers_not_supported() {
+        let mut backend = Minimal;
+        backend.eval_with_result(7, "document.title");
+        assert_eq!(backend.take_eval_results(), vec![(7, Err(String::from("not supported")))]);
+        // Drained: a second take sees nothing.
+        assert!(backend.take_eval_results().is_empty());
     }
 }

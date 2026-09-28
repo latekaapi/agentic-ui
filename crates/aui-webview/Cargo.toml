@@ -25,6 +25,10 @@ wry = [
   "dep:block2",
 ]
 
+[dev-dependencies]
+# Lets `#[gpui::test]` build a real test context.
+gpui = { workspace = true, features = ["test-support"] }
+
 [dependencies]
 gpui.workspace = true
 gpui-kit.workspace = true
