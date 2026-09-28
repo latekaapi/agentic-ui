@@ -172,6 +172,7 @@ pub struct BrowserNav {
     annotating: bool,
     can_go_back: bool,
     can_go_forward: bool,
+    compact: bool,
     on_action: Option<BrowserHandler>,
 }
 
@@ -186,11 +187,21 @@ pub fn browser_nav(id: impl Into<ElementId>, url: impl Into<SharedString>) -> Br
         annotating: false,
         can_go_back: true,
         can_go_forward: false,
+        compact: false,
         on_action: None,
     }
 }
 
 impl BrowserNav {
+    /// A narrow pane: the annotate toggle drops its word (keeping its glyph,
+    /// role and accessible name) and the URL field drops its `⌘L` cap, so the
+    /// URL itself keeps room to be read. At ~390 px the full row left the URL
+    /// about 70 px — enough for "https…" and nothing else.
+    pub fn compact(mut self, compact: bool) -> Self {
+        self.compact = compact;
+        self
+    }
+
     /// Whether the URL field shows the success shield (default true).
     pub fn secure(mut self, secure: bool) -> Self {
         self.secure = secure;
@@ -257,9 +268,10 @@ impl RenderOnce for BrowserNav {
             .text_color(p.ink_2)
             .cursor_pointer()
             .when(self.secure, |d| d.child(icon(IconName::Shield).size(px(URL_SHIELD)).color(p.success)))
-            .child(div().min_w(px(0.0)).truncate().child(self.url.clone()))
-            .child(div().flex_1())
-            .child(kbd("⌘L"));
+            // The text takes the free width itself: beside a `flex_1` spacer
+            // it lost to the spacer and a 390 px pane showed only "https…".
+            .child(div().flex_1().min_w(px(0.0)).truncate().child(self.url.clone()))
+            .when(!self.compact, |d| d.child(kbd("⌘L")));
         if let Some(handler) = handler.clone() {
             url = url.on_click(move |_, window, cx| handler(BrowserAction::FocusUrl, window, cx));
         }
@@ -280,7 +292,7 @@ impl RenderOnce for BrowserNav {
             .child(nav_button("forward", IconName::ArrowRight, BrowserAction::Forward, !self.can_go_forward))
             .child(nav_button("reload", IconName::Refresh, BrowserAction::Reload, false))
             .child(url)
-            .child(annotate_toggle((id.clone(), "annotate"), self.annotating, handler.clone(), window, cx))
+            .child(annotate_toggle((id.clone(), "annotate"), self.annotating, self.compact, handler.clone(), window, cx))
             .child(nav_button("screenshot", IconName::Camera, BrowserAction::Screenshot, false))
             .child(nav_button("console", IconName::Terminal, BrowserAction::Console, false))
             .when(self.loading > 0.0, |d| {
@@ -290,7 +302,7 @@ impl RenderOnce for BrowserNav {
 }
 
 /// `.mode`: ink-filled while annotating, the secondary control look when off.
-fn annotate_toggle(id: impl Into<ElementId>, on: bool, handler: Option<BrowserHandler>, window: &mut Window, cx: &mut App) -> impl IntoElement {
+fn annotate_toggle(id: impl Into<ElementId>, on: bool, compact: bool, handler: Option<BrowserHandler>, window: &mut Window, cx: &mut App) -> impl IntoElement {
     let p = cx.aui().colors;
     let id: ElementId = id.into();
     let (state, flags) = interaction_flags(id.clone(), window, cx);
@@ -320,8 +332,10 @@ fn annotate_toggle(id: impl Into<ElementId>, on: bool, handler: Option<BrowserHa
         .whitespace_nowrap()
         .cursor_pointer()
         .track_interaction(&state)
+        .role(gpui::Role::Button)
+        .aria_label("Annotate")
         .child(icon(IconName::Edit).size(px(MODE_GLYPH)).color(text))
-        .child("Annotate")
+        .when(!compact, |d| d.child("Annotate"))
         .when(on, |d| {
             d.child(
                 h_flex()

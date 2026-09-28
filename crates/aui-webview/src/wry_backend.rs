@@ -467,6 +467,10 @@ impl WebBackend for WryBackend {
                 // Say the size: a zero-sized snapshot (the page not on screen —
                 // a locked display, a hidden view) fails the TIFF step the same
                 // way a real encode fault would, and only the size tells them apart.
+                None if image.size().width < 1.0 || image.size().height < 1.0 => {
+                    // A 0×0 snapshot is "the view has no frame yet", not an
+                    // encode fault; the next layout or load takes another.
+                }
                 None => {
                     let size = image.size();
                     eprintln!(
@@ -488,6 +492,21 @@ impl WebBackend for WryBackend {
 /// `NSBitmapImageRep`, then that rep out as PNG. `NSImage` has no PNG encoder
 /// of its own, and this is the encode AppKit itself uses.
 fn png_bytes(image: &NSImage) -> Option<Vec<u8>> {
+    // First the CGImage route: WebKit's snapshot is backed by a CGImage, and
+    // wrapping that directly in a bitmap rep skips the TIFF encode — which,
+    // on a WKWebView snapshot, failed every time live
+    // (`CGImageDestinationFinalize failed for output type 'public.tiff'`).
+    // Safety: a null proposed rect means "the image's own size"; no context,
+    // no hints.
+    if let Some(cg) = unsafe { image.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None) } {
+        let rep = NSBitmapImageRep::initWithCGImage(<NSBitmapImageRep as objc2::AnyThread>::alloc(), &cg);
+        let properties = NSDictionary::new();
+        // Safety: an empty properties dictionary carries no wrongly-typed value.
+        if let Some(png) = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &properties) } {
+            return Some(png.to_vec());
+        }
+    }
+    // The TIFF route, kept as the fallback for images with no CGImage.
     let tiff = image.TIFFRepresentation()?;
     let rep = NSBitmapImageRep::imageRepWithData(&tiff)?;
     let properties = NSDictionary::new();

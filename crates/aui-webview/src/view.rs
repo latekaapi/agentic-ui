@@ -319,7 +319,10 @@ impl WebviewState {
                 (f32::from(visible.origin.x), f32::from(visible.origin.y)),
                 (f32::from(visible.size.width), f32::from(visible.size.height)),
             );
-            if resized {
+            if resized && f32::from(visible.size.width) >= 1.0 && f32::from(visible.size.height) >= 1.0 {
+                // (Not at zero area: the first layout reports a size before the
+                // native view has a frame, and a snapshot then comes back 0×0 —
+                // seen live as a failed PNG encode on every pane open.)
                 // The stand-in an overlay is painted over has to be the page at
                 // *this* size, so a reflow is worth a new picture. Taking it
                 // here rather than in `set_obscured` also keeps it a picture of
@@ -660,7 +663,10 @@ impl RenderOnce for WebviewPane {
             Some(buffer) => SharedString::from(buffer.clone()),
             None => view.url.clone(),
         };
+        // Below ~560 px the full nav row starves the URL field.
+        let compact = f32::from(view.page_size.width) > 0.0 && f32::from(view.page_size.width) < 560.0;
         let nav = browser_nav((id.clone(), "nav"), shown_url)
+            .compact(compact)
             .annotating(annotate)
             .loading(if view.loading { 1.0 } else { 0.0 })
             .can_go_back(view.backend.can_go_back())
