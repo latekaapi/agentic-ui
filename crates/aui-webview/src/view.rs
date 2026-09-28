@@ -11,9 +11,15 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use aui::workbench::{annotations_panel, browser_nav, element_outline, note_popover, Annotation, AnnotatorAction, BrowserAction, NoteAction};
-use aui_tokens::ActiveAui;
-use gpui::{canvas, div, img, prelude::*, px, App, Bounds, Context, ElementId, Entity, FocusHandle, Image, ImageFormat, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, SharedString, Size, Task, Window};
+use aui::a11y_text::a11y_text_input;
+use aui::data::{icon_button, kbd, record_ax_label, ButtonSize};
+use aui::util::{interaction_flags, TrackInteraction};
+use aui::workbench::{annotations_panel, element_outline, note_popover, Annotation, AnnotatorAction, BrowserAction, NoteAction};
+use aui_icons::{icon, IconName};
+use aui_motion::{tween, Tween};
+use aui_tokens::{scale, ActiveAui, AuiStyled};
+use gpui::{actions, canvas, div, img, prelude::*, px, relative, App, Bounds, Context, ElementId, Entity, FocusHandle, Global, Image, ImageFormat, IntoElement, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, Role, SharedString, Size, Subscription, Task, Window};
+use gpui_kit::base::input::{Escape as InputEscape, InputEvent, InputState};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::backend::{ElementInfo, WebBackend, WebEvent};
@@ -33,6 +39,40 @@ const SAVED_NOTE: &str = "Note for the agent.";
 /// the gallery switched card, or the window went away. Two poll ticks, so a
 /// dropped frame does not flicker it.
 const STALE_LAYOUT: Duration = Duration::from_millis(200);
+
+actions!(
+    aui_webview,
+    [
+        /// Put the keyboard in the address field, selecting the whole URL so
+        /// typing replaces it. Paste, select-all and caret movement come from
+        /// the real text input, not from the pane.
+        ///
+        /// Bound to `cmd-l` in [`WEBVIEW_CONTEXT`] by [`bind_keys`], which
+        /// [`WebviewState::new`] already calls. That binding only reaches the
+        /// pane while gpui holds the keyboard: with a native page focused the
+        /// keystroke goes to the page, so a host that wants `⌘L` everywhere
+        /// must also bind `FocusAddress` at window level (no context) and
+        /// route it to [`WebviewState::begin_editing`] (or focus
+        /// [`WebviewState::focus_handle`]).
+        FocusAddress,
+    ]
+);
+
+/// The key context the webview pane puts on its outermost element: it owns
+/// `cmd-l` ([`FocusAddress`]) while the keyboard is anywhere inside the pane.
+pub const WEBVIEW_CONTEXT: &str = "AuiWebview";
+
+/// Installs the webview's default bindings (`cmd-l` → [`FocusAddress`] in
+/// [`WEBVIEW_CONTEXT`]). [`WebviewState::new`] calls this once per process;
+/// hosts bind [`FocusAddress`] again at window level when they want `⌘L`
+/// while the page itself holds the keyboard.
+pub fn bind_keys(cx: &mut App) {
+    cx.bind_keys([KeyBinding::new("cmd-l", FocusAddress, Some(WEBVIEW_CONTEXT))]);
+}
+
+/// Marks [`bind_keys`] as already installed for this process.
+struct WebviewKeysInstalled;
+impl Global for WebviewKeysInstalled {}
 
 /// What the pane asks the app to do.
 #[derive(Debug, Clone, PartialEq)]
@@ -89,13 +129,16 @@ pub struct WebviewState {
     /// Whether the backend draws itself over the gpui scene
     /// ([`WebBackend::is_native`]); everything below is only meaningful then.
     native: bool,
-    /// The URL field's edit buffer while `⌘L` has the keyboard.
-    editing: Option<String>,
-    /// Whether that buffer is still the URL the field opened on. A browser's
-    /// address bar selects its contents on focus, so the first character typed
-    /// replaces the whole thing rather than appending to it.
-    editing_fresh: bool,
-    /// The keyboard focus the URL field takes.
+    /// Whether the address field is open for typing. While true the nav row
+    /// shows the real text input; otherwise it shows the page URL.
+    editing: bool,
+    /// The address field's real single-line text input, created on the first
+    /// edit. Paste, select-all and caret movement all come from this state,
+    /// which is why the pane keeps no edit buffer of its own.
+    address: Option<Entity<InputState>>,
+    /// Keeps the address input's commit/blur subscription alive.
+    _address_sub: Option<Subscription>,
+    /// The keyboard focus the pane takes.
     focus: FocusHandle,
     /// Set by the host while a gpui overlay covers the page; see
     /// [`Self::set_obscured`].
@@ -121,6 +164,10 @@ pub struct WebviewState {
 impl WebviewState {
     /// Wraps `backend` and starts polling it.
     pub fn new(backend: Box<dyn WebBackend>, cx: &mut Context<Self>) -> Self {
+        if !cx.has_global::<WebviewKeysInstalled>() {
+            cx.set_global(WebviewKeysInstalled);
+            bind_keys(cx);
+        }
         let poll = cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(POLL_INTERVAL).await;
             if this.update(cx, |this, cx| this.drain(cx)).is_err() {
@@ -143,8 +190,9 @@ impl WebviewState {
             screenshot_image: None,
             eval_results: Vec::new(),
             native,
-            editing: None,
-            editing_fresh: false,
+            editing: false,
+            address: None,
+            _address_sub: None,
             focus: cx.focus_handle(),
             obscured: false,
             pushed: None,
@@ -194,8 +242,7 @@ impl WebviewState {
     /// Loads `url` through the backend.
     pub fn navigate(&mut self, url: &str) {
         self.url = SharedString::from(url.to_string());
-        self.editing = None;
-        self.editing_fresh = false;
+        self.editing = false;
         self.backend.navigate(url);
     }
 
@@ -354,52 +401,65 @@ impl WebviewState {
         resized
     }
 
-    /// Opens the URL field for typing, taking the keyboard back off a native
-    /// page (which holds first responder while it has focus).
-    fn begin_editing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.editing = Some(self.url.to_string());
-        self.editing_fresh = true;
-        self.backend.set_focused(false);
-        window.focus(&self.focus, cx);
+    /// Whether the address field is open for typing.
+    pub fn is_editing(&self) -> bool {
+        self.editing
     }
 
-    /// A keystroke while the URL field has the keyboard. Answers whether it
-    /// was consumed.
-    fn url_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
-        let fresh = std::mem::take(&mut self.editing_fresh);
-        let Some(buffer) = self.editing.as_mut() else { return false };
-        let key = event.keystroke.key.as_str();
-        match key {
-            "enter" => {
-                let url = normalize_url(&self.editing.take().unwrap_or_default());
-                self.navigate(&url);
+    /// The address field's text input, once [`Self::begin_editing`] has run.
+    pub fn address_input(&self) -> Option<Entity<InputState>> {
+        self.address.clone()
+    }
+
+    /// Opens the address field for typing, taking the keyboard back off a
+    /// native page (which holds first responder while it has focus).
+    ///
+    /// Fills the real text input with the current URL and selects it all, so
+    /// typing replaces it the way a browser's address bar does. Paste, `⌘A`
+    /// and caret movement all come from the input itself.
+    pub fn begin_editing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.backend.set_focused(false);
+        let url = self.url.to_string();
+        let input = match self.address.clone() {
+            Some(input) => input,
+            None => {
+                let input = cx.new(|cx| InputState::new(window, cx));
+                let sub = cx.subscribe(&input, |this, _, event: &InputEvent, cx| match event {
+                    InputEvent::PressEnter { .. } => this.commit_address(cx),
+                    InputEvent::Blur => this.leave_editing(cx),
+                    InputEvent::Focus | InputEvent::Change => {}
+                });
+                self._address_sub = Some(sub);
+                self.address = Some(input.clone());
+                input
             }
-            "escape" => {
-                self.editing = None;
-            }
-            "backspace" => {
-                if fresh {
-                    buffer.clear();
-                } else {
-                    buffer.pop();
-                }
-            }
-            _ => {
-                // `key_char` is the character the layout actually produced, so
-                // this types the same text a browser's URL bar would.
-                match event.keystroke.key_char.as_deref() {
-                    Some(text) if !event.keystroke.modifiers.control && !event.keystroke.modifiers.platform => {
-                        if fresh {
-                            buffer.clear();
-                        }
-                        buffer.push_str(text);
-                    }
-                    _ => return false,
-                }
-            }
-        }
+        };
+        input.update(cx, |input, cx| {
+            input.set_value(url, window, cx);
+            input.select_all(window, cx);
+            input.focus(window, cx);
+        });
+        self.editing = true;
         cx.notify();
-        true
+    }
+
+    /// Commits the address field: the typed text becomes a URL and the page
+    /// navigates to it. Runs on the input's enter event.
+    fn commit_address(&mut self, cx: &mut Context<Self>) {
+        let typed = self.address.as_ref().map(|input| input.read(cx).value().to_string()).unwrap_or_default();
+        self.editing = false;
+        self.navigate(&normalize_url(&typed));
+        cx.notify();
+    }
+
+    /// Leaves the address field without navigating: the URL display falls
+    /// back to the page URL on the next frame. Runs on input blur and, via
+    /// the pane's propagated-escape handler, on escape.
+    fn leave_editing(&mut self, cx: &mut Context<Self>) {
+        if self.editing {
+            self.editing = false;
+            cx.notify();
+        }
     }
 
     /// Takes everything the backend has to say and folds it into the state,
@@ -417,9 +477,9 @@ impl WebviewState {
             match event {
                 WebEvent::Title(title) => self.title = SharedString::from(title),
                 WebEvent::Url(url) => {
-                    // Typing in the URL field survives the page announcing
+                    // Typing in the address field survives the page announcing
                     // itself underneath it.
-                    if self.editing.is_none() {
+                    if !self.editing {
                         self.url = SharedString::from(url);
                     }
                 }
@@ -685,30 +745,32 @@ impl RenderOnce for WebviewPane {
         let obscured = view.obscured;
         let focus = view.focus.clone();
         let stand_in = view.screenshot_image.clone();
-        // While `⌘L` has the keyboard the field shows what is being typed, not
-        // where the page currently is.
-        let shown_url = match &view.editing {
-            Some(buffer) => SharedString::from(buffer.clone()),
-            None => view.url.clone(),
-        };
         // Below ~560 px the full nav row starves the URL field.
         let compact = f32::from(view.page_size.width) > 0.0 && f32::from(view.page_size.width) < 560.0;
-        let nav = browser_nav((id.clone(), "nav"), shown_url)
-            .compact(compact)
-            .annotating(annotate)
-            .loading(if view.loading { 1.0 } else { 0.0 })
-            .can_go_back(view.backend.can_go_back())
-            .can_go_forward(view.backend.can_go_forward())
-            .on_action({
-                let state = state.clone();
-                let handler = handler.clone();
-                move |action, window, cx| {
-                    let intent = state.update(cx, |state, cx| state.browser_action(action, window, cx));
-                    if let (Some(intent), Some(handler)) = (intent, handler.clone()) {
-                        handler(intent, window, cx);
-                    }
+        let nav_handler: NavHandler = {
+            let state = state.clone();
+            let handler = handler.clone();
+            Rc::new(move |action, window, cx| {
+                let intent = state.update(cx, |state, cx| state.browser_action(action, window, cx));
+                if let (Some(intent), Some(handler)) = (intent, handler.clone()) {
+                    handler(intent, window, cx);
                 }
-            });
+            })
+        };
+        let nav = nav_row(
+            (id.clone(), "nav").into(),
+            view.url.clone(),
+            view.address.clone(),
+            view.editing,
+            view.backend.can_go_back(),
+            view.backend.can_go_forward(),
+            if view.loading { 1.0 } else { 0.0 },
+            annotate,
+            compact,
+            Some(nav_handler),
+            _window,
+            cx,
+        );
 
         // The page area records its own box during prepaint, so a pointer
         // position can be turned into page coordinates without the state
@@ -847,11 +909,25 @@ impl RenderOnce for WebviewPane {
 
         v_flex()
             .track_focus(&focus)
-            .on_key_down({
+            .key_context(WEBVIEW_CONTEXT)
+            .on_action({
                 let state = state.clone();
-                move |event: &KeyDownEvent, _, cx| {
+                move |_: &FocusAddress, window: &mut Window, cx: &mut App| {
+                    state.update(cx, |state, cx| state.begin_editing(window, cx));
+                }
+            })
+            // The input propagates escape (it only consumes it for IME and
+            // inline completions), so an escape that arrives here while the
+            // address field is open cancels the edit; otherwise it travels on.
+            .on_action({
+                let state = state.clone();
+                move |_: &InputEscape, _: &mut Window, cx: &mut App| {
                     state.update(cx, |state, cx| {
-                        state.url_key(event, cx);
+                        if state.editing {
+                            state.leave_editing(cx);
+                        } else {
+                            cx.propagate();
+                        }
                     });
                 }
             })
@@ -863,12 +939,195 @@ impl RenderOnce for WebviewPane {
     }
 }
 
+/// The nav band: 38 px row, 4 px gap, 8 px side padding.
+const NAV_HEIGHT: f32 = 38.0;
+const NAV_GAP: f32 = 4.0;
+const NAV_PAD_X: f32 = 8.0;
+/// The URL slot: 28 px, 10 px side padding, 8 px gap, 11 px shield.
+const URL_HEIGHT: f32 = 28.0;
+const URL_PAD_X: f32 = 10.0;
+const URL_GAP: f32 = 8.0;
+const URL_SHIELD: f32 = 11.0;
+/// The annotate toggle: 28 px, 10 px side padding, 6 px gap, 12 px glyph.
+const MODE_HEIGHT: f32 = 28.0;
+const MODE_PAD_X: f32 = 10.0;
+const MODE_GAP: f32 = 6.0;
+const MODE_GLYPH: f32 = 12.0;
+/// The `esc` cap inside the filled toggle over the ink ground.
+const MODE_KBD_BORDER_ALPHA: f32 = 0.3;
+/// `.kbd{height:18px;padding:0 5px}` — the toggle draws its own, untinted.
+const KBD_HEIGHT: f32 = 18.0;
+const KBD_PAD_X: f32 = 5.0;
+/// The loading hairline at the bottom of the nav row: 2 px accent.
+const LOADING_HEIGHT: f32 = 2.0;
+
+/// Called with the [`BrowserAction`] a nav control stands for.
+type NavHandler = Rc<dyn Fn(BrowserAction, &mut Window, &mut App)>;
+
+/// The 38 px nav row: history controls, the address slot, the annotate
+/// toggle, screenshot and console. Every control names itself for the
+/// accessibility tree — icon-only buttons through explicit labels, the
+/// address slot through "Address".
+#[allow(clippy::too_many_arguments)]
+fn nav_row(
+    id: ElementId,
+    url: SharedString,
+    address: Option<Entity<InputState>>,
+    editing: bool,
+    can_go_back: bool,
+    can_go_forward: bool,
+    loading: f32,
+    annotating: bool,
+    compact: bool,
+    handler: Option<NavHandler>,
+    window: &mut Window,
+    cx: &mut App,
+) -> impl IntoElement {
+    let p = cx.aui().colors;
+    let nav_button = |key: &'static str, glyph: IconName, label: &'static str, action: BrowserAction, disabled: bool| {
+        let handler = handler.clone();
+        let mut b = icon_button((id.clone(), key), glyph)
+            .ghost()
+            .size(ButtonSize::Sm)
+            .disabled(disabled)
+            .accessibility_label(label);
+        if let Some(handler) = handler {
+            b = b.on_click(move |_, window, cx| handler(action, window, cx));
+        }
+        b
+    };
+
+    // The address slot. While editing it is the real single-line input
+    // (role + "Address" label come from `a11y_text_input`); otherwise the
+    // page URL, clickable to start editing.
+    let url_id: ElementId = (id.clone(), "url").into();
+    let url_field = match (editing, address) {
+        (true, Some(input)) => h_flex()
+            .id(url_id)
+            .flex_1()
+            .min_w(px(0.0))
+            .h(px(URL_HEIGHT))
+            .px(px(URL_PAD_X))
+            .rounded(px(scale::R_SM))
+            .bg(p.surface_2)
+            .items_center()
+            .child(a11y_text_input((id.clone(), "address"), "Address", &input, cx))
+            .into_any_element(),
+        _ => {
+            record_ax_label("Address");
+            let mut field = h_flex()
+                .id(url_id)
+                .flex_1()
+                .min_w(px(0.0))
+                .h(px(URL_HEIGHT))
+                .px(px(URL_PAD_X))
+                .gap(px(URL_GAP))
+                .rounded(px(scale::R_SM))
+                .bg(p.surface_2)
+                .mono(scale::FS_12)
+                .text_color(p.ink_2)
+                .cursor_pointer()
+                .role(Role::Button)
+                .aria_label("Address")
+                .child(icon(IconName::Shield).size(px(URL_SHIELD)).color(p.success))
+                .child(div().flex_1().min_w(px(0.0)).truncate().child(url))
+                .when(!compact, |d| d.child(kbd("⌘L")));
+            if let Some(handler) = handler.clone() {
+                field = field.on_click(move |_, window, cx| handler(BrowserAction::FocusUrl, window, cx));
+            }
+            field.into_any_element()
+        }
+    };
+
+    // The row wraps below ~300 px instead of clipping its trailing
+    // controls; one line still measures exactly as before.
+    h_flex()
+        .relative()
+        .w_full()
+        .min_h(px(NAV_HEIGHT))
+        .flex_none()
+        .flex_wrap()
+        .px(px(NAV_PAD_X))
+        .gap(px(NAV_GAP))
+        .border_b_1()
+        .border_color(p.line)
+        .child(nav_button("back", IconName::ArrowLeft, "Back", BrowserAction::Back, !can_go_back))
+        .child(nav_button("forward", IconName::ArrowRight, "Forward", BrowserAction::Forward, !can_go_forward))
+        .child(nav_button("reload", IconName::Refresh, "Reload", BrowserAction::Reload, false))
+        .child(url_field)
+        .child(annotate_toggle((id.clone(), "annotate"), annotating, compact, handler.clone(), window, cx))
+        .child(nav_button("screenshot", IconName::Camera, "Screenshot", BrowserAction::Screenshot, false))
+        .child(nav_button("console", IconName::Terminal, "Terminal", BrowserAction::Console, false))
+        .when(loading > 0.0, |d| {
+            d.child(div().absolute().left_0().bottom_0().w(relative(loading)).h(px(LOADING_HEIGHT)).bg(p.accent))
+        })
+}
+
+/// The annotate toggle: ink-filled while annotating, the secondary control
+/// look when off. Carries the Button role and the "Annotate" name.
+fn annotate_toggle(id: impl Into<ElementId>, on: bool, compact: bool, handler: Option<NavHandler>, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    let p = cx.aui().colors;
+    let id: ElementId = id.into();
+    let (state, flags) = interaction_flags(id.clone(), window, cx);
+    let (ground, edge, text) = match (on, flags.hovered) {
+        (true, false) => (p.ink, p.ink, p.bg),
+        (true, true) => (p.ink_2, p.ink_2, p.bg),
+        (false, false) => (p.surface_2, p.line_strong, p.ink),
+        (false, true) => (p.surface_3, p.ink_4, p.ink),
+    };
+    let ground = tween((id.clone(), "bg"), ground, Tween::FAST, window, cx);
+    let edge = tween((id.clone(), "border"), edge, Tween::FAST, window, cx);
+    let text = tween((id.clone(), "text"), text, Tween::FAST, window, cx);
+
+    record_ax_label("Annotate");
+    let mut toggle = h_flex()
+        .id(id)
+        .flex_none()
+        .h(px(MODE_HEIGHT))
+        .px(px(MODE_PAD_X))
+        .gap(px(MODE_GAP))
+        .rounded(px(scale::R_SM))
+        .border_1()
+        .border_color(edge)
+        .bg(ground)
+        .text_color(text)
+        .ui(scale::FS_12)
+        .medium()
+        .whitespace_nowrap()
+        .cursor_pointer()
+        .track_interaction(&state)
+        .role(Role::Button)
+        .aria_label("Annotate")
+        .child(icon(IconName::Edit).size(px(MODE_GLYPH)).color(text))
+        .when(!compact, |d| d.child("Annotate"))
+        .when(on, |d| {
+            d.child(
+                h_flex()
+                    .flex_none()
+                    .h(px(KBD_HEIGHT))
+                    .px(px(KBD_PAD_X))
+                    .rounded(px(scale::R_XS))
+                    .border_1()
+                    .border_color(gpui::white().alpha(MODE_KBD_BORDER_ALPHA))
+                    .font_family(scale::FONT_MONO)
+                    .text_px(scale::FS_11)
+                    .line_height(relative(1.0))
+                    .child("esc"),
+            )
+        });
+    if let Some(handler) = handler {
+        toggle = toggle.on_click(move |_, window, cx| handler(BrowserAction::ToggleAnnotate, window, cx));
+    }
+    toggle
+}
+
 #[cfg(test)]
 mod tests {
     use super::normalize_url;
-    use super::WebviewState;
+    use super::{webview_pane, WebviewState};
     use crate::agent_js;
     use crate::fake::FakeWebBackend;
+    use gpui::{AppContext as _, Context, Entity, IntoElement, Render, TestAppContext, VisualTestContext, Window};
 
     #[test]
     fn what_is_typed_in_the_url_field_becomes_a_url() {
@@ -940,5 +1199,137 @@ mod tests {
             state.set_obscured(true);
             assert!(!state.holds_keyboard());
         });
+    }
+
+    /// The host a pane test renders in a real window, the way an application
+    /// renders the pane.
+    struct PaneHost {
+        state: Entity<WebviewState>,
+    }
+
+    impl Render for PaneHost {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            webview_pane("test-pane", &self.state)
+        }
+    }
+
+    /// Runs `f` with a rendered pane plus its state: theme and input bindings
+    /// installed, one frame drawn.
+    fn with_pane(cx: &mut TestAppContext, f: impl FnOnce(Entity<WebviewState>, &mut VisualTestContext)) {
+        cx.update(|cx| aui::init(aui_tokens::ThemeKind::Dark, cx));
+        let (host, mut vcx) = cx.add_window_view(|_window, cx| {
+            let state = cx.new(|cx| WebviewState::new(Box::new(FakeWebBackend::new()), cx));
+            PaneHost { state }
+        });
+        let state = vcx.update(|_, cx| host.read(cx).state.clone());
+        f(state, &mut vcx);
+    }
+
+    /// The address input's value and selected byte range.
+    fn address_snapshot(state: &Entity<WebviewState>, vcx: &mut VisualTestContext) -> (String, std::ops::Range<usize>) {
+        vcx.update(|_, cx| {
+            let input = state.read(cx).address_input().expect("begin_editing creates the input");
+            let snapshot = input.read(cx);
+            (snapshot.value().to_string(), snapshot.selected_range())
+        })
+    }
+
+    /// Opening the address field fills it with the page URL and selects the
+    /// whole thing, so typing replaces it instead of appending to it.
+    #[gpui::test]
+    fn begin_editing_selects_the_whole_url(cx: &mut TestAppContext) {
+        with_pane(cx, |state, vcx| {
+            let home = vcx.update(|_, cx| state.read(cx).url().to_string());
+            vcx.update(|window, cx| state.update(cx, |state, cx| state.begin_editing(window, cx)));
+            assert!(vcx.update(|_, cx| state.read(cx).is_editing()));
+            let (value, selected) = address_snapshot(&state, vcx);
+            assert_eq!(value, home);
+            assert_eq!(selected, 0..home.len(), "the whole URL must be selected so typing replaces it");
+            // Typing over the selection replaces it — the old buffer appended
+            // instead once an unhandled key had spent its fresh flag.
+            vcx.update(|window, cx| {
+                state
+                    .read(cx)
+                    .address_input()
+                    .unwrap()
+                    .update(cx, |input, cx| input.replace("example.com", window, cx));
+            });
+            let (value, _) = address_snapshot(&state, vcx);
+            assert_eq!(value, "example.com");
+        });
+    }
+
+    /// Enter commits the field: the typed text is normalised to a URL, the
+    /// page navigates there, and editing ends.
+    #[gpui::test]
+    fn enter_navigates_the_normalised_url(cx: &mut TestAppContext) {
+        with_pane(cx, |state, vcx| {
+            vcx.update(|window, cx| state.update(cx, |state, cx| state.begin_editing(window, cx)));
+            vcx.update(|window, cx| {
+                state
+                    .read(cx)
+                    .address_input()
+                    .unwrap()
+                    .update(cx, |input, cx| input.replace("example.com", window, cx));
+            });
+            vcx.simulate_keystrokes("enter");
+            let (url, editing) = vcx.update(|_, cx| (state.read(cx).url().to_string(), state.read(cx).is_editing()));
+            assert_eq!(url, "https://example.com");
+            assert!(!editing, "enter leaves the address field");
+        });
+    }
+
+    /// Escape cancels the edit: the page URL is untouched and editing ends.
+    #[gpui::test]
+    fn escape_restores_the_url(cx: &mut TestAppContext) {
+        with_pane(cx, |state, vcx| {
+            let home = vcx.update(|_, cx| state.read(cx).url().to_string());
+            vcx.update(|window, cx| state.update(cx, |state, cx| state.begin_editing(window, cx)));
+            vcx.update(|window, cx| {
+                state
+                    .read(cx)
+                    .address_input()
+                    .unwrap()
+                    .update(cx, |input, cx| input.replace("example.com", window, cx));
+            });
+            vcx.simulate_keystrokes("escape");
+            let (url, editing) = vcx.update(|_, cx| (state.read(cx).url().to_string(), state.read(cx).is_editing()));
+            assert_eq!(url, home);
+            assert!(!editing, "escape leaves the address field");
+        });
+    }
+
+    /// `⌘L` in the pane's key context opens the address field through the
+    /// `FocusAddress` action.
+    #[gpui::test]
+    fn cmd_l_begins_editing(cx: &mut TestAppContext) {
+        with_pane(cx, |state, vcx| {
+            // The keystroke reaches the pane's context through the keyboard,
+            // so park the keyboard in the pane first.
+            vcx.update(|window, cx| window.focus(&state.read(cx).focus_handle().clone(), cx));
+            vcx.simulate_keystrokes("cmd-l");
+            assert!(vcx.update(|_, cx| state.read(cx).is_editing()), "⌘L must open the address field");
+            let (value, selected) = address_snapshot(&state, vcx);
+            assert_eq!(value, vcx.update(|_, cx| state.read(cx).url().to_string()));
+            assert_eq!(selected, 0..value.len());
+        });
+    }
+
+    /// Every nav control names itself for the accessibility tree: the
+    /// icon-only buttons through explicit labels, the address slot and the
+    /// annotate toggle through theirs. An empty recorded label is a control
+    /// the tree has no name for.
+    #[gpui::test]
+    fn nav_controls_carry_accessibility_labels(cx: &mut TestAppContext) {
+        cx.update(|cx| aui::init(aui_tokens::ThemeKind::Dark, cx));
+        aui::data::arm_ax_probe(true);
+        aui::data::take_ax_labels();
+        with_pane(cx, |_state, _vcx| {});
+        let labels = aui::data::take_ax_labels();
+        aui::data::arm_ax_probe(false);
+        for want in ["Back", "Forward", "Reload", "Address", "Annotate", "Screenshot", "Terminal"] {
+            assert!(labels.iter().any(|label| label == want), "missing AX label {want:?} in {labels:?}");
+        }
+        assert!(!labels.iter().any(String::is_empty), "an empty label is an unnamed control in {labels:?}");
     }
 }
