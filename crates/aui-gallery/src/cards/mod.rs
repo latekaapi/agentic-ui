@@ -1,5 +1,6 @@
 //! Card renderers, one module per design card.
 
+pub mod account_menu;
 pub mod activity;
 pub mod anchored;
 pub mod app_shell;

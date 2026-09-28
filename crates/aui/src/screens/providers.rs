@@ -726,6 +726,49 @@ impl UsageWindow {
     }
 }
 
+/// One compact usage row in the account menu: a provider, its plan label
+/// and either quota windows or an unavailable reason. The account menu
+/// renders these without card chrome; see [`usage_card`] for the standalone
+/// popover card over the same data.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UsageRowData {
+    /// Which provider this row is for.
+    pub provider: Provider,
+    /// The plan label beside the provider name (`"Max"`, `"Pro"`, …), if known.
+    pub plan: Option<SharedString>,
+    /// Quota windows with their footnote, or why there is nothing to show yet.
+    pub state: UsageRowState,
+}
+
+impl UsageRowData {
+    /// A row for `provider` in `state`, with no plan label.
+    pub fn new(provider: Provider, state: UsageRowState) -> Self {
+        UsageRowData { provider, plan: None, state }
+    }
+
+    /// The plan label beside the provider name (`"Max"`, `"Pro"`, …).
+    pub fn plan(mut self, plan: impl Into<SharedString>) -> Self {
+        self.plan = Some(plan.into());
+        self
+    }
+}
+
+/// The body of a [`UsageRowData`]: quota windows, or why there is nothing.
+#[derive(Clone, Debug, PartialEq)]
+pub enum UsageRowState {
+    /// One quota bar per window, with the `"as of …"` footnote when known.
+    Windows(Vec<UsageWindow>, Option<SharedString>),
+    /// No reading yet: the reason draws as one wrapping muted line.
+    Unavailable(SharedString),
+}
+
+/// Whether `used_fraction` wears the warning ink (at or above 80 %).
+/// Both [`usage_card`] and the account menu's compact rows read through
+/// this so the two surfaces agree on the threshold.
+pub fn usage_warns(used_fraction: f32) -> bool {
+    used_fraction >= WARN_AT
+}
+
 /// A per-provider usage card for the account menu popover (~300 px):
 /// provider mark + name + plan, one bar per window with "resets in …", an
 /// "as of …" footnote, warning ink at ≥ 80%, and a "Not reported yet" empty
@@ -948,5 +991,32 @@ mod tests {
         let w = UsageWindow::new("Weekly", 1.4, "2d");
         assert!((w.used_fraction - 1.4).abs() < f32::EPSILON, "stored raw, clamped on render");
         let _ = card_data(ProviderHeadline::Connected);
+    }
+
+    #[test]
+    fn usage_warns_fires_at_eighty_percent() {
+        assert!(!usage_warns(0.799));
+        assert!(usage_warns(0.8));
+        assert!(usage_warns(1.4));
+    }
+
+    #[test]
+    fn usage_row_data_keeps_provider_plan_and_state() {
+        let row = UsageRowData::new(
+            Provider::Claude,
+            UsageRowState::Windows(vec![UsageWindow::new("5h", 0.42, "2h 10m")], None),
+        )
+        .plan("Max");
+        assert_eq!(row.provider, Provider::Claude);
+        assert_eq!(row.plan, Some("Max".into()));
+        match &row.state {
+            UsageRowState::Windows(windows, as_of) => {
+                assert_eq!(windows.len(), 1);
+                assert_eq!(*as_of, None);
+            }
+            UsageRowState::Unavailable(_) => panic!("expected windows"),
+        }
+        let missing = UsageRowData::new(Provider::Muse, UsageRowState::Unavailable("No reading yet".into()));
+        assert_eq!(missing.plan, None);
     }
 }

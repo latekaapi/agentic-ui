@@ -373,6 +373,8 @@ The library’s keyboard actions and their default bindings.
 
 Sidebar: session rows in every state, the sidebar and its collapsed rail, the three groupings (status / project / date) with the view-options menu, and the assistant’s role sections (cards 20–23, spec [...]
 
+- **fn** `account_menu` — One sectioned account-menu panel in the `view_menu` chrome: a non-interactive header, a usage section with one compact row per provider, then the menu rows. 260 px by default.
+  - `pub fn account_menu(id: impl Into<ElementId>) -> AccountMenu`
 - **fn** `anchored_session_detail` — Seats a `SessionDetail` at its row: below-start of `trigger` in `crate::overlay::popover_layer`, flipping above near the window bottom and sliding inside — the one seat rule, so the card escapes the s [...]
   - `pub fn anchored_session_detail(trigger: Bounds<Pixels>, detail: SessionDetail) -> impl IntoElement`
 - **fn** `anchored_session_detail_at_sidebar` — Seats a `SessionDetail` beside the sidebar at its row: the card’s left edge sits at the sidebar pane’s right edge plus `SESSION_DETAIL_GAP` with its top at the hovered row’s top, in `crate::overlay::popover_layer` so it escapes the sidebar’s clipping and paints above everything. [...]
@@ -448,6 +450,16 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
 - **fn** `virtual_sidebar_view` — The virtualised sessions of a sidebar, grouped by `grouping`.
   - `pub fn virtual_sidebar_view(id: impl Into<ElementId>, grouping: impl Into<Rc<Grouping>>, state: ListState) -> VirtualSidebarView`
 
+- **struct** `AccountMenu` — The account menu: header, usage section, then menu rows in one panel. Build with `account_menu`.
+  - `pub fn at_rest(self) -> Self` — Skips the enter: the menu is drawn at rest on its first frame, for a static composition rather than one the person just opened.
+  - `pub fn header(self, name: impl Into<SharedString>, detail: Option<SharedString>) -> Self` — The non-interactive top block: a 24 px avatar with the initial, the name in ink, an optional detail line in ink-3.
+  - `pub fn item_count(&self) -> usize` — The number of interactive items (separators excluded).
+  - `pub fn item_index_at_row(&self, row: usize) -> Option<usize>` — Maps a `rows` position (separators included) to the activation index: separators map to `None`.
+  - `pub fn on_activate(self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self` — An item was clicked; the argument is the item index with separators skipped.
+  - `pub fn present(self, present: bool) -> Self` — Whether the menu is open; `false` plays the exit.
+  - `pub fn rows(self, rows: Vec<AccountMenuItem>) -> Self` — The menu rows under the usage section, in order.
+  - `pub fn usage(self, title: impl Into<SharedString>, rows: Vec<UsageRowData>) -> Self` — The usage section: a caps title and one compact row per entry.
+  - `pub fn width(self, width: f32) -> Self` — Overrides the 260 px default width.
 - **struct** `Activity` — The live third line of a row.
   - fields: `kind`, `text`
 - **struct** `CompactSessionRow` — The compact row (`.sr`). Build with `compact_session_row`.
@@ -680,6 +692,13 @@ Sidebar: session rows in every state, the sidebar and its collapsed rail, the th
   - `pub fn row_actions(self, actions: Vec<RowAction>) -> Self` — The hover actions every row carries; none by default.
   - `pub fn selected(self, id: impl Into<SharedString>) -> Self` — The id of the selected session.
 
+- **enum** `AccountMenuItem` — One row of the account menu's item block: an interactive item or a hairline.
+  - variants: `Item`, `Separator`
+  - `pub fn destructive(self) -> Self` — Draws the label in danger ink; ignored by separators.
+  - `pub fn detail(self, detail: impl Into<SharedString>) -> Self` — A muted suffix at the row's right; ignored by separators.
+  - `pub fn is_separator(&self) -> bool` — Whether this row is a hairline rather than an interactive item.
+  - `pub fn label(&self) -> Option<&SharedString>` — The interactive label, or `None` for a separator.
+  - `pub fn new(label: impl Into<SharedString>) -> Self` — An interactive row with `label` and no detail, not destructive.
 - **enum** `ActivityKind` — How the activity line is drawn.
   - variants: `Working`, `Waiting`, `Failed`, `Plain`
 - **enum** `Byline` — An explicit second line for a session row, distinct from the `meta` preview tags. Whatever the caller passes, the row keeps its two-line height: with nothing to show the line renders as empty space.
@@ -862,6 +881,23 @@ Full-window screens: the whole window is the component, not a card inside one.
   - variants: `Account`, `ApiKey`
 - **enum** `LoginState` — What the sign-in screen is showing.
   - variants: `Choose`, `Starting`, `Device`, `ApiKey`, `Validating`, `Success`, `Error`
+
+Provider usage (account menu): the standalone `usage_card` popover and the
+`account_menu` usage section render the same data. A `UsageRowData` draws its
+provider headline (mark, name, plan), then one thin bar per
+`UsageWindow` — track in line colour, fill in ink-3, warning ink at or above
+80 % — with the mono percent and `resets in …` sharing the window line when
+they fit and wrapping under it when they do not; `Unavailable` draws its
+reason as one wrapping muted line, never clipped.
+
+- **fn** `usage_warns` — Whether `used_fraction` wears the warning ink (at or above 80 %).
+  - `pub fn usage_warns(used_fraction: f32) -> bool`
+- **struct** `UsageRowData` — One compact usage row: provider, plan label and windows or an unavailable reason.
+  - fields: `provider`, `plan`, `state`
+  - `pub fn new(provider: Provider, state: UsageRowState) -> Self` — A row for `provider` in `state`, with no plan label.
+  - `pub fn plan(self, plan: impl Into<SharedString>) -> Self` — The plan label beside the provider name.
+- **enum** `UsageRowState` — The body of a `UsageRowData`: quota windows, or why there is nothing.
+  - variants: `Windows`, `Unavailable`
 
 ### `aui::shell`
 

@@ -52,6 +52,8 @@ pub use aui_motion as motion;
 pub use aui_protocol as protocol;
 pub use aui_tokens as tokens;
 
+pub use nav::{account_menu, AccountMenu, AccountMenuItem};
+
 use gpui::App;
 
 /// Initialises gpui-kit, installs the design tokens, fonts and theme, and

@@ -112,9 +112,9 @@ impl ViewMenu {
     }
 }
 
-/// The shared chrome of both menus: overlay ground, 1 px line-strong, radius
+/// The shared chrome of the menus: overlay ground, 1 px line-strong, radius
 /// 12, elevation 3, 6 px padding.
-fn menu_surface(p: &aui_tokens::Palette, width: f32) -> gpui::Div {
+pub(crate) fn menu_surface(p: &aui_tokens::Palette, width: f32) -> gpui::Div {
     v_flex()
         .flex_none()
         .w(px(width))
@@ -129,7 +129,7 @@ fn menu_surface(p: &aui_tokens::Palette, width: f32) -> gpui::Div {
 }
 
 /// One clickable row of either menu.
-fn menu_row(id: ElementId, height: gpui::Pixels, ground: gpui::Hsla, window: &mut Window, cx: &mut App) -> gpui::Stateful<gpui::Div> {
+pub(crate) fn menu_row(id: ElementId, height: gpui::Pixels, ground: gpui::Hsla, window: &mut Window, cx: &mut App) -> gpui::Stateful<gpui::Div> {
     let p = cx.aui().colors;
     let (state, flags) = interaction_flags(id.clone(), window, cx);
     // A row without its own ground borrows surface-2 while the pointer is on
