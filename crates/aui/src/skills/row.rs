@@ -201,11 +201,15 @@ impl RenderOnce for SkillRow {
             .read(cx)
             .clone();
 
-        // Name + chips line.
-        let mut head = h_flex().flex_none().items_center().gap(px(8.0));
+        // Name + chips line. It wraps onto a second line under the name when
+        // the chips do not fit; the name truncates first so nothing pushes
+        // past the left block into the tokens / mode chip.
+        let mut head = h_flex().flex_none().w_full().flex_wrap().items_center().gap(px(8.0));
         head = head.child(
             div()
-                .flex_none()
+                .min_w(px(0.0))
+                .max_w_full()
+                .truncate()
                 .ui(NAME_TEXT)
                 .line_height(relative(1.0))
                 .medium()
@@ -220,9 +224,13 @@ impl RenderOnce for SkillRow {
             head = head.child(pill(chip_model.label.clone()).variant(variant));
         }
 
+        // The left block takes the remaining width and never paints outside
+        // it; wrapped chips stay inside it instead of drawing over the right
+        // block.
         let text = v_flex()
             .flex_1()
             .min_w(px(0.0))
+            .overflow_hidden()
             .justify_center()
             .child(head)
             .child(
@@ -239,7 +247,7 @@ impl RenderOnce for SkillRow {
         let mut row = h_flex()
             .id(row_id.clone())
             .w_full()
-            .h(px(ROW_H))
+            .min_h(px(ROW_H))
             .items_center()
             .gap(px(ROW_GAP))
             .px(px(ROW_PAD_X))
@@ -296,7 +304,9 @@ impl RenderOnce for SkillRow {
                 toggle = toggle.on_intent(move |_: SwitchIntent, w, cx| handler(&row_key, w, cx));
             }
         }
-        row = row.child(toggle);
+        // The right block (tokens, mode chip, switch) never shrinks: it stays
+        // fully visible while the left block wraps or clips.
+        row = row.child(div().flex_none().child(toggle));
 
         if model.selected {
             row = row.bg(p.surface_3).border_1().border_color(p.line);
