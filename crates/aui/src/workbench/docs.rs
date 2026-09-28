@@ -1419,6 +1419,13 @@ pub fn doc_span_selected_text(page: &DocPage, selection: &MessageSelection) -> O
         } else {
             full[slice].to_string()
         };
+        // A table cell's own tabs and line breaks would split it into extra
+        // columns or rows on paste, so they flatten to spaces inside a table.
+        let fragment = if cell.table.is_some() {
+            fragment.replace(['\t', '\r', '\n'], " ")
+        } else {
+            fragment
+        };
         if !out.is_empty() {
             // Cells of one table row stay one TSV row; consecutive items of
             // one list stay one list; rows of one table stay line-separated;
@@ -1838,6 +1845,23 @@ mod tests {
                 DocBlock::Paragraph(vec![DocRun::text("Last paragraph.")]),
             ],
         )
+    }
+
+    #[test]
+    fn a_cells_own_tab_or_newline_never_splits_the_tsv() {
+        let page = DocPage::new(
+            "T",
+            "",
+            vec![DocBlock::Table(DocTable {
+                widths: vec![],
+                rows: vec![vec![DocCell::text("a\tb"), DocCell::text("line\nbreak")]],
+            })],
+        );
+        let span = doc_select_all(&page).expect("the table has text");
+        assert_eq!(
+            doc_span_selected_text(&page, &span).as_deref(),
+            Some("a b\tline break")
+        );
     }
 
     fn endpoint(cell: &SelectionKey, offset: usize) -> SelectionEndpoint {
