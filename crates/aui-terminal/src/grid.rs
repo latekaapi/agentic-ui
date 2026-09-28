@@ -2779,8 +2779,8 @@ fn cursor_rect(
 /// The cursor's ink height for the terminal face: `ascent + descent` at
 /// [`TERM_PX`], so the block hugs the glyphs instead of the row's leading.
 fn cursor_glyph_height(text_system: &gpui::TextSystem, font_id: gpui::FontId) -> f32 {
-    let ascent = text_system.ascent(font_id, px(TERM_PX));
-    let descent = text_system.descent(font_id, px(TERM_PX));
+    let ascent = text_system.ascent(font_id, gpui::px(TERM_PX));
+    let descent = text_system.descent(font_id, gpui::px(TERM_PX));
     let h: f32 = (ascent + descent).into();
     if h > 0.0 { h } else { TERM_PX * TERM_LH }
 }
