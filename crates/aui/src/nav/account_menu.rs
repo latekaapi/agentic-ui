@@ -199,7 +199,7 @@ impl AccountMenu {
 
 /// A hairline spanning the panel between two blocks.
 fn hairline(p: &aui_tokens::Palette) -> gpui::Div {
-    div().flex_none().h(px(1.0)).my(px(6.0)).mx(px(4.0)).bg(p.line)
+    div().flex_none().h(px(1.0)).my(px(6.0)).mx(px(4.0)).bg(p.line_strong)
 }
 
 /// The non-interactive header block: avatar, name, optional detail.
@@ -257,18 +257,41 @@ fn usage_row(row: &UsageRowData, p: &aui_tokens::Palette) -> gpui::Div {
         );
     }
 
-    let mut body = v_flex().w_full().gap(px(USAGE_INNER_GAP)).child(head);
+    // Inset like the header, the section label and the item rows, so
+    // every left edge in the panel lines up.
+    let mut body = v_flex().w_full().px(px(MENU_PAD_X)).gap(px(USAGE_INNER_GAP)).child(head);
     match &row.state {
         UsageRowState::Windows(windows, as_of) => {
             for window in windows.iter() {
                 let used = window.used_fraction.clamp(0.0, 1.0);
                 let fill = if usage_warns(window.used_fraction) { p.warning } else { p.ink_3 };
-                // The resets note shares the window line when it fits and
-                // wraps under it when it does not — never clipped.
-                let line = h_flex()
+                // Line one: the window label left, "42% · resets in 2h"
+                // right (wrapping under when narrow, never clipped). Line
+                // two: a full-width bar on a visible track, so every bar in
+                // the panel has the same length and reads comparably.
+                let numbers = h_flex()
+                    .flex_none()
+                    .gap(px(6.0))
+                    .child(
+                        div()
+                            .font_family(scale::FONT_MONO)
+                            .text_px(SMALL_TEXT)
+                            .line_height(gpui::relative(scale::LH_UI))
+                            .text_color(if usage_warns(window.used_fraction) { p.warning } else { p.ink_2 })
+                            .child(format!("{}%", (used * 100.0).round())),
+                    )
+                    .child(
+                        div()
+                            .text_px(SMALL_TEXT)
+                            .line_height(gpui::relative(scale::LH_UI))
+                            .text_color(p.ink_3)
+                            .child(format!("resets in {}", window.resets_at_text)),
+                    );
+                let label_line = h_flex()
                     .w_full()
                     .flex_wrap()
                     .items_center()
+                    .justify_between()
                     .gap(px(6.0))
                     .child(
                         div()
@@ -278,33 +301,16 @@ fn usage_row(row: &UsageRowData, p: &aui_tokens::Palette) -> gpui::Div {
                             .text_color(p.ink_2)
                             .child(window.label.clone()),
                     )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(BAR_MIN_W))
-                            .h(px(BAR_H))
-                            .rounded(px(BAR_R))
-                            .bg(p.line)
-                            .overflow_hidden()
-                            .child(div().h_full().rounded(px(BAR_R)).bg(fill).w(gpui::relative(used))),
-                    )
-                    .child(
-                        div()
-                            .flex_none()
-                            .font_family(scale::FONT_MONO)
-                            .text_px(SMALL_TEXT)
-                            .line_height(gpui::relative(scale::LH_UI))
-                            .text_color(fill)
-                            .child(format!("{}%", (used * 100.0).round())),
-                    )
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_px(SMALL_TEXT)
-                            .line_height(gpui::relative(scale::LH_UI))
-                            .text_color(p.ink_3)
-                            .child(format!("resets in {}", window.resets_at_text)),
-                    );
+                    .child(numbers);
+                let bar = div()
+                    .w_full()
+                    .min_w(px(BAR_MIN_W))
+                    .h(px(BAR_H))
+                    .rounded(px(BAR_R))
+                    .bg(p.surface_3)
+                    .overflow_hidden()
+                    .child(div().h_full().rounded(px(BAR_R)).bg(fill).w(gpui::relative(used)));
+                let line = v_flex().w_full().gap(px(3.0)).child(label_line).child(bar);
                 body = body.child(line);
             }
             if let Some(as_of) = as_of {
