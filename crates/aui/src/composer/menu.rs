@@ -179,6 +179,7 @@ impl RenderOnce for PlusMenu {
             .occlude()
             .role(gpui::Role::Menu)
             .aria_label(SharedString::from("Composer actions"));
+        let mut scrim_close: Option<CloseHandler> = None;
         // The dismiss path, after the chip pickers (outside press) and the
         // settings dialog (`Cancel` under its key context). The menu takes
         // focus when pressed — never on open, so typing is undisturbed — and
@@ -188,7 +189,7 @@ impl RenderOnce for PlusMenu {
                 window.use_keyed_state((id.clone(), "menu-focus"), cx, |_, cx| cx.focus_handle()).read(cx).clone();
             let close_out = close.clone();
             menu = menu.track_focus(&focus).key_context(MENU_CONTEXT).on_action(move |_: &Cancel, w, cx| close(w, cx));
-            menu = menu.on_mouse_down_out(move |_, w: &mut Window, cx: &mut App| close_out(w, cx));
+            scrim_close = Some(close_out);
         }
         for item in self.items {
             let item_id: ElementId = (id.clone(), SharedString::from(format!("item-{}", item.id))).into();
@@ -221,9 +222,41 @@ impl RenderOnce for PlusMenu {
             }
             menu = menu.child(row);
         }
-        popover_layer(menu).into_any_element()
+        // A click anywhere else closes it, through an occluding catcher that
+        // is the menu's sibling in the same deferred draw — the chip pickers'
+        // pattern. Occluding matters: the `+` button stays under the catcher
+        // while the menu is open, so a second click on it closes the menu
+        // instead of closing it on mouse-down and toggling it open again on
+        // mouse-up. Escape before any press inside the menu is the host's to
+        // route (its Cancel handler closes the topmost menu): a stateless
+        // element cannot take the keyboard at open time.
+        // Both wrappers fill the menu's anchor, so the menu's own
+        // `bottom`/`left` offsets resolve against the same box as before.
+        let mut layer = div().absolute().inset_0().child(menu);
+        if let Some(close) = scrim_close {
+            layer = div()
+                .absolute()
+                .inset_0()
+                .child(
+                    div()
+                        .id((id.clone(), "scrim"))
+                        .occlude()
+                        .absolute()
+                        .top(px(-SCRIM_REACH))
+                        .left(px(-SCRIM_REACH))
+                        .w(px(SCRIM_REACH * 2.0))
+                        .h(px(SCRIM_REACH * 2.0))
+                        .on_click(move |_, w, cx| close(w, cx)),
+                )
+                .child(layer);
+        }
+        popover_layer(layer).into_any_element()
     }
 }
+
+/// How far the click-catcher reaches from the menu's anchor in each
+/// direction: a window is at most 1440 × 900 and the anchor can be anywhere.
+const SCRIM_REACH: f32 = 4000.0;
 
 #[cfg(test)]
 mod tests {
@@ -262,16 +295,29 @@ mod tests {
         items: Vec<PlusMenuItem>,
         closed: Rc<Cell<bool>>,
         activated: Rc<RefCell<Vec<SharedString>>>,
+        trigger_clicks: Rc<Cell<u32>>,
     }
 
     impl gpui::Render for MenuHost {
         fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
             let closed = self.closed.clone();
             let activated = self.activated.clone();
+            let trigger_clicks = self.trigger_clicks.clone();
             div()
                 .w_full()
                 .h_full()
                 .relative()
+                // The `+` button the composer anchors the menu to: bottom-left,
+                // under where the menu opens.
+                .child(
+                    div()
+                        .id("trigger")
+                        .absolute()
+                        .left(px(0.0))
+                        .bottom(px(0.0))
+                        .size(px(24.0))
+                        .on_click(move |_, _, _| trigger_clicks.set(trigger_clicks.get() + 1)),
+                )
                 .child(
                     plus_menu("test-plus", self.items.clone(), true)
                         .at_rest()
@@ -289,8 +335,19 @@ mod tests {
         closed: Rc<Cell<bool>>,
         activated: Rc<RefCell<Vec<SharedString>>>,
     ) -> gpui::AnyWindowHandle {
+        open_menu_with_trigger(cx, items, closed, activated, Rc::new(Cell::new(0)))
+    }
+
+    fn open_menu_with_trigger(
+        cx: &mut gpui::TestAppContext,
+        items: Vec<PlusMenuItem>,
+        closed: Rc<Cell<bool>>,
+        activated: Rc<RefCell<Vec<SharedString>>>,
+        trigger_clicks: Rc<Cell<u32>>,
+    ) -> gpui::AnyWindowHandle {
         cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
-        let host = cx.open_window(gpui::size(px(400.0), px(400.0)), |_, _| MenuHost { items, closed, activated });
+        let host =
+            cx.open_window(gpui::size(px(400.0), px(400.0)), |_, _| MenuHost { items, closed, activated, trigger_clicks });
         cx.run_until_parked();
         host.into()
     }
@@ -339,9 +396,24 @@ mod tests {
         let closed = Rc::new(Cell::new(false));
         let activated = Rc::new(RefCell::new(Vec::new()));
         let window = open_menu(cx, baaz_items(), closed.clone(), activated);
-        mouse_down(cx, window, 300.0, 100.0);
+        click(cx, window, 300.0, 100.0);
         cx.run_until_parked();
-        assert!(closed.get(), "a mouse-down outside the menu must invoke the close callback");
+        assert!(closed.get(), "a click outside the menu must invoke the close callback");
+    }
+
+    /// A second click on the `+` button while the menu is open closes it and
+    /// never reaches the button: the catcher occludes it. Without the
+    /// catcher the button's own toggle would reopen the menu on mouse-up.
+    #[gpui::test]
+    fn clicking_the_trigger_while_open_closes_without_reaching_it(cx: &mut gpui::TestAppContext) {
+        let closed = Rc::new(Cell::new(false));
+        let trigger = Rc::new(Cell::new(0));
+        let window =
+            open_menu_with_trigger(cx, baaz_items(), closed.clone(), Rc::new(RefCell::new(Vec::new())), trigger.clone());
+        click(cx, window, 12.0, 388.0);
+        cx.run_until_parked();
+        assert!(closed.get(), "a click on the trigger while open closes the menu");
+        assert_eq!(trigger.get(), 0, "the trigger under the catcher never sees the click");
     }
 
     /// Escape after pressing a row reports close: the press focuses the menu,
