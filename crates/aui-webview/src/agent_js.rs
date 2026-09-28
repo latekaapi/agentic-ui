@@ -60,7 +60,7 @@ pub fn json_string(value: &str) -> String {
 /// characters. Answer with the backend's result `Ok`, parsed as JSON.
 pub fn page_text(max_chars: usize) -> String {
     format!(
-        "(function () {{ /*{PAGE_TEXT_MARKER}:{max_chars}*/ var max = {max_chars}; var text = (document.body && document.body.innerText) || \"\"; \
+        "return (function () {{ /*{PAGE_TEXT_MARKER}:{max_chars}*/ var max = {max_chars}; var text = (document.body && document.body.innerText) || \"\"; \
          return {{ title: document.title, url: location.href, text: text.length > max ? text.slice(0, max) : text }}; }})()"
     )
 }
@@ -74,7 +74,7 @@ pub fn page_text(max_chars: usize) -> String {
 pub fn click(selector: &str) -> String {
     let sel = json_string(selector);
     format!(
-        "(function () {{ /*{CLICK_MARKER}*/ var sel = {sel}; var el = document.querySelector(sel); \
+        "return (function () {{ /*{CLICK_MARKER}*/ var sel = {sel}; var el = document.querySelector(sel); \
          if (!el) {{ throw new Error(\"element not found: \" + sel); }} \
          el.scrollIntoView({{ block: \"center\" }}); el.click(); return el.innerText || \"\"; }})()"
     )
@@ -90,7 +90,7 @@ pub fn type_text(selector: &str, text: &str) -> String {
     let sel = json_string(selector);
     let value = json_string(text);
     format!(
-        "(function () {{ /*{TYPE_MARKER}*/ var sel = {sel}; var value = {value}; var el = document.querySelector(sel); \
+        "return (function () {{ /*{TYPE_MARKER}*/ var sel = {sel}; var value = {value}; var el = document.querySelector(sel); \
          if (!el) {{ throw new Error(\"element not found: \" + sel); }} \
          el.focus(); \
          if (\"value\" in el) {{ el.value = value; }} else {{ el.textContent = value; }} \
@@ -102,7 +102,7 @@ pub fn type_text(selector: &str, text: &str) -> String {
 /// Lists up to `max` links as `[{href, text}]`.
 pub fn list_links(max: usize) -> String {
     format!(
-        "(function () {{ /*{LINKS_MARKER}*/ var links = Array.prototype.slice.call(document.querySelectorAll(\"a[href]\"), 0, {max}); \
+        "return (function () {{ /*{LINKS_MARKER}*/ var links = Array.prototype.slice.call(document.querySelectorAll(\"a[href]\"), 0, {max}); \
          return links.map(function (a) {{ return {{ href: a.href, text: (a.innerText || \"\").trim() }}; }}); }})()"
     )
 }

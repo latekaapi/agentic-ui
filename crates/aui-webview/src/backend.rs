@@ -128,8 +128,10 @@ pub trait WebBackend {
     /// Runs `js` in the page and routes its answer to
     /// [`Self::take_eval_results`] under `request_id`.
     ///
-    /// The answer is the script's completion value, JSON-stringified, or the
-    /// thrown exception's message. A real page answers asynchronously, so this
+    /// `js` is a **function body**: its answer is what it `return`s (it may
+    /// `await`), JSON-stringified, or the thrown exception's message. A bare
+    /// expression with no `return` answers `null` — seen live, when every
+    /// `agent_js` helper was an unreturned IIFE. A real page answers asynchronously, so this
     /// only queues the request; the default queues
     /// `Err("not supported")` immediately, through the fallback queue
     /// [`Self::take_eval_results`] drains.

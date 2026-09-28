@@ -175,58 +175,75 @@ struct Shared {
     /// Evaluation answers, by request id, for
     /// [`WebBackend::take_eval_results`](crate::backend::WebBackend::take_eval_results).
     eval_results: Mutex<Vec<(u64, Result<String, String>)>>,
+    /// The nonce each in-flight evaluation must echo back, by request id:
+    /// a page can post anything through `window.ipc.postMessage`, so an
+    /// answer is only taken when it carries the nonce this backend minted.
+    eval_nonces: Mutex<HashMap<u64, String>>,
 }
 
-/// Prefixes of the completion value [`wrap_eval`] builds: the script always
-/// answers with a string, so the callback can tell values from errors without
-/// a second channel.
-const EVAL_OK_PREFIX: &str = "aui:ok:";
-/// See [`EVAL_OK_PREFIX`].
-const EVAL_ERR_PREFIX: &str = "aui:err:";
-
-/// Wraps `js` so its answer survives
-/// [`wry::WebView::evaluate_script_with_callback`].
+/// Wraps `js` so its answer comes back through the IPC channel.
 ///
-/// The callback receives the completion value JSON-serialized, and wry drops
-/// exceptions (the callback then sees an empty payload), so the wrapper makes
-/// the completion value always a string: `"aui:ok:"` plus the JSON-stringified
-/// value, or `"aui:err:"` plus the thrown message. It is an async IIFE, so a
-/// host script may itself `await` — and so may the wrapper: WebKit fulfils the
-/// completion handler with the promise's resolved value, which means an async
-/// rejection lands in the same `catch` as a synchronous throw.
-///
-/// Routing through the existing IPC channel instead would need a second
-/// message shape on the annotator's handler plus request ids carried in both
-/// directions; the callback already carries one answer per call, which is
-/// exactly the routing `request_id` needs.
-fn wrap_eval(js: &str) -> String {
+/// WKWebView's `evaluateJavaScript` — what wry's
+/// `evaluate_script_with_callback` calls — **cannot return a Promise**: an
+/// async wrapper's completion value is "an unsupported type" and the callback
+/// sees an empty payload. Seen live: every `browser_read` failed with "the
+/// script failed to run". So the wrapper runs the host script in an async IIFE
+/// (a host script may `await`), and posts `{"__aui_eval": id, "nonce": …, ok,
+/// value | error}` through `window.ipc.postMessage` — the channel the annotator
+/// already uses — and the statement itself evaluates to `undefined`, which
+/// WebKit can always return. [`on_ipc`] routes the answer by id and nonce.
+fn wrap_eval(request_id: u64, nonce: &str, js: &str) -> String {
+    let nonce = serde_json::to_string(nonce).expect("a string serializes");
     format!(
-        "(async () => {{ try {{ const value = await (async () => {{\n{js}\n}})(); \
-         return \"{EVAL_OK_PREFIX}\" + JSON.stringify(value === undefined ? null : value); }} \
-         catch (error) {{ return \"{EVAL_ERR_PREFIX}\" + String((error && error.message) || error); }} }})()"
+        "(async () => {{ let m; try {{ const value = await (async () => {{\n{js}\n}})(); \
+         m = {{ __aui_eval: {request_id}, nonce: {nonce}, ok: true, value: JSON.stringify(value === undefined ? null : value) }}; }} \
+         catch (error) {{ m = {{ __aui_eval: {request_id}, nonce: {nonce}, ok: false, error: String((error && error.message) || error) }}; }} \
+         window.ipc.postMessage(JSON.stringify(m)); }})(); undefined;"
     )
 }
 
-/// Turns one `evaluate_script_with_callback` payload into an answer.
-///
-/// The payload is the JSON serialization of the wrapper's completion string,
-/// so it decodes one string layer and splits the prefix. An empty payload
-/// means the script never ran at all — a syntax error, or an exception the
-/// wrapper itself could not catch — and anything else is an unreadable
-/// payload, both reported as `Err`.
-fn decode_eval_payload(payload: &str) -> Result<String, String> {
-    if payload.is_empty() {
-        return Err(String::from("the script failed to run"));
+/// One evaluation answer as the wrapper posts it.
+#[derive(serde::Deserialize)]
+struct EvalAnswer {
+    #[serde(rename = "__aui_eval")]
+    id: u64,
+    nonce: String,
+    ok: bool,
+    #[serde(default)]
+    value: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// Takes an evaluation answer off the IPC channel when `body` is one that an
+/// in-flight request is waiting for (right id, right nonce). Returns whether
+/// the message was consumed as an evaluation answer.
+fn take_eval_answer(shared: &Shared, body: &str) -> bool {
+    let Ok(answer) = serde_json::from_str::<EvalAnswer>(body) else { return false };
+    let expected = locked(&shared.eval_nonces).get(&answer.id).cloned();
+    if expected.as_deref() != Some(answer.nonce.as_str()) {
+        // A forged or stale answer: consumed (it is eval-shaped), never delivered.
+        return true;
     }
-    let inner: String =
-        serde_json::from_str(payload).map_err(|_| format!("unreadable evaluation result: {payload}"))?;
-    if let Some(value) = inner.strip_prefix(EVAL_OK_PREFIX) {
-        Ok(value.to_string())
-    } else if let Some(message) = inner.strip_prefix(EVAL_ERR_PREFIX) {
-        Err(message.to_string())
+    locked(&shared.eval_nonces).remove(&answer.id);
+    let result = if answer.ok {
+        Ok(answer.value.unwrap_or_else(|| String::from("null")))
     } else {
-        Err(format!("unreadable evaluation result: {inner}"))
-    }
+        Err(answer.error.unwrap_or_else(|| String::from("the script failed")))
+    };
+    locked(&shared.eval_results).push((answer.id, result));
+    true
+}
+
+/// A fresh nonce: not secret against the page's own scripts (they could
+/// wrap `postMessage`), but unguessable in advance, so a page cannot answer
+/// a request it has not seen.
+fn mint_nonce(request_id: u64) -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u64(request_id);
+    hasher.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
+    format!("{:016x}", hasher.finish())
 }
 
 /// Locks `mutex`, recovering the value if a handler panicked while holding it.
@@ -320,6 +337,9 @@ impl WryBackend {
 
 /// Turns one IPC message into an annotation plus its metadata.
 fn on_ipc(shared: &Arc<Shared>, body: &str) {
+    if take_eval_answer(shared, body) {
+        return;
+    }
     let hit: Hit = match serde_json::from_str(body) {
         Ok(hit) => hit,
         Err(error) => {
@@ -391,14 +411,11 @@ impl WebBackend for WryBackend {
     }
 
     fn eval_with_result(&mut self, request_id: u64, js: &str) {
-        let shared = Arc::clone(&self.shared);
-        let wrapped = wrap_eval(js);
-        // The callback runs on another thread once WebKit answers; until then
+        let nonce = mint_nonce(request_id);
+        locked(&self.shared.eval_nonces).insert(request_id, nonce.clone());
+        // The answer arrives on the IPC channel (see `wrap_eval`); until then
         // the poll simply sees no result.
-        let result = self.webview.evaluate_script_with_callback(&wrapped, move |payload| {
-            locked(&shared.eval_results).push((request_id, decode_eval_payload(&payload)));
-        });
-        report("evaluate_script_with_callback", result);
+        report("evaluate_script", self.webview.evaluate_script(&wrap_eval(request_id, &nonce, js)));
     }
 
     fn take_eval_results(&mut self) -> Vec<(u64, Result<String, String>)> {
@@ -606,29 +623,35 @@ mod tests {
     }
 
     #[test]
-    fn the_eval_wrapper_carries_the_script_and_both_prefixes() {
-        let wrapped = wrap_eval("return document.title;");
+    fn the_eval_wrapper_posts_over_ipc_and_returns_undefined() {
+        let wrapped = wrap_eval(7, "n0nce", "return document.title;");
         assert!(wrapped.contains("return document.title;"));
-        assert!(wrapped.contains("aui:ok:"));
-        assert!(wrapped.contains("aui:err:"));
-        assert!(wrapped.contains("JSON.stringify"));
-        // Async hosts scripts work: the script runs inside an async IIFE and
-        // the wrapper awaits it.
-        assert!(wrapped.contains("async () =>"));
+        assert!(wrapped.contains("window.ipc.postMessage"));
+        assert!(wrapped.contains("__aui_eval: 7"));
+        assert!(wrapped.contains("\"n0nce\""));
+        // WebKit cannot return a Promise from evaluateJavaScript: the
+        // statement must end on a plain value.
+        assert!(wrapped.trim_end().ends_with("undefined;"));
     }
 
     #[test]
-    fn eval_payloads_decode_by_prefix() {
-        // What NSJSONSerialization hands the callback for a completion string
-        // is that string JSON-encoded: one layer to peel, then the prefix.
-        assert_eq!(decode_eval_payload("\"aui:ok:{\\\"a\\\":1}\""), Ok(String::from("{\"a\":1}")));
-        assert_eq!(decode_eval_payload("\"aui:ok:\\\"hi\\\"\""), Ok(String::from("\"hi\"")));
-        assert_eq!(decode_eval_payload("\"aui:err:element not found: x\""), Err(String::from("element not found: x")));
-        // The callback sees an empty string when the script never ran.
-        assert_eq!(decode_eval_payload(""), Err(String::from("the script failed to run")));
-        // A payload with no envelope is unreadable, not a value.
-        assert!(decode_eval_payload("\"bare\"").is_err());
-        assert!(decode_eval_payload("not json").is_err());
+    fn eval_answers_route_by_id_and_nonce() {
+        let shared = Arc::new(Shared::default());
+        locked(&shared.eval_nonces).insert(3, String::from("abc"));
+        // Forged (wrong nonce) and unknown ids are consumed, never delivered.
+        assert!(take_eval_answer(&shared, r#"{"__aui_eval":3,"nonce":"zzz","ok":true,"value":"1"}"#));
+        assert!(take_eval_answer(&shared, r#"{"__aui_eval":9,"nonce":"abc","ok":true,"value":"1"}"#));
+        assert!(locked(&shared.eval_results).is_empty());
+        // The real one lands once.
+        assert!(take_eval_answer(&shared, r#"{"__aui_eval":3,"nonce":"abc","ok":true,"value":"{\"a\":1}"}"#));
+        assert_eq!(locked(&shared.eval_results).as_slice(), &[(3, Ok(String::from("{\"a\":1}")))]);
+        assert!(take_eval_answer(&shared, r#"{"__aui_eval":3,"nonce":"abc","ok":true,"value":"2"}"#));
+        assert_eq!(locked(&shared.eval_results).len(), 1, "a replay is not a second answer");
+        // Errors carry their message; annotator messages are not eval answers.
+        locked(&shared.eval_nonces).insert(4, String::from("d"));
+        assert!(take_eval_answer(&shared, r#"{"__aui_eval":4,"nonce":"d","ok":false,"error":"element not found: x"}"#));
+        assert_eq!(locked(&shared.eval_results)[1], (4, Err(String::from("element not found: x"))));
+        assert!(!take_eval_answer(&shared, r#"{"selector":"div"}"#));
     }
 
     #[test]
