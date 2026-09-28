@@ -461,9 +461,19 @@ impl WebBackend for WryBackend {
             }
             // Safety: non-null means WebKit produced an NSImage for this call,
             // and the block owns it for the duration of the call.
-            match png_bytes(unsafe { &*image }) {
+            let image = unsafe { &*image };
+            match png_bytes(image) {
                 Some(bytes) => locked(&shared.events).push(WebEvent::Screenshot(bytes)),
-                None => eprintln!("aui-webview: takeSnapshot produced an image that would not encode as PNG"),
+                // Say the size: a zero-sized snapshot (the page not on screen —
+                // a locked display, a hidden view) fails the TIFF step the same
+                // way a real encode fault would, and only the size tells them apart.
+                None => {
+                    let size = image.size();
+                    eprintln!(
+                        "aui-webview: takeSnapshot produced an image that would not encode as PNG ({}x{} pt)",
+                        size.width, size.height
+                    );
+                }
             }
         });
         // Safety: a null configuration means "the visible viewport", and the
