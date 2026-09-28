@@ -80,6 +80,9 @@ pub struct WebviewState {
     note: Option<usize>,
     /// The last screenshot the backend produced.
     screenshot: Option<Vec<u8>>,
+    /// Evaluation answers drained from the backend, waiting for
+    /// [`Self::take_eval_results`].
+    eval_results: Vec<(u64, Result<String, String>)>,
     /// The same bytes decoded once, so the stand-in for an obscured native page
     /// is not re-hashed on every frame.
     screenshot_image: Option<Arc<Image>>,
@@ -138,6 +141,7 @@ impl WebviewState {
             note: None,
             screenshot: None,
             screenshot_image: None,
+            eval_results: Vec::new(),
             native,
             editing: None,
             editing_fresh: false,
@@ -228,6 +232,19 @@ impl WebviewState {
     /// [`WebviewIntent::SendAnnotations`] then carries.
     pub fn capture(&mut self) {
         self.backend.capture();
+    }
+
+    /// Runs `js` in the page; its answer arrives through
+    /// [`Self::take_eval_results`] under `request_id`. See
+    /// [`WebBackend::eval_with_result`](crate::backend::WebBackend::eval_with_result).
+    pub fn eval_with_result(&mut self, request_id: u64, js: &str) {
+        self.backend.eval_with_result(request_id, js);
+    }
+
+    /// Takes the evaluation answers the poll timer has drained from the
+    /// backend since the last call, by request id.
+    pub fn take_eval_results(&mut self) -> Vec<(u64, Result<String, String>)> {
+        std::mem::take(&mut self.eval_results)
     }
 
     /// The last screenshot the backend produced, PNG-encoded.
@@ -368,6 +385,7 @@ impl WebviewState {
     /// what turns a change into a re-render.
     fn apply_pending(&mut self) -> bool {
         let events = self.backend.poll_events();
+        let eval_results = self.backend.take_eval_results();
         let hovered = self.backend.hovered();
         let mut changed = hovered != self.hovered;
         let mut settled = false;
@@ -393,6 +411,13 @@ impl WebviewState {
                     self.screenshot = Some(bytes);
                 }
             }
+        }
+        if !eval_results.is_empty() {
+            // Answers for the host's agent tools; they wait in the state until
+            // `take_eval_results`, and their arrival is a change worth a
+            // re-render like any other backend news.
+            self.eval_results.extend(eval_results);
+            changed = true;
         }
         if settled {
             // The page that just finished loading is what an obscuring overlay
@@ -807,6 +832,9 @@ impl RenderOnce for WebviewPane {
 #[cfg(test)]
 mod tests {
     use super::normalize_url;
+    use super::WebviewState;
+    use crate::agent_js;
+    use crate::fake::FakeWebBackend;
 
     #[test]
     fn what_is_typed_in_the_url_field_becomes_a_url() {
@@ -823,5 +851,26 @@ mod tests {
     fn a_phrase_is_a_search_rather_than_a_host() {
         assert_eq!(normalize_url("simple pricing page"), "https://duckduckgo.com/?q=simple+pricing+page");
         assert_eq!(normalize_url("worktrees"), "https://duckduckgo.com/?q=worktrees");
+    }
+
+    /// The state forwards the script to the backend and hands the drained
+    /// answer back out; a second take sees nothing.
+    #[gpui::test]
+    fn eval_results_flow_through_the_state(cx: &mut gpui::TestAppContext) {
+        use gpui::AppContext as _;
+        let state = cx.new(|cx| WebviewState::new(Box::new(FakeWebBackend::new()), cx));
+        state.update(cx, |state, _| state.eval_with_result(11, &agent_js::click("h1")));
+        // The poll timer has not ticked yet, so nothing has been drained.
+        let early: Vec<(u64, Result<String, String>)> = state.update(cx, |state, _| state.take_eval_results());
+        assert!(early.is_empty());
+        state.update(cx, |state, _| {
+            assert!(state.apply_pending());
+        });
+        let answers = state.update(cx, |state, _| state.take_eval_results());
+        assert_eq!(answers.len(), 1);
+        assert_eq!(answers[0].0, 11);
+        assert_eq!(answers[0].1, Ok(String::from("\"Simple pricing\"")));
+        let drained: Vec<(u64, Result<String, String>)> = state.update(cx, |state, _| state.take_eval_results());
+        assert!(drained.is_empty());
     }
 }

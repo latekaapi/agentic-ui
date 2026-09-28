@@ -172,6 +172,61 @@ struct Shared {
     /// The metadata side table described in [`crate::backend`], by annotation
     /// number.
     elements: Mutex<HashMap<usize, ElementInfo>>,
+    /// Evaluation answers, by request id, for
+    /// [`WebBackend::take_eval_results`](crate::backend::WebBackend::take_eval_results).
+    eval_results: Mutex<Vec<(u64, Result<String, String>)>>,
+}
+
+/// Prefixes of the completion value [`wrap_eval`] builds: the script always
+/// answers with a string, so the callback can tell values from errors without
+/// a second channel.
+const EVAL_OK_PREFIX: &str = "aui:ok:";
+/// See [`EVAL_OK_PREFIX`].
+const EVAL_ERR_PREFIX: &str = "aui:err:";
+
+/// Wraps `js` so its answer survives
+/// [`wry::WebView::evaluate_script_with_callback`].
+///
+/// The callback receives the completion value JSON-serialized, and wry drops
+/// exceptions (the callback then sees an empty payload), so the wrapper makes
+/// the completion value always a string: `"aui:ok:"` plus the JSON-stringified
+/// value, or `"aui:err:"` plus the thrown message. It is an async IIFE, so a
+/// host script may itself `await` — and so may the wrapper: WebKit fulfils the
+/// completion handler with the promise's resolved value, which means an async
+/// rejection lands in the same `catch` as a synchronous throw.
+///
+/// Routing through the existing IPC channel instead would need a second
+/// message shape on the annotator's handler plus request ids carried in both
+/// directions; the callback already carries one answer per call, which is
+/// exactly the routing `request_id` needs.
+fn wrap_eval(js: &str) -> String {
+    format!(
+        "(async () => {{ try {{ const value = await (async () => {{\n{js}\n}})(); \
+         return \"{EVAL_OK_PREFIX}\" + JSON.stringify(value === undefined ? null : value); }} \
+         catch (error) {{ return \"{EVAL_ERR_PREFIX}\" + String((error && error.message) || error); }} }})()"
+    )
+}
+
+/// Turns one `evaluate_script_with_callback` payload into an answer.
+///
+/// The payload is the JSON serialization of the wrapper's completion string,
+/// so it decodes one string layer and splits the prefix. An empty payload
+/// means the script never ran at all — a syntax error, or an exception the
+/// wrapper itself could not catch — and anything else is an unreadable
+/// payload, both reported as `Err`.
+fn decode_eval_payload(payload: &str) -> Result<String, String> {
+    if payload.is_empty() {
+        return Err(String::from("the script failed to run"));
+    }
+    let inner: String =
+        serde_json::from_str(payload).map_err(|_| format!("unreadable evaluation result: {payload}"))?;
+    if let Some(value) = inner.strip_prefix(EVAL_OK_PREFIX) {
+        Ok(value.to_string())
+    } else if let Some(message) = inner.strip_prefix(EVAL_ERR_PREFIX) {
+        Err(message.to_string())
+    } else {
+        Err(format!("unreadable evaluation result: {inner}"))
+    }
 }
 
 /// Locks `mutex`, recovering the value if a handler panicked while holding it.
@@ -330,6 +385,21 @@ impl WebBackend for WryBackend {
         report("evaluate_script", self.webview.evaluate_script(js));
     }
 
+    fn eval_with_result(&mut self, request_id: u64, js: &str) {
+        let shared = Arc::clone(&self.shared);
+        let wrapped = wrap_eval(js);
+        // The callback runs on another thread once WebKit answers; until then
+        // the poll simply sees no result.
+        let result = self.webview.evaluate_script_with_callback(&wrapped, move |payload| {
+            locked(&shared.eval_results).push((request_id, decode_eval_payload(&payload)));
+        });
+        report("evaluate_script_with_callback", result);
+    }
+
+    fn take_eval_results(&mut self) -> Vec<(u64, Result<String, String>)> {
+        std::mem::take(&mut *locked(&self.shared.eval_results))
+    }
+
     fn set_annotate(&mut self, on: bool) {
         let js = if on { "window.__aui.setAnnotate(true)" } else { "window.__aui.setAnnotate(false)" };
         self.eval(js);
@@ -391,9 +461,19 @@ impl WebBackend for WryBackend {
             }
             // Safety: non-null means WebKit produced an NSImage for this call,
             // and the block owns it for the duration of the call.
-            match png_bytes(unsafe { &*image }) {
+            let image = unsafe { &*image };
+            match png_bytes(image) {
                 Some(bytes) => locked(&shared.events).push(WebEvent::Screenshot(bytes)),
-                None => eprintln!("aui-webview: takeSnapshot produced an image that would not encode as PNG"),
+                // Say the size: a zero-sized snapshot (the page not on screen —
+                // a locked display, a hidden view) fails the TIFF step the same
+                // way a real encode fault would, and only the size tells them apart.
+                None => {
+                    let size = image.size();
+                    eprintln!(
+                        "aui-webview: takeSnapshot produced an image that would not encode as PNG ({}x{} pt)",
+                        size.width, size.height
+                    );
+                }
             }
         });
         // Safety: a null configuration means "the visible viewport", and the
@@ -479,6 +559,32 @@ mod tests {
         on_ipc(&shared, r#"{"selector":"div","label":"div","rect":{"x":1,"y":2,"w":3},"outerHTML":""}"#);
         assert!(locked(&shared.events).is_empty());
         assert!(locked(&shared.elements).is_empty());
+    }
+
+    #[test]
+    fn the_eval_wrapper_carries_the_script_and_both_prefixes() {
+        let wrapped = wrap_eval("return document.title;");
+        assert!(wrapped.contains("return document.title;"));
+        assert!(wrapped.contains("aui:ok:"));
+        assert!(wrapped.contains("aui:err:"));
+        assert!(wrapped.contains("JSON.stringify"));
+        // Async hosts scripts work: the script runs inside an async IIFE and
+        // the wrapper awaits it.
+        assert!(wrapped.contains("async () =>"));
+    }
+
+    #[test]
+    fn eval_payloads_decode_by_prefix() {
+        // What NSJSONSerialization hands the callback for a completion string
+        // is that string JSON-encoded: one layer to peel, then the prefix.
+        assert_eq!(decode_eval_payload("\"aui:ok:{\\\"a\\\":1}\""), Ok(String::from("{\"a\":1}")));
+        assert_eq!(decode_eval_payload("\"aui:ok:\\\"hi\\\"\""), Ok(String::from("\"hi\"")));
+        assert_eq!(decode_eval_payload("\"aui:err:element not found: x\""), Err(String::from("element not found: x")));
+        // The callback sees an empty string when the script never ran.
+        assert_eq!(decode_eval_payload(""), Err(String::from("the script failed to run")));
+        // A payload with no envelope is unreadable, not a value.
+        assert!(decode_eval_payload("\"bare\"").is_err());
+        assert!(decode_eval_payload("not json").is_err());
     }
 
     #[test]

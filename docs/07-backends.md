@@ -65,11 +65,12 @@ cargo test -p aui-terminal -p aui-webview --all-features
 
 | module | what it is |
 |---|---|
-| `backend` | `WebBackend` (`navigate`, `back`, `forward`, `reload`, `eval`, `set_annotate`, `poll_events`) and `WebEvent::{Title, Url, Loading, Annotation, Screenshot}`; `ElementInfo` carries the selector, box, source and trimmed outer HTML behind each pin |
+| `backend` | `WebBackend` (`navigate`, `back`, `forward`, `reload`, `eval`, `set_annotate`, `poll_events`, plus `eval_with_result` / `take_eval_results` for answers with values) and `WebEvent::{Title, Url, Loading, Annotation, Screenshot}`; `ElementInfo` carries the selector, box, source and trimmed outer HTML behind each pin |
 | `page` | the "Simple pricing" mock card 51 is drawn over, moved out of the gallery so the card and the live pane paint one document. `page()` is card 51's frozen picture; `page_body()` is the document alone; `fake_elements()` exposes the element boxes as data |
-| `fake` | `FakeWebBackend`: navigation history, loading/url/title events, and annotations produced by hit-testing pointer positions against `fake_elements()` |
-| `wry_backend` (feature `wry`) | a real child WKWebView |
-| `view` | `WebviewState` + `webview_pane`, and `WebviewIntent::SendAnnotations { annotations, screenshot, url }` |
+| `fake` | `FakeWebBackend`: navigation history, loading/url/title events, annotations produced by hit-testing pointer positions against `fake_elements()`, and emulated evaluation answers for the `agent_js` scripts |
+| `agent_js` | ready-made scripts (`page_text`, `click`, `type_text`, `list_links`) with JSON-encoded arguments, for hosts that let an agent read and act on the page |
+| `wry_backend` (feature `wry`) | a real child WKWebView; `eval_with_result` runs through `evaluate_script_with_callback` with an async try/catch wrapper |
+| `view` | `WebviewState` + `webview_pane`, and `WebviewIntent::SendAnnotations { annotations, screenshot, url }`; the state forwards `eval_with_result` and drains answers on its poll timer |
 
 Gallery entries: `workbench/webview` (the fake) and, with `--features wry`,
 `workbench/webview-real` — both 980×640, dark.
@@ -130,6 +131,36 @@ does: it hides the view and paints the last screenshot in its place (a flat
 surface if there is none yet). The gallery card wires it to a ⌘K command
 palette. Call it for any overlay that overlaps the pane; call it with `false`
 again when the overlay closes.
+
+## Agent control: evaluating JS with results
+
+A host (Baaz) drives agent tools — read the page's text, URL and title, click
+or type into an element — through a separate result channel, not `WebEvent`
+(adding a variant would break hosts matching exhaustively):
+
+| piece | what it is |
+|---|---|
+| `WebBackend::eval_with_result(request_id, js)` | provided method; queues the script. The answer is the completion value JSON-stringified, or the thrown message. Default queues `Err("not supported")` |
+| `WebBackend::take_eval_results()` | provided method; drains `Vec<(request_id, Result<String, String>)>`. The pane's poll timer drains it and notifies on arrival |
+| `agent_js::{page_text, click, type_text, list_links}` | ready-made scripts: `{title, url, text}` trimmed to a limit, scroll-into-view click answering the element's text, focus-and-set answering the text, `[{href, text}]` |
+| `WebviewState::{eval_with_result, take_eval_results}` | forwards down to the backend and hands drained answers back out |
+
+The real backend runs the script with
+`wry::WebView::evaluate_script_with_callback`. The callback receives the
+completion value JSON-serialized and drops exceptions, so every script is
+wrapped in an async IIFE — `try { return "aui:ok:" + JSON.stringify(await …) }
+catch (e) { return "aui:err:" + message }` — which turns sync throws and async
+rejections into `Err` strings without a second IPC message shape. `FakeWebBackend`
+emulates the same contract from its scripted page: `document.title`,
+`location.href`, `document.body.innerText`, the four helpers, and
+`Err("unsupported in the fake page")` for anything else.
+
+**Injection-safe helpers.** Selectors and text enter a script only through
+`agent_js::json_string` — never string-concatenated raw — so a selector
+containing quotes or `</script>` stays inside its string literal (a test with
+both proves the raw value never appears in the script). The mock reads those
+arguments back by decoding the JSON literals after each helper's
+`/*aui-agent-…*/` marker.
 
 None of this applies to the fake, whose page is gpui elements — which is why the
 scripted card can show a note popover over the page at all.

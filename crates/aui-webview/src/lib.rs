@@ -10,6 +10,8 @@
 //!   plus [`page::fake_elements`], its element boxes as data.
 //! - [`fake`] — [`FakeWebBackend`], that document as a backend: real history,
 //!   real hit-testing, real annotations, no browser.
+//! - [`agent_js`] — ready-made scripts a host can evaluate with a result, so
+//!   an agent can read the page and act on it.
 //! - [`view`] — [`WebviewState`] and [`webview_pane`], the gpui elements: the
 //!   nav row, the page with the annotator's overlays, and the annotations
 //!   panel.
@@ -34,6 +36,7 @@
 
 #![warn(missing_docs)]
 
+pub mod agent_js;
 pub mod backend;
 pub mod fake;
 pub mod page;
