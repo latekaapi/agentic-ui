@@ -424,8 +424,8 @@ impl WebviewState {
             Some(input) => input,
             None => {
                 let input = cx.new(|cx| InputState::new(window, cx));
-                let sub = cx.subscribe(&input, |this, _, event: &InputEvent, cx| match event {
-                    InputEvent::PressEnter { .. } => this.commit_address(cx),
+                let sub = cx.subscribe_in(&input, window, |this, _, event: &InputEvent, window, cx| match event {
+                    InputEvent::PressEnter { .. } => this.commit_address(window, cx),
                     InputEvent::Blur => this.leave_editing(cx),
                     InputEvent::Focus | InputEvent::Change => {}
                 });
@@ -445,9 +445,12 @@ impl WebviewState {
 
     /// Commits the address field: the typed text becomes a URL and the page
     /// navigates to it. Runs on the input's enter event.
-    fn commit_address(&mut self, cx: &mut Context<Self>) {
+    fn commit_address(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let typed = self.address.as_ref().map(|input| input.read(cx).value().to_string()).unwrap_or_default();
         self.editing = false;
+        // The field unmounts next frame: park the keyboard on the pane so
+        // ⌘L and Escape keep reaching it, not an element that is gone.
+        window.focus(&self.focus, cx);
         self.navigate(&normalize_url(&typed));
         cx.notify();
     }
@@ -921,10 +924,12 @@ impl RenderOnce for WebviewPane {
             // address field is open cancels the edit; otherwise it travels on.
             .on_action({
                 let state = state.clone();
-                move |_: &InputEscape, _: &mut Window, cx: &mut App| {
+                move |_: &InputEscape, window: &mut Window, cx: &mut App| {
                     state.update(cx, |state, cx| {
                         if state.editing {
                             state.leave_editing(cx);
+                            // As on Enter: the keyboard returns to the pane.
+                            window.focus(&state.focus, cx);
                         } else {
                             cx.propagate();
                         }
@@ -1296,6 +1301,10 @@ mod tests {
             let (url, editing) = vcx.update(|_, cx| (state.read(cx).url().to_string(), state.read(cx).is_editing()));
             assert_eq!(url, home);
             assert!(!editing, "escape leaves the address field");
+            let pane_focused = vcx.update(|window, cx| state.read(cx).focus_handle().is_focused(window));
+            assert!(pane_focused, "the keyboard returns to the pane, not the unmounted field");
+            vcx.simulate_keystrokes("cmd-l");
+            assert!(vcx.update(|_, cx| state.read(cx).is_editing()), "⌘L opens the field again after an escape");
         });
     }
 
