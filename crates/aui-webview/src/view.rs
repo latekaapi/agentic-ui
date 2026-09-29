@@ -482,8 +482,13 @@ impl WebviewState {
         // lands after it and would leave the input without the keyboard —
         // the field showed the URL, but typing went nowhere (L5).
         let deferred = input.downgrade();
+        let pane = cx.entity().downgrade();
         window.defer(cx, move |window, cx| {
-            if let Some(input) = deferred.upgrade() {
+            // Only while still editing: an edit that ended in the same event
+            // (Enter, Escape, a press elsewhere) must not pull the keyboard
+            // back into a field that is about to unmount.
+            let editing = pane.upgrade().is_some_and(|pane| pane.read(cx).editing);
+            if let (true, Some(input)) = (editing, deferred.upgrade()) {
                 input.update(cx, |input, cx| input.focus(window, cx));
             }
         });
