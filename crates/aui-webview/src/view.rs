@@ -1032,6 +1032,9 @@ const COMPACT_PANE_WIDTH: f32 = 480.0;
 /// Called with the [`BrowserAction`] a nav control stands for.
 type NavHandler = Rc<dyn Fn(BrowserAction, &mut Window, &mut App)>;
 
+/// Ends address editing when a press lands outside the field.
+type DismissFn = Rc<dyn Fn(&mut App)>;
+
 /// The 38 px nav row: history controls, the address slot, the annotate
 /// toggle, screenshot and console. Every control names itself for the
 /// accessibility tree — icon-only buttons through explicit labels, the
@@ -1053,7 +1056,7 @@ fn nav_row(
     annotating: bool,
     compact: bool,
     handler: Option<NavHandler>,
-    dismiss: Option<Rc<dyn Fn(&mut App)>>,
+    dismiss: Option<DismissFn>,
     window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement {
@@ -1092,14 +1095,17 @@ fn nav_row(
             .mono(scale::FS_12)
             .text_color(p.ink_2)
             .items_center()
+            .debug_selector(|| "address-box".into())
+            // The whole slot — padding included — is the field: only a press
+            // outside the rounded box ends editing.
+            .when_some(dismiss.clone(), |slot, dismiss| {
+                slot.on_mouse_down_out(move |_, _, cx| dismiss(cx))
+            })
             .child(
                 a11y_text_input((id.clone(), "address"), "Address", &input, cx)
                     .flex_1()
                     .min_w(px(0.0))
-                    .debug_selector(|| "address-slot".into())
-                    .when_some(dismiss.clone(), |field, dismiss| {
-                        field.on_mouse_down_out(move |_, _, cx| dismiss(cx))
-                    }),
+                    .debug_selector(|| "address-slot".into()),
             )
             .into_any_element(),
         _ => {
@@ -1543,6 +1549,28 @@ mod tests {
         assert!(moved, "the press moves the keyboard to the other element");
         assert_eq!(url, home, "leaving the field must not navigate");
         assert!(!editing, "pressing outside the input leaves editing");
+    }
+
+    /// L4: a press in the address box's own padding — outside the input
+    /// element but inside the rounded field — keeps editing.
+    #[gpui::test]
+    fn a_press_in_the_field_padding_keeps_editing(cx: &mut TestAppContext) {
+        cx.update(|cx| aui::init(aui_tokens::ThemeKind::Dark, cx));
+        let (host, vcx) = cx.add_window_view(|_window, cx| {
+            let state = cx.new(|cx| WebviewState::new(Box::new(FakeWebBackend::new()), cx));
+            let other = cx.focus_handle();
+            BlurHost { state, other }
+        });
+        let state = vcx.update(|_, cx| host.read(cx).state.clone());
+        vcx.update(|window, cx| state.update(cx, |state, cx| state.begin_editing(window, cx)));
+        vcx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let slot = vcx.debug_bounds("address-box").expect("the address box is painted");
+        let padding = gpui::point(slot.origin.x + gpui::px(2.0), slot.center().y);
+        vcx.simulate_click(padding, gpui::Modifiers::none());
+        vcx.run_until_parked();
+        assert!(vcx.update(|_, cx| state.read(cx).is_editing()), "a press inside the field box keeps editing");
     }
 
     /// L4: a settled 360 px pane drops the `⌘L` keycap so the host/path keeps
