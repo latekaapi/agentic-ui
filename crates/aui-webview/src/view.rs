@@ -476,6 +476,17 @@ impl WebviewState {
             input.select_all(window, cx);
             input.focus(window, cx);
         });
+        // Again once the current event has finished dispatching: a click on
+        // the URL display runs this from inside the press, and an ancestor's
+        // own click handling (a host pane that takes focus when pressed)
+        // lands after it and would leave the input without the keyboard —
+        // the field showed the URL, but typing went nowhere (L5).
+        let deferred = input.downgrade();
+        window.defer(cx, move |window, cx| {
+            if let Some(input) = deferred.upgrade() {
+                input.update(cx, |input, cx| input.focus(window, cx));
+            }
+        });
         self.editing = true;
         cx.notify();
     }
@@ -1118,6 +1129,7 @@ fn nav_row(
                 .px(px(URL_PAD_X))
                 .gap(px(URL_GAP))
                 .rounded(px(scale::R_SM))
+                .debug_selector(|| "address-display".into())
                 .bg(p.surface_2)
                 .mono(scale::FS_12)
                 .text_color(p.ink_2)
@@ -1571,6 +1583,112 @@ mod tests {
         vcx.simulate_click(padding, gpui::Modifiers::none());
         vcx.run_until_parked();
         assert!(vcx.update(|_, cx| state.read(cx).is_editing()), "a press inside the field box keeps editing");
+    }
+
+    /// L5: the host a real-input test renders in, shaped like Baaz: a root
+    /// `escape → HostCancel` binding with no context, and the pane inside a
+    /// focusable ancestor that activates (focuses) itself on click, the way
+    /// a pane container takes selection when anything inside it is pressed.
+    use gpui::{Focusable as _, StatefulInteractiveElement as _};
+
+    struct L5Host {
+        state: Entity<WebviewState>,
+        wrap: FocusHandle,
+        cancelled: Rc<std::cell::Cell<bool>>,
+    }
+
+    impl Render for L5Host {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let flag = self.cancelled.clone();
+            let wrap = self.wrap.clone();
+            gpui::div()
+                .id("l5-host")
+                .on_action(move |_: &HostCancel, _, _| flag.set(true))
+                .child(
+                    gpui::div()
+                        .id("l5-wrap")
+                        .track_focus(&self.wrap)
+                        .on_click(move |_, window, cx| window.focus(&wrap, cx))
+                        .child(webview_pane("test-pane", &self.state)),
+                )
+        }
+    }
+
+    /// L5: runs `f` with a pane in the Baaz-shaped host: theme and input
+    /// bindings installed, the root escape binding bound, one frame drawn.
+    fn with_l5_host(
+        cx: &mut TestAppContext,
+        f: impl FnOnce(Entity<WebviewState>, Rc<std::cell::Cell<bool>>, &mut VisualTestContext),
+    ) {
+        cx.update(|cx| aui::init(aui_tokens::ThemeKind::Dark, cx));
+        let (host, vcx) = cx.add_window_view(|_window, cx| {
+            let state = cx.new(|cx| WebviewState::new(Box::new(FakeWebBackend::new()), cx));
+            let wrap = cx.focus_handle();
+            L5Host { state, wrap, cancelled: Rc::new(std::cell::Cell::new(false)) }
+        });
+        vcx.update(|_, cx| cx.bind_keys([gpui::KeyBinding::new("escape", HostCancel, None)]));
+        let (state, cancelled) = vcx.update(|_, cx| (host.read(cx).state.clone(), host.read(cx).cancelled.clone()));
+        f(state, cancelled, vcx);
+    }
+
+    /// L5: clicks the painted URL display the way a mouse does — through the
+    /// real mouse path, never through `begin_editing` directly.
+    fn click_address_display(vcx: &mut VisualTestContext) {
+        vcx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let center = vcx.debug_bounds("address-display").expect("the URL display is painted").center();
+        vcx.simulate_click(center, gpui::Modifiers::none());
+        vcx.run_until_parked();
+    }
+
+    /// L5 (E2): a mouse click on the URL display enters editing AND leaves
+    /// the keyboard in the field, the way `⌘L` does — typed text replaces
+    /// the selected URL instead of going nowhere.
+    #[gpui::test]
+    fn clicking_the_url_display_leaves_the_keyboard_in_the_field(cx: &mut TestAppContext) {
+        with_l5_host(cx, |state, _cancelled, vcx| {
+            click_address_display(vcx);
+            assert!(vcx.update(|_, cx| state.read(cx).is_editing()), "clicking the URL display enters editing");
+            let input_focused = vcx.update(|window, cx| {
+                state
+                    .read(cx)
+                    .address_input()
+                    .expect("the click creates the input")
+                    .read(cx)
+                    .focus_handle(cx)
+                    .is_focused(window)
+            });
+            assert!(input_focused, "the click path ends with the input focused, the way ⌘L does");
+            vcx.simulate_keystrokes("a b c");
+            let typed = vcx.update(|_, cx| state.read(cx).address_input().unwrap().read(cx).value().to_string());
+            assert_eq!(typed, "abc", "typed text replaces the selected URL instead of going nowhere");
+        });
+    }
+
+    /// L5 (E1): escape after a click-driven edit ends the edit, brings the
+    /// URL display back, and never reaches the host's root binding.
+    #[gpui::test]
+    fn escape_after_a_click_leaves_editing_without_firing_the_host_action(cx: &mut TestAppContext) {
+        with_l5_host(cx, |state, cancelled, vcx| {
+            let home = vcx.update(|_, cx| state.read(cx).url().to_string());
+            click_address_display(vcx);
+            assert!(vcx.update(|_, cx| state.read(cx).is_editing()), "clicking the URL display enters editing");
+            vcx.simulate_keystrokes("a b c");
+            vcx.simulate_keystrokes("escape");
+            let (url, editing) = vcx.update(|_, cx| (state.read(cx).url().to_string(), state.read(cx).is_editing()));
+            let fired = vcx.update(|_, _| cancelled.get());
+            assert!(!editing, "escape leaves editing even with a host root escape binding");
+            assert_eq!(url, home, "escape restores the URL instead of navigating");
+            assert!(!fired, "the host action must not fire for the editing escape");
+            vcx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            assert!(
+                vcx.debug_bounds("address-display").is_some(),
+                "the URL display is back after escape leaves editing"
+            );
+        });
     }
 
     /// L4: a settled 360 px pane drops the `⌘L` keycap so the host/path keeps
