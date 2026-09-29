@@ -33,6 +33,24 @@
 //! None of that constrains [`FakeWebBackend`], whose page is gpui elements —
 //! which is why the gallery card can show the note popover over the page at
 //! all.
+//!
+//! # `⌘L` focuses the address field
+//!
+//! The pane binds [`FocusAddress`] to `cmd-l` in its own key context (see
+//! [`WEBVIEW_CONTEXT`] and [`bind_keys`], installed automatically). That
+//! binding only fires while gpui holds the keyboard: with a native page
+//! focused the keystroke goes to the page and the pane never sees it. A host
+//! that wants `⌘L` to work everywhere must bind [`FocusAddress`] once more
+//! at window level (no key context) and route it to
+//! [`WebviewState::begin_editing`]:
+//!
+//! ```ignore
+//! cx.bind_keys([gpui::KeyBinding::new(
+//!     "cmd-l",
+//!     aui_webview::FocusAddress,
+//!     None,
+//! )]);
+//! ```
 
 #![warn(missing_docs)]
 
@@ -48,6 +66,6 @@ pub mod wry_backend;
 pub use backend::{ElementInfo, WebBackend, WebEvent};
 pub use fake::FakeWebBackend;
 pub use page::{fake_elements, FakeElement};
-pub use view::{webview_pane, WebviewIntent, WebviewPane, WebviewState};
+pub use view::{bind_keys, webview_pane, FocusAddress, WebviewIntent, WebviewPane, WebviewState, WEBVIEW_CONTEXT};
 #[cfg(feature = "wry")]
 pub use wry_backend::{WryBackend, ANNOTATOR_JS};
