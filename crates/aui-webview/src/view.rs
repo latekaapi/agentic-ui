@@ -1222,12 +1222,12 @@ mod tests {
     /// installed, one frame drawn.
     fn with_pane(cx: &mut TestAppContext, f: impl FnOnce(Entity<WebviewState>, &mut VisualTestContext)) {
         cx.update(|cx| aui::init(aui_tokens::ThemeKind::Dark, cx));
-        let (host, mut vcx) = cx.add_window_view(|_window, cx| {
+        let (host, vcx) = cx.add_window_view(|_window, cx| {
             let state = cx.new(|cx| WebviewState::new(Box::new(FakeWebBackend::new()), cx));
             PaneHost { state }
         });
         let state = vcx.update(|_, cx| host.read(cx).state.clone());
-        f(state, &mut vcx);
+        f(state, vcx);
     }
 
     /// The address input's value and selected byte range.
