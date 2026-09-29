@@ -14,7 +14,7 @@
 
 use gpui::accesskit::ActionData;
 use gpui::{
-    div, prelude::*, AccessibleAction, App, Div, ElementId, Entity, IntoElement, Role,
+    div, prelude::*, AccessibleAction, App, Div, ElementId, Entity, Role,
     SharedString, Stateful, StatefulInteractiveElement, Window,
 };
 use gpui_kit::base::input::{Input, InputBaseState, InputModeKind, InputState};
@@ -132,11 +132,15 @@ pub fn a11y_text_field<M: InputModeKind>(
 /// Any single-line gpui-kit [`Input`] with the full accessibility surface:
 /// role, label, live value, and the set / insert-at-caret / focus actions.
 /// What a consumer's search field wraps itself in.
+///
+/// Returns the [`Stateful`] frame itself (not an opaque element) so callers
+/// can chain layout onto it — a flex-filling slot, for example — the way
+/// [`a11y_text_field`]'s documentation shows.
 pub fn a11y_text_input(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     state: &Entity<InputState>,
     cx: &App,
-) -> impl IntoElement {
+) -> Stateful<Div> {
     a11y_text_field(id, label, state, false, cx).child(Input::new(state))
 }

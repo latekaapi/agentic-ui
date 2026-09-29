@@ -18,7 +18,7 @@ use aui::workbench::{annotations_panel, element_outline, note_popover, Annotatio
 use aui_icons::{icon, IconName};
 use aui_motion::{tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
-use gpui::{actions, canvas, div, img, prelude::*, px, relative, App, Bounds, Context, ElementId, Entity, FocusHandle, Global, Image, ImageFormat, IntoElement, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, Role, SharedString, Size, Subscription, Task, Window};
+use gpui::{actions, canvas, div, img, prelude::*, px, relative, App, Bounds, Context, ElementId, Entity, FocusHandle, Focusable as _, Global, Image, ImageFormat, IntoElement, KeyBinding, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, Role, SharedString, Size, Subscription, Task, Window};
 use gpui_kit::base::input::{Escape as InputEscape, InputEvent, InputState};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -138,6 +138,8 @@ pub struct WebviewState {
     address: Option<Entity<InputState>>,
     /// Keeps the address input's commit/blur subscription alive.
     _address_sub: Option<Subscription>,
+    /// Keeps the escape interceptor alive; see [`Self::new`].
+    _intercept: Subscription,
     /// The keyboard focus the pane takes.
     focus: FocusHandle,
     /// Set by the host while a gpui overlay covers the page; see
@@ -175,6 +177,35 @@ impl WebviewState {
             }
         });
         let native = backend.is_native();
+        // Escape has to reach the pane even when the host binds it at the
+        // root context: a contextless binding matches at full depth and
+        // outranks the input's own `escape → Escape` binding, so the host
+        // action would swallow the keystroke and editing would stick. The
+        // interceptor runs before any binding resolves: while the address
+        // input holds the keyboard, a bare escape ends the edit and never
+        // reaches the host. Anything else propagates untouched.
+        let weak = cx.weak_entity();
+        let intercept = cx.intercept_keystrokes(move |event, window, cx| {
+            if event.keystroke.key == "escape" && event.keystroke.modifiers == Modifiers::none() {
+                let ours = weak
+                    .update(cx, |state: &mut Self, cx| {
+                        let mine = state.editing
+                            && state
+                                .address
+                                .as_ref()
+                                .is_some_and(|input| input.read(cx).focus_handle(cx).is_focused(window));
+                        if mine {
+                            state.leave_editing(cx);
+                            window.focus(&state.focus, cx);
+                        }
+                        mine
+                    })
+                    .unwrap_or(false);
+                if ours {
+                    cx.stop_propagation();
+                }
+            }
+        });
         let mut state = Self {
             backend,
             url: SharedString::default(),
@@ -193,6 +224,7 @@ impl WebviewState {
             editing: false,
             address: None,
             _address_sub: None,
+            _intercept: intercept,
             focus: cx.focus_handle(),
             obscured: false,
             pushed: None,
@@ -424,6 +456,11 @@ impl WebviewState {
             Some(input) => input,
             None => {
                 let input = cx.new(|cx| InputState::new(window, cx));
+                // `Blur` ends the edit without navigating: it fires whenever
+                // the input loses the keyboard to another focusable element.
+                // Focus events dispatch when a frame renders, so a live
+                // window that keeps painting always notices; a click on a
+                // non-focusable surface moves no focus and ends nothing.
                 let sub = cx.subscribe_in(&input, window, |this, _, event: &InputEvent, window, cx| match event {
                     InputEvent::PressEnter { .. } => this.commit_address(window, cx),
                     InputEvent::Blur => this.leave_editing(cx),
@@ -456,8 +493,10 @@ impl WebviewState {
     }
 
     /// Leaves the address field without navigating: the URL display falls
-    /// back to the page URL on the next frame. Runs on input blur and, via
-    /// the pane's propagated-escape handler, on escape.
+    /// back to the page URL on the next frame. Runs on input blur and on
+    /// escape — through the escape interceptor in [`Self::new`], with the
+    /// pane's propagated-escape handler as the fallback when no host
+    /// binding competes for the keystroke.
     fn leave_editing(&mut self, cx: &mut Context<Self>) {
         if self.editing {
             self.editing = false;
@@ -748,8 +787,10 @@ impl RenderOnce for WebviewPane {
         let obscured = view.obscured;
         let focus = view.focus.clone();
         let stand_in = view.screenshot_image.clone();
-        // Below ~560 px the full nav row starves the URL field.
-        let compact = f32::from(view.page_size.width) > 0.0 && f32::from(view.page_size.width) < 560.0;
+        // Below [`COMPACT_PANE_WIDTH`] the full nav row starves the URL
+        // field, so the keycap and the annotate label get out of its way.
+        let compact =
+            f32::from(view.page_size.width) > 0.0 && f32::from(view.page_size.width) < COMPACT_PANE_WIDTH;
         let nav_handler: NavHandler = {
             let state = state.clone();
             let handler = handler.clone();
@@ -758,6 +799,17 @@ impl RenderOnce for WebviewPane {
                 if let (Some(intent), Some(handler)) = (intent, handler.clone()) {
                     handler(intent, window, cx);
                 }
+            })
+        };
+        // A press outside the address input ends the edit without
+        // navigating: the slot's own out-handler covers presses inside the
+        // pane, and the pane root's out-handler below covers presses out in
+        // the host (a transcript click moves no focus when its target is
+        // not focusable, so blur alone would miss it).
+        let dismiss: Rc<dyn Fn(&mut App)> = {
+            let state = state.clone();
+            Rc::new(move |cx: &mut App| {
+                state.update(cx, |state, cx| state.leave_editing(cx));
             })
         };
         let nav = nav_row(
@@ -771,6 +823,7 @@ impl RenderOnce for WebviewPane {
             annotate,
             compact,
             Some(nav_handler),
+            Some(dismiss.clone()),
             _window,
             cx,
         );
@@ -936,6 +989,10 @@ impl RenderOnce for WebviewPane {
                     });
                 }
             })
+            // A press outside the pane (a transcript click, a palette)
+            // ends an open address edit without navigating; presses inside
+            // the pane reach the slot's own out-handler instead.
+            .on_mouse_down_out(move |_, _, cx| dismiss(cx))
             .size_full()
             .min_h(px(0.0))
             .bg(p.surface_1)
@@ -965,6 +1022,12 @@ const KBD_HEIGHT: f32 = 18.0;
 const KBD_PAD_X: f32 = 5.0;
 /// The loading hairline at the bottom of the nav row: 2 px accent.
 const LOADING_HEIGHT: f32 = 2.0;
+/// Below this pane width the nav row compacts: the `⌘L` keycap beside the
+/// URL and the annotate label give their room to the address slot. 24 URL
+/// characters at 12 px mono need ~175 px, plus ~40 px of slot chrome and
+/// ~210 px of nav buttons and padding — so below ~480 px the keycap goes
+/// and the host/path stays readable.
+const COMPACT_PANE_WIDTH: f32 = 480.0;
 
 /// Called with the [`BrowserAction`] a nav control stands for.
 type NavHandler = Rc<dyn Fn(BrowserAction, &mut Window, &mut App)>;
@@ -973,6 +1036,11 @@ type NavHandler = Rc<dyn Fn(BrowserAction, &mut Window, &mut App)>;
 /// toggle, screenshot and console. Every control names itself for the
 /// accessibility tree — icon-only buttons through explicit labels, the
 /// address slot through "Address".
+///
+/// `dismiss` ends an open address edit without navigating; the editing slot
+/// calls it on a press outside the input (focus alone cannot do this: a
+/// focus move between two painted elements changes no focus path, so no
+/// focus event — and no input blur — ever fires for it).
 #[allow(clippy::too_many_arguments)]
 fn nav_row(
     id: ElementId,
@@ -985,6 +1053,7 @@ fn nav_row(
     annotating: bool,
     compact: bool,
     handler: Option<NavHandler>,
+    dismiss: Option<Rc<dyn Fn(&mut App)>>,
     window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement {
@@ -1007,6 +1076,11 @@ fn nav_row(
     // page URL, clickable to start editing.
     let url_id: ElementId = (id.clone(), "url").into();
     let url_field = match (editing, address) {
+        // The wrapper fills the slot on the main axis: without flex it is
+        // an auto-width flex item around a full-width input, which collapses
+        // to zero width and the field paints empty. The slot's mono/ink text
+        // style inherits into the input, so the URL, selection and caret
+        // draw in the field's font and colour.
         (true, Some(input)) => h_flex()
             .id(url_id)
             .flex_1()
@@ -1015,8 +1089,18 @@ fn nav_row(
             .px(px(URL_PAD_X))
             .rounded(px(scale::R_SM))
             .bg(p.surface_2)
+            .mono(scale::FS_12)
+            .text_color(p.ink_2)
             .items_center()
-            .child(a11y_text_input((id.clone(), "address"), "Address", &input, cx))
+            .child(
+                a11y_text_input((id.clone(), "address"), "Address", &input, cx)
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .debug_selector(|| "address-slot".into())
+                    .when_some(dismiss.clone(), |field, dismiss| {
+                        field.on_mouse_down_out(move |_, _, cx| dismiss(cx))
+                    }),
+            )
             .into_any_element(),
         _ => {
             record_ax_label("Address");
@@ -1036,7 +1120,10 @@ fn nav_row(
                 .aria_label("Address")
                 .child(icon(IconName::Shield).size(px(URL_SHIELD)).color(p.success))
                 .child(div().flex_1().min_w(px(0.0)).truncate().child(url))
-                .when(!compact, |d| d.child(kbd("⌘L")));
+                .when(!compact, |d| {
+                    record_ax_label("⌘L");
+                    d.child(kbd("⌘L"))
+                });
             if let Some(handler) = handler.clone() {
                 field = field.on_click(move |_, window, cx| handler(BrowserAction::FocusUrl, window, cx));
             }
@@ -1128,11 +1215,16 @@ fn annotate_toggle(id: impl Into<ElementId>, on: bool, compact: bool, handler: O
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
+
     use super::normalize_url;
     use super::{webview_pane, WebviewState};
     use crate::agent_js;
     use crate::fake::FakeWebBackend;
-    use gpui::{AppContext as _, Context, Entity, IntoElement, Render, TestAppContext, VisualTestContext, Window};
+    use gpui::{
+        AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _, IntoElement, ParentElement as _,
+        Render, Styled as _, TestAppContext, VisualTestContext, Window,
+    };
 
     #[test]
     fn what_is_typed_in_the_url_field_becomes_a_url() {
@@ -1322,6 +1414,187 @@ mod tests {
             assert_eq!(value, vcx.update(|_, cx| state.read(cx).url().to_string()));
             assert_eq!(selected, 0..value.len());
         });
+    }
+
+    // L4: a host action standing in for Baaz's root-context `escape` binding.
+    gpui::actions!(l4_test_host, [HostCancel]);
+
+    /// L4: a host that notices when a root `escape → HostCancel` binding
+    /// dispatches while the pane is open.
+    struct CancelHost {
+        state: Entity<WebviewState>,
+        cancelled: Rc<std::cell::Cell<bool>>,
+    }
+
+    impl Render for CancelHost {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let flag = self.cancelled.clone();
+            gpui::div()
+                .id("l4-cancel-host")
+                .on_action(move |_: &HostCancel, _, _| flag.set(true))
+                .child(webview_pane("test-pane", &self.state))
+        }
+    }
+
+    /// L4: a host with a second focusable element beside the pane: the pane
+    /// gets a fixed height so the element below it is laid out and hittable.
+    struct BlurHost {
+        state: Entity<WebviewState>,
+        other: FocusHandle,
+    }
+
+    impl Render for BlurHost {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            gpui_kit::base::v_flex()
+                .child(gpui::div().h(gpui::px(400.)).child(webview_pane("test-pane", &self.state)))
+                .child(
+                    gpui::div()
+                        .id("l4-other")
+                        .h(gpui::px(40.))
+                        .track_focus(&self.other)
+                        .debug_selector(|| "l4-other".into())
+                        .child("other"),
+                )
+        }
+    }
+
+    /// L4: while editing, the input fills the address slot — its laid-out
+    /// text bounds span the slot's content width at a 360 px pane — and it
+    /// holds the page URL.
+    #[gpui::test]
+    fn editing_input_fills_the_address_slot(cx: &mut TestAppContext) {
+        with_pane(cx, |state, vcx| {
+            vcx.simulate_resize(gpui::size(gpui::px(360.), gpui::px(600.)));
+            let home = vcx.update(|_, cx| state.read(cx).url().to_string());
+            vcx.update(|window, cx| state.update(cx, |state, cx| state.begin_editing(window, cx)));
+            vcx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            let slot_width = vcx.debug_bounds("address-slot").map(|bounds| f32::from(bounds.size.width)).unwrap_or(-1.0);
+            let (value, text_width) = vcx.update(|_, cx| {
+                let input = state.read(cx).address_input().expect("begin_editing creates the input");
+                let snapshot = input.read(cx);
+                let width = snapshot.text_bounds().map(|bounds| f32::from(bounds.size.width)).unwrap_or(-1.0);
+                (snapshot.value().to_string(), width)
+            });
+            assert_eq!(value, home, "the field shows the page URL while editing");
+            assert!(
+                slot_width > 0.0 && text_width >= slot_width - 22.0 && text_width <= slot_width + 1.0,
+                "the input fills the slot: text width {text_width} vs slot width {slot_width}"
+            );
+        });
+    }
+
+    /// L4: escape while editing leaves editing even when the host binds
+    /// `escape` at the root context (no predicate outranks the input's own
+    /// Escape binding), and the host action does not fire for that keystroke.
+    #[gpui::test]
+    fn escape_leaves_editing_despite_a_host_root_binding(cx: &mut TestAppContext) {
+        cx.update(|cx| aui::init(aui_tokens::ThemeKind::Dark, cx));
+        let (host, vcx) = cx.add_window_view(|_window, cx| {
+            let state = cx.new(|cx| WebviewState::new(Box::new(FakeWebBackend::new()), cx));
+            CancelHost { state, cancelled: Rc::new(std::cell::Cell::new(false)) }
+        });
+        let state = vcx.update(|_, cx| host.read(cx).state.clone());
+        let home = vcx.update(|_, cx| state.read(cx).url().to_string());
+        vcx.update(|_, cx| cx.bind_keys([gpui::KeyBinding::new("escape", HostCancel, None)]));
+        vcx.update(|window, cx| state.update(cx, |state, cx| state.begin_editing(window, cx)));
+        vcx.simulate_keystrokes("escape");
+        let (url, editing) = vcx.update(|_, cx| (state.read(cx).url().to_string(), state.read(cx).is_editing()));
+        let cancelled = vcx.update(|_, cx| host.read(cx).cancelled.get());
+        assert_eq!(url, home, "escape restores the URL instead of navigating");
+        assert!(!editing, "escape leaves editing even with a host root escape binding");
+        assert!(!cancelled, "the host Cancel action must not fire for the editing escape");
+    }
+
+    /// L4: pressing on another focusable element in the same window — which
+    /// moves the keyboard there — leaves editing without navigating. (A bare
+    /// focus move between two painted elements changes no focus path, so no
+    /// focus event or input blur ever fires for it; the press itself is what
+    /// the pane listens for.)
+    #[gpui::test]
+    fn focusing_elsewhere_leaves_editing_without_navigating(cx: &mut TestAppContext) {
+        cx.update(|cx| aui::init(aui_tokens::ThemeKind::Dark, cx));
+        let (host, vcx) = cx.add_window_view(|_window, cx| {
+            let state = cx.new(|cx| WebviewState::new(Box::new(FakeWebBackend::new()), cx));
+            let other = cx.focus_handle();
+            BlurHost { state, other }
+        });
+        let state = vcx.update(|_, cx| host.read(cx).state.clone());
+        let other = vcx.update(|_, cx| host.read(cx).other.clone());
+        let home = vcx.update(|_, cx| state.read(cx).url().to_string());
+        vcx.update(|window, cx| state.update(cx, |state, cx| state.begin_editing(window, cx)));
+        vcx.update(|window, cx| {
+            state
+                .read(cx)
+                .address_input()
+                .unwrap()
+                .update(cx, |input, cx| input.replace("example.com", window, cx));
+        });
+        vcx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let center = vcx.debug_bounds("l4-other").expect("the other element is painted").center();
+        vcx.simulate_click(center, gpui::Modifiers::none());
+        vcx.run_until_parked();
+        let (url, editing, moved) = vcx.update(|window, cx| {
+            (state.read(cx).url().to_string(), state.read(cx).is_editing(), other.is_focused(window))
+        });
+        assert!(moved, "the press moves the keyboard to the other element");
+        assert_eq!(url, home, "leaving the field must not navigate");
+        assert!(!editing, "pressing outside the input leaves editing");
+    }
+
+    /// L4: a settled 360 px pane drops the `⌘L` keycap so the host/path keeps
+    /// room; a settled 500 px pane keeps it (~24 URL characters still fit).
+    #[gpui::test]
+    fn narrow_pane_hides_the_address_keycap(cx: &mut TestAppContext) {
+        cx.update(|cx| aui::init(aui_tokens::ThemeKind::Dark, cx));
+        aui::data::arm_ax_probe(true);
+        aui::data::take_ax_labels();
+        let (_host, vcx) = cx.add_window_view(|_window, cx| {
+            let state = cx.new(|cx| WebviewState::new(Box::new(FakeWebBackend::new()), cx));
+            PaneHost { state }
+        });
+        // Two draws per width: the first frame's prepaint measures the page
+        // width the resize produced, and only the second frame renders with
+        // it. Labels are drained between the draws so each assertion sees a
+        // single settled frame: the probe accumulates across renders, and
+        // the first frame still carries the previous width.
+        vcx.simulate_resize(gpui::size(gpui::px(360.), gpui::px(600.)));
+        aui::data::take_ax_labels();
+        vcx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        aui::data::take_ax_labels();
+        vcx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let narrow_first = aui::data::take_ax_labels();
+        assert!(!narrow_first.iter().any(|label| label == "⌘L"), "no ⌘L keycap at 360 px, got {narrow_first:?}");
+        vcx.simulate_resize(gpui::size(gpui::px(500.), gpui::px(600.)));
+        aui::data::take_ax_labels();
+        vcx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        aui::data::take_ax_labels();
+        vcx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let medium = aui::data::take_ax_labels();
+        assert!(medium.iter().any(|label| label == "⌘L"), "⌘L keycap stays at 500 px, got {medium:?}");
+        vcx.simulate_resize(gpui::size(gpui::px(360.), gpui::px(600.)));
+        aui::data::take_ax_labels();
+        vcx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        aui::data::take_ax_labels();
+        vcx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let narrow = aui::data::take_ax_labels();
+        assert!(!narrow.iter().any(|label| label == "⌘L"), "no ⌘L keycap at 360 px, got {narrow:?}");
+        aui::data::arm_ax_probe(false);
     }
 
     /// Every nav control names itself for the accessibility tree: the
