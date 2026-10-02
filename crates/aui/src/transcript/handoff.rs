@@ -357,7 +357,7 @@ fn settled(state: &HandoffState) -> bool {
 /// `Hand-off progress` with every row naming its own state. The current step
 /// spins and shows the host's elapsed counter; a failed step shows its
 /// reason in the danger tone.
-fn step_list(id: &ElementId, p: &Palette, steps: &[HandoffStep]) -> AnyElement {
+fn step_list(id: &ElementId, p: &Palette, steps: &[HandoffStep], halted: bool) -> AnyElement {
     let mut list = v_flex()
         .id((id.clone(), "steps"))
         .w_full()
@@ -368,20 +368,32 @@ fn step_list(id: &ElementId, p: &Palette, steps: &[HandoffStep]) -> AnyElement {
         let label = handoff_step_label(step);
         record_ax_label(&label);
         let row_id: ElementId = (id.clone(), SharedString::from(format!("step-{i}"))).into();
-        let mark: AnyElement = match step.state {
+        // Once the move has failed nothing is in progress any more: a step the
+        // host left `Current` reads as pending, never a spinner on a dead card.
+        let state = effective_step_state(step.state, halted);
+        let mark: AnyElement = match state {
             HandoffStepState::Done => glyph_ok().into_any_element(),
             HandoffStepState::Current => spinner((row_id.clone(), "spin")).into_any_element(),
             HandoffStepState::Failed => glyph_err().into_any_element(),
-            HandoffStepState::Pending | HandoffStepState::Skipped => div()
+            HandoffStepState::Pending => div()
                 .flex_none()
                 .size(px(14.0))
                 .rounded_full()
                 .border_1()
                 .border_color(p.line_strong)
                 .into_any_element(),
+            // Skipped reads differently from pending: a short dash, no ring.
+            HandoffStepState::Skipped => div()
+                .flex_none()
+                .size(px(14.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(div().w(px(8.0)).h(px(1.5)).rounded_full().bg(p.line_strong))
+                .into_any_element(),
         };
-        let failed = step.state == HandoffStepState::Failed;
-        let dimmed = matches!(step.state, HandoffStepState::Pending | HandoffStepState::Skipped);
+        let failed = state == HandoffStepState::Failed;
+        let dimmed = matches!(state, HandoffStepState::Pending | HandoffStepState::Skipped);
         let mut row = h_flex()
             .id(row_id.clone())
             .w_full()
@@ -392,7 +404,7 @@ fn step_list(id: &ElementId, p: &Palette, steps: &[HandoffStep]) -> AnyElement {
             .role(gpui::Role::ListItem)
             .aria_label(label)
             .child(mark)
-            .child(div().flex_none().child(step.label.clone()));
+            .child(div().flex_shrink_0().max_w(gpui::relative(0.7)).min_w(px(0.0)).truncate().child(step.label.clone()));
         if let Some(detail) = &step.detail {
             row = row.child(
                 div()
@@ -406,6 +418,12 @@ fn step_list(id: &ElementId, p: &Palette, steps: &[HandoffStep]) -> AnyElement {
         list = list.child(row);
     }
     list.into_any_element()
+}
+
+/// The state a step renders in: a `Current` step on a halted (failed or
+/// refused) move is shown as pending.
+fn effective_step_state(state: HandoffStepState, halted: bool) -> HandoffStepState {
+    if halted && state == HandoffStepState::Current { HandoffStepState::Pending } else { state }
 }
 
 /// Whether the move can still be stopped: Requested through Prepared.
@@ -469,7 +487,12 @@ impl RenderOnce for HandoffCard {
         // The progress steps while the move is live; settled cards collapse
         // back to the state line and the shared lists.
         if !settled(&self.state) && !self.steps.is_empty() {
-            body = body.child(step_list(&id, &p, &self.steps));
+            body = body.child(step_list(
+                &id,
+                &p,
+                &self.steps,
+                matches!(&self.state, HandoffState::Refused { .. } | HandoffState::Failed { .. }),
+            ));
         }
 
         // Carried and Not carried share their rendering with the confirm
@@ -691,4 +714,13 @@ mod tests {
             assert!(!settled(&state), "{state:?} must keep its steps");
         }
     }
+
+    #[test]
+    fn a_halted_move_never_shows_a_step_in_progress() {
+        assert_eq!(effective_step_state(HandoffStepState::Current, true), HandoffStepState::Pending);
+        assert_eq!(effective_step_state(HandoffStepState::Current, false), HandoffStepState::Current);
+        assert_eq!(effective_step_state(HandoffStepState::Done, true), HandoffStepState::Done);
+        assert_eq!(effective_step_state(HandoffStepState::Failed, true), HandoffStepState::Failed);
+    }
+
 }
