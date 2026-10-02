@@ -163,6 +163,7 @@ type ActionHandler = Rc<dyn Fn(&FileTreeAction, &mut Window, &mut App)>;
 /// index in the flattened order times `ROW_H` (24 px). `None` when no row carries
 /// the id. Hosts without a scroll handle can drive their own container with
 /// this; [`FileTree::scroll_to`] does the same through the tree's handle.
+#[cfg(test)]
 pub fn scroll_offset_for_id(nodes: &[FileNode], id: &SharedString) -> Option<f32> {
     row_index_for_id(nodes, id).map(|ix| ix as f32 * ROW_H)
 }

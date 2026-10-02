@@ -74,6 +74,7 @@ const COUNT_PILL_H: f32 = 16.0;
 pub const CODE_VIRTUALIZE_AT: usize = 400;
 /// Rows rendered past the viewport edge in a virtualised block, top and
 /// bottom, so fast scrolling never shows a gap.
+#[cfg(test)]
 pub const CODE_VIRTUAL_OVERDRAW: usize = 16;
 /// The fixed height of a virtualised block's scrollable line list.
 const VIRTUAL_H: f32 = 320.0;
@@ -93,6 +94,7 @@ pub fn line_row_index(line_no: u32, start_line: u32) -> Option<usize> {
 /// How many rows a virtualised block of `total_lines` lines keeps alive for
 /// a viewport showing `viewport_lines` rows: the visible rows plus the
 /// overdraw on each side, capped at the block length.
+#[cfg(test)]
 pub fn virtual_row_count(total_lines: usize, viewport_lines: usize) -> usize {
     total_lines.min(viewport_lines.saturating_add(2 * CODE_VIRTUAL_OVERDRAW))
 }
@@ -659,7 +661,7 @@ fn virtual_code_body(
             let wanted = (line, scroll_token);
             let state = window.use_keyed_state((id.clone(), "lines-scrolled"), cx, |_, _| CodeScrollState::default());
             let current = state.read(cx).clone();
-            if scroll_request_pending(line, scroll_token, current.settled.clone()) {
+            if scroll_request_pending(line, scroll_token, current.settled) {
                 let attempts = if current.waiting.as_ref() == Some(&wanted) { current.attempts } else { 0 };
                 if code_scroll_retries_exhausted(attempts) {
                     // Done waiting: settle without asking for another frame.

@@ -1408,6 +1408,8 @@ fn annotate_toggle(id: impl Into<ElementId>, on: bool, compact: bool, handler: O
 
 #[cfg(test)]
 mod tests {
+    /// Every `set_bounds` call a fake backend saw: (origin, size).
+    type BoundsLog = Rc<RefCell<Vec<((f32, f32), (f32, f32))>>>;
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
@@ -1944,14 +1946,14 @@ mod tests {
     /// follow-the-pane behaviour without a real webview.
     struct NativeFake {
         inner: FakeWebBackend,
-        set_bounds_calls: Rc<RefCell<Vec<((f32, f32), (f32, f32))>>>,
+        set_bounds_calls: BoundsLog,
         set_visible_calls: Rc<RefCell<Vec<bool>>>,
         extra_events: Rc<RefCell<Vec<WebEvent>>>,
     }
 
     impl NativeFake {
         fn new(
-            set_bounds_calls: Rc<RefCell<Vec<((f32, f32), (f32, f32))>>>,
+            set_bounds_calls: BoundsLog,
             set_visible_calls: Rc<RefCell<Vec<bool>>>,
             extra_events: Rc<RefCell<Vec<WebEvent>>>,
         ) -> Self {
@@ -2138,11 +2140,12 @@ mod tests {
 
     /// L5fix: a native-backed state plus its `set_bounds` / `set_visible`
     /// records and its injectable event queue.
+    #[allow(clippy::type_complexity)]
     fn native_state(
         cx: &mut TestAppContext,
     ) -> (
         Entity<WebviewState>,
-        Rc<RefCell<Vec<((f32, f32), (f32, f32))>>>,
+        BoundsLog,
         Rc<RefCell<Vec<bool>>>,
         Rc<RefCell<Vec<WebEvent>>>,
     ) {
