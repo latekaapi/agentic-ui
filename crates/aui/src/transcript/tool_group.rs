@@ -143,6 +143,14 @@ pub fn count_label(calls: usize) -> String {
     if calls == 1 { "1 call".to_string() } else { format!("{calls} calls") }
 }
 
+/// Whether the summary already states a number (`Ran 2 commands`,
+/// `Read 12 files`), in which case the header drops its own `N calls`
+/// instead of saying the count twice. Any ASCII digit counts: provider
+/// summaries that carry a number always mean a count here.
+pub fn summary_has_count(summary: &str) -> bool {
+    summary.chars().any(|c| c.is_ascii_digit())
+}
+
 impl RenderOnce for ToolGroup {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
@@ -156,11 +164,16 @@ impl RenderOnce for ToolGroup {
         };
         // The card frame stays expanded: collapsed means preview rows, not an
         // empty card, so the chevron is drawn by hand from the group state.
+        // The muted count is dropped when the summary already states the
+        // number (`Read 2 files · 2 calls` said it twice).
         let mut card = transcript_card(id.clone(), true)
             .chevron(false)
             .header(glyph)
-            .header(div().medium().whitespace_nowrap().child(self.group.summary.clone()))
-            .header(div().text_color(p.ink_3).child(count_label(count)))
+            .header(div().medium().whitespace_nowrap().child(self.group.summary.clone()));
+        if !summary_has_count(&self.group.summary) {
+            card = card.header(div().text_color(p.ink_3).child(count_label(count)));
+        }
+        card = card
             .header(div().flex_1())
             .header(chevron((id.clone(), "chevron"), self.open, p.ink_3, window, cx));
 
@@ -273,6 +286,15 @@ mod tests {
         assert_eq!(count_label(0), "0 calls");
         assert_eq!(count_label(1), "1 call");
         assert_eq!(count_label(5), "5 calls");
+    }
+
+    #[test]
+    fn a_summary_with_a_number_drops_the_second_count() {
+        assert!(summary_has_count("Ran 2 commands"));
+        assert!(summary_has_count("Read 12 files"));
+        assert!(summary_has_count("11 tool calls"));
+        assert!(!summary_has_count("Checked the form flow"));
+        assert!(!summary_has_count(""));
     }
 
     #[test]

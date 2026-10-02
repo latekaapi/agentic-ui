@@ -22,7 +22,15 @@ const OUT_PAD_X: f32 = 12.0;
 const OUT_TEXT: f32 = 11.5;
 const OUT_LH: f32 = 1.65;
 /// Shell output folds after this many lines (the card shows six, then `14 more lines`).
+/// The six are always the LAST lines — the tail — whether the command is
+/// still running or settled, so a live card follows the fresh output instead
+/// of pinning the head.
 pub const SHELL_FOLD: usize = 6;
+/// Search and MCP bodies cap at the same height as the generic item card's
+/// expanded body, so no long result is ever taller than ~40 lines inline.
+pub const SEARCH_BODY_CAP: usize = 40;
+/// Lines of `result_json` shown before the `N more lines` fold row.
+pub const MCP_BODY_CAP: usize = 40;
 /// `.more{gap:6px;padding:4px 10px 6px;font-size:11px;margin-top:-14px}` with an 11 px chevron and a 40 % fade.
 const MORE_GAP: f32 = 6.0;
 const MORE_PAD_TOP: f32 = 4.0;
@@ -351,7 +359,7 @@ impl RenderOnce for ToolCard {
             ToolBody::Shell { output_lines, .. } => Some(shell_body(&p, &id, output_lines, emit.clone()).into_any_element()),
             ToolBody::Read { .. } | ToolBody::None => None,
             ToolBody::Edit { diff } => Some(diff_body(&p, diff, emit.clone()).into_any_element()),
-            ToolBody::Search { hits } => Some(search_body(&p, hits).into_any_element()),
+            ToolBody::Search { hits } => Some(search_body(&p, hits, emit.clone()).into_any_element()),
             ToolBody::Web { results, hidden } => Some(web_body(&p, results, *hidden).into_any_element()),
             ToolBody::Browser { caption, .. } => {
                 // The click ring pulses only while the call is still in
@@ -368,7 +376,7 @@ impl RenderOnce for ToolCard {
                     .child(format!("{} turns in the delegated transcript", turns.len()))
                     .into_any_element(),
             ),
-            ToolBody::Mcp { params, result_json } => Some(mcp_body(&p, params, result_json).into_any_element()),
+            ToolBody::Mcp { params, result_json } => Some(mcp_body(&p, params, result_json, emit.clone()).into_any_element()),
         };
         if let Some(body) = body {
             card = card.body(body);
@@ -419,8 +427,31 @@ fn fold_row(p: &Palette, ground: gpui::Hsla, overlap: bool, label: String, open_
     .child(div().id("open").cursor_pointer().role(gpui::Role::Button).aria_label(open_label).on_click(move |e, w, cx| open(e, w, cx)).child(open_label))
 }
 
+/// The [`SHELL_FOLD`] tail of `lines`: the last lines, oldest first, so a
+/// live card follows fresh output. Fewer than the fold shows everything.
+pub fn shell_visible_lines(lines: &[String]) -> &[String] {
+    let skip = lines.len().saturating_sub(SHELL_FOLD);
+    &lines[skip..]
+}
+
+/// The first [`SEARCH_BODY_CAP`] hits and the overflow count named by the
+/// fold row.
+pub fn search_visible_hits(hits: &[aui_protocol::SearchHit]) -> (&[aui_protocol::SearchHit], usize) {
+    let hidden = hits.len().saturating_sub(SEARCH_BODY_CAP);
+    let shown = &hits[..hits.len() - hidden];
+    (shown, hidden)
+}
+
+/// The first [`MCP_BODY_CAP`] lines of `result_json` and the overflow count
+/// named by the fold row.
+pub fn mcp_visible_lines(result_json: &str) -> (Vec<&str>, usize) {
+    let total = result_json.lines().count();
+    let hidden = total.saturating_sub(MCP_BODY_CAP);
+    (result_json.lines().take(MCP_BODY_CAP).collect(), hidden)
+}
+
 fn shell_body(p: &Palette, _id: &ElementId, lines: &[String], emit: impl Fn(ToolCardIntent) -> Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)> + Clone + 'static) -> impl IntoElement {
-    let shown = lines.iter().take(SHELL_FOLD);
+    let shown = shell_visible_lines(lines).iter();
     let mut out = v_flex().w_full().py(px(OUT_PAD_Y)).px(px(OUT_PAD_X)).mono(OUT_TEXT).line_height(relative(OUT_LH)).text_color(p.term_fg).whitespace_nowrap();
     for line in shown {
         let (text, runs) = ansi_runs(&ansi_spans(line), p, scale::FONT_MONO);
@@ -466,9 +497,10 @@ fn diff_body(p: &Palette, diff: &aui_protocol::Diff, emit: impl Fn(ToolCardInten
     body
 }
 
-fn search_body(p: &Palette, hits: &[aui_protocol::SearchHit]) -> impl IntoElement {
+fn search_body(p: &Palette, hits: &[aui_protocol::SearchHit], emit: impl Fn(ToolCardIntent) -> Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)> + Clone + 'static) -> impl IntoElement {
+    let (shown, hidden) = search_visible_hits(hits);
     let mut body = v_flex().w_full().py(px(HITS_PAD_Y)).px(px(HITS_PAD_X)).mono(OUT_TEXT).line_height(relative(HITS_LH)).text_color(p.ink);
-    for hit in hits {
+    for hit in shown {
         // `path:line  snippet` as one wrapping line: path ink-3, match accent-ink 500.
         let head = format!("{}:{}  ", hit.path, hit.line);
         let text = format!("{head}{}", hit.snippet);
@@ -479,6 +511,9 @@ fn search_body(p: &Palette, hits: &[aui_protocol::SearchHit]) -> impl IntoElemen
             gpui::TextRun { len: hit.snippet.len(), font: strong, color: p.accent_ink, background_color: None, underline: None, strikethrough: None },
         ];
         body = body.child(div().w_full().child(StyledText::new(text).with_runs(runs)));
+    }
+    if hidden > 0 {
+        body = body.child(fold_row(p, p.surface_1, false, format!("{hidden} more hits"), "open in pane", emit));
     }
     body
 }
@@ -560,12 +595,17 @@ fn browser_body(p: &Palette, id: &ElementId, caption: Option<&str>, live: bool, 
     )
 }
 
-fn mcp_body(p: &Palette, params: &[(String, String)], result_json: &str) -> impl IntoElement {
+fn mcp_body(p: &Palette, params: &[(String, String)], result_json: &str, emit: impl Fn(ToolCardIntent) -> Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)> + Clone + 'static) -> impl IntoElement {
     let mut body = v_flex().w_full().py(px(HITS_PAD_Y)).px(px(HITS_PAD_X)).mono(OUT_TEXT).line_height(relative(HITS_LH)).text_color(p.ink);
     for (k, v) in params {
         body = body.child(h_flex().gap(px(scale::SP_3)).child(div().text_color(p.ink_3).child(k.clone())).child(div().child(v.clone())));
     }
-    body.child(div().text_color(p.ink_2).child(result_json.to_string()))
+    let (shown, hidden) = mcp_visible_lines(result_json);
+    body = body.child(div().text_color(p.ink_2).child(shown.join("\n")));
+    if hidden > 0 {
+        body = body.child(fold_row(p, p.surface_1, false, format!("{hidden} more lines"), "open in pane", emit));
+    }
+    body
 }
 
 #[cfg(test)]
@@ -648,5 +688,71 @@ mod tests {
         let card = tool_card("t", "Edited", "a.rs", ToolStatus::Success, ToolBody::Edit { diff });
         assert_eq!(card.diff_stat, None);
         assert!(edit_draws_chips(card.diff_stat.as_ref()));
+    }
+
+    fn numbered_lines(n: usize) -> Vec<String> {
+        (1..=n).map(|i| format!("line {i}")).collect()
+    }
+
+    fn search_hits(n: usize) -> Vec<aui_protocol::SearchHit> {
+        (1..=n)
+            .map(|i| aui_protocol::SearchHit {
+                path: format!("src/file{i}.rs"),
+                line: i as u32,
+                snippet: format!("hit {i}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn shell_shows_the_last_six_lines() {
+        // Twenty lines in, the head is gone and the tail stays in order.
+        let lines = numbered_lines(20);
+        assert_eq!(
+            shell_visible_lines(&lines),
+            &["line 15", "line 16", "line 17", "line 18", "line 19", "line 20"]
+        );
+    }
+
+    #[test]
+    fn shell_shorter_than_the_fold_shows_everything() {
+        let lines = numbered_lines(4);
+        assert_eq!(shell_visible_lines(&lines), &["line 1", "line 2", "line 3", "line 4"]);
+        assert!(shell_visible_lines(&[]).is_empty());
+        // Exactly the fold: nothing to fold away.
+        assert_eq!(shell_visible_lines(&numbered_lines(SHELL_FOLD)).len(), SHELL_FOLD);
+    }
+
+    #[test]
+    fn search_caps_at_forty_hits() {
+        let hits = search_hits(100);
+        let (shown, hidden) = search_visible_hits(&hits);
+        assert_eq!(shown.len(), SEARCH_BODY_CAP);
+        assert_eq!(shown[0].snippet, "hit 1");
+        assert_eq!(hidden, 60);
+    }
+
+    #[test]
+    fn search_shorter_than_the_cap_hides_nothing() {
+        let hits = search_hits(2);
+        let (shown, hidden) = search_visible_hits(&hits);
+        assert_eq!(shown.len(), 2);
+        assert_eq!(hidden, 0);
+    }
+
+    #[test]
+    fn mcp_result_caps_at_forty_lines() {
+        let json = (1..=100).map(|i| format!("{{\"i\":{i}}}")).collect::<Vec<_>>().join("\n");
+        let (shown, hidden) = mcp_visible_lines(&json);
+        assert_eq!(shown.len(), MCP_BODY_CAP);
+        assert_eq!(shown[0], "{\"i\":1}");
+        assert_eq!(hidden, 60);
+    }
+
+    #[test]
+    fn mcp_short_result_hides_nothing() {
+        let (shown, hidden) = mcp_visible_lines("{\"id\":\"ACME-2491\"}");
+        assert_eq!(shown, vec!["{\"id\":\"ACME-2491\"}"]);
+        assert_eq!(hidden, 0);
     }
 }

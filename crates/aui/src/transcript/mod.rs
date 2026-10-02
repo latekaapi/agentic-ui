@@ -25,6 +25,7 @@ mod thinking;
 mod todo;
 mod tool_card;
 mod tool_group;
+mod turn_fold;
 mod prose;
 mod turns;
 
@@ -39,12 +40,17 @@ pub use marker::{marker_row, HandOff, MarkerRow};
 pub use turns::{assistant_turn, footer_items, format_age, turn_selected_text, turn_selected_text_settled, turn_span_selected_text, turn_span_selected_text_settled, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction, COPY_HOLD};
 pub use ansi::{ansi_runs, parse_ansi, AnsiSpan};
 pub use tool_card::{
-    arm_chip_probe, format_duration, take_drawn_chips, tool_card, ToolCard, ToolCardAction,
-    ToolCardIntent, SHELL_FOLD,
+    arm_chip_probe, format_duration, mcp_visible_lines, search_visible_hits, shell_visible_lines,
+    take_drawn_chips, tool_card, ToolCard, ToolCardAction, ToolCardIntent, MCP_BODY_CAP,
+    SEARCH_BODY_CAP, SHELL_FOLD,
 };
 pub use tool_group::{
-    count_label, more_label, preview_hidden, tool_group, ToolGroup, ToolGroupData, ToolGroupIntent,
-    GROUP_PREVIEW,
+    count_label, more_label, preview_hidden, summary_has_count, tool_group, ToolGroup,
+    ToolGroupData, ToolGroupIntent, GROUP_PREVIEW,
+};
+pub use turn_fold::{
+    earlier_label, live_activity_row, turn_fold, turn_fold_elapsed, turn_fold_summary,
+    turn_fold_title, LiveActivityRow, TurnFold, TurnFoldIntent,
 };
 pub use approval::{approval_card, ApprovalCard};
 pub use handoff::{
@@ -52,7 +58,11 @@ pub use handoff::{
     HANDOFF_FRESH_NOTE,
 };
 pub use question::{answered_row, question_card, AnsweredRow, QuestionCard, QuestionOutcome};
-pub use item::{generic_item_card, goal_card, GenericItemCard, GoalCard};
+pub use item::{
+    generic_hidden_lines, generic_item_card, generic_preview_lines, generic_visible_lines,
+    goal_card, GenericItemCard, GenericItemIntent, GoalCard, GENERIC_BODY_CAP,
+    GENERIC_PREVIEW_LINES,
+};
 pub use plan::{plan_card, PlanCard};
 pub use todo::{todo_list, TodoList};
 pub use code::{code_block, diff_block, diff_note, diff_note_inset, runnable_command, CodeBlock, CodeBlockAction, CodeBlockHostButton, DiffBlock, DiffBlockAction, DiffNote, NoteInsets};
