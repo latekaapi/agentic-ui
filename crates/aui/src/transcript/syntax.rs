@@ -1,7 +1,9 @@
 //! A small lexer for the syntax colours the design uses in code blocks:
 //! keyword (magenta), function call (blue), string (green), number (yellow),
 //! comment (dim, italic). It knows JavaScript / TypeScript shapes, which is
-//! what the sample code is; other languages get keywords and literals only.
+//! what the sample code is, plus the Rust reserved words, so a build without
+//! the `tree-sitter` feature still colours Rust; other languages get
+//! keywords and literals only.
 //!
 //! With the crate's optional `tree-sitter` feature the same six classes are
 //! produced by gpui-kit's `SyntaxHighlighter` for the languages listed in
@@ -57,7 +59,8 @@ const KEYWORDS: &[&str] = &[
     "export", "function", "if", "else", "return", "const", "let", "var", "await", "async", "class", "import", "from", "type", "interface", "new",
     "true", "false", "null", "undefined", "for", "while", "switch", "case", "break", "continue", "throw", "try", "catch", "finally", "default", "as",
     "in", "of", "typeof", "instanceof", "this", "extends", "implements", "public", "private", "static", "readonly", "enum", "void", "yield",
-    "fn", "pub", "impl", "struct", "match", "use", "mod", "mut", "self", "def", "None", "True", "False", "elif", "with", "lambda", "pass",
+    "fn", "pub", "impl", "struct", "match", "use", "mod", "mut", "self", "Self", "trait", "where", "move", "ref", "crate", "super", "dyn",
+    "def", "None", "True", "False", "elif", "with", "lambda", "pass",
 ];
 
 /// Tokenises one line of `code` into `(byte range, kind)` pairs covering it fully.
@@ -436,6 +439,39 @@ mod tests {
     #[test]
     fn an_empty_line_has_no_tokens() {
         assert!(tokenize_line("").is_empty());
+    }
+
+    #[test]
+    fn rust_reserved_words_are_keywords_without_tree_sitter() {
+        // The fallback lexer colours Rust even when the `tree-sitter`
+        // feature is off, so a plain build still highlights a preview.
+        for (line, word) in [
+            ("fn main() {}", "fn"),
+            ("pub struct Args {", "pub"),
+            ("pub struct Args {", "struct"),
+            ("impl Args {", "impl"),
+            ("use std::io;", "use"),
+            ("match x {", "match"),
+            ("enum Kind {", "enum"),
+            ("trait Write {", "trait"),
+            ("mod parser {", "mod"),
+            ("let mut x = 1;", "let"),
+            ("let mut x = 1;", "mut"),
+            ("const MAX: usize = 8;", "const"),
+            ("static SEED: u64 = 7;", "static"),
+            ("where T: Bound", "where"),
+            ("async fn run() {}", "async"),
+            ("x.await;", "await"),
+            ("move || x", "move"),
+            ("let ref y = x;", "ref"),
+            ("self.len()", "self"),
+            ("Self::new()", "Self"),
+            ("crate::parse()", "crate"),
+            ("super::lex()", "super"),
+            ("Box<dyn Trait>", "dyn"),
+        ] {
+            assert_eq!(kind_of(line, word), TokenKind::Keyword, "`{word}` in `{line}`");
+        }
     }
 
     #[test]

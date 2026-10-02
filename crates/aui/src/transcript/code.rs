@@ -9,7 +9,7 @@ use std::ops::Range;
 use aui_motion::{icon_morph, spring_phase, tween, IconMorph, SpringKind, Tween};
 use aui_protocol::{Diff, DiffKind};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
-use gpui::{div, prelude::*, px, relative, App, ClipboardItem, ElementId, Hsla, IntoElement, SharedString, StyledText, Window};
+use gpui::{div, prelude::*, px, relative, uniform_list, App, ClipboardItem, ElementId, Hsla, IntoElement, ScrollStrategy, SharedString, StyledText, UniformListScrollHandle, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, icon_button, pill, record_ax_label, ButtonSize, PillVariant};
@@ -67,6 +67,34 @@ const NOTE_ACTIONS_TOP: f32 = 6.0;
 const NOTE_ACTIONS_GAP: f32 = 6.0;
 /// `.pill.success{height:16px;padding:0 6px}` in the diff header.
 const COUNT_PILL_H: f32 = 16.0;
+/// Blocks longer than this render their lines through a virtualised list
+/// instead of one row per line, so a 10k-line file costs only the visible
+/// rows. Short blocks render exactly as before.
+pub const CODE_VIRTUALIZE_AT: usize = 400;
+/// Rows rendered past the viewport edge in a virtualised block, top and
+/// bottom, so fast scrolling never shows a gap.
+pub const CODE_VIRTUAL_OVERDRAW: usize = 16;
+/// The fixed height of a virtualised block's scrollable line list.
+const VIRTUAL_H: f32 = 320.0;
+
+/// Whether the displayed line `line_no` falls inside `range` (`start`
+/// inclusive, `end` exclusive, in displayed line numbers).
+pub fn highlight_contains(range: &Range<u32>, line_no: u32) -> bool {
+    range.contains(&line_no)
+}
+
+/// The row index of the displayed line `line_no` in a block whose first
+/// line is `start_line`. `None` when the line is above the block.
+pub fn line_row_index(line_no: u32, start_line: u32) -> Option<usize> {
+    line_no.checked_sub(start_line).map(|ix| ix as usize)
+}
+
+/// How many rows a virtualised block of `total_lines` lines keeps alive for
+/// a viewport showing `viewport_lines` rows: the visible rows plus the
+/// overdraw on each side, capped at the block length.
+pub fn virtual_row_count(total_lines: usize, viewport_lines: usize) -> usize {
+    total_lines.min(viewport_lines.saturating_add(2 * CODE_VIRTUAL_OVERDRAW))
+}
 
 /// Actions on a code block header.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +151,8 @@ pub struct CodeBlock {
     code: SharedString,
     start_line: u32,
     hidden_lines: usize,
+    highlight: Option<Range<u32>>,
+    scroll_to_line: Option<u32>,
     host_action: Option<(usize, CodeBlockHostButton)>,
     on_action: Option<CodeHandler>,
     selection_key: Option<SelectionKey>,
@@ -134,7 +164,7 @@ pub struct CodeBlock {
 
 /// A block showing `code` from `path`.
 pub fn code_block(id: impl Into<ElementId>, path: impl Into<SharedString>, code: impl Into<SharedString>) -> CodeBlock {
-    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, hidden_lines: 0, host_action: None, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None, on_span: None }
+    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, hidden_lines: 0, highlight: None, scroll_to_line: None, host_action: None, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None, on_span: None }
 }
 
 /// The command a fenced block carries, if it is runnable.
@@ -188,6 +218,24 @@ impl CodeBlock {
     /// How many more lines the fold row offers.
     pub fn hidden_lines(mut self, count: usize) -> Self {
         self.hidden_lines = count;
+        self
+    }
+
+    /// Paints a calm band behind the displayed lines in `range` (`start`
+    /// inclusive, `end` exclusive — `40..45` bands lines 40 through 44).
+    /// Unset by default; without it every line renders exactly as before.
+    pub fn highlight_lines(mut self, range: Range<u32>) -> Self {
+        self.highlight = Some(range);
+        self
+    }
+
+    /// Scrolls this displayed line into view on first render (a virtualised
+    /// block's list starts there; a short block has no inner scroll, so the
+    /// line only gains the highlight when [`highlight_lines`](Self::highlight_lines)
+    /// covers it). Unset by default. When unset but a highlight is set, the
+    /// list starts at the highlight's first line instead.
+    pub fn scroll_to_line(mut self, line: u32) -> Self {
+        self.scroll_to_line = Some(line);
         self
     }
 
@@ -345,6 +393,185 @@ fn block_header(p: &Palette, id: &ElementId, args: BlockHeaderArgs, window: &mut
         .child(h_flex().flex_none().gap(px(ACTIONS_GAP)).opacity(opacity).children(actions))
 }
 
+/// The per-line selection wiring a [`CodeBlock`] shares across its rows:
+/// one cell key over the whole block text, so a drag can span lines.
+#[derive(Clone)]
+struct LineSelect {
+    key: SelectionKey,
+    color: Hsla,
+    range: Option<Range<usize>>,
+    on_change: Option<SelectionHandler>,
+    on_span: Option<SpanHandler>,
+}
+
+/// One numbered code row: the gutter plus the syntax-coloured line, with the
+/// calm highlight band behind it when `highlighted`.
+///
+/// Selection shares one cell key across lines: `line_start` is the line's
+/// byte offset over the whole block text (`lines()` strips the newline,
+/// hence `+ 1`). Without a [`LineSelect`] the line keeps its plain
+/// `StyledText`, pixel-identical to before.
+#[allow(clippy::too_many_arguments)]
+fn code_line_row(
+    line_id: ElementId,
+    line_no: u32,
+    line: &str,
+    line_start: usize,
+    language: Option<&str>,
+    p: &Palette,
+    select: Option<&LineSelect>,
+    highlighted: bool,
+) -> impl IntoElement {
+    let runs = syntax_runs_in(line, language, p, scale::FONT_MONO);
+    let text = if line.is_empty() { " ".to_string() } else { line.to_string() };
+    let runs = if line.is_empty() { Vec::new() } else { runs };
+    let line_body: gpui::AnyElement = match select {
+        Some(sel) => {
+            let local =
+                sel.range.as_ref().and_then(|range| intersect_range(range, line_start, line.len()));
+            let mut element =
+                selectable_text(line_id, sel.key.clone(), text).runs(runs).selection_color(sel.color).selection(local);
+            if let Some(emit) = &sel.on_change {
+                let emit = emit.clone();
+                let key = sel.key.clone();
+                let empty = line.is_empty();
+                element = element.on_selection_change(move |next, window, cx| {
+                    let next = next.and_then(|local| {
+                        if empty {
+                            None
+                        } else {
+                            Some(TextSelection {
+                                cell: key.clone(),
+                                range: local.range.start + line_start..local.range.end + line_start,
+                            })
+                        }
+                    });
+                    emit(next, window, cx);
+                });
+            }
+            if let Some(emit) = &sel.on_span {
+                let emit = emit.clone();
+                let key = sel.key.clone();
+                let empty = line.is_empty();
+                element = element.on_span_event(move |event, window, cx| {
+                    // Empty lines render a phantom space with no bytes of
+                    // their own; anchor those events at the newline offset
+                    // so spans stay continuous.
+                    let at = |offset: usize| {
+                        if empty {
+                            line_start
+                        } else {
+                            line_start + offset
+                        }
+                    };
+                    let mapped = match event {
+                        SpanEvent::Press { offset, .. } => SpanEvent::Press { cell: key.clone(), offset: at(offset) },
+                        SpanEvent::Hover { offset, .. } => SpanEvent::Hover { cell: key.clone(), offset: at(offset) },
+                        SpanEvent::Release { hovered, link, .. } => SpanEvent::Release { cell: key.clone(), hovered, link },
+                        SpanEvent::Pick { selection } => SpanEvent::Pick {
+                            selection: selection.map(|single| MessageSelection {
+                                anchor: SelectionEndpoint { cell: key.clone(), offset: at(single.anchor.offset) },
+                                focus: SelectionEndpoint { cell: key.clone(), offset: at(single.focus.offset) },
+                            }),
+                        },
+                    };
+                    emit(mapped, window, cx);
+                });
+            }
+            div().flex_1().min_w(px(0.0)).overflow_hidden().child(element).into_any_element()
+        }
+        None => {
+            let _ = &line_id;
+            let styled =
+                if runs.is_empty() { StyledText::new(text) } else { StyledText::new(text).with_runs(runs) };
+            div().flex_1().min_w(px(0.0)).overflow_hidden().child(styled).into_any_element()
+        }
+    };
+    let mut row = h_flex()
+        .w_full()
+        .items_start()
+        .child(div().flex_none().w(px(GUTTER_W)).text_color(p.term_dim).child(line_no.to_string()))
+        .child(line_body);
+    if highlighted {
+        row = row.bg(p.accent_soft);
+    }
+    row
+}
+
+/// The scrollable, virtualised line list for blocks over
+/// [`CODE_VIRTUALIZE_AT`] lines: only the visible rows are built each frame,
+/// and the list starts at `scroll_to` on first render.
+#[allow(clippy::too_many_arguments)]
+fn virtual_code_body(
+    id: ElementId,
+    code: &str,
+    start_line: u32,
+    language: Option<SharedString>,
+    select: Option<LineSelect>,
+    highlight: Option<Range<u32>>,
+    scroll_to: Option<u32>,
+    window: &mut Window,
+    cx: &mut App,
+) -> gpui::AnyElement {
+    let lines: std::sync::Arc<Vec<String>> = std::sync::Arc::new(code.lines().map(str::to_string).collect());
+    let mut starts = Vec::with_capacity(lines.len());
+    let mut base = 0usize;
+    for line in lines.iter() {
+        starts.push(base);
+        base += line.len() + 1;
+    }
+    let starts: std::sync::Arc<Vec<usize>> = std::sync::Arc::new(starts);
+    let total = lines.len();
+
+    let handle: UniformListScrollHandle =
+        window.use_keyed_state((id.clone(), "lines-scroll"), cx, |_, _| UniformListScrollHandle::default()).read(cx).clone();
+    // The list starts at the requested line on first render. The request
+    // fires once per line, so a reader who scrolls away afterwards is never
+    // snapped back.
+    if let Some(line) = scroll_to {
+        let target = line_row_index(line, start_line).unwrap_or(0).min(total.saturating_sub(1));
+        let settled = window.use_keyed_state((id.clone(), "lines-scrolled"), cx, |_, _| None::<u32>);
+        if settled.read(cx).as_ref() != Some(&line) {
+            handle.scroll_to_item_strict(target, ScrollStrategy::Top);
+            settled.update(cx, |done, cx| {
+                *done = Some(line);
+                cx.notify();
+            });
+            window.request_animation_frame();
+        }
+    }
+
+    let list_id = id.clone();
+    let row_id = id.clone();
+    let list = uniform_list((list_id, "lines"), total, move |range, _window, cx| {
+        let p = cx.aui().colors;
+        range
+            .map(|i| {
+                let line_no = start_line + i as u32;
+                let highlighted = highlight.as_ref().is_some_and(|r| highlight_contains(r, line_no));
+                let line_id: ElementId = indexed_child(&row_id, "sel-", i);
+                code_line_row(line_id, line_no, &lines[i], starts[i], language.as_deref(), &p, select.as_ref(), highlighted)
+            })
+            .collect::<Vec<_>>()
+    })
+    .track_scroll(&handle);
+    div()
+        .id((id, "lines-wrap"))
+        .w_full()
+        .h(px(VIRTUAL_H))
+        .overflow_hidden()
+        .py(px(CODE_PAD_Y))
+        .px(px(CODE_PAD_X))
+        .mono(scale::FS_12)
+        .line_height(relative(CODE_LH))
+        .text_color(cx.aui().colors.term_fg)
+        .whitespace_nowrap()
+        .role(gpui::Role::List)
+        .aria_label("Code lines")
+        .child(list)
+        .into_any_element()
+}
+
 impl RenderOnce for CodeBlock {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
@@ -376,130 +603,55 @@ impl RenderOnce for CodeBlock {
         let header = block_header(&p, &id, BlockHeaderArgs { glyph: IconName::File, name: self.path.clone(), after, actions, hovered: flags.hovered }, window, cx);
 
         let language = self.language.clone();
-        // Selection shares one cell key across lines: `base` is the line's
-        // byte offset over the whole block text (`lines()` strips the
-        // newline, hence `+ 1`). Without a key the lines keep their plain
-        // `StyledText`, pixel-identical to before.
-        let sel_key = self.selection_key.clone();
-        let sel_color = self.selection_color.unwrap_or(p.selection);
-        let sel_range = self.selection.clone();
-        let sel_emit = self.on_selection_change.clone();
-        let sel_span = self.on_span.clone();
-        let mut body = v_flex().w_full().py(px(CODE_PAD_Y)).px(px(CODE_PAD_X)).mono(scale::FS_12).line_height(relative(CODE_LH)).text_color(p.term_fg).whitespace_nowrap();
-        let mut base = 0usize;
-        for (i, line) in self.code.lines().enumerate() {
-            let line_start = base;
-            base += line.len() + 1;
-            let runs = syntax_runs_in(line, language.as_deref(), &p, scale::FONT_MONO);
-            let text = if line.is_empty() { " ".to_string() } else { line.to_string() };
-            let runs = if line.is_empty() { Vec::new() } else { runs };
-            let line_body: gpui::AnyElement = match &sel_key {
-                Some(key) => {
-                    let line_id: ElementId = indexed_child(&id, "sel-", i);
-                    let local = sel_range
-                        .as_ref()
-                        .and_then(|range| intersect_range(range, line_start, line.len()));
-                    let mut element = selectable_text(line_id, key.clone(), text)
-                        .runs(runs)
-                        .selection_color(sel_color)
-                        .selection(local);
-                    if let Some(emit) = &sel_emit {
-                        let emit = emit.clone();
-                        let key = key.clone();
-                        let empty = line.is_empty();
-                        element = element.on_selection_change(move |next, window, cx| {
-                            let next = next.and_then(|local| {
-                                if empty {
-                                    None
-                                } else {
-                                    Some(TextSelection {
-                                        cell: key.clone(),
-                                        range: local.range.start + line_start
-                                            ..local.range.end + line_start,
-                                    })
-                                }
-                            });
-                            emit(next, window, cx);
-                        });
-                    }
-                    if let Some(emit) = &sel_span {
-                        let emit = emit.clone();
-                        let key = key.clone();
-                        let empty = line.is_empty();
-                        element = element.on_span_event(move |event, window, cx| {
-                            // Empty lines render a phantom space with no
-                            // bytes of their own; anchor those events at the
-                            // newline offset so spans stay continuous.
-                            let at = |offset: usize| {
-                                if empty {
-                                    line_start
-                                } else {
-                                    line_start + offset
-                                }
-                            };
-                            let mapped = match event {
-                                SpanEvent::Press { offset, .. } => SpanEvent::Press {
-                                    cell: key.clone(),
-                                    offset: at(offset),
-                                },
-                                SpanEvent::Hover { offset, .. } => SpanEvent::Hover {
-                                    cell: key.clone(),
-                                    offset: at(offset),
-                                },
-                                SpanEvent::Release {
-                                    hovered, link, ..
-                                } => SpanEvent::Release {
-                                    cell: key.clone(),
-                                    hovered,
-                                    link,
-                                },
-                                SpanEvent::Pick { selection } => SpanEvent::Pick {
-                                    selection: selection.map(|single| {
-                                        MessageSelection {
-                                            anchor: SelectionEndpoint {
-                                                cell: key.clone(),
-                                                offset: at(single.anchor.offset),
-                                            },
-                                            focus: SelectionEndpoint {
-                                                cell: key.clone(),
-                                                offset: at(single.focus.offset),
-                                            },
-                                        }
-                                    }),
-                                },
-                            };
-                            emit(mapped, window, cx);
-                        });
-                    }
-                    div()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .overflow_hidden()
-                        .child(element)
-                        .into_any_element()
-                }
-                None => {
-                    let styled = if runs.is_empty() {
-                        StyledText::new(text)
-                    } else {
-                        StyledText::new(text).with_runs(runs)
-                    };
-                    div()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .overflow_hidden()
-                        .child(styled)
-                        .into_any_element()
-                }
-            };
-            body = body.child(
-                h_flex()
-                    .w_full()
-                    .items_start()
-                    .child(div().flex_none().w(px(GUTTER_W)).text_color(p.term_dim).child((self.start_line + i as u32).to_string()))
-                    .child(line_body),
-            );
+        let select = self.selection_key.clone().map(|key| LineSelect {
+            key,
+            color: self.selection_color.unwrap_or(p.selection),
+            range: self.selection.clone(),
+            on_change: self.on_selection_change.clone(),
+            on_span: self.on_span.clone(),
+        });
+        let highlight = self.highlight.clone();
+        if let Some(range) = highlight.as_ref().filter(|r| !r.is_empty()) {
+            record_ax_label(&format!("Highlighted lines {} to {}", range.start, range.end - 1));
         }
+        // Long blocks virtualise: only the visible rows are built each
+        // frame. Short blocks keep the one-row-per-line body, plus the
+        // highlight band where set.
+        let body: gpui::AnyElement = if self.code.lines().count() > CODE_VIRTUALIZE_AT {
+            let scroll_to = self.scroll_to_line.or_else(|| highlight.as_ref().map(|r| r.start));
+            virtual_code_body(
+                id.clone(),
+                &self.code,
+                self.start_line,
+                language.clone(),
+                select.clone(),
+                highlight.clone(),
+                scroll_to,
+                window,
+                cx,
+            )
+        } else {
+            let mut body = v_flex().w_full().py(px(CODE_PAD_Y)).px(px(CODE_PAD_X)).mono(scale::FS_12).line_height(relative(CODE_LH)).text_color(p.term_fg).whitespace_nowrap();
+            let mut base = 0usize;
+            for (i, line) in self.code.lines().enumerate() {
+                let line_start = base;
+                base += line.len() + 1;
+                let line_no = self.start_line + i as u32;
+                let highlighted = highlight.as_ref().is_some_and(|r| highlight_contains(r, line_no));
+                let line_id: ElementId = indexed_child(&id, "sel-", i);
+                body = body.child(code_line_row(
+                    line_id,
+                    line_no,
+                    line,
+                    line_start,
+                    language.as_deref(),
+                    &p,
+                    select.as_ref(),
+                    highlighted,
+                ));
+            }
+            body.into_any_element()
+        };
 
         let mut block = v_flex()
             .id(id.clone())
@@ -764,7 +916,7 @@ impl RenderOnce for DiffBlock {
 
 #[cfg(test)]
 mod tests {
-    use super::runnable_command;
+    use super::{highlight_contains, line_row_index, runnable_command, virtual_row_count, CODE_VIRTUALIZE_AT};
 
     #[test]
     fn shell_languages_run_whole_and_unchanged() {
@@ -821,5 +973,35 @@ mod tests {
         assert_eq!(runnable_command("console", ""), Some(String::new()));
         assert_eq!(runnable_command("", ""), Some(String::new()));
         assert_eq!(runnable_command("python", ""), None);
+    }
+
+    #[test]
+    fn highlight_range_covers_its_lines_and_nothing_else() {
+        let range = 40..45u32;
+        for line in 40..45 {
+            assert!(highlight_contains(&range, line), "line {line}");
+        }
+        for line in [1, 39, 45, 46, 400] {
+            assert!(!highlight_contains(&range, line), "line {line}");
+        }
+        assert!(!highlight_contains(&(45..45u32), 45), "empty range highlights nothing");
+    }
+
+    #[test]
+    fn displayed_lines_map_to_row_indices() {
+        assert_eq!(line_row_index(40, 1), Some(39));
+        assert_eq!(line_row_index(1, 1), Some(0));
+        assert_eq!(line_row_index(44, 44), Some(0));
+        assert_eq!(line_row_index(43, 44), None);
+    }
+
+    #[test]
+    fn virtualised_row_count_stays_bounded_for_long_files() {
+        // A 10k-line file keeps only the viewport plus overdraw alive.
+        assert!(virtual_row_count(10_000, 20) <= 20 + 2 * super::CODE_VIRTUAL_OVERDRAW);
+        assert_eq!(virtual_row_count(10_000, 20), 20 + 2 * super::CODE_VIRTUAL_OVERDRAW);
+        // A block shorter than the window keeps every row.
+        assert_eq!(virtual_row_count(CODE_VIRTUALIZE_AT, 10_000), CODE_VIRTUALIZE_AT);
+        assert_eq!(virtual_row_count(7, 20), 7);
     }
 }

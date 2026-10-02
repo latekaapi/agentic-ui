@@ -51,18 +51,47 @@ struct TreeState {
     selected: Option<SharedString>,
 }
 
-/// The rows of the worktree tree.
+/// The id the tree reveals on its first frame: a file nested five levels
+/// deep, past the visible rows, so the card exercises `scroll_to`.
+const DEEP_ID: &str = "src/checkout/steps/pipes/deep/mod.rs";
+
+/// The rows of the worktree tree. Deliberately taller than the pane, so the
+/// deep reveal at [`DEEP_ID`] has rows to scroll past.
 fn sample_tree() -> Vec<FileNode> {
     vec![
         FileNode::dir("src", "src", true).badge(GitBadge::M),
         FileNode::dir("src/checkout", "checkout", true).depth(1).badge(GitBadge::M),
         FileNode::file("src/checkout/AddressForm.tsx", "AddressForm.tsx", FileType::Tsx).depth(2).badge(GitBadge::M),
-        FileNode::file("src/checkout/validators.ts", "validators.ts", FileType::Ts).depth(2).badge(GitBadge::M).selected(true),
+        FileNode::file("src/checkout/validators.ts", "validators.ts", FileType::Ts).depth(2).badge(GitBadge::M),
         FileNode::file("src/checkout/validators.test.ts", "validators.test.ts", FileType::Test).depth(2).badge(GitBadge::A),
         FileNode::file("src/checkout/index.ts", "index.ts", FileType::Ts).depth(2),
+        FileNode::file("src/checkout/banner.ts", "banner.ts", FileType::Ts).depth(2),
+        FileNode::file("src/checkout/cart.ts", "cart.ts", FileType::Ts).depth(2),
+        FileNode::file("src/checkout/coupons.ts", "coupons.ts", FileType::Ts).depth(2),
+        FileNode::file("src/checkout/currency.ts", "currency.ts", FileType::Ts).depth(2),
+        FileNode::file("src/checkout/discounts.ts", "discounts.ts", FileType::Ts).depth(2),
+        FileNode::file("src/checkout/events.ts", "events.ts", FileType::Ts).depth(2),
+        FileNode::file("src/checkout/flags.ts", "flags.ts", FileType::Ts).depth(2),
+        FileNode::file("src/checkout/geo.ts", "geo.ts", FileType::Ts).depth(2),
+        FileNode::file("src/checkout/history.ts", "history.ts", FileType::Ts).depth(2),
+        FileNode::file("src/checkout/items.ts", "items.ts", FileType::Ts).depth(2),
+        FileNode::file("src/checkout/locale.ts", "locale.ts", FileType::Ts).depth(2),
+        FileNode::file("src/checkout/offers.ts", "offers.ts", FileType::Ts).depth(2),
+        FileNode::dir("src/checkout/steps", "steps", true).depth(2),
+        FileNode::dir("src/checkout/steps/pipes", "pipes", true).depth(3),
+        FileNode::dir("src/checkout/steps/pipes/deep", "deep", true).depth(4),
+        FileNode::file(DEEP_ID, "mod.rs", FileType::File).depth(5).badge(GitBadge::M).selected(true),
+        FileNode::file("src/checkout/steps/pipes/deep/README.md", "README.md", FileType::Md).depth(5),
+        FileNode::file("src/checkout/steps/runner.ts", "runner.ts", FileType::Ts).depth(3),
+        FileNode::file("src/checkout/steps/schedule.ts", "schedule.ts", FileType::Ts).depth(3),
         FileNode::dir("src/components", "components", false).depth(1),
+        FileNode::file("src/components/Button.tsx", "Button.tsx", FileType::Tsx).depth(2),
+        FileNode::file("src/components/Modal.tsx", "Modal.tsx", FileType::Tsx).depth(2),
         FileNode::dir("src/lib", "lib", false).depth(1),
+        FileNode::file("src/lib/format.ts", "format.ts", FileType::Ts).depth(2),
+        FileNode::file("src/lib/http.ts", "http.ts", FileType::Ts).depth(2),
         FileNode::dir("tests", "tests", false),
+        FileNode::file("tests/e2e.ts", "e2e.ts", FileType::Test).depth(1),
         FileNode::file("package.json", "package.json", FileType::Json),
         FileNode::file("pnpm-lock.yaml", "pnpm-lock.yaml", FileType::Lock),
         FileNode::file("PLAN.md", "PLAN.md", FileType::Md).badge(GitBadge::U),
@@ -202,6 +231,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let tree = file_tree("card54-tree", nodes)
         .header("acme-web")
         .footer("worktree checkout-flow-v2 · 2 modified · 1 added")
+        .scroll_to(DEEP_ID)
         .on_action(move |action, _, cx| {
             let action = action.clone();
             tree_state.update(cx, |s, cx| {

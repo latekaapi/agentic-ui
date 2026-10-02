@@ -13,7 +13,7 @@ use std::rc::Rc;
 use aui_icons::{icon, FileType, IconName};
 use aui_motion::{tint_fade, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
-use gpui::{div, prelude::*, px, App, ElementId, Hsla, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, App, ElementId, Hsla, IntoElement, ScrollHandle, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, ButtonSize};
@@ -159,6 +159,14 @@ pub enum FileTreeAction {
 
 type ActionHandler = Rc<dyn Fn(&FileTreeAction, &mut Window, &mut App)>;
 
+/// The scroll offset of the row with `id` in a tree over `nodes`: the row's
+/// index in the flattened order times `ROW_H` (24 px). `None` when no row carries
+/// the id. Hosts without a scroll handle can drive their own container with
+/// this; [`FileTree::scroll_to`] does the same through the tree's handle.
+pub fn scroll_offset_for_id(nodes: &[FileNode], id: &SharedString) -> Option<f32> {
+    nodes.iter().position(|n| n.id == *id).map(|ix| ix as f32 * ROW_H)
+}
+
 /// The file tree. Build with [`file_tree`].
 #[derive(IntoElement)]
 pub struct FileTree {
@@ -167,12 +175,14 @@ pub struct FileTree {
     header: Option<SharedString>,
     footer: Option<SharedString>,
     flush: bool,
+    scroll: Option<ScrollHandle>,
+    scroll_to: Option<SharedString>,
     on_action: Option<ActionHandler>,
 }
 
 /// A file tree over a flat list of pre-expanded rows.
 pub fn file_tree(id: impl Into<ElementId>, nodes: Vec<FileNode>) -> FileTree {
-    FileTree { id: id.into(), nodes, header: None, footer: None, flush: false, on_action: None }
+    FileTree { id: id.into(), nodes, header: None, footer: None, flush: false, scroll: None, scroll_to: None, on_action: None }
 }
 
 impl FileTree {
@@ -203,6 +213,25 @@ impl FileTree {
     /// Called with every intent the tree emits.
     pub fn on_action(mut self, f: impl Fn(&FileTreeAction, &mut Window, &mut App) + 'static) -> Self {
         self.on_action = Some(Rc::new(f));
+        self
+    }
+
+    /// Tracks the rows' vertical scroll position with `handle`, so a host
+    /// can read the offset or drive the tree from elsewhere (for example a
+    /// "reveal in Files" route that computes its offset with
+    /// [`scroll_offset_for_id`]). The rows scroll whether or not a handle is
+    /// given; without one the tree keeps an internal handle.
+    pub fn track_scroll(mut self, handle: &ScrollHandle) -> Self {
+        self.scroll = Some(handle.clone());
+        self
+    }
+
+    /// Reveals the row with this id (a file or a directory) on the next
+    /// frames: the rows scroll the smallest amount that brings the row into
+    /// view. The request fires once per id, so a reader who scrolls away
+    /// afterwards is never snapped back. Unknown ids are ignored.
+    pub fn scroll_to(mut self, id: impl Into<SharedString>) -> Self {
+        self.scroll_to = Some(id.into());
         self
     }
 }
@@ -261,7 +290,45 @@ impl RenderOnce for FileTree {
             );
         }
 
-        let mut tree = v_flex().id((id.clone(), "rows")).w_full().flex_1().min_h(px(0.0)).overflow_hidden().overflow_y_scroll().p(px(TREE_PAD)).ui(TREE_TEXT);
+        // The rows' scroll handle: the host's when tracked, otherwise an
+        // internal one keyed to the tree.
+        let scroll: ScrollHandle = match self.scroll.clone() {
+            Some(handle) => handle,
+            None => window.use_keyed_state((id.clone(), "scroll"), cx, |_, _| ScrollHandle::new()).read(cx).clone(),
+        };
+        // A `scroll_to` target fires until its row is seen in view, then
+        // stops: the handle only learns the overflow from paint, so the
+        // first request can land before it knows it scrolls and be dropped.
+        if let Some(target) = self.scroll_to.clone() {
+            if let Some(ix) = self.nodes.iter().position(|n| n.id == target) {
+                let settled = window.use_keyed_state((id.clone(), "scroll-settled"), cx, |_, _| None::<SharedString>);
+                if settled.read(cx).as_ref() != Some(&target) {
+                    let seen = scroll.bounds_for_item(ix).is_some() && ix >= scroll.top_item() && ix <= scroll.bottom_item();
+                    if seen {
+                        let target = target.clone();
+                        settled.update(cx, |done, cx| {
+                            *done = Some(target);
+                            cx.notify();
+                        });
+                    } else {
+                        scroll.scroll_to_item(ix);
+                        window.request_animation_frame();
+                    }
+                }
+            }
+        }
+        let mut tree = v_flex()
+            .id((id.clone(), "rows"))
+            .w_full()
+            .flex_1()
+            .min_h(px(0.0))
+            .overflow_hidden()
+            .overflow_y_scroll()
+            .track_scroll(&scroll)
+            .p(px(TREE_PAD))
+            .ui(TREE_TEXT)
+            .role(gpui::Role::List)
+            .aria_label("File tree");
         for node in self.nodes {
             tree = tree.child(tree_row((id.clone(), node.id.clone()), node, self.on_action.clone(), window, cx));
         }
@@ -313,6 +380,8 @@ fn tree_row(id: impl Into<ElementId>, node: FileNode, on_action: Option<ActionHa
         .bg(bg)
         .text_color(text)
         .cursor_pointer()
+        .role(gpui::Role::ListItem)
+        .aria_label(node.name.clone())
         .track_interaction(&state);
 
     if let Some(open) = node.open {
@@ -343,4 +412,43 @@ fn tree_row(id: impl Into<ElementId>, node: FileNode, on_action: Option<ActionHa
         });
     }
     row
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aui_icons::FileType;
+
+    fn sample_nodes() -> Vec<FileNode> {
+        vec![
+            FileNode::dir("src", "src", true),
+            FileNode::dir("src/checkout", "checkout", true).depth(1),
+            FileNode::file("src/checkout/validators.ts", "validators.ts", FileType::Ts).depth(2),
+            FileNode::dir("src/components", "components", false).depth(1),
+            FileNode::file("package.json", "package.json", FileType::Json),
+        ]
+    }
+
+    #[test]
+    fn scroll_offset_is_the_flattened_index_times_the_row_height() {
+        let nodes = sample_nodes();
+        assert_eq!(scroll_offset_for_id(&nodes, &"src".into()), Some(0.0));
+        assert_eq!(scroll_offset_for_id(&nodes, &"src/checkout".into()), Some(24.0));
+        assert_eq!(scroll_offset_for_id(&nodes, &"src/checkout/validators.ts".into()), Some(48.0));
+        assert_eq!(scroll_offset_for_id(&nodes, &"package.json".into()), Some(4.0 * 24.0));
+    }
+
+    #[test]
+    fn scroll_offset_is_none_for_unknown_and_empty_trees() {
+        let nodes = sample_nodes();
+        assert_eq!(scroll_offset_for_id(&nodes, &"src/missing".into()), None);
+        assert_eq!(scroll_offset_for_id(&[], &"src".into()), None);
+    }
+
+    #[test]
+    fn scroll_to_builds_without_a_handle() {
+        // The builder only stores the target; rendering resolves it.
+        let tree = file_tree("tree", sample_nodes()).scroll_to("package.json");
+        assert_eq!(tree.scroll_to, Some("package.json".into()));
+    }
 }
