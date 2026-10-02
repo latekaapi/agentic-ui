@@ -231,8 +231,38 @@ mod ts {
 
     /// Classifies one line, or `None` when the grammar is not registered.
     pub fn tokenize(line: &str, grammar: &str) -> Option<Vec<(Range<usize>, TokenKind)>> {
+        // Building a highlighter compiles the grammar's highlight query —
+        // the expensive part, and per line per frame it froze long files.
+        // Keep one highlighter per grammar per thread, and remember each
+        // line's classes (bounded) so a repaint costs a lookup.
+        thread_local! {
+            static HIGHLIGHTERS: std::cell::RefCell<std::collections::HashMap<String, SyntaxHighlighter>> =
+                std::cell::RefCell::new(std::collections::HashMap::new());
+            static MEMO: std::cell::RefCell<std::collections::HashMap<(String, String), Vec<(Range<usize>, TokenKind)>>> =
+                std::cell::RefCell::new(std::collections::HashMap::new());
+        }
+        const MEMO_CAP: usize = 8192;
+        let key = (grammar.to_owned(), line.to_owned());
+        if let Some(hit) = MEMO.with(|memo| memo.borrow().get(&key).cloned()) {
+            return Some(hit);
+        }
+        let out = HIGHLIGHTERS.with(|cell| {
+            let mut map = cell.borrow_mut();
+            let highlighter = map.entry(grammar.to_owned()).or_insert_with(|| SyntaxHighlighter::new(grammar));
+            classify(line, highlighter)
+        })?;
+        MEMO.with(|memo| {
+            let mut memo = memo.borrow_mut();
+            if memo.len() >= MEMO_CAP {
+                memo.clear();
+            }
+            memo.insert(key, out.clone());
+        });
+        Some(out)
+    }
+
+    fn classify(line: &str, highlighter: &mut SyntaxHighlighter) -> Option<Vec<(Range<usize>, TokenKind)>> {
         let rope = Rope::from(line);
-        let mut highlighter = SyntaxHighlighter::new(grammar);
         highlighter.update(None, &rope, None);
         highlighter.tree()?;
 

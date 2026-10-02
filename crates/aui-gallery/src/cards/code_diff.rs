@@ -11,6 +11,10 @@ use gpui_kit::base::v_flex;
 const BLOCK_GAP: f32 = 14.0;
 /// `.ds-note{max-width:80ch}` ≈ 640 px of Geist 12.
 const NOTE_MEASURE: f32 = 640.0;
+/// The long-file preview pane below the transcript blocks.
+const PREVIEW_H: f32 = 420.0;
+/// The line the preview opens on.
+const PREVIEW_LINE: u32 = 1000;
 
 /// The head of the Rust sample: exactly 39 lines, so the highlighted band
 /// below lands on lines 40–44 (`validate_postal`).
@@ -104,9 +108,28 @@ pub fn sample_diff() -> Diff {
     }
 }
 
+/// A long file for the preview pane: the head above plus generated checks,
+/// past the 400-line virtualisation threshold, so the filling block below
+/// virtualises instead of building every row.
+fn long_sample() -> String {
+    let mut code = String::from(RUST_HEAD);
+    for i in 0..140usize {
+        code.push_str(&format!(
+            "/// Generated field check {i:03}.\n\
+             pub fn check_long_{i:03}(value: &str) -> Outcome {{\n\
+             \x20   if value.len() == {i} {{ Outcome::Ok }} else {{ Outcome::Invalid }}\n\
+             }}\n"
+        ));
+    }
+    code
+}
+
 /// Builds the card content.
-pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
+pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
+    // Cached per card so the thousand-line sample is built once, not once
+    // per frame.
+    let long = window.use_keyed_state("card37-long", cx, |_, _| long_sample()).read(cx).clone();
     v_flex()
         .w_full()
         .gap(px(BLOCK_GAP))
@@ -115,6 +138,17 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                 .language("rust")
                 .start_line(1)
                 .highlight_lines(40..45),
+        )
+        .child(
+            // The Files-style preview: a fixed-height pane whose filling
+            // block owns the only scroll, opening at line 1000.
+            v_flex().w_full().h(px(PREVIEW_H)).child(
+                code_block("card37-preview", "src/checkout/generated.ts", long)
+                    .language("typescript")
+                    .fill(true)
+                    .scroll_to_line(PREVIEW_LINE)
+                    .scroll_token(1),
+            ),
         )
         .child(diff_block("card37-diff", sample_diff()).notes(vec![DiffNote {
             line: 44,
@@ -126,7 +160,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
                 .text_color(p.ink_3)
-                .child("Code blocks sit on the terminal ground with a 30 px header: filename, language, then quiet actions that brighten on hover. Copy morphs to a check on the swap spring (click it). Blocks past 400 lines virtualise, open scrolled to the highlighted lines 40–44. Diff blocks reveal a plus on line hover to add a note."),
+                .child("Code blocks sit on the terminal ground with a 30 px header: filename, language, then quiet actions that brighten on hover. Copy morphs to a check on the swap spring (click it). Blocks past 400 lines virtualise, open scrolled to the highlighted lines 40–44. The preview pane below fills its height and owns the only scroll, opening at line 1000. Diff blocks reveal a plus on line hover to add a note."),
         )
         .into_any_element()
 }
