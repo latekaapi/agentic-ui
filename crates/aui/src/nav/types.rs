@@ -48,6 +48,10 @@ pub struct SessionSummary {
     pub pinned: bool,
     /// Fan-out children, nested under the row.
     pub children: Vec<SessionSummary>,
+    /// The host's row density for this row; `None` keeps the library
+    /// default ([`crate::nav::RowDensity::Two`]). Lets a host whose rows
+    /// are built inside the group views choose One or Two.
+    pub density: Option<crate::nav::RowDensity>,
 }
 
 impl SessionSummary {
@@ -70,7 +74,14 @@ impl SessionSummary {
             unread: false,
             pinned: false,
             children: Vec::new(),
+            density: None,
         }
+    }
+
+    /// The row density this row renders at (see [`Self::density`]).
+    pub fn density(mut self, density: crate::nav::RowDensity) -> Self {
+        self.density = Some(density);
+        self
     }
 
     /// Pulses the dot.

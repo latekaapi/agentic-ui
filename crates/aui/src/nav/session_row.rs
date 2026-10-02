@@ -895,9 +895,9 @@ pub struct CompactSessionRow {
 pub fn compact_session_row(id: impl Into<ElementId>, session: SessionSummary) -> CompactSessionRow {
     CompactSessionRow {
         id: id.into(),
+        density: session.density.unwrap_or(RowDensity::Two),
         session,
         selected: false,
-        density: RowDensity::Two,
         nested: false,
         actions: Vec::new(),
         editor: None,
