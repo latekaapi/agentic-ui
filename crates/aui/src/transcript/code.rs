@@ -5,11 +5,12 @@
 
 
 use std::ops::Range;
+use std::sync::Arc;
 
 use aui_motion::{icon_morph, spring_phase, tween, IconMorph, SpringKind, Tween};
 use aui_protocol::{Diff, DiffKind};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
-use gpui::{div, prelude::*, px, relative, App, ClipboardItem, ElementId, Hsla, IntoElement, SharedString, StyledText, Window};
+use gpui::{div, prelude::*, px, relative, uniform_list, App, ClipboardItem, ElementId, Hsla, IntoElement, ListSizingBehavior, Pixels, ScrollStrategy, SharedString, StyledText, UniformListScrollHandle, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, icon_button, pill, record_ax_label, ButtonSize, PillVariant};
@@ -67,6 +68,79 @@ const NOTE_ACTIONS_TOP: f32 = 6.0;
 const NOTE_ACTIONS_GAP: f32 = 6.0;
 /// `.pill.success{height:16px;padding:0 6px}` in the diff header.
 const COUNT_PILL_H: f32 = 16.0;
+/// Blocks longer than this render their lines through a virtualised list
+/// instead of one row per line, so a 10k-line file costs only the visible
+/// rows. Short blocks render exactly as before.
+pub const CODE_VIRTUALIZE_AT: usize = 400;
+/// Rows rendered past the viewport edge in a virtualised block, top and
+/// bottom, so fast scrolling never shows a gap.
+pub const CODE_VIRTUAL_OVERDRAW: usize = 16;
+/// The fixed height of a virtualised block's scrollable line list.
+const VIRTUAL_H: f32 = 320.0;
+
+/// Whether the displayed line `line_no` falls inside `range` (`start`
+/// inclusive, `end` exclusive, in displayed line numbers).
+pub fn highlight_contains(range: &Range<u32>, line_no: u32) -> bool {
+    range.contains(&line_no)
+}
+
+/// The row index of the displayed line `line_no` in a block whose first
+/// line is `start_line`. `None` when the line is above the block.
+pub fn line_row_index(line_no: u32, start_line: u32) -> Option<usize> {
+    line_no.checked_sub(start_line).map(|ix| ix as usize)
+}
+
+/// How many rows a virtualised block of `total_lines` lines keeps alive for
+/// a viewport showing `viewport_lines` rows: the visible rows plus the
+/// overdraw on each side, capped at the block length.
+pub fn virtual_row_count(total_lines: usize, viewport_lines: usize) -> usize {
+    total_lines.min(viewport_lines.saturating_add(2 * CODE_VIRTUAL_OVERDRAW))
+}
+
+/// Which displayed line a virtualised block scrolls to on first render: the
+/// explicit `scroll_to` target, else the first highlighted line. Returns the
+/// row index, clamped to the block. The render path resolves its start
+/// position through this, so the helper and the painted list cannot drift.
+pub fn code_scroll_target(
+    scroll_to: Option<u32>,
+    highlight: &Option<Range<u32>>,
+    start_line: u32,
+    total_lines: usize,
+) -> Option<usize> {
+    let line = scroll_to
+        .or_else(|| highlight.as_ref().filter(|r| !r.is_empty()).map(|r| r.start))?;
+    Some(line_row_index(line, start_line).unwrap_or(0).min(total_lines.saturating_sub(1)))
+}
+
+/// Whether a scroll request `(line, token)` still needs to fire given the
+/// settled request: a new token re-arms even the same line, so requesting
+/// the same `path#L42` link again after scrolling away scrolls again. The
+/// render path settles through this, so the helper and the painted list
+/// cannot drift.
+pub fn scroll_request_pending(request_line: u32, request_token: u64, settled: Option<(u32, u64)>) -> bool {
+    settled != Some((request_line, request_token))
+}
+
+/// How many frames a virtual block's scroll request keeps re-issuing while
+/// unsettled before settling anyway, so a target that never lands (a list
+/// that never lays out, a deferred scroll dropped before paint) cannot hold
+/// the frame loop open. Mirrors the file tree's `FILE_TREE_SCROLL_ATTEMPTS`.
+pub const CODE_SCROLL_ATTEMPTS: usize = 10;
+
+/// Whether a scroll loop that has already waited `attempts` frames for an
+/// unlanded request must settle without asking for more frames.
+pub fn code_scroll_retries_exhausted(attempts: usize) -> bool {
+    attempts >= CODE_SCROLL_ATTEMPTS
+}
+
+/// The cache key for a block's split lines: the text hash plus its byte
+/// length, so a rebuild happens only when the text changes.
+pub fn line_cache_key(code: &str) -> (u64, usize) {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    code.hash(&mut hasher);
+    (hasher.finish(), code.len())
+}
 
 /// Actions on a code block header.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +197,11 @@ pub struct CodeBlock {
     code: SharedString,
     start_line: u32,
     hidden_lines: usize,
+    highlight: Option<Range<u32>>,
+    scroll_to_line: Option<u32>,
+    scroll_token: u64,
+    fill: bool,
+    max_height: Option<Pixels>,
     host_action: Option<(usize, CodeBlockHostButton)>,
     on_action: Option<CodeHandler>,
     selection_key: Option<SelectionKey>,
@@ -134,7 +213,7 @@ pub struct CodeBlock {
 
 /// A block showing `code` from `path`.
 pub fn code_block(id: impl Into<ElementId>, path: impl Into<SharedString>, code: impl Into<SharedString>) -> CodeBlock {
-    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, hidden_lines: 0, host_action: None, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None, on_span: None }
+    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, hidden_lines: 0, highlight: None, scroll_to_line: None, scroll_token: 0, fill: false, max_height: None, host_action: None, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None, on_span: None }
 }
 
 /// The command a fenced block carries, if it is runnable.
@@ -188,6 +267,51 @@ impl CodeBlock {
     /// How many more lines the fold row offers.
     pub fn hidden_lines(mut self, count: usize) -> Self {
         self.hidden_lines = count;
+        self
+    }
+
+    /// Paints a calm band behind the displayed lines in `range` (`start`
+    /// inclusive, `end` exclusive — `40..45` bands lines 40 through 44).
+    /// Unset by default; without it every line renders exactly as before.
+    pub fn highlight_lines(mut self, range: Range<u32>) -> Self {
+        self.highlight = Some(range);
+        self
+    }
+
+    /// Scrolls this displayed line into view on first render (a virtualised
+    /// block's list starts there; a short block has no inner scroll, so the
+    /// line only gains the highlight when [`highlight_lines`](Self::highlight_lines)
+    /// covers it). Unset by default. When unset but a highlight is set, the
+    /// list starts at the highlight's first line instead.
+    pub fn scroll_to_line(mut self, line: u32) -> Self {
+        self.scroll_to_line = Some(line);
+        self
+    }
+
+    /// The request token for [`scroll_to_line`](Self::scroll_to_line): the
+    /// list settles per `(line, token)`, so repeating the same line with a
+    /// new token scrolls again after the reader scrolled away. `0` by
+    /// default; without it a repeated request for the settled line is a
+    /// no-op.
+    pub fn scroll_token(mut self, token: u64) -> Self {
+        self.scroll_token = token;
+        self
+    }
+
+    /// Fills the parent's height: the virtual list drops its fixed 320 px
+    /// box for `flex-1` / `min-h-0` and becomes the pane's only scroller.
+    /// Off by default, which keeps the transcript's fixed strip exactly as
+    /// before. Only affects blocks past [`CODE_VIRTUALIZE_AT`] lines.
+    pub fn fill(mut self, fill: bool) -> Self {
+        self.fill = fill;
+        self
+    }
+
+    /// Caps the virtual list's height. `None` (the default) keeps today's
+    /// behaviour: the fixed 320 px box, or the parent's height when
+    /// [`fill`](Self::fill) is set.
+    pub fn max_height(mut self, max: Option<Pixels>) -> Self {
+        self.max_height = max;
         self
     }
 
@@ -345,6 +469,268 @@ fn block_header(p: &Palette, id: &ElementId, args: BlockHeaderArgs, window: &mut
         .child(h_flex().flex_none().gap(px(ACTIONS_GAP)).opacity(opacity).children(actions))
 }
 
+/// The per-line selection wiring a [`CodeBlock`] shares across its rows:
+/// one cell key over the whole block text, so a drag can span lines.
+#[derive(Clone)]
+struct LineSelect {
+    key: SelectionKey,
+    color: Hsla,
+    range: Option<Range<usize>>,
+    on_change: Option<SelectionHandler>,
+    on_span: Option<SpanHandler>,
+}
+
+/// One numbered code row: the gutter plus the syntax-coloured line, with the
+/// calm highlight band behind it when `highlighted`.
+///
+/// Selection shares one cell key across lines: `line_start` is the line's
+/// byte offset over the whole block text (`lines()` strips the newline,
+/// hence `+ 1`). Without a [`LineSelect`] the line keeps its plain
+/// `StyledText`, pixel-identical to before.
+#[allow(clippy::too_many_arguments)]
+fn code_line_row(
+    line_id: ElementId,
+    line_no: u32,
+    line: &str,
+    line_start: usize,
+    language: Option<&str>,
+    p: &Palette,
+    select: Option<&LineSelect>,
+    highlighted: bool,
+) -> impl IntoElement {
+    let runs = syntax_runs_in(line, language, p, scale::FONT_MONO);
+    let text = if line.is_empty() { " ".to_string() } else { line.to_string() };
+    let runs = if line.is_empty() { Vec::new() } else { runs };
+    let line_body: gpui::AnyElement = match select {
+        Some(sel) => {
+            let local =
+                sel.range.as_ref().and_then(|range| intersect_range(range, line_start, line.len()));
+            let mut element =
+                selectable_text(line_id.clone(), sel.key.clone(), text).runs(runs).selection_color(sel.color).selection(local);
+            if let Some(emit) = &sel.on_change {
+                let emit = emit.clone();
+                let key = sel.key.clone();
+                let empty = line.is_empty();
+                element = element.on_selection_change(move |next, window, cx| {
+                    let next = next.and_then(|local| {
+                        if empty {
+                            None
+                        } else {
+                            Some(TextSelection {
+                                cell: key.clone(),
+                                range: local.range.start + line_start..local.range.end + line_start,
+                            })
+                        }
+                    });
+                    emit(next, window, cx);
+                });
+            }
+            if let Some(emit) = &sel.on_span {
+                let emit = emit.clone();
+                let key = sel.key.clone();
+                let empty = line.is_empty();
+                element = element.on_span_event(move |event, window, cx| {
+                    // Empty lines render a phantom space with no bytes of
+                    // their own; anchor those events at the newline offset
+                    // so spans stay continuous.
+                    let at = |offset: usize| {
+                        if empty {
+                            line_start
+                        } else {
+                            line_start + offset
+                        }
+                    };
+                    let mapped = match event {
+                        SpanEvent::Press { offset, .. } => SpanEvent::Press { cell: key.clone(), offset: at(offset) },
+                        SpanEvent::Hover { offset, .. } => SpanEvent::Hover { cell: key.clone(), offset: at(offset) },
+                        SpanEvent::Release { hovered, link, .. } => SpanEvent::Release { cell: key.clone(), hovered, link },
+                        SpanEvent::Pick { selection } => SpanEvent::Pick {
+                            selection: selection.map(|single| MessageSelection {
+                                anchor: SelectionEndpoint { cell: key.clone(), offset: at(single.anchor.offset) },
+                                focus: SelectionEndpoint { cell: key.clone(), offset: at(single.focus.offset) },
+                            }),
+                        },
+                    };
+                    emit(mapped, window, cx);
+                });
+            }
+            div().flex_1().min_w(px(0.0)).overflow_hidden().child(element).into_any_element()
+        }
+        None => {
+            let _ = &line_id;
+            let styled =
+                if runs.is_empty() { StyledText::new(text) } else { StyledText::new(text).with_runs(runs) };
+            div().flex_1().min_w(px(0.0)).overflow_hidden().child(styled).into_any_element()
+        }
+    };
+    let mut row = h_flex()
+        .id((line_id.clone(), "row"))
+        .w_full()
+        .items_start()
+        .role(gpui::Role::ListItem)
+        .aria_label(format!("line {line_no}"))
+        .child(div().flex_none().w(px(GUTTER_W)).text_color(p.term_dim).child(line_no.to_string()))
+        .child(line_body);
+    if highlighted {
+        row = row.bg(p.accent_soft);
+    }
+    row
+}
+
+/// What a virtual block remembers about its in-flight scroll: which request
+/// settled, and how many frames the current one has waited to land.
+#[derive(Clone, Default)]
+struct CodeScrollState {
+    /// The settled `(line, token)` request.
+    settled: Option<(u32, u64)>,
+    /// The request currently waiting to land.
+    waiting: Option<(u32, u64)>,
+    /// Frames waited for `waiting` so far.
+    attempts: usize,
+}
+
+/// The split lines and their block-wide byte offsets, cached per block so a
+/// 10k-line file is re-split only when its text changes.
+#[derive(Clone)]
+struct LineCache {
+    /// [`line_cache_key`] of the cached text.
+    key: (u64, usize),
+    /// One entry per line, newlines stripped.
+    lines: Arc<Vec<String>>,
+    /// The byte offset of each line over the whole block text.
+    starts: Arc<Vec<usize>>,
+}
+
+/// The scrollable, virtualised line list for blocks over
+/// [`CODE_VIRTUALIZE_AT`] lines: only the visible rows are built each frame,
+/// and the list starts at `scroll_to` on first render.
+#[allow(clippy::too_many_arguments)]
+fn virtual_code_body(
+    id: ElementId,
+    code: &str,
+    start_line: u32,
+    language: Option<SharedString>,
+    select: Option<LineSelect>,
+    highlight: Option<Range<u32>>,
+    scroll_to: Option<u32>,
+    scroll_token: u64,
+    fill: bool,
+    max_height: Option<Pixels>,
+    window: &mut Window,
+    cx: &mut App,
+) -> gpui::AnyElement {
+    // The split lines live in keyed state, rebuilt only when the text's
+    // hash/length changes instead of on every render.
+    let cache_slot = window.use_keyed_state((id.clone(), "lines-cache"), cx, |_, _| None::<LineCache>);
+    let key = line_cache_key(code);
+    let cached = cache_slot.read(cx).clone();
+    let cache = match cached {
+        Some(cache) if cache.key == key => cache,
+        _ => {
+            let lines: Arc<Vec<String>> = Arc::new(code.lines().map(str::to_string).collect());
+            let mut starts = Vec::with_capacity(lines.len());
+            let mut base = 0usize;
+            for line in lines.iter() {
+                starts.push(base);
+                base += line.len() + 1;
+            }
+            let fresh = LineCache { key, lines, starts: Arc::new(starts) };
+            cache_slot.update(cx, |slot, cx| {
+                *slot = Some(fresh.clone());
+                cx.notify();
+            });
+            fresh
+        }
+    };
+    let lines = cache.lines;
+    let starts = cache.starts;
+    let total = lines.len();
+
+    let handle: UniformListScrollHandle =
+        window.use_keyed_state((id.clone(), "lines-scroll"), cx, |_, _| UniformListScrollHandle::default()).read(cx).clone();
+    // The list starts at the requested line on first render. The request
+    // settles per `(line, token)`, so repeating the same line with a new
+    // token scrolls again; otherwise a reader who scrolls away afterwards is
+    // never snapped back. An unsettled request re-arms for at most
+    // `CODE_SCROLL_ATTEMPTS` frames and then settles anyway, so a target
+    // that never lands cannot ask for frames forever.
+    if let Some(line) = scroll_to {
+        if let Some(target) = code_scroll_target(Some(line), &highlight, start_line, total) {
+            let wanted = (line, scroll_token);
+            let state = window.use_keyed_state((id.clone(), "lines-scrolled"), cx, |_, _| CodeScrollState::default());
+            let current = state.read(cx).clone();
+            if scroll_request_pending(line, scroll_token, current.settled.clone()) {
+                let attempts = if current.waiting.as_ref() == Some(&wanted) { current.attempts } else { 0 };
+                if code_scroll_retries_exhausted(attempts) {
+                    // Done waiting: settle without asking for another frame.
+                    state.update(cx, |s, cx| {
+                        s.settled = Some(wanted);
+                        s.waiting = None;
+                        s.attempts = 0;
+                        cx.notify();
+                    });
+                } else {
+                    handle.scroll_to_item_strict(target, ScrollStrategy::Top);
+                    state.update(cx, |s, cx| {
+                        s.waiting = Some(wanted);
+                        s.attempts = attempts + 1;
+                        cx.notify();
+                    });
+                    // One more frame so the deferred scroll paints; the
+                    // attempts bound above is the only re-arm path, so this
+                    // cannot chain beyond `CODE_SCROLL_ATTEMPTS` frames.
+                    window.request_animation_frame();
+                }
+            }
+        }
+    }
+
+    let list_id = id.clone();
+    let row_id = id.clone();
+    let list = uniform_list((list_id, "lines"), total, move |range, _window, cx| {
+        let p = cx.aui().colors;
+        range
+            .map(|i| {
+                let line_no = start_line + i as u32;
+                let highlighted = highlight.as_ref().is_some_and(|r| highlight_contains(r, line_no));
+                // The row's accessible name doubles as the render-test
+                // probe: only built (visible) rows record, so a draw of a
+                // 10k-line file records a bounded set.
+                record_ax_label(&format!("line {line_no}"));
+                let line_id: ElementId = indexed_child(&row_id, "sel-", i);
+                code_line_row(line_id, line_no, &lines[i], starts[i], language.as_deref(), &p, select.as_ref(), highlighted)
+            })
+            .collect::<Vec<_>>()
+    })
+    // A filling list takes its parent's height and virtualises against it;
+    // `Infer` sizes the list to all of its rows, which mounts every row.
+    .with_sizing_behavior(if fill { ListSizingBehavior::Auto } else { ListSizingBehavior::Infer })
+    .when(fill, |list| list.h_full())
+    .track_scroll(&handle);
+    let mut wrap = div()
+        .id((id, "lines-wrap"))
+        .w_full()
+        .overflow_hidden()
+        .py(px(CODE_PAD_Y))
+        .px(px(CODE_PAD_X))
+        .mono(scale::FS_12)
+        .line_height(relative(CODE_LH))
+        .text_color(cx.aui().colors.term_fg)
+        .whitespace_nowrap()
+        .role(gpui::Role::List)
+        .aria_label("Code lines");
+    if fill {
+        // The pane's only scroller: no fixed height, no nested wheel trap.
+        wrap = wrap.flex_1().min_h(px(0.0)).flex().flex_col();
+    } else {
+        wrap = wrap.h(px(VIRTUAL_H));
+    }
+    if let Some(max) = max_height {
+        wrap = wrap.max_h(max);
+    }
+    wrap.child(list).into_any_element()
+}
+
 impl RenderOnce for CodeBlock {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
@@ -376,130 +762,60 @@ impl RenderOnce for CodeBlock {
         let header = block_header(&p, &id, BlockHeaderArgs { glyph: IconName::File, name: self.path.clone(), after, actions, hovered: flags.hovered }, window, cx);
 
         let language = self.language.clone();
-        // Selection shares one cell key across lines: `base` is the line's
-        // byte offset over the whole block text (`lines()` strips the
-        // newline, hence `+ 1`). Without a key the lines keep their plain
-        // `StyledText`, pixel-identical to before.
-        let sel_key = self.selection_key.clone();
-        let sel_color = self.selection_color.unwrap_or(p.selection);
-        let sel_range = self.selection.clone();
-        let sel_emit = self.on_selection_change.clone();
-        let sel_span = self.on_span.clone();
-        let mut body = v_flex().w_full().py(px(CODE_PAD_Y)).px(px(CODE_PAD_X)).mono(scale::FS_12).line_height(relative(CODE_LH)).text_color(p.term_fg).whitespace_nowrap();
-        let mut base = 0usize;
-        for (i, line) in self.code.lines().enumerate() {
-            let line_start = base;
-            base += line.len() + 1;
-            let runs = syntax_runs_in(line, language.as_deref(), &p, scale::FONT_MONO);
-            let text = if line.is_empty() { " ".to_string() } else { line.to_string() };
-            let runs = if line.is_empty() { Vec::new() } else { runs };
-            let line_body: gpui::AnyElement = match &sel_key {
-                Some(key) => {
-                    let line_id: ElementId = indexed_child(&id, "sel-", i);
-                    let local = sel_range
-                        .as_ref()
-                        .and_then(|range| intersect_range(range, line_start, line.len()));
-                    let mut element = selectable_text(line_id, key.clone(), text)
-                        .runs(runs)
-                        .selection_color(sel_color)
-                        .selection(local);
-                    if let Some(emit) = &sel_emit {
-                        let emit = emit.clone();
-                        let key = key.clone();
-                        let empty = line.is_empty();
-                        element = element.on_selection_change(move |next, window, cx| {
-                            let next = next.and_then(|local| {
-                                if empty {
-                                    None
-                                } else {
-                                    Some(TextSelection {
-                                        cell: key.clone(),
-                                        range: local.range.start + line_start
-                                            ..local.range.end + line_start,
-                                    })
-                                }
-                            });
-                            emit(next, window, cx);
-                        });
-                    }
-                    if let Some(emit) = &sel_span {
-                        let emit = emit.clone();
-                        let key = key.clone();
-                        let empty = line.is_empty();
-                        element = element.on_span_event(move |event, window, cx| {
-                            // Empty lines render a phantom space with no
-                            // bytes of their own; anchor those events at the
-                            // newline offset so spans stay continuous.
-                            let at = |offset: usize| {
-                                if empty {
-                                    line_start
-                                } else {
-                                    line_start + offset
-                                }
-                            };
-                            let mapped = match event {
-                                SpanEvent::Press { offset, .. } => SpanEvent::Press {
-                                    cell: key.clone(),
-                                    offset: at(offset),
-                                },
-                                SpanEvent::Hover { offset, .. } => SpanEvent::Hover {
-                                    cell: key.clone(),
-                                    offset: at(offset),
-                                },
-                                SpanEvent::Release {
-                                    hovered, link, ..
-                                } => SpanEvent::Release {
-                                    cell: key.clone(),
-                                    hovered,
-                                    link,
-                                },
-                                SpanEvent::Pick { selection } => SpanEvent::Pick {
-                                    selection: selection.map(|single| {
-                                        MessageSelection {
-                                            anchor: SelectionEndpoint {
-                                                cell: key.clone(),
-                                                offset: at(single.anchor.offset),
-                                            },
-                                            focus: SelectionEndpoint {
-                                                cell: key.clone(),
-                                                offset: at(single.focus.offset),
-                                            },
-                                        }
-                                    }),
-                                },
-                            };
-                            emit(mapped, window, cx);
-                        });
-                    }
-                    div()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .overflow_hidden()
-                        .child(element)
-                        .into_any_element()
-                }
-                None => {
-                    let styled = if runs.is_empty() {
-                        StyledText::new(text)
-                    } else {
-                        StyledText::new(text).with_runs(runs)
-                    };
-                    div()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .overflow_hidden()
-                        .child(styled)
-                        .into_any_element()
-                }
-            };
-            body = body.child(
-                h_flex()
-                    .w_full()
-                    .items_start()
-                    .child(div().flex_none().w(px(GUTTER_W)).text_color(p.term_dim).child((self.start_line + i as u32).to_string()))
-                    .child(line_body),
-            );
+        let select = self.selection_key.clone().map(|key| LineSelect {
+            key,
+            color: self.selection_color.unwrap_or(p.selection),
+            range: self.selection.clone(),
+            on_change: self.on_selection_change.clone(),
+            on_span: self.on_span.clone(),
+        });
+        let highlight = self.highlight.clone();
+        if let Some(range) = highlight.as_ref().filter(|r| !r.is_empty()) {
+            record_ax_label(&format!("Highlighted lines {} to {}", range.start, range.end - 1));
         }
+        // Long blocks virtualise: only the visible rows are built each
+        // frame. Short blocks keep the one-row-per-line body, plus the
+        // highlight band where set.
+        let body: gpui::AnyElement = if self.code.lines().count() > CODE_VIRTUALIZE_AT {
+            let scroll_to = self
+                .scroll_to_line
+                .or_else(|| highlight.as_ref().filter(|r| !r.is_empty()).map(|r| r.start));
+            virtual_code_body(
+                id.clone(),
+                &self.code,
+                self.start_line,
+                language.clone(),
+                select.clone(),
+                highlight.clone(),
+                scroll_to,
+                self.scroll_token,
+                self.fill,
+                self.max_height,
+                window,
+                cx,
+            )
+        } else {
+            let mut body = v_flex().w_full().py(px(CODE_PAD_Y)).px(px(CODE_PAD_X)).mono(scale::FS_12).line_height(relative(CODE_LH)).text_color(p.term_fg).whitespace_nowrap();
+            let mut base = 0usize;
+            for (i, line) in self.code.lines().enumerate() {
+                let line_start = base;
+                base += line.len() + 1;
+                let line_no = self.start_line + i as u32;
+                let highlighted = highlight.as_ref().is_some_and(|r| highlight_contains(r, line_no));
+                let line_id: ElementId = indexed_child(&id, "sel-", i);
+                body = body.child(code_line_row(
+                    line_id,
+                    line_no,
+                    line,
+                    line_start,
+                    language.as_deref(),
+                    &p,
+                    select.as_ref(),
+                    highlighted,
+                ));
+            }
+            body.into_any_element()
+        };
 
         let mut block = v_flex()
             .id(id.clone())
@@ -512,6 +828,11 @@ impl RenderOnce for CodeBlock {
             .track_interaction(&state)
             .child(header)
             .child(body);
+        if self.fill {
+            // A filling block stretches with its pane so the virtual list
+            // inside is the pane's only scroller.
+            block = block.flex_1().min_h(px(0.0));
+        }
         if self.hidden_lines > 0 {
             let fold_label = format!("Show {} more lines", self.hidden_lines);
             record_ax_label(&fold_label);
@@ -764,7 +1085,12 @@ impl RenderOnce for DiffBlock {
 
 #[cfg(test)]
 mod tests {
-    use super::runnable_command;
+    use super::{
+        code_block, code_scroll_retries_exhausted, code_scroll_target, highlight_contains, line_cache_key,
+        line_row_index, runnable_command, scroll_request_pending, virtual_row_count, CODE_SCROLL_ATTEMPTS,
+        CODE_VIRTUALIZE_AT,
+    };
+    use gpui::prelude::*;
 
     #[test]
     fn shell_languages_run_whole_and_unchanged() {
@@ -821,5 +1147,215 @@ mod tests {
         assert_eq!(runnable_command("console", ""), Some(String::new()));
         assert_eq!(runnable_command("", ""), Some(String::new()));
         assert_eq!(runnable_command("python", ""), None);
+    }
+
+    #[test]
+    fn highlight_range_covers_its_lines_and_nothing_else() {
+        let range = 40..45u32;
+        for line in 40..45 {
+            assert!(highlight_contains(&range, line), "line {line}");
+        }
+        for line in [1, 39, 45, 46, 400] {
+            assert!(!highlight_contains(&range, line), "line {line}");
+        }
+        assert!(!highlight_contains(&(45..45u32), 45), "empty range highlights nothing");
+    }
+
+    #[test]
+    fn displayed_lines_map_to_row_indices() {
+        assert_eq!(line_row_index(40, 1), Some(39));
+        assert_eq!(line_row_index(1, 1), Some(0));
+        assert_eq!(line_row_index(44, 44), Some(0));
+        assert_eq!(line_row_index(43, 44), None);
+    }
+
+    #[test]
+    fn virtualised_row_count_stays_bounded_for_long_files() {
+        // A 10k-line file keeps only the viewport plus overdraw alive.
+        assert!(virtual_row_count(10_000, 20) <= 20 + 2 * super::CODE_VIRTUAL_OVERDRAW);
+        assert_eq!(virtual_row_count(10_000, 20), 20 + 2 * super::CODE_VIRTUAL_OVERDRAW);
+        // A block shorter than the window keeps every row.
+        assert_eq!(virtual_row_count(CODE_VIRTUALIZE_AT, 10_000), CODE_VIRTUALIZE_AT);
+        assert_eq!(virtual_row_count(7, 20), 7);
+    }
+
+    #[test]
+    fn scroll_target_prefers_the_explicit_line_then_the_highlight() {
+        assert_eq!(code_scroll_target(Some(5000), &Some(40..45), 1, 10_000), Some(4999));
+        assert_eq!(code_scroll_target(None, &Some(40..45), 1, 10_000), Some(39));
+        assert_eq!(code_scroll_target(None, &None, 1, 10_000), None);
+        assert_eq!(code_scroll_target(None, &Some(45..45), 1, 10_000), None);
+        // Clamped to the block, and lines above the block start at row 0.
+        assert_eq!(code_scroll_target(Some(99_999), &None, 1, 10_000), Some(9999));
+        assert_eq!(code_scroll_target(Some(1), &None, 40, 10_000), Some(0));
+    }
+
+    #[test]
+    fn scroll_token_rearms_the_same_line() {
+        // Unseen: fires. Settled with the same token: quiet. Same line with
+        // a new token: fires again.
+        assert!(scroll_request_pending(42, 0, None));
+        assert!(!scroll_request_pending(42, 0, Some((42, 0))));
+        assert!(scroll_request_pending(42, 1, Some((42, 0))));
+        assert!(scroll_request_pending(43, 0, Some((42, 0))));
+    }
+
+    #[test]
+    fn line_cache_key_only_changes_with_the_text() {
+        let code = "fn a() {}\nfn b() {}\n";
+        assert_eq!(line_cache_key(code), line_cache_key(code));
+        assert_eq!(line_cache_key(code).1, code.len());
+        assert_ne!(line_cache_key(code), line_cache_key("fn a() {}\nfn c() {}\n"));
+        assert_ne!(line_cache_key(code), line_cache_key("fn a() {}\n"));
+    }
+
+    /// Ten thousand short lines, past the virtualisation threshold.
+    fn ten_k_lines() -> gpui::SharedString {
+        let mut code = String::with_capacity(10_000 * 24);
+        for i in 0..10_000usize {
+            use std::fmt::Write;
+            let _ = writeln!(code, "const v{i:05} = {i};");
+        }
+        code.into()
+    }
+
+    /// Drawn line numbers recorded by the virtual row builder, deduped:
+    /// only built (visible) rows record, so this is the mounted row set.
+    fn drawn_lines() -> Vec<u32> {
+        let mut lines: Vec<u32> = crate::data::take_ax_labels()
+            .iter()
+            .filter_map(|label| label.strip_prefix("line ").and_then(|n| n.parse().ok()))
+            .collect();
+        lines.sort_unstable();
+        lines.dedup();
+        lines
+    }
+
+    struct FillHost {
+        code: gpui::SharedString,
+        line: u32,
+        token: u64,
+        seen: std::rc::Rc<std::cell::RefCell<Vec<gpui::Bounds<gpui::Pixels>>>>,
+    }
+
+    impl gpui::Render for FillHost {
+        fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+            let seen = self.seen.clone();
+            gpui_kit::base::v_flex()
+                .size_full()
+                .on_children_prepainted(move |bounds, _, _| {
+                    *seen.borrow_mut() = bounds;
+                })
+                .child(
+                    code_block("l6fix-fill", "src/checkout/big.ts", self.code.clone())
+                        .language("typescript")
+                        .fill(true)
+                        .scroll_to_line(self.line)
+                        .scroll_token(self.token),
+                )
+        }
+    }
+
+    #[test]
+    fn code_scroll_retries_stop_after_ten_unseen_frames() {
+        assert!(!code_scroll_retries_exhausted(0));
+        assert!(!code_scroll_retries_exhausted(CODE_SCROLL_ATTEMPTS - 1));
+        assert!(code_scroll_retries_exhausted(CODE_SCROLL_ATTEMPTS));
+        assert!(code_scroll_retries_exhausted(CODE_SCROLL_ATTEMPTS + 40));
+    }
+
+    /// Draws pumped per scroll request: the retry bound plus two spare
+    /// frames, so the request always settles inside the loop. Fixed — the
+    /// loop below always ends, and with it the test.
+    const SCROLL_SETTLE_DRAWS: usize = CODE_SCROLL_ATTEMPTS + 2;
+
+    /// One settled frame without ever parking: draw, then deliver the
+    /// next-frame callback the scroll request registered. The caller bounds
+    /// the loop, so a render that kept asking for frames would fail loudly
+    /// instead of hanging the suite.
+    fn pump_frame(vcx: &mut gpui::VisualTestContext) {
+        vcx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        vcx.update(|window, cx| {
+            let _ = window.simulate_next_frame(cx);
+        });
+    }
+
+    /// Requests (`line`, `token`) on the fill host, pumps a bounded number
+    /// of frames so the scroll request settles, and returns the mounted
+    /// (built) line numbers.
+    fn draw_fill(
+        vcx: &mut gpui::VisualTestContext,
+        host: &gpui::Entity<FillHost>,
+        line: u32,
+        token: u64,
+    ) -> Vec<u32> {
+        host.update(vcx, |host, cx| {
+            host.line = line;
+            host.token = token;
+            cx.notify();
+        });
+        crate::data::take_ax_labels();
+        for _ in 0..SCROLL_SETTLE_DRAWS {
+            pump_frame(vcx);
+        }
+        drawn_lines()
+    }
+
+    /// A 10k-line filled block mounts a bounded row set, starts at the
+    /// requested line, and fills its parent instead of the 320 px strip.
+    #[gpui::test]
+    fn filled_10k_block_mounts_bounded_rows_at_line_5000(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let code = ten_k_lines();
+        let (host, vcx) = cx.add_window_view(|_, _| FillHost { code, line: 5000, token: 0, seen: seen.clone() });
+        vcx.simulate_resize(gpui::size(gpui::px(800.0), gpui::px(600.0)));
+        crate::data::arm_ax_probe(true);
+        let lines = draw_fill(vcx, &host, 5000, 0);
+        crate::data::arm_ax_probe(false);
+        assert!(!lines.is_empty(), "the virtual list must build rows");
+        assert!(
+            lines.len() <= virtual_row_count(10_000, 60) * 4,
+            "a 10k-line file mounted {} rows, past the bounded budget",
+            lines.len()
+        );
+        assert!(lines.contains(&5000), "scroll_to_line(5000) must make row 5000 visible: {lines:?}");
+
+        // The filled block takes the window height (600 px), not the fixed
+        // 320 px strip: header (30 px) plus the filling list.
+        let painted = seen.borrow();
+        assert!(!painted.is_empty(), "the filled block must paint");
+        let height = painted.iter().map(|b| f32::from(b.size.height)).fold(0.0, f32::max);
+        assert!(
+            height > 400.0 && (height - 600.0).abs() < 24.0,
+            "the filled block painted {height}px tall, not its parent's 600 px"
+        );
+    }
+
+    /// Repeating the same line with a new token re-scrolls: after moving the
+    /// request token on, row 5000 is visible again.
+    #[gpui::test]
+    fn repeated_scroll_request_with_a_new_token_rescrolls(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let code = ten_k_lines();
+        let (host, vcx) = cx.add_window_view(|_, _| FillHost { code, line: 5000, token: 0, seen: seen.clone() });
+        vcx.simulate_resize(gpui::size(gpui::px(800.0), gpui::px(600.0)));
+        crate::data::arm_ax_probe(true);
+        let first = draw_fill(vcx, &host, 5000, 0);
+        assert!(first.contains(&5000), "first request must reveal row 5000");
+
+        // Move away with a new request: row 100 shows, row 5000 leaves.
+        let away = draw_fill(vcx, &host, 100, 1);
+        assert!(away.contains(&100), "the move-away request must reveal row 100");
+        assert!(!away.contains(&5000), "row 5000 must leave after scrolling to row 100");
+
+        // Same line as before, new token: re-scrolls to row 5000.
+        let lines = draw_fill(vcx, &host, 5000, 2);
+        crate::data::arm_ax_probe(false);
+        assert!(lines.contains(&5000), "repeated request with a new token must re-scroll to row 5000");
+        assert!(!lines.contains(&100), "row 100 must leave after re-scrolling to row 5000");
     }
 }
