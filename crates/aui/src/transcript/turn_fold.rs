@@ -47,6 +47,9 @@ pub fn turn_fold_elapsed(ms: u64) -> String {
     if tenths >= 600 {
         let s = tenths / 10;
         format!("{}m {:02}s", s / 60, s % 60)
+    } else if tenths >= 100 {
+        // Past ten seconds a tenth is noise: whole seconds read calmer.
+        format!("{} s", (ms + 500) / 1000)
     } else {
         format!("{}.{} s", tenths / 10, tenths % 10)
     }
@@ -56,10 +59,13 @@ pub fn turn_fold_elapsed(ms: u64) -> String {
 /// counts the summary (and its separator) is dropped.
 pub fn turn_fold_title(elapsed_ms: u64, reads: u32, edits: u32, commands: u32) -> String {
     let summary = turn_fold_summary(reads, edits, commands);
+    // An unmeasured turn (no timings on the wire, a replay) says "Worked",
+    // never "Worked for 0.0 s".
+    let head = if elapsed_ms == 0 { "Worked".to_owned() } else { format!("Worked for {}", turn_fold_elapsed(elapsed_ms)) };
     if summary.is_empty() {
-        format!("Worked for {}", turn_fold_elapsed(elapsed_ms))
+        head
     } else {
-        format!("Worked for {} · {summary}", turn_fold_elapsed(elapsed_ms))
+        format!("{head} · {summary}")
     }
 }
 
@@ -284,13 +290,20 @@ mod tests {
 
     #[test]
     fn title_without_work_is_elapsed_only() {
-        assert_eq!(turn_fold_title(12_400, 0, 0, 0), "Worked for 12.4 s");
+        assert_eq!(turn_fold_title(12_400, 0, 0, 0), "Worked for 12 s");
+    }
+
+    #[test]
+    fn an_unmeasured_turn_says_worked_without_a_time() {
+        assert_eq!(turn_fold_title(0, 2, 0, 5), "Worked · read 2 files, ran 5 commands");
+        assert_eq!(turn_fold_title(0, 0, 0, 0), "Worked");
     }
 
     #[test]
     fn elapsed_is_compact_past_a_minute() {
         assert_eq!(turn_fold_elapsed(0), "0.0 s");
-        assert_eq!(turn_fold_elapsed(12_400), "12.4 s");
+        assert_eq!(turn_fold_elapsed(4_200), "4.2 s");
+        assert_eq!(turn_fold_elapsed(12_400), "12 s");
         assert_eq!(turn_fold_elapsed(59_999), "1m 00s");
         assert_eq!(turn_fold_elapsed(134_000), "2m 14s");
     }
