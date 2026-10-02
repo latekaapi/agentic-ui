@@ -72,11 +72,22 @@ const BRANCH_DROP_BELOW: f32 = 40.0;
 /// The current project's mark: a 2 px accent bar down the row's left edge,
 /// inside the row's own margin so it lines up with nothing else moving.
 const CURRENT_BAR_W: f32 = 2.0;
+/// The gap between the current-project bar and the rolled-up state bar when
+/// both draw: two 2 px bars side by side in the row's margin.
+const CURRENT_STATE_GAP: f32 = 1.0;
 /// How far the running state's left-edge bar dims at the pulse's end: full
 /// at the ring's birth, this much gone as it fades.
 const STATE_BAR_FADE: f32 = 0.55;
 /// The bar stops short of the row's rounded corners at top and bottom.
 const CURRENT_BAR_INSET: f32 = 4.0;
+
+/// Which left-edge bars a project row draws: `(current, state)`. The two
+/// are independent — a project that is both current and running shows both,
+/// the accent current bar at the edge and the state bar beside it. Pure, so
+/// the coexistence is unit-testable without a window.
+pub fn project_markers(current: bool, state: Option<aui_tokens::AgentState>) -> (bool, bool) {
+    (current, state.is_some())
+}
 /// The hover tray: the same right/top inset the session row's tray uses, so
 /// the two trays sit in the same place.
 const TRAY_RIGHT: f32 = 8.0;
@@ -191,8 +202,8 @@ pub struct ProjectGroup {
     /// Draw the collapse chevron in the leading box (off: the row is a plain
     /// label whose first glyph starts at the leading centre).
     pub chevron: bool,
-    /// Draw the 2 px current bar for [`Self::current`]. `current` alone
-    /// changes nothing visible.
+    /// Kept for compatibility; no longer needed to see the mark:
+    /// [`Self::current`] alone draws it.
     pub current_bar: bool,
     /// The rows under the project row.
     pub sessions: Vec<SessionSummary>,
@@ -202,8 +213,9 @@ pub struct ProjectGroup {
     /// wants visible and the count it held back.
     pub fold: Option<(usize, bool)>,
     /// The project the open session belongs to: the name reads like every
-    /// other project, and a 2 px accent bar sits at the row's left edge only
-    /// with `current_bar`. One group at a time; the caller decides which.
+    /// other project, and a 2 px accent bar sits at the row's left edge —
+    /// beside the rolled-up state bar when one is set, never instead of it.
+    /// One group at a time; the caller decides which.
     pub current: bool,
 }
 
@@ -272,7 +284,7 @@ impl ProjectGroup {
     }
 
     /// Marks this as the project the open session belongs to. The name is
-    /// unchanged; pair with [`Self::current_bar`] to mark it.
+    /// unchanged; the 2 px accent mark draws from this alone.
     pub fn current(mut self, current: bool) -> Self {
         self.current = current;
         self
@@ -286,8 +298,8 @@ impl ProjectGroup {
         self
     }
 
-    /// Draws the 2 px bar with [`Self::current`]. Off by default:
-    /// `current` alone changes nothing visible.
+    /// Kept for compatibility; the mark draws from [`Self::current`] alone,
+    /// so new callers can leave this off.
     pub fn current_bar(mut self, current_bar: bool) -> Self {
         self.current_bar = current_bar;
         self
@@ -1003,8 +1015,7 @@ impl ProjectGroupRow {
     }
 
     /// The project the open session belongs to: the name reads like every
-    /// other project. The 2 px accent bar draws only with
-    /// [`Self::current_bar`].
+    /// other project, and the 2 px accent bar draws from this alone.
     pub fn current(mut self) -> Self {
         self.current = true;
         self
@@ -1018,9 +1029,8 @@ impl ProjectGroupRow {
         self
     }
 
-    /// Draws the 2 px accent bar at the row's left edge with
-    /// [`Self::current`]. Off by default: `current` alone changes nothing
-    /// visible.
+    /// Kept for compatibility; the mark draws from [`Self::current`] alone,
+    /// so new callers can leave this off.
     pub fn current_bar(mut self, current_bar: bool) -> Self {
         self.current_bar = current_bar;
         self
@@ -1224,8 +1234,7 @@ impl RenderOnce for ProjectGroupRow {
         // glyph starts at the leading centre. With `chevron` (or an explicit
         // mark, which other consumers may pass), the box is taken and the
         // label follows at `NAV_LABEL_X`. Every project reads the same muted
-        // treatment — `current` alone changes nothing; only
-        // `current_bar` marks the row, without moving it.
+        // treatment — `current` marks the row, without moving it.
         let leading_box = self.chevron || (self.mark.is_some() && !self.muted);
         let mut row = {
             // No `w_full`: at full width the 8 px margins overflow the column and
@@ -1277,17 +1286,31 @@ impl RenderOnce for ProjectGroupRow {
                     .child(self.name),
             )
         };
-        // One left-edge slot, shared by the current-project bar and the
-        // rolled-up state: a bar in the state colour when a state is set
-        // (running is the more urgent signal on a group that is both
-        // current and running), else the accent bar for a current group.
-        // Inside the row's margin and absolute, so it marks the row without
-        // shifting anything in it — the labels stay at `NAV_LABEL_X`.
-        let state_bar = self.state.map(|state| {
+        // Two independent left-edge bars: the accent bar for the current
+        // project (from `current` alone) and the rolled-up state bar in the
+        // state colour. A group that is both current and running shows both
+        // side by side — the current mark no longer yields its slot. Both
+        // live inside the row's margin and absolute, so they mark the row
+        // without shifting anything in it — the labels stay at `NAV_LABEL_X`.
+        let (show_current, show_state) = project_markers(self.current, self.state);
+        if show_current {
+            row = row.child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .top(px(CURRENT_BAR_INSET))
+                    .bottom(px(CURRENT_BAR_INSET))
+                    .w(px(CURRENT_BAR_W))
+                    .rounded(px(CURRENT_BAR_W))
+                    .bg(p.accent),
+            );
+        }
+        if show_state {
+            let state = self.state.expect("state bar draws with a state");
             let color = p.agent_state(state);
             let mut bar = div()
                 .absolute()
-                .left_0()
+                .left(px(if show_current { CURRENT_BAR_W + CURRENT_STATE_GAP } else { 0.0 }))
                 .top(px(CURRENT_BAR_INSET))
                 .bottom(px(CURRENT_BAR_INSET))
                 .w(px(CURRENT_BAR_W))
@@ -1301,24 +1324,7 @@ impl RenderOnce for ProjectGroupRow {
                     bar = bar.opacity(1.0 - STATE_BAR_FADE * phase);
                 }
             }
-            bar
-        });
-        if let Some(bar) = state_bar {
             row = row.child(bar);
-        } else if self.current && self.current_bar {
-            // Kept for a current group with no rolled-up state (the state
-            // bar above took the slot otherwise): the same geometry in the
-            // accent colour.
-            row = row.child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .top(px(CURRENT_BAR_INSET))
-                    .bottom(px(CURRENT_BAR_INSET))
-                    .w(px(CURRENT_BAR_W))
-                    .rounded(px(CURRENT_BAR_W))
-                    .bg(p.accent),
-            );
         }
         row = row.child(div().flex_1());
         // The tray covers this end of the row, so the branch and the count
@@ -1436,8 +1442,32 @@ mod tests {
         );
     }
 
-    /// Plain by default: no chevron box, no current bar. `current` alone
-    /// changes nothing visible.
+    /// The current mark is present whenever `current` is set — including on
+    /// a project that is also running, where the state bar draws beside it
+    /// instead of taking its slot.
+    #[test]
+    fn current_marker_coexists_with_the_running_state() {
+        use aui_tokens::AgentState;
+        assert_eq!(project_markers(false, None), (false, false), "plain group: no bars");
+        assert_eq!(project_markers(true, None), (true, false), "current alone marks the row");
+        assert_eq!(
+            project_markers(true, Some(AgentState::Running)),
+            (true, true),
+            "current + running shows both bars"
+        );
+        assert_eq!(
+            project_markers(false, Some(AgentState::Running)),
+            (false, true),
+            "running alone shows only the state bar"
+        );
+        assert_eq!(
+            project_markers(true, Some(AgentState::Waiting)),
+            (true, true),
+            "current + waiting shows both bars"
+        );
+    }
+
+    /// Plain by default: no chevron box, no current bar requested.
     #[test]
     fn group_rows_are_plain_unless_asked() {
         let group = ProjectGroup::new("a", "a", "1");

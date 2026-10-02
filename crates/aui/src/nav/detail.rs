@@ -2,8 +2,8 @@
 //! 320 px.
 //!
 //! The sidebar row truncates, so hovering a row shows the whole picture in
-//! issue order, top to bottom: the full title wrapping with the relative
-//! time (`12m`) right-aligned in the header's first line; the user's last
+//! issue order, top to bottom: the title clamped to three lines with the
+//! relative time (`12m`) right-aligned in the header's first line; the user's last
 //! message quoted and muted; the latest reply's first line in the state
 //! colour (which carries the status, so there is no separate status row);
 //! one inline meta row (branch, turn count, updated) that truncates
@@ -73,11 +73,39 @@ pub const SESSION_DETAIL_ASK_LINES: usize = 2;
 /// are dropped with an ellipsis.
 pub const SESSION_DETAIL_ATTENTION_LINES: usize = 3;
 
+/// How many lines of the title the hover card keeps: a long title wraps to
+/// at most three lines, never producing a panel taller than the cap.
+pub const SESSION_DETAIL_TITLE_LINES: usize = 3;
+
+/// Character budget for the clamped title: the line budget above, plus this
+/// ceiling for one unbroken run of text. Longer titles are cut with an
+/// ellipsis.
+pub const SESSION_DETAIL_TITLE_CHARS: usize = 180;
+
+/// Max height of the hover card: the body clips under it, so a 2,000-char
+/// title (or any other long field) never grows the panel past this.
+pub const SESSION_DETAIL_MAX_H: f32 = 420.0;
+
+/// Clamp `title` to [`SESSION_DETAIL_TITLE_LINES`] newline-separated lines
+/// and [`SESSION_DETAIL_TITLE_CHARS`] characters; an ellipsis marks text
+/// dropped past either budget. Pure, so the cap is unit-testable.
+pub fn clamp_detail_title(title: &str) -> String {
+    let lines = first_lines(title, SESSION_DETAIL_TITLE_LINES);
+    if lines.chars().count() <= SESSION_DETAIL_TITLE_CHARS {
+        return lines;
+    }
+    let mut out: String = lines.chars().take(SESSION_DETAIL_TITLE_CHARS).collect();
+    out.push('…');
+    out
+}
+
 /// The hover detail's caller-supplied content. Build with
 /// [`session_detail`]; every field is optional, and only set fields draw.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionDetailData {
-    /// Full title, wrapping, never truncated.
+    /// Full title, clamped to [`SESSION_DETAIL_TITLE_LINES`] lines and
+    /// [`SESSION_DETAIL_TITLE_CHARS`] characters (see
+    /// [`clamp_detail_title`]).
     pub title: Option<SharedString>,
     /// The user's last message, quoted and muted, up to two lines.
     pub ask: Option<SharedString>,
@@ -145,7 +173,7 @@ pub struct SessionDetail {
 }
 
 impl SessionDetail {
-    /// The full title, wrapping, never truncated.
+    /// The full title, clamped to three lines (see [`clamp_detail_title`]).
     pub fn title(mut self, title: impl Into<SharedString>) -> Self {
         self.title = Some(title.into());
         self
@@ -310,12 +338,18 @@ impl RenderOnce for SessionDetail {
         let data = self.data();
         let p = cx.aui().colors;
         let mut body = v_flex().w_full().gap(px(scale::SP_3));
-        // Header: the full title wrapping, the relative time right-aligned
-        // in its first line.
+        // Header: the title clamped to three lines, the relative time
+        // right-aligned in its first line.
         if let Some(title) = data.title.clone().filter(|t| !t.trim().is_empty()) {
             let mut header = h_flex().w_full().items_start().gap(px(scale::SP_3));
             header = header.child(
-                div().flex_1().min_w(px(0.0)).ui(scale::FS_13).semibold().text_color(p.ink).child(title),
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .ui(scale::FS_13)
+                    .semibold()
+                    .text_color(p.ink)
+                    .child(SharedString::from(clamp_detail_title(&title))),
             );
             if let Some(updated) = data.updated.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
                 header = header.child(
@@ -477,6 +511,11 @@ impl RenderOnce for SessionDetail {
             .id(self.id)
             .flex_none()
             .w(px(SESSION_DETAIL_WIDTH))
+            // The card never grows past its cap: the body clips under it, so
+            // a clamped title (or any other long field) cannot push the panel
+            // off the window.
+            .max_h(px(SESSION_DETAIL_MAX_H))
+            .overflow_hidden()
             .rounded(px(scale::R_MD))
             .border_1()
             .border_color(p.line)
@@ -689,6 +728,30 @@ mod tests {
     #[test]
     fn hover_delay_is_the_slow_token() {
         assert_eq!(SESSION_DETAIL_DELAY, durations::SLOW);
+    }
+
+    /// A 2,000-char title clamps to three lines within the character budget
+    /// (plus the ellipsis), so the laid-out card stays under its max height:
+    /// the title's at most three short lines, and every other field already
+    /// carries its own line budget.
+    #[test]
+    fn long_title_clamps_to_three_lines_within_budget() {
+        let long = "checkout-flow-v2 ".repeat(125); // 2,000+ chars
+        assert!(long.chars().count() >= 2000, "the probe title is long");
+        let clamped = clamp_detail_title(&long);
+        assert!(clamped.lines().count() <= SESSION_DETAIL_TITLE_LINES, "at most three lines, got {:?}", clamped);
+        assert!(
+            clamped.chars().count() <= SESSION_DETAIL_TITLE_CHARS + 1,
+            "within the char budget plus the ellipsis"
+        );
+        assert!(clamped.ends_with('…'), "the cut is marked");
+        // Short titles pass through untouched.
+        assert_eq!(clamp_detail_title("cart-recovery-email"), "cart-recovery-email");
+        assert_eq!(clamp_detail_title("one\ntwo\nthree"), "one\ntwo\nthree");
+        // Newlines past the line budget are dropped with an ellipsis.
+        assert_eq!(clamp_detail_title("one\ntwo\nthree\nfour"), "one\ntwo\nthree…");
+        // The cap is a real bound, not infinity by another name.
+        assert!(SESSION_DETAIL_MAX_H > 0.0 && SESSION_DETAIL_MAX_H < 10_000.0, "max height is a real cap");
     }
 
     /// The side gap is the `SP_2` spacing token, not a literal.
