@@ -371,6 +371,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::tool_group::build,
     },
     Entry {
+        id: "transcript/turn-fold",
+        group: "Transcript",
+        title: "Turn fold and quieter cards",
+        subtitle: "Settled turns fold to one row, live runs to one line; generic, shell, search and MCP bodies cap; group headers drop the doubled count",
+        width: 800.0,
+        height: 1200.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::turn_fold::build,
+    },
+    Entry {
         id: "transcript/approval",
         group: "Transcript",
         title: "Approval card",

@@ -143,6 +143,35 @@ pub fn count_label(calls: usize) -> String {
     if calls == 1 { "1 call".to_string() } else { format!("{calls} calls") }
 }
 
+/// Whether the summary already states this group's own count — `calls`
+/// as a whole word (`Read 3 files` with 3 calls) — in which case the header
+/// drops its own `N calls` instead of saying the count twice. Any other
+/// number (`Checked 2FA flow` with 3 calls) or the same digits inside a
+/// word (`2FA` with 2 calls) keeps the suffix.
+pub fn summary_has_count(summary: &str, calls: usize) -> bool {
+    let want = calls.to_string();
+    let bytes = summary.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_digit() {
+            let start = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            if summary[start..i] == want {
+                let left = start == 0 || !bytes[start - 1].is_ascii_alphanumeric();
+                let right = i == bytes.len() || !bytes[i].is_ascii_alphanumeric();
+                if left && right {
+                    return true;
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
 impl RenderOnce for ToolGroup {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
@@ -156,11 +185,16 @@ impl RenderOnce for ToolGroup {
         };
         // The card frame stays expanded: collapsed means preview rows, not an
         // empty card, so the chevron is drawn by hand from the group state.
+        // The muted count is dropped when the summary already states the
+        // number (`Read 2 files · 2 calls` said it twice).
         let mut card = transcript_card(id.clone(), true)
             .chevron(false)
             .header(glyph)
-            .header(div().medium().whitespace_nowrap().child(self.group.summary.clone()))
-            .header(div().text_color(p.ink_3).child(count_label(count)))
+            .header(div().medium().whitespace_nowrap().child(self.group.summary.clone()));
+        if !summary_has_count(&self.group.summary, count) {
+            card = card.header(div().text_color(p.ink_3).child(count_label(count)));
+        }
+        card = card
             .header(div().flex_1())
             .header(chevron((id.clone(), "chevron"), self.open, p.ink_3, window, cx));
 
@@ -273,6 +307,24 @@ mod tests {
         assert_eq!(count_label(0), "0 calls");
         assert_eq!(count_label(1), "1 call");
         assert_eq!(count_label(5), "5 calls");
+    }
+
+    #[test]
+    fn only_the_group_count_itself_drops_the_second_count() {
+        // The summary states this group's own count as a whole word.
+        assert!(summary_has_count("Ran 2 commands", 2));
+        assert!(summary_has_count("Read 12 files", 12));
+        assert!(summary_has_count("11 tool calls", 11));
+        assert!(summary_has_count("Read 3 files", 3));
+        // Any other number keeps the suffix — even another digit.
+        assert!(!summary_has_count("Ran 2 commands", 3));
+        assert!(!summary_has_count("Read 12 files", 2));
+        assert!(!summary_has_count("Checked 2FA flow", 3));
+        assert!(!summary_has_count("Checked the form flow", 3));
+        assert!(!summary_has_count("", 3));
+        // The same digits inside a word are not the count.
+        assert!(!summary_has_count("Checked 2FA flow", 2));
+        assert!(!summary_has_count("abc3def", 3));
     }
 
     #[test]
