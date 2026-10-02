@@ -155,6 +155,16 @@ pub struct WebviewState {
     /// Whether any frozen layout resized the page, so the end-of-animation
     /// push refreshes the snapshot stand-in like a live push would.
     pending_resized: bool,
+    /// The deferred frame seen at the last drain, with how many consecutive
+    /// drains have seen it unchanged. Two identical drains (~120 ms of poll
+    /// ticks) mean the spring ended without the host saying so; see
+    /// [`Self::maybe_auto_settle`].
+    settle_frame: Option<(Point<Pixels>, Size<Pixels>)>,
+    settle_ticks: u32,
+    /// Whether the page was hidden at the last drain. A hidden→visible edge
+    /// notifies on the next drain, so an un-obscure without a `cx` still
+    /// repaints; starts visible so a pane that begins hidden wakes nothing.
+    was_hidden: bool,
     /// What the native view was last told about visibility; see
     /// [`Self::sync_visibility`].
     shown: bool,
@@ -235,6 +245,9 @@ impl WebviewState {
             animating: false,
             pending_frame: None,
             pending_resized: false,
+            settle_frame: None,
+            settle_ticks: 0,
+            was_hidden: false,
             shown: true,
             page_origin: gpui::point(px(0.0), px(0.0)),
             page_size: gpui::size(px(0.0), px(0.0)),
@@ -242,7 +255,7 @@ impl WebviewState {
         };
         // A backend usually has its first page to announce before the poll
         // timer has run, so the pane never draws an empty URL field.
-        state.apply_pending();
+        let _ = state.apply_pending();
         state
     }
 
@@ -290,7 +303,7 @@ impl WebviewState {
         for (at, note) in points {
             self.backend.point_moved(Some(*at));
             self.backend.point_clicked(*at);
-            self.apply_pending();
+            let _ = self.apply_pending();
             if let Some(last) = self.annotations.last_mut() {
                 last.note = SharedString::from(note.to_string());
                 last.pending = false;
@@ -396,19 +409,27 @@ impl WebviewState {
     /// `set_bounds` push is deferred, and `set_animating(false)` applies
     /// the latest box exactly once.
     ///
-    /// The host must call this with `false` when the animation settles,
+    /// The host should call this with `false` when the animation settles,
     /// even if the box ended where it started; until then the page keeps
-    /// its frozen frame. Combine with [`Self::set_obscured`] when the
-    /// frozen frame itself would distract: the last screenshot stands in
-    /// for the page while covered.
+    /// its frozen size. That call is the fast path, not the only one: if the
+    /// laid-out frame stops changing for ~120 ms of poll ticks the pane
+    /// treats the spring as ended and applies the size itself, so a host
+    /// that never calls back still converges. Combine with
+    /// [`Self::set_obscured`] when the frozen frame itself would distract:
+    /// the last screenshot stands in for the page while covered.
     pub fn set_animating(&mut self, animating: bool) {
         if self.animating == animating {
             return;
         }
         self.animating = animating;
-        if !animating {
+        if animating {
+            self.settle_frame = None;
+            self.settle_ticks = 0;
+        } else {
             let frame = self.pending_frame.take();
             let resized = std::mem::replace(&mut self.pending_resized, false);
+            self.settle_frame = None;
+            self.settle_ticks = 0;
             if self.native {
                 if let Some(frame) = frame {
                     if self.pushed != Some(frame) {
@@ -416,6 +437,7 @@ impl WebviewState {
                     }
                 }
             }
+            self.sync_visibility();
         }
     }
 
@@ -437,7 +459,10 @@ impl WebviewState {
         if !self.native {
             return;
         }
-        let want = !self.obscured && self.visible_box.is_some();
+        // The first layout while animating defers its (tiny) frame instead
+        // of pushing it, so the native view stays parked until the rest
+        // frame lands: hidden is the snapshot stand-in, or nothing.
+        let want = !self.obscured && self.visible_box.is_some() && !(self.animating && self.pushed.is_none());
         if want != self.shown {
             self.shown = want;
             self.backend.set_visible(want);
@@ -468,15 +493,36 @@ impl WebviewState {
         let visible = bounds.intersect(&clip);
         self.visible_box = (!visible.is_empty()).then_some(visible);
         let frame = (visible.origin, visible.size);
-        if self.native && self.pushed != Some(frame) {
-            if self.animating && self.pushed.is_some() {
-                // Frozen mid-animation: remember the latest frame; the host's
-                // `set_animating(false)` pushes it exactly once.
+        if self.native {
+            if self.pushed == Some(frame) {
+                // At rest — including an animation that came back to the
+                // already-pushed frame. Drop any stale deferral instead of
+                // pushing it later over an up-to-date view.
+                self.pending_frame = None;
+                self.pending_resized = false;
+                self.settle_frame = None;
+                self.settle_ticks = 0;
+            } else if self.animating {
+                // Frozen mid-animation: the origin follows every frame so a
+                // sliding pane tracks, while the size waits for rest. With
+                // nothing pushed yet (the first layout mid-animation) the
+                // tiny frame is only remembered; `sync_visibility` below
+                // keeps the native view parked until rest.
+                if let Some((pushed_origin, pushed_size)) = self.pushed {
+                    if visible.origin != pushed_origin {
+                        let (x, y) = (f32::from(visible.origin.x), f32::from(visible.origin.y));
+                        let (w, h) = (f32::from(pushed_size.width), f32::from(pushed_size.height));
+                        self.pushed = Some((visible.origin, pushed_size));
+                        self.backend.set_bounds((x, y), (w, h));
+                    }
+                }
                 self.pending_frame = Some(frame);
                 self.pending_resized |= resized;
             } else {
                 self.pending_frame = None;
                 self.pending_resized = false;
+                self.settle_frame = None;
+                self.settle_ticks = 0;
                 self.push_frame(frame, resized);
             }
         }
@@ -593,13 +639,15 @@ impl WebviewState {
     }
 
     /// Takes everything the backend has to say and folds it into the state,
-    /// answering whether anything changed. Draws nothing: [`Self::drain`] is
-    /// what turns a change into a re-render.
-    fn apply_pending(&mut self) -> bool {
+    /// answering whether anything changed and whether a screenshot arrived.
+    /// Draws nothing: [`Self::drain`] is what turns a change into a
+    /// re-render.
+    fn apply_pending(&mut self) -> (bool, bool) {
         let events = self.backend.poll_events();
         let eval_results = self.backend.take_eval_results();
         let hovered = self.backend.hovered();
         let mut changed = hovered != self.hovered;
+        let mut screenshot = false;
         let mut settled = false;
         self.hovered = hovered;
         for event in events {
@@ -621,6 +669,7 @@ impl WebviewState {
                 WebEvent::Screenshot(bytes) => {
                     self.screenshot_image = Some(Arc::new(Image::from_bytes(ImageFormat::Png, bytes.clone())));
                     self.screenshot = Some(bytes);
+                    screenshot = true;
                 }
             }
         }
@@ -636,20 +685,60 @@ impl WebviewState {
             // will be painted over, so take its picture now.
             self.backend.capture();
         }
-        changed
+        (changed, screenshot)
     }
 
     /// The poll timer's tick: fold and, if anything moved, re-render.
     ///
     /// A hidden page — covered ([`Self::set_obscured`]) or laid out with no
-    /// surviving box — never notifies: there is nothing on screen to repaint,
-    /// and waking the window every 50 ms is what kept it re-rendering forever
+    /// surviving box — notifies only for a fresh screenshot (which is what
+    /// the snapshot stand-in paints) or for the hidden→visible edge itself,
+    /// so an un-obscure without a `cx` still repaints on the next tick.
+    /// Waking the window every 50 ms is what kept it re-rendering forever
     /// once any webview existed. A visible page notifies only when the fold
     /// changed something, never merely because the backend is native.
     fn drain(&mut self, cx: &mut Context<Self>) {
-        let changed = self.apply_pending();
-        if changed && !self.is_hidden() {
+        let (changed, screenshot) = self.apply_pending();
+        self.maybe_auto_settle();
+        let hidden = self.is_hidden();
+        let became_visible = !hidden && self.was_hidden;
+        self.was_hidden = hidden;
+        if screenshot || became_visible || (changed && !hidden) {
             cx.notify();
+        }
+    }
+
+    /// Applies the deferred frame once the spring has plausibly ended: while
+    /// animating, two consecutive drains that see the same deferred frame
+    /// (~120 ms of poll ticks with no movement) push it like
+    /// `set_animating(false)` would. A host that never ends its animation
+    /// still converges; one that does takes the fast path there instead.
+    fn maybe_auto_settle(&mut self) {
+        if !self.animating || !self.native {
+            self.settle_frame = None;
+            self.settle_ticks = 0;
+            return;
+        }
+        let Some(pending) = self.pending_frame else {
+            self.settle_frame = None;
+            self.settle_ticks = 0;
+            return;
+        };
+        if self.settle_frame == Some(pending) {
+            self.settle_ticks += 1;
+        } else {
+            self.settle_frame = Some(pending);
+            self.settle_ticks = 1;
+        }
+        if self.settle_ticks >= 2 {
+            self.settle_frame = None;
+            self.settle_ticks = 0;
+            let resized = std::mem::replace(&mut self.pending_resized, false);
+            self.pending_frame = None;
+            if self.pushed != Some(pending) {
+                self.push_frame(pending, resized);
+            }
+            self.sync_visibility();
         }
     }
 
@@ -1360,7 +1449,7 @@ mod tests {
         let early: Vec<(u64, Result<String, String>)> = state.update(cx, |state, _| state.take_eval_results());
         assert!(early.is_empty());
         state.update(cx, |state, _| {
-            assert!(state.apply_pending());
+            assert!(state.apply_pending().0);
         });
         let answers = state.update(cx, |state, _| state.take_eval_results());
         assert_eq!(answers.len(), 1);
@@ -1849,17 +1938,24 @@ mod tests {
         assert!(!labels.iter().any(String::is_empty), "an empty label is an unnamed control in {labels:?}");
     }
 
-    /// A [`FakeWebBackend`] that reports itself as native and records every
-    /// `set_bounds`, so the pane tests can assert follow-the-pane behaviour
-    /// without a real webview.
+    /// A [`FakeWebBackend`] that reports itself as native, records every
+    /// `set_bounds` and `set_visible`, and drains caller-injected events
+    /// ahead of the scripted ones — so the pane tests can assert
+    /// follow-the-pane behaviour without a real webview.
     struct NativeFake {
         inner: FakeWebBackend,
         set_bounds_calls: Rc<RefCell<Vec<((f32, f32), (f32, f32))>>>,
+        set_visible_calls: Rc<RefCell<Vec<bool>>>,
+        extra_events: Rc<RefCell<Vec<WebEvent>>>,
     }
 
     impl NativeFake {
-        fn new(set_bounds_calls: Rc<RefCell<Vec<((f32, f32), (f32, f32))>>>) -> Self {
-            Self { inner: FakeWebBackend::new(), set_bounds_calls }
+        fn new(
+            set_bounds_calls: Rc<RefCell<Vec<((f32, f32), (f32, f32))>>>,
+            set_visible_calls: Rc<RefCell<Vec<bool>>>,
+            extra_events: Rc<RefCell<Vec<WebEvent>>>,
+        ) -> Self {
+            Self { inner: FakeWebBackend::new(), set_bounds_calls, set_visible_calls, extra_events }
         }
     }
 
@@ -1889,7 +1985,9 @@ mod tests {
             self.inner.set_annotate(on);
         }
         fn poll_events(&mut self) -> Vec<WebEvent> {
-            self.inner.poll_events()
+            let mut events = self.extra_events.borrow_mut().drain(..).collect::<Vec<_>>();
+            events.extend(self.inner.poll_events());
+            events
         }
         fn can_go_back(&self) -> bool {
             self.inner.can_go_back()
@@ -1904,6 +2002,7 @@ mod tests {
             self.set_bounds_calls.borrow_mut().push((origin, size));
         }
         fn set_visible(&mut self, visible: bool) {
+            self.set_visible_calls.borrow_mut().push(visible);
             self.inner.set_visible(visible);
         }
         fn set_focused(&mut self, focused: bool) {
@@ -1932,7 +2031,12 @@ mod tests {
     #[gpui::test]
     fn a_hidden_webview_does_not_poll_notify_while_idle(cx: &mut TestAppContext) {
         let calls = Rc::new(RefCell::new(Vec::new()));
-        let state = cx.new(|cx| WebviewState::new(Box::new(NativeFake::new(calls)), cx));
+        let state = cx.new(|cx| {
+            WebviewState::new(
+                Box::new(NativeFake::new(calls, Rc::new(RefCell::new(Vec::new())), Rc::new(RefCell::new(Vec::new())))),
+                cx,
+            )
+        });
         // `new` already folded the opening announcements; covering the page
         // is what hides it — no layout has run, so there is no box either.
         state.update(cx, |state, _| state.set_obscured(true));
@@ -1957,7 +2061,16 @@ mod tests {
         let (host, vcx) = cx.add_window_view({
             let calls = calls.clone();
             move |_window, cx| {
-                let state = cx.new(|cx| WebviewState::new(Box::new(NativeFake::new(calls)), cx));
+                let state = cx.new(|cx| {
+                    WebviewState::new(
+                        Box::new(NativeFake::new(
+                            calls,
+                            Rc::new(RefCell::new(Vec::new())),
+                            Rc::new(RefCell::new(Vec::new())),
+                        )),
+                        cx,
+                    )
+                });
                 PaneHost { state }
             }
         });
@@ -1984,7 +2097,16 @@ mod tests {
     #[gpui::test]
     fn animating_defers_bounds_until_the_end(cx: &mut TestAppContext) {
         let calls = Rc::new(RefCell::new(Vec::new()));
-        let state = cx.new(|cx| WebviewState::new(Box::new(NativeFake::new(calls.clone())), cx));
+        let state = cx.new(|cx| {
+            WebviewState::new(
+                Box::new(NativeFake::new(
+                    calls.clone(),
+                    Rc::new(RefCell::new(Vec::new())),
+                    Rc::new(RefCell::new(Vec::new())),
+                )),
+                cx,
+            )
+        });
         let frame = |width: f32| gpui::Bounds {
             origin: gpui::point(gpui::px(0.), gpui::px(0.)),
             size: gpui::size(gpui::px(width), gpui::px(600.)),
@@ -2012,5 +2134,189 @@ mod tests {
         });
         state.update(cx, |state, _| state.set_animating(false));
         assert_eq!(calls.borrow().len(), 2, "an animation that moved nothing pushes nothing");
+    }
+
+    /// L5fix: a native-backed state plus its `set_bounds` / `set_visible`
+    /// records and its injectable event queue.
+    fn native_state(
+        cx: &mut TestAppContext,
+    ) -> (
+        Entity<WebviewState>,
+        Rc<RefCell<Vec<((f32, f32), (f32, f32))>>>,
+        Rc<RefCell<Vec<bool>>>,
+        Rc<RefCell<Vec<WebEvent>>>,
+    ) {
+        let bounds = Rc::new(RefCell::new(Vec::new()));
+        let visible = Rc::new(RefCell::new(Vec::new()));
+        let events: Rc<RefCell<Vec<WebEvent>>> = Rc::new(RefCell::new(Vec::new()));
+        let state = cx.new(|cx| {
+            WebviewState::new(Box::new(NativeFake::new(bounds.clone(), visible.clone(), events.clone())), cx)
+        });
+        (state, bounds, visible, events)
+    }
+
+    /// L5fix: the laid-out page box at `x` with `width` (600 px tall).
+    fn frame_at(x: f32, width: f32) -> gpui::Bounds<gpui::Pixels> {
+        gpui::Bounds {
+            origin: gpui::point(gpui::px(x), gpui::px(0.)),
+            size: gpui::size(gpui::px(width), gpui::px(600.)),
+        }
+    }
+
+    /// L5fix: an ancestor clip that contains every test frame.
+    fn wide_clip() -> gpui::Bounds<gpui::Pixels> {
+        gpui::Bounds {
+            origin: gpui::point(gpui::px(0.), gpui::px(0.)),
+            size: gpui::size(gpui::px(1000.), gpui::px(600.)),
+        }
+    }
+
+    /// L5fix: lays the page out at `bounds` inside a wide clip, without a window.
+    fn lay_out(state: &Entity<WebviewState>, cx: &mut TestAppContext, bounds: gpui::Bounds<gpui::Pixels>) {
+        state.update(cx, |state, _| {
+            state.laid_out(bounds, wide_clip());
+        });
+    }
+
+    /// L5fix: runs one poll tick, without a window.
+    fn tick(state: &Entity<WebviewState>, cx: &mut TestAppContext) {
+        state.update(cx, |state, cx| state.drain(cx));
+    }
+
+    /// L5fix: counts the state's notifications; the guard must stay alive.
+    fn notify_count(state: &Entity<WebviewState>, cx: &mut TestAppContext) -> (Rc<Cell<usize>>, gpui::Subscription) {
+        let count = Rc::new(Cell::new(0usize));
+        let keep = cx.update(|cx| {
+            let count = count.clone();
+            cx.observe(state, move |_, _| count.set(count.get() + 1))
+        });
+        (count, keep)
+    }
+
+    /// L5fix: an animation that returns to the already-pushed rest frame (a
+    /// reversed spring, a quick toggle) drops its deferral: ending the
+    /// animation pushes nothing stale over the up-to-date view.
+    #[gpui::test]
+    fn reversal_to_the_pushed_frame_pushes_nothing_stale(cx: &mut TestAppContext) {
+        let (state, bounds, _, _) = native_state(cx);
+        lay_out(&state, cx, frame_at(0., 400.));
+        assert_eq!(bounds.borrow().len(), 1, "the rest frame is pushed");
+        state.update(cx, |state, _| state.set_animating(true));
+        for width in [350., 320.] {
+            lay_out(&state, cx, frame_at(0., width));
+        }
+        lay_out(&state, cx, frame_at(0., 400.));
+        state.update(cx, |state, _| state.set_animating(false));
+        assert_eq!(
+            bounds.borrow().len(),
+            1,
+            "reversing to the pushed frame must not push a stale intermediate frame"
+        );
+    }
+
+    /// L5fix: while animating, the native origin tracks every frame while the
+    /// frozen size is pushed exactly once, at rest.
+    #[gpui::test]
+    fn origin_follows_while_size_waits_for_rest(cx: &mut TestAppContext) {
+        let (state, bounds, _, _) = native_state(cx);
+        lay_out(&state, cx, frame_at(0., 400.));
+        state.update(cx, |state, _| state.set_animating(true));
+        lay_out(&state, cx, frame_at(20., 350.));
+        lay_out(&state, cx, frame_at(40., 300.));
+        assert_eq!(
+            bounds.borrow().as_slice(),
+            &[((0., 0.), (400., 600.)), ((20., 0.), (400., 600.)), ((40., 0.), (400., 600.))]
+        );
+        state.update(cx, |state, _| state.set_animating(false));
+        assert_eq!(bounds.borrow().len(), 4, "the rest size lands exactly once");
+        assert_eq!(bounds.borrow().last(), Some(&((40., 0.), (300., 600.))));
+    }
+
+    /// L5fix: a screenshot that arrives while covered is exactly what the
+    /// snapshot stand-in paints, so it notifies even though hidden.
+    #[gpui::test]
+    fn screenshot_while_obscured_still_notifies(cx: &mut TestAppContext) {
+        let (state, _, _, events) = native_state(cx);
+        lay_out(&state, cx, frame_at(0., 400.));
+        state.update(cx, |state, _| state.set_obscured(true));
+        let (count, _keep) = notify_count(&state, cx);
+        tick(&state, cx);
+        assert_eq!(count.get(), 0, "a hidden page with no news stays quiet");
+        events.borrow_mut().push(WebEvent::Screenshot(vec![1, 2, 3, 4]));
+        tick(&state, cx);
+        assert_eq!(count.get(), 1, "a screenshot must repaint even while obscured");
+        assert!(state.update(cx, |state, _| state.screenshot().is_some()));
+    }
+
+    /// L5fix: un-obscuring has no `cx`, so the next drain repaints — once.
+    #[gpui::test]
+    fn hidden_to_visible_notifies_once(cx: &mut TestAppContext) {
+        let (state, _, _, _) = native_state(cx);
+        lay_out(&state, cx, frame_at(0., 400.));
+        state.update(cx, |state, _| state.set_obscured(true));
+        let (count, _keep) = notify_count(&state, cx);
+        tick(&state, cx);
+        assert_eq!(count.get(), 0, "covering the page notifies nothing by itself");
+        state.update(cx, |state, _| state.set_obscured(false));
+        tick(&state, cx);
+        assert_eq!(count.get(), 1, "the un-obscure repaints on the next drain");
+        tick(&state, cx);
+        assert_eq!(count.get(), 1, "the transition notifies exactly once");
+    }
+
+    /// L5fix: a visible title, URL or loading change repaints.
+    #[gpui::test]
+    fn visible_title_url_and_loading_notify(cx: &mut TestAppContext) {
+        let (state, _, _, events) = native_state(cx);
+        lay_out(&state, cx, frame_at(0., 400.));
+        let (count, _keep) = notify_count(&state, cx);
+        tick(&state, cx);
+        assert_eq!(count.get(), 0, "the baseline tick is quiet");
+        events.borrow_mut().push(WebEvent::Title(String::from("New title")));
+        tick(&state, cx);
+        assert_eq!(count.get(), 1, "a visible title change notifies");
+        events.borrow_mut().push(WebEvent::Url(String::from("https://example.com/next")));
+        tick(&state, cx);
+        assert_eq!(count.get(), 2, "a visible URL change notifies");
+        events.borrow_mut().push(WebEvent::Loading(true));
+        tick(&state, cx);
+        assert_eq!(count.get(), 3, "a visible loading change notifies");
+    }
+
+    /// L5fix: when the laid-out frame stops changing mid-animation, two poll
+    /// ticks apply the deferred size even though the host never ends it.
+    #[gpui::test]
+    fn auto_settle_applies_size_without_set_animating_false(cx: &mut TestAppContext) {
+        let (state, bounds, _, _) = native_state(cx);
+        lay_out(&state, cx, frame_at(0., 400.));
+        assert_eq!(bounds.borrow().len(), 1, "the rest frame is pushed");
+        state.update(cx, |state, _| state.set_animating(true));
+        for width in [350., 320., 300.] {
+            lay_out(&state, cx, frame_at(0., width));
+        }
+        assert_eq!(bounds.borrow().len(), 1, "intermediate frames stay deferred");
+        tick(&state, cx);
+        assert_eq!(bounds.borrow().len(), 1, "one tick is not yet settled");
+        tick(&state, cx);
+        assert_eq!(bounds.borrow().len(), 2, "two still ticks apply the size");
+        assert_eq!(bounds.borrow().last(), Some(&((0., 0.), (300., 600.))));
+        assert!(state.update(cx, |state, _| state.animating()), "the host never ended the animation");
+        tick(&state, cx);
+        tick(&state, cx);
+        assert_eq!(bounds.borrow().len(), 2, "settling pushes exactly once");
+    }
+
+    /// L5fix: the first layout while animating defers its tiny frame instead
+    /// of pushing it; the native view stays parked until rest.
+    #[gpui::test]
+    fn first_layout_while_animating_pushes_nothing(cx: &mut TestAppContext) {
+        let (state, bounds, visible, _) = native_state(cx);
+        state.update(cx, |state, _| state.set_animating(true));
+        lay_out(&state, cx, frame_at(0., 50.));
+        assert!(bounds.borrow().is_empty(), "the tiny first frame must not be pushed");
+        assert_eq!(visible.borrow().as_slice(), &[false], "the native view stays parked until rest");
+        state.update(cx, |state, _| state.set_animating(false));
+        assert_eq!(bounds.borrow().as_slice(), &[((0., 0.), (50., 600.))], "rest applies the frame once");
+        assert_eq!(visible.borrow().as_slice(), &[false, true], "rest shows the native view again");
     }
 }
