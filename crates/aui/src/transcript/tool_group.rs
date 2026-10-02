@@ -143,12 +143,33 @@ pub fn count_label(calls: usize) -> String {
     if calls == 1 { "1 call".to_string() } else { format!("{calls} calls") }
 }
 
-/// Whether the summary already states a number (`Ran 2 commands`,
-/// `Read 12 files`), in which case the header drops its own `N calls`
-/// instead of saying the count twice. Any ASCII digit counts: provider
-/// summaries that carry a number always mean a count here.
-pub fn summary_has_count(summary: &str) -> bool {
-    summary.chars().any(|c| c.is_ascii_digit())
+/// Whether the summary already states this group's own count — `calls`
+/// as a whole word (`Read 3 files` with 3 calls) — in which case the header
+/// drops its own `N calls` instead of saying the count twice. Any other
+/// number (`Checked 2FA flow` with 3 calls) or the same digits inside a
+/// word (`2FA` with 2 calls) keeps the suffix.
+pub fn summary_has_count(summary: &str, calls: usize) -> bool {
+    let want = calls.to_string();
+    let bytes = summary.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_digit() {
+            let start = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            if summary[start..i] == want {
+                let left = start == 0 || !bytes[start - 1].is_ascii_alphanumeric();
+                let right = i == bytes.len() || !bytes[i].is_ascii_alphanumeric();
+                if left && right {
+                    return true;
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+    false
 }
 
 impl RenderOnce for ToolGroup {
@@ -170,7 +191,7 @@ impl RenderOnce for ToolGroup {
             .chevron(false)
             .header(glyph)
             .header(div().medium().whitespace_nowrap().child(self.group.summary.clone()));
-        if !summary_has_count(&self.group.summary) {
+        if !summary_has_count(&self.group.summary, count) {
             card = card.header(div().text_color(p.ink_3).child(count_label(count)));
         }
         card = card
@@ -289,12 +310,21 @@ mod tests {
     }
 
     #[test]
-    fn a_summary_with_a_number_drops_the_second_count() {
-        assert!(summary_has_count("Ran 2 commands"));
-        assert!(summary_has_count("Read 12 files"));
-        assert!(summary_has_count("11 tool calls"));
-        assert!(!summary_has_count("Checked the form flow"));
-        assert!(!summary_has_count(""));
+    fn only_the_group_count_itself_drops_the_second_count() {
+        // The summary states this group's own count as a whole word.
+        assert!(summary_has_count("Ran 2 commands", 2));
+        assert!(summary_has_count("Read 12 files", 12));
+        assert!(summary_has_count("11 tool calls", 11));
+        assert!(summary_has_count("Read 3 files", 3));
+        // Any other number keeps the suffix — even another digit.
+        assert!(!summary_has_count("Ran 2 commands", 3));
+        assert!(!summary_has_count("Read 12 files", 2));
+        assert!(!summary_has_count("Checked 2FA flow", 3));
+        assert!(!summary_has_count("Checked the form flow", 3));
+        assert!(!summary_has_count("", 3));
+        // The same digits inside a word are not the count.
+        assert!(!summary_has_count("Checked 2FA flow", 2));
+        assert!(!summary_has_count("abc3def", 3));
     }
 
     #[test]

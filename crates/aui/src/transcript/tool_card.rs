@@ -14,6 +14,7 @@ use std::cell::RefCell;
 use crate::data::{button, glyph_err, glyph_ok, pill, record_ax_label, spinner, tag, PillVariant};
 use crate::icons::{icon, IconName};
 use crate::transcript::ansi::{ansi_runs, ansi_spans};
+use crate::transcript::caps::{cap_expanded, cut_preview_line, Remainder};
 use crate::transcript::transcript_card;
 
 /// `.out{padding:10px 12px;font:11.5px/1.65 mono}`.
@@ -442,12 +443,18 @@ pub fn search_visible_hits(hits: &[aui_protocol::SearchHit]) -> (&[aui_protocol:
     (shown, hidden)
 }
 
-/// The first [`MCP_BODY_CAP`] lines of `result_json` and the overflow count
-/// named by the fold row.
-pub fn mcp_visible_lines(result_json: &str) -> (Vec<&str>, usize) {
-    let total = result_json.lines().count();
-    let hidden = total.saturating_sub(MCP_BODY_CAP);
-    (result_json.lines().take(MCP_BODY_CAP).collect(), hidden)
+/// The visible `result_json`: the first [`MCP_BODY_CAP`] lines and 6,000
+/// characters, with the [`Remainder`] naming what the fold row reports as
+/// `N more lines` or `M more characters`. A minified single-line payload is
+/// cut, never pretty-printed.
+pub fn mcp_visible_text(result_json: &str) -> (String, Remainder) {
+    cap_expanded(result_json)
+}
+
+/// One search hit's snippet, cut like a preview line so a huge match cannot
+/// widen the body: at most 160 characters, with an ellipsis marking the cut.
+pub fn search_capped_snippet(snippet: &str) -> String {
+    cut_preview_line(snippet)
 }
 
 fn shell_body(p: &Palette, _id: &ElementId, lines: &[String], emit: impl Fn(ToolCardIntent) -> Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)> + Clone + 'static) -> impl IntoElement {
@@ -502,13 +509,15 @@ fn search_body(p: &Palette, hits: &[aui_protocol::SearchHit], emit: impl Fn(Tool
     let mut body = v_flex().w_full().py(px(HITS_PAD_Y)).px(px(HITS_PAD_X)).mono(OUT_TEXT).line_height(relative(HITS_LH)).text_color(p.ink);
     for hit in shown {
         // `path:line  snippet` as one wrapping line: path ink-3, match accent-ink 500.
+        // The snippet is char-capped first, so a huge match cannot widen the body.
         let head = format!("{}:{}  ", hit.path, hit.line);
-        let text = format!("{head}{}", hit.snippet);
+        let snippet = search_capped_snippet(&hit.snippet);
+        let text = format!("{head}{snippet}");
         let mut strong = gpui::font(scale::FONT_MONO);
         strong.weight = gpui::FontWeight::MEDIUM;
         let runs = vec![
             gpui::TextRun { len: head.len(), font: gpui::font(scale::FONT_MONO), color: p.ink_3, background_color: None, underline: None, strikethrough: None },
-            gpui::TextRun { len: hit.snippet.len(), font: strong, color: p.accent_ink, background_color: None, underline: None, strikethrough: None },
+            gpui::TextRun { len: snippet.len(), font: strong, color: p.accent_ink, background_color: None, underline: None, strikethrough: None },
         ];
         body = body.child(div().w_full().child(StyledText::new(text).with_runs(runs)));
     }
@@ -600,10 +609,10 @@ fn mcp_body(p: &Palette, params: &[(String, String)], result_json: &str, emit: i
     for (k, v) in params {
         body = body.child(h_flex().gap(px(scale::SP_3)).child(div().text_color(p.ink_3).child(k.clone())).child(div().child(v.clone())));
     }
-    let (shown, hidden) = mcp_visible_lines(result_json);
-    body = body.child(div().text_color(p.ink_2).child(shown.join("\n")));
-    if hidden > 0 {
-        body = body.child(fold_row(p, p.surface_1, false, format!("{hidden} more lines"), "open in pane", emit));
+    let (shown, remainder) = mcp_visible_text(result_json);
+    body = body.child(div().text_color(p.ink_2).child(shown));
+    if let Some(cut) = remainder.label() {
+        body = body.child(fold_row(p, p.surface_1, false, cut, "open in pane", emit));
     }
     body
 }
@@ -743,16 +752,46 @@ mod tests {
     #[test]
     fn mcp_result_caps_at_forty_lines() {
         let json = (1..=100).map(|i| format!("{{\"i\":{i}}}")).collect::<Vec<_>>().join("\n");
-        let (shown, hidden) = mcp_visible_lines(&json);
-        assert_eq!(shown.len(), MCP_BODY_CAP);
-        assert_eq!(shown[0], "{\"i\":1}");
-        assert_eq!(hidden, 60);
+        let (shown, remainder) = mcp_visible_text(&json);
+        assert_eq!(shown.lines().count(), MCP_BODY_CAP);
+        assert!(shown.starts_with("{\"i\":1}"));
+        assert_eq!(remainder.lines, 60);
+        assert_eq!(remainder.chars, 0);
+    }
+
+    #[test]
+    fn mcp_minified_single_line_result_is_cut_not_reformatted() {
+        // A 2,000-char minified line: no newlines, so only the char cap binds.
+        let json = format!("{{\"data\":\"{}\"}}", "d".repeat(2_000));
+        let (shown, remainder) = mcp_visible_text(&json);
+        assert!(
+            shown.chars().count() <= 6_000,
+            "minified JSON shows {}, over the 6,000 cap",
+            shown.chars().count()
+        );
+        assert!(!shown.contains('\n'), "the JSON must be cut, never pretty-printed");
+        assert!(shown.starts_with("{\"data\":\"ddd"));
+        assert_eq!(remainder.lines, 0);
+        assert!(remainder.chars > 0);
     }
 
     #[test]
     fn mcp_short_result_hides_nothing() {
-        let (shown, hidden) = mcp_visible_lines("{\"id\":\"ACME-2491\"}");
-        assert_eq!(shown, vec!["{\"id\":\"ACME-2491\"}"]);
-        assert_eq!(hidden, 0);
+        let (shown, remainder) = mcp_visible_text("{\"id\":\"ACME-2491\"}");
+        assert_eq!(shown, "{\"id\":\"ACME-2491\"}");
+        assert!(remainder.is_empty());
+    }
+
+    #[test]
+    fn search_snippet_with_a_huge_match_is_bounded() {
+        assert_eq!(search_capped_snippet("hit 1"), "hit 1");
+        let huge = "s".repeat(5_000);
+        let capped = search_capped_snippet(&huge);
+        assert!(capped.ends_with('…'), "the cut snippet must mark its cut");
+        assert!(
+            capped.chars().count() <= 161,
+            "huge snippet shows {}, over the 160-char line cap",
+            capped.chars().count()
+        );
     }
 }
