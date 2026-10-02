@@ -34,6 +34,7 @@ pub mod pickers;
 pub mod project_mark;
 pub mod providers;
 pub mod question_plan_todo;
+pub mod right_header_tabs;
 pub mod rows;
 pub mod secret_field;
 pub mod selection;

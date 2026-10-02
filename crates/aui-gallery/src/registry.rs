@@ -141,6 +141,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::panel_chrome::build,
     },
     Entry {
+        id: "shell/right-header-tabs",
+        group: "Shell",
+        title: "Right header tabs",
+        subtitle: "Right header with a tab strip instead of a title: Changes · Files · Browser, left/right reachable, with a close control",
+        width: 860.0,
+        height: 400.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::right_header_tabs::build,
+    },
+    Entry {
         id: "shell/command-palette",
         group: "Shell",
         title: "Command palette",

@@ -97,11 +97,17 @@ struct StripGeometry {
 }
 
 /// The tab strip. Build with [`tab_strip`].
+///
+/// The strip is one tab stop: `←` / `→` move the selection while it is
+/// focused and report through [`TabStrip::on_select`] like a click does. It
+/// carries `TabList` with [`TabStrip::accessibility_label`] as its name, and
+/// each tab carries `Tab` with its visible label plus its selected state.
 #[derive(IntoElement)]
 pub struct TabStrip {
     id: ElementId,
     tabs: Vec<TabItem>,
     active: usize,
+    accessibility_label: Option<SharedString>,
     in_shell_header: bool,
     after_tabs: Vec<gpui::AnyElement>,
     trailing: Vec<gpui::AnyElement>,
@@ -111,10 +117,52 @@ pub struct TabStrip {
 
 /// A strip over `tabs` with `active` selected.
 pub fn tab_strip(id: impl Into<ElementId>, tabs: Vec<TabItem>, active: usize) -> TabStrip {
-    TabStrip { id: id.into(), tabs, active, in_shell_header: false, after_tabs: Vec::new(), trailing: Vec::new(), on_select: None, on_close: None }
+    TabStrip {
+        id: id.into(),
+        tabs,
+        active,
+        accessibility_label: None,
+        in_shell_header: false,
+        after_tabs: Vec::new(),
+        trailing: Vec::new(),
+        on_select: None,
+        on_close: None,
+    }
 }
 
 impl TabStrip {
+    /// The accessible name of the strip (the `TabList` label). Each tab
+    /// already announces its own visible label as a `Tab`.
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.accessibility_label = Some(label.into());
+        self
+    }
+
+    /// The number of tabs.
+    pub fn len(&self) -> usize {
+        self.tabs.len()
+    }
+
+    /// Whether the strip has no tabs.
+    pub fn is_empty(&self) -> bool {
+        self.tabs.is_empty()
+    }
+
+    /// The selected tab's index, as passed to [`tab_strip`].
+    pub fn active_index(&self) -> usize {
+        self.active
+    }
+
+    /// The selected tab's id, or `None` when `active` points past the tabs.
+    pub fn selected_id(&self) -> Option<&SharedString> {
+        self.tabs.get(self.active).map(|tab| &tab.id)
+    }
+
+    /// Whether [`TabStrip::accessibility_label`] was set.
+    pub fn has_accessibility_label(&self) -> bool {
+        self.accessibility_label.is_some()
+    }
+
     /// The 44 px shell-header variant: no strip padding, 10 px tab padding.
     pub fn in_shell_header(mut self) -> Self {
         self.in_shell_header = true;
@@ -199,6 +247,19 @@ impl RenderOnce for TabStrip {
             }
         };
 
+        // One tab stop for the strip; the arrows move the selection while it
+        // holds the keyboard. Nothing is focused on open: this only arms.
+        let focus = window
+            .use_keyed_state((id.clone(), "tab-focus"), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone()
+            .tab_stop(true);
+        let ring = focus.is_focused(window) && crate::keys::keyboard_nav(cx);
+        let key_select = self.on_select.clone();
+        let key_active = self.active;
+        let key_ids: Vec<SharedString> = self.tabs.iter().map(|tab| tab.id.clone()).collect();
+        let strip_label = self.accessibility_label.clone();
+
         let mut strip = h_flex()
             .id(id.clone())
             .relative()
@@ -208,10 +269,34 @@ impl RenderOnce for TabStrip {
             .min_w(px(0.0))
             // `.strip{border-bottom:1px solid var(--line)}`; inside the shell the header cell owns it.
             .when(!self.in_shell_header, |d| d.px(px(STRIP_PAD)).border_b_1().border_color(p.line))
+            .role(gpui::Role::TabList)
+            .track_focus(&focus)
+            .on_key_down(move |event, window, cx| {
+                let held = &event.keystroke.modifiers;
+                if held.control || held.alt || held.shift || held.platform || held.function {
+                    return;
+                }
+                let next = match event.keystroke.key.as_str() {
+                    "left" => key_active.saturating_sub(1),
+                    "right" => (key_active + 1).min(key_ids.len().saturating_sub(1)),
+                    _ => return,
+                };
+                cx.stop_propagation();
+                if next != key_active {
+                    if let Some(tab_id) = key_ids.get(next) {
+                        if let Some(f) = &key_select {
+                            f(tab_id, window, cx);
+                        }
+                    }
+                }
+            })
             .on_prepaint({
                 let geometry = geometry.clone();
                 move |bounds, _, _| geometry.borrow_mut().strip = Some(bounds)
             });
+        if let Some(label) = strip_label {
+            strip = strip.aria_label(label);
+        }
 
         let count = self.tabs.len();
         for (index, tab) in self.tabs.into_iter().enumerate() {
@@ -235,6 +320,9 @@ impl RenderOnce for TabStrip {
                 .ui(scale::FS_12)
                 .whitespace_nowrap()
                 .cursor_pointer()
+                .role(gpui::Role::Tab)
+                .aria_label(tab.label.clone())
+                .aria_selected(active)
                 .track_interaction(&state)
                 .on_prepaint({
                     let geometry = geometry.clone();
@@ -288,6 +376,54 @@ impl RenderOnce for TabStrip {
         if !self.trailing.is_empty() {
             strip = strip.child(div().flex_1().min_w(px(0.0))).children(self.trailing);
         }
+        if ring {
+            strip = strip.shadow(vec![gpui::BoxShadow {
+                color: p.accent_ring,
+                offset: gpui::point(px(0.0), px(0.0)),
+                blur_radius: px(0.0),
+                spread_radius: px(3.0),
+                inset: false,
+            }]);
+        }
         strip.children(indicator)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aui_icons::IconName;
+
+    fn right_pane_tabs() -> Vec<TabItem> {
+        vec![
+            TabItem::new("changes", "Changes", IconName::Git).closable(false),
+            TabItem::new("files", "Files", IconName::Folder).closable(false),
+            TabItem::new("browser", "Browser", IconName::Globe).closable(false),
+        ]
+    }
+
+    #[test]
+    fn selected_id_tracks_the_active_tab() {
+        let strip = tab_strip("strip", right_pane_tabs(), 1).accessibility_label("Right pane");
+        assert_eq!(strip.len(), 3);
+        assert!(!strip.is_empty());
+        assert_eq!(strip.active_index(), 1);
+        assert_eq!(strip.selected_id(), Some(&SharedString::from("files")));
+        assert!(strip.has_accessibility_label());
+    }
+
+    #[test]
+    fn out_of_range_active_selects_nothing() {
+        let strip = tab_strip("strip", right_pane_tabs(), 9);
+        assert_eq!(strip.active_index(), 9);
+        assert_eq!(strip.selected_id(), None);
+        assert!(!strip.has_accessibility_label());
+    }
+
+    #[test]
+    fn empty_strip_selects_nothing() {
+        let strip = tab_strip("strip", Vec::new(), 0);
+        assert!(strip.is_empty());
+        assert_eq!(strip.selected_id(), None);
     }
 }
