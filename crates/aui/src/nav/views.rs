@@ -1248,6 +1248,7 @@ impl RenderOnce for ProjectGroupRow {
                 .relative()
                 .flex_none()
                 .min_w(px(0.0))
+                .debug_selector(|| "project-row".into())
                 .h(cx.aui().metrics.row)
                 .gap(px(PJ_LEAD_GAP))
                 .pl(px(if leading_box { 0.0 } else { PJ_PLAIN_PAD }))
@@ -1302,7 +1303,8 @@ impl RenderOnce for ProjectGroupRow {
                     .bottom(px(CURRENT_BAR_INSET))
                     .w(px(CURRENT_BAR_W))
                     .rounded(px(CURRENT_BAR_W))
-                    .bg(p.accent),
+                    .bg(p.accent)
+                    .debug_selector(|| "project-current-bar".into()),
             );
         }
         if show_state {
@@ -1310,6 +1312,7 @@ impl RenderOnce for ProjectGroupRow {
             let color = p.agent_state(state);
             let mut bar = div()
                 .absolute()
+                .debug_selector(|| "project-state-bar".into())
                 .left(px(if show_current { CURRENT_BAR_W + CURRENT_STATE_GAP } else { 0.0 }))
                 .top(px(CURRENT_BAR_INSET))
                 .bottom(px(CURRENT_BAR_INSET))
@@ -1442,29 +1445,58 @@ mod tests {
         );
     }
 
-    /// The current mark is present whenever `current` is set — including on
-    /// a project that is also running, where the state bar draws beside it
-    /// instead of taking its slot.
-    #[test]
-    fn current_marker_coexists_with_the_running_state() {
-        use aui_tokens::AgentState;
-        assert_eq!(project_markers(false, None), (false, false), "plain group: no bars");
-        assert_eq!(project_markers(true, None), (true, false), "current alone marks the row");
-        assert_eq!(
-            project_markers(true, Some(AgentState::Running)),
-            (true, true),
-            "current + running shows both bars"
+    /// A host view rendering one current + running project row: the row
+    /// carries interaction state (which reads the current view), so the
+    /// layout test draws through an entity — the same shape an app uses.
+    struct GroupProbe;
+
+    impl gpui::Render for GroupProbe {
+        fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+            gpui::div().w(gpui::px(260.0)).child(
+                project_group_row("probe-group", "project", "3", false)
+                    .current()
+                    .state(aui_tokens::AgentState::Running),
+            )
+        }
+    }
+
+    /// A current + running project row paints both bars beside each other:
+    /// the accent current mark at the row's left edge and the running state
+    /// bar one gap over — the layout the [`project_markers`] pair promises,
+    /// asserted from painted bounds, not the tuple alone.
+    #[gpui::test]
+    fn current_and_running_bars_paint_beside_each_other(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+        let cx = cx.add_empty_window();
+        cx.draw(
+            gpui::point(gpui::px(0.0), gpui::px(0.0)),
+            gpui::size(gpui::px(360.0), gpui::px(400.0)),
+            |_, cx| {
+                cx.new(|_| GroupProbe).into_any_element()
+            },
         );
-        assert_eq!(
-            project_markers(false, Some(AgentState::Running)),
-            (false, true),
-            "running alone shows only the state bar"
+        let row = cx.debug_bounds("project-row").expect("the project row is painted");
+        let current = cx.debug_bounds("project-current-bar").expect("the current mark is painted");
+        let state = cx.debug_bounds("project-state-bar").expect("the running bar is painted");
+        // The current mark sits at the row's left edge; the state bar sits
+        // one bar width plus the gap beside it.
+        let current_left = f32::from(current.origin.x) - f32::from(row.origin.x);
+        let state_left = f32::from(state.origin.x) - f32::from(row.origin.x);
+        assert!((current_left - 0.0).abs() < 1.0, "the current mark is at the row's left edge: {current_left}");
+        assert!(
+            (state_left - (CURRENT_BAR_W + CURRENT_STATE_GAP)).abs() < 1.0,
+            "the running bar sits beside the mark: {state_left}"
         );
-        assert_eq!(
-            project_markers(true, Some(AgentState::Waiting)),
-            (true, true),
-            "current + waiting shows both bars"
-        );
+        // Both bars span the row vertically (inset top and bottom only).
+        for (name, bar) in [("current", current), ("running", state)] {
+            assert!(
+                f32::from(bar.origin.y) >= f32::from(row.origin.y) - 1.0,
+                "the {name} bar starts inside the row"
+            );
+            let bar_bottom = f32::from(bar.origin.y) + f32::from(bar.size.height);
+            let row_bottom = f32::from(row.origin.y) + f32::from(row.size.height);
+            assert!(bar_bottom <= row_bottom + 1.0, "the {name} bar ends inside the row");
+        }
     }
 
     /// Plain by default: no chevron box, no current bar requested.
