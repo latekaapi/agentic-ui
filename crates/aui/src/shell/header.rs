@@ -436,10 +436,16 @@ impl RenderOnce for RightHeader {
         } else {
             None
         };
-        let mut add = icon_button((id.clone(), "add"), IconName::Plus).ghost().muted().size(ButtonSize::Xs).icon_size(px(XS_GLYPH));
-        if let Some(h) = self.on_add {
-            add = add.on_click(move |e, w, cx| h(e, w, cx));
-        }
+        // `+` draws only when someone handles it: a pane with fixed tabs has
+        // nothing to add, and a dead button is worse than none.
+        let add = self.on_add.map(|h| {
+            icon_button((id.clone(), "add"), IconName::Plus)
+                .ghost()
+                .muted()
+                .size(ButtonSize::Xs)
+                .icon_size(px(XS_GLYPH))
+                .on_click(move |e, w, cx| h(e, w, cx))
+        });
         h_flex()
             .id(id.clone())
             .w_full()
@@ -450,7 +456,7 @@ impl RenderOnce for RightHeader {
             .min_w(px(0.0))
             .children(tabs)
             .children(title)
-            .child(add)
+            .children(add)
             .child(div().flex_1())
             .child(ghost(id, "close", IconName::X, self.on_close))
     }
