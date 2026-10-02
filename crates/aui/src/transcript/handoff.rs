@@ -22,7 +22,7 @@ use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedS
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::composer::provider_display_name;
-use crate::data::{button, pill, tag, PillVariant};
+use crate::data::{button, glyph_err, glyph_ok, pill, record_ax_label, spinner, tag, PillVariant};
 use crate::icons::{icon, provider_mark, IconName, Provider as IconProvider};
 use crate::overlay::{dialog, Dialog};
 
@@ -64,6 +64,98 @@ pub enum HandoffIntent {
     /// Stop the move while it is still cancellable; the card's own block id
     /// is the one the host's closure captured.
     Cancel,
+}
+
+/// Where one step of a handoff stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HandoffStepState {
+    /// Finished.
+    Done,
+    /// Running now; drawn with the spinner and the host's elapsed counter.
+    Current,
+    /// Not started yet.
+    #[default]
+    Pending,
+    /// Stopped by an error; the step's `detail` carries the reason.
+    Failed,
+    /// Deliberately not run (a redundant summary, a skipped confirmation).
+    Skipped,
+}
+
+/// One row of the handoff card's progress list: a short human label the host
+/// supplies (`Pack the context`), its state, and an optional detail — the
+/// live elapsed counter (`6 s`) on the current step, or the reason on a
+/// failed one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandoffStep {
+    /// The short human label the host supplies.
+    pub label: String,
+    /// Where the step stands.
+    pub state: HandoffStepState,
+    /// The elapsed counter on the current step, or the reason on a failed one.
+    pub detail: Option<String>,
+}
+
+impl HandoffStep {
+    /// A step with `label` in `state` and no detail.
+    pub fn new(label: impl Into<String>, state: HandoffStepState) -> Self {
+        HandoffStep { label: label.into(), state, detail: None }
+    }
+
+    /// The live detail: the elapsed counter (`6 s`) or the failure reason.
+    pub fn detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+}
+
+/// The default step labels a host can start from — pack, summary, start,
+/// confirm — all pending; the host marks them as the move proceeds. The last
+/// two name the destination provider.
+pub fn default_handoff_steps(to: WireProvider) -> Vec<HandoffStep> {
+    let to_name = provider_display_name(mark(to));
+    vec![
+        HandoffStep::new("Pack the context", HandoffStepState::Pending),
+        HandoffStep::new("Write a summary", HandoffStepState::Pending),
+        HandoffStep::new(format!("Start {to_name}"), HandoffStepState::Pending),
+        HandoffStep::new(format!("{to_name} confirms"), HandoffStepState::Pending),
+    ]
+}
+
+/// The plain state word a step carries in its accessible label.
+pub fn handoff_step_state_word(state: HandoffStepState) -> &'static str {
+    match state {
+        HandoffStepState::Done => "done",
+        HandoffStepState::Current => "in progress",
+        HandoffStepState::Pending => "pending",
+        HandoffStepState::Failed => "failed",
+        HandoffStepState::Skipped => "skipped",
+    }
+}
+
+/// `Write a summary, in progress, 6 s` — every step names its own state (and
+/// its elapsed counter or reason), so the list reads without a live region.
+pub fn handoff_step_label(step: &HandoffStep) -> String {
+    let mut label = format!("{}, {}", step.label, handoff_step_state_word(step.state));
+    if let Some(detail) = &step.detail {
+        label.push_str(&format!(", {detail}"));
+    }
+    label
+}
+
+/// The plain words in the title pill: what happened, never the internal
+/// state name.
+pub fn handoff_pill_text(state: &HandoffState) -> SharedString {
+    match state {
+        HandoffState::Requested
+        | HandoffState::Quiescing
+        | HandoffState::Checkpointed
+        | HandoffState::Prepared
+        | HandoffState::Acknowledged => "Handing off…".into(),
+        HandoffState::Activated => "Handed off".into(),
+        HandoffState::Refused { .. } | HandoffState::Failed { .. } => "Hand-off failed".into(),
+        HandoffState::Cancelled => "Cancelled".into(),
+    }
 }
 
 /// Maps the wire provider onto its coloured mark.
@@ -162,6 +254,7 @@ pub struct HandoffCard {
     carried: Vec<HandoffItem>,
     lost: Vec<HandoffItem>,
     pack_tokens: Option<u64>,
+    steps: Vec<HandoffStep>,
     destination_session: Option<String>,
     on_intent: Option<IntentHandler>,
 }
@@ -187,6 +280,7 @@ pub fn handoff_card(
         carried: Vec::new(),
         lost: Vec::new(),
         pack_tokens: None,
+        steps: Vec::new(),
         destination_session: None,
         on_intent: None,
     }
@@ -217,6 +311,17 @@ impl HandoffCard {
         self
     }
 
+    /// The progress steps, drawn as the `Hand-off progress` list while the
+    /// move is live. The host supplies short human labels (start from
+    /// [`default_handoff_steps`]); the current step may carry the elapsed
+    /// counter as its detail, a failed step its reason. Once the move
+    /// settles (handed off or cancelled) the list hides again, leaving the
+    /// settled form.
+    pub fn steps(mut self, steps: Vec<HandoffStep>) -> Self {
+        self.steps = steps;
+        self
+    }
+
     /// The fresh destination session; shows `Open the new session`.
     pub fn destination_session(mut self, session: Option<String>) -> Self {
         self.destination_session = session;
@@ -230,20 +335,95 @@ impl HandoffCard {
     }
 }
 
-/// The pill beside the title: quiet while moving, success once active,
-/// danger on refusal or failure.
+/// The pill beside the title: quiet while moving, success once handed off,
+/// danger on refusal or failure. The text is plain words ([`handoff_pill_text`]),
+/// never the internal state name.
 fn state_pill(state: &HandoffState) -> (SharedString, PillVariant) {
-    match state {
-        HandoffState::Requested => ("Requested".into(), PillVariant::Quiet),
-        HandoffState::Quiescing => ("Quiescing".into(), PillVariant::Quiet),
-        HandoffState::Checkpointed => ("Checkpointed".into(), PillVariant::Quiet),
-        HandoffState::Prepared => ("Prepared".into(), PillVariant::Quiet),
-        HandoffState::Acknowledged => ("Acknowledged".into(), PillVariant::Quiet),
-        HandoffState::Activated => ("Active".into(), PillVariant::Success),
-        HandoffState::Refused { .. } => ("Refused".into(), PillVariant::Danger),
-        HandoffState::Failed { .. } => ("Failed".into(), PillVariant::Danger),
-        HandoffState::Cancelled => ("Cancelled".into(), PillVariant::Quiet),
+    let variant = match state {
+        HandoffState::Activated => PillVariant::Success,
+        HandoffState::Refused { .. } | HandoffState::Failed { .. } => PillVariant::Danger,
+        _ => PillVariant::Quiet,
+    };
+    (handoff_pill_text(state), variant)
+}
+
+/// Whether the move has settled: handed off or cancelled. Settled cards hide
+/// the step list again, collapsing to the state line and the shared lists.
+fn settled(state: &HandoffState) -> bool {
+    matches!(state, HandoffState::Activated | HandoffState::Cancelled)
+}
+
+/// The progress list: one row per step with its state mark, labelled
+/// `Hand-off progress` with every row naming its own state. The current step
+/// spins and shows the host's elapsed counter; a failed step shows its
+/// reason in the danger tone.
+fn step_list(id: &ElementId, p: &Palette, steps: &[HandoffStep], halted: bool) -> AnyElement {
+    let mut list = v_flex()
+        .id((id.clone(), "steps"))
+        .w_full()
+        .gap(px(2.0))
+        .role(gpui::Role::List)
+        .aria_label("Hand-off progress");
+    for (i, step) in steps.iter().enumerate() {
+        let label = handoff_step_label(step);
+        record_ax_label(&label);
+        let row_id: ElementId = (id.clone(), SharedString::from(format!("step-{i}"))).into();
+        // Once the move has failed nothing is in progress any more: a step the
+        // host left `Current` reads as pending, never a spinner on a dead card.
+        let state = effective_step_state(step.state, halted);
+        let mark: AnyElement = match state {
+            HandoffStepState::Done => glyph_ok().into_any_element(),
+            HandoffStepState::Current => spinner((row_id.clone(), "spin")).into_any_element(),
+            HandoffStepState::Failed => glyph_err().into_any_element(),
+            HandoffStepState::Pending => div()
+                .flex_none()
+                .size(px(14.0))
+                .rounded_full()
+                .border_1()
+                .border_color(p.line_strong)
+                .into_any_element(),
+            // Skipped reads differently from pending: a short dash, no ring.
+            HandoffStepState::Skipped => div()
+                .flex_none()
+                .size(px(14.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(div().w(px(8.0)).h(px(1.5)).rounded_full().bg(p.line_strong))
+                .into_any_element(),
+        };
+        let failed = state == HandoffStepState::Failed;
+        let dimmed = matches!(state, HandoffStepState::Pending | HandoffStepState::Skipped);
+        let mut row = h_flex()
+            .id(row_id.clone())
+            .w_full()
+            .items_center()
+            .gap(px(scale::SP_2))
+            .ui(ITEM_TEXT)
+            .text_color(if failed { p.danger } else if dimmed { p.ink_3 } else { p.ink })
+            .role(gpui::Role::ListItem)
+            .aria_label(label)
+            .child(mark)
+            .child(div().flex_shrink_0().max_w(gpui::relative(0.7)).min_w(px(0.0)).truncate().child(step.label.clone()));
+        if let Some(detail) = &step.detail {
+            row = row.child(
+                div()
+                    .min_w(px(0.0))
+                    .truncate()
+                    .ui(DETAIL_TEXT)
+                    .text_color(if failed { p.danger } else { p.ink_3 })
+                    .child(detail.clone()),
+            );
+        }
+        list = list.child(row);
     }
+    list.into_any_element()
+}
+
+/// The state a step renders in: a `Current` step on a halted (failed or
+/// refused) move is shown as pending.
+fn effective_step_state(state: HandoffStepState, halted: bool) -> HandoffStepState {
+    if halted && state == HandoffStepState::Current { HandoffStepState::Pending } else { state }
 }
 
 /// Whether the move can still be stopped: Requested through Prepared.
@@ -292,7 +472,7 @@ impl RenderOnce for HandoffCard {
         let state_line: SharedString = match &self.state {
             HandoffState::Requested => "Preparing the context pack…".into(),
             HandoffState::Quiescing => "Quiescing the old session…".into(),
-            HandoffState::Checkpointed => "Checkpoint captured — building the pack…".into(),
+            HandoffState::Checkpointed => "Preparing the handoff…".into(),
             HandoffState::Prepared => SharedString::from(format!("Pack ready — handing over to {to_name}…")),
             HandoffState::Acknowledged => SharedString::from(format!("{to_name} acknowledged — starting the new session…")),
             HandoffState::Activated => SharedString::from(format!("Continued in a new {to_name} session")),
@@ -303,6 +483,17 @@ impl RenderOnce for HandoffCard {
         body = body.child(
             div().w_full().ui(STATE_TEXT).text_color(if failed { p.danger } else { p.ink_2 }).child(state_line),
         );
+
+        // The progress steps while the move is live; settled cards collapse
+        // back to the state line and the shared lists.
+        if !settled(&self.state) && !self.steps.is_empty() {
+            body = body.child(step_list(
+                &id,
+                &p,
+                &self.steps,
+                matches!(&self.state, HandoffState::Refused { .. } | HandoffState::Failed { .. }),
+            ));
+        }
 
         // Carried and Not carried share their rendering with the confirm
         // dialog: the same rows, the lost ones in ink-3, never hidden
@@ -421,4 +612,115 @@ pub fn handoff_confirm(
         })
         .secondary("Cancel")
         .primary("Hand off")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn failed_state() -> HandoffState {
+        HandoffState::Failed { reason: "destination unreachable".into() }
+    }
+
+    /// The pill says what happened in plain words — the internal state names
+    /// never reach the person.
+    #[test]
+    fn pill_uses_plain_words_for_every_state() {
+        for state in [
+            HandoffState::Requested,
+            HandoffState::Quiescing,
+            HandoffState::Checkpointed,
+            HandoffState::Prepared,
+            HandoffState::Acknowledged,
+        ] {
+            assert_eq!(handoff_pill_text(&state).to_string(), "Handing off…");
+        }
+        assert_eq!(handoff_pill_text(&HandoffState::Activated).to_string(), "Handed off");
+        assert_eq!(
+            handoff_pill_text(&HandoffState::Refused { reason: "no".into() }).to_string(),
+            "Hand-off failed"
+        );
+        assert_eq!(handoff_pill_text(&failed_state()).to_string(), "Hand-off failed");
+        assert_eq!(handoff_pill_text(&HandoffState::Cancelled).to_string(), "Cancelled");
+        for state in [
+            HandoffState::Requested,
+            HandoffState::Quiescing,
+            HandoffState::Checkpointed,
+            HandoffState::Prepared,
+            HandoffState::Acknowledged,
+            HandoffState::Activated,
+            HandoffState::Refused { reason: "no".into() },
+            failed_state(),
+            HandoffState::Cancelled,
+        ] {
+            let text = handoff_pill_text(&state).to_string();
+            for internal in ["Requested", "Quiescing", "Checkpointed", "Prepared", "Acknowledged", "Refused", "Failed"] {
+                assert!(!text.contains(internal), "pill leaks {internal:?} in {text:?}");
+            }
+        }
+    }
+
+    /// Every step state has a distinct plain word for the accessible label.
+    #[test]
+    fn every_step_state_has_a_plain_word() {
+        assert_eq!(handoff_step_state_word(HandoffStepState::Done), "done");
+        assert_eq!(handoff_step_state_word(HandoffStepState::Current), "in progress");
+        assert_eq!(handoff_step_state_word(HandoffStepState::Pending), "pending");
+        assert_eq!(handoff_step_state_word(HandoffStepState::Failed), "failed");
+        assert_eq!(handoff_step_state_word(HandoffStepState::Skipped), "skipped");
+    }
+
+    /// Each step's label names its own state, plus the elapsed counter or
+    /// the failure reason when the host supplies one.
+    #[test]
+    fn step_label_carries_state_and_detail() {
+        let current = HandoffStep::new("Write a summary", HandoffStepState::Current).detail("6 s");
+        assert_eq!(handoff_step_label(&current), "Write a summary, in progress, 6 s");
+        let failed =
+            HandoffStep::new("Start Codex", HandoffStepState::Failed).detail("destination unreachable");
+        assert_eq!(handoff_step_label(&failed), "Start Codex, failed, destination unreachable");
+        let pending = HandoffStep::new("Pack the context", HandoffStepState::Pending);
+        assert_eq!(handoff_step_label(&pending), "Pack the context, pending");
+        let skipped = HandoffStep::new("Write a summary", HandoffStepState::Skipped);
+        assert_eq!(handoff_step_label(&skipped), "Write a summary, skipped");
+    }
+
+    /// The default set is pack, summary, start, confirm — the last two naming
+    /// the destination — all pending for the host to mark.
+    #[test]
+    fn default_steps_name_pack_summary_start_and_confirm() {
+        let steps = default_handoff_steps(WireProvider::Codex);
+        let labels: Vec<&str> = steps.iter().map(|s| s.label.as_str()).collect();
+        assert_eq!(labels, ["Pack the context", "Write a summary", "Start Codex", "Codex confirms"]);
+        assert!(steps.iter().all(|s| s.state == HandoffStepState::Pending));
+        assert!(steps.iter().all(|s| s.detail.is_none()));
+    }
+
+    /// Only handed-off and cancelled cards settle; failures keep their steps
+    /// so the failed step's reason stays visible.
+    #[test]
+    fn only_handed_off_and_cancelled_settle() {
+        assert!(settled(&HandoffState::Activated));
+        assert!(settled(&HandoffState::Cancelled));
+        for state in [
+            HandoffState::Requested,
+            HandoffState::Quiescing,
+            HandoffState::Checkpointed,
+            HandoffState::Prepared,
+            HandoffState::Acknowledged,
+            HandoffState::Refused { reason: "no".into() },
+            failed_state(),
+        ] {
+            assert!(!settled(&state), "{state:?} must keep its steps");
+        }
+    }
+
+    #[test]
+    fn a_halted_move_never_shows_a_step_in_progress() {
+        assert_eq!(effective_step_state(HandoffStepState::Current, true), HandoffStepState::Pending);
+        assert_eq!(effective_step_state(HandoffStepState::Current, false), HandoffStepState::Current);
+        assert_eq!(effective_step_state(HandoffStepState::Done, true), HandoffStepState::Done);
+        assert_eq!(effective_step_state(HandoffStepState::Failed, true), HandoffStepState::Failed);
+    }
+
 }

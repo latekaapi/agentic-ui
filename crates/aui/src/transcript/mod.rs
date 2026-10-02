@@ -48,8 +48,9 @@ pub use tool_group::{
 };
 pub use approval::{approval_card, ApprovalCard};
 pub use handoff::{
-    handoff_card, handoff_confirm, handoff_confirm_destination, HandoffCard, HandoffIntent, HANDOFF_CONFIRM_WIDTH,
-    HANDOFF_FRESH_NOTE,
+    default_handoff_steps, handoff_card, handoff_confirm, handoff_confirm_destination, handoff_pill_text,
+    handoff_step_label, handoff_step_state_word, HandoffCard, HandoffIntent, HandoffStep, HandoffStepState,
+    HANDOFF_CONFIRM_WIDTH, HANDOFF_FRESH_NOTE,
 };
 pub use question::{answered_row, question_card, AnsweredRow, QuestionCard, QuestionOutcome};
 pub use item::{generic_item_card, goal_card, GenericItemCard, GoalCard};
