@@ -19,7 +19,9 @@ pub const EXPANDED_MAX_LINES: usize = 40;
 pub const EXPANDED_MAX_CHARS: usize = 6000;
 /// Each expanded line is cut here too, with an ellipsis marking the cut: a
 /// minified single-line payload must not render whole no matter the totals.
-pub const EXPANDED_LINE_CHARS: usize = 160;
+/// Generous on purpose: an opened body is for reading, so a long prose
+/// paragraph (a skill's text) wraps whole; only a pathological line is cut.
+pub const EXPANDED_LINE_CHARS: usize = 2000;
 
 /// What a cap cut away: whole lines never shown, and characters never shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -205,7 +207,7 @@ mod tests {
         );
         assert_eq!(remainder.lines, 0);
         assert_eq!(remainder.chars, 26_000 - (EXPANDED_LINE_CHARS + 1));
-        assert_eq!(remainder.label().as_deref(), Some("25,839 more characters"));
+        assert_eq!(remainder.label().as_deref(), Some("23,999 more characters"));
         // Short text hides nothing.
         let (visible, remainder) = cap_expanded("a\nb");
         assert_eq!(visible, "a\nb");

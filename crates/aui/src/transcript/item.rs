@@ -356,10 +356,10 @@ mod tests {
             "26k single-line body shows {}, over the 6,000 cap",
             visible.chars().count()
         );
-        assert_eq!(visible, format!("{}…", "x".repeat(160)));
+        assert_eq!(visible, format!("{}…", "x".repeat(crate::transcript::caps::EXPANDED_LINE_CHARS)));
         assert_eq!(remainder.lines, 0);
-        assert_eq!(remainder.chars, 26_000 - 161);
-        assert_eq!(remainder.label().as_deref(), Some("25,839 more characters"));
+        assert_eq!(remainder.chars, 26_000 - (crate::transcript::caps::EXPANDED_LINE_CHARS + 1));
+        assert_eq!(remainder.label().as_deref(), Some("23,999 more characters"));
     }
 
     #[test]
