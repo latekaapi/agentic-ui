@@ -2,8 +2,8 @@
 //! 320 px.
 //!
 //! The sidebar row truncates, so hovering a row shows the whole picture in
-//! issue order, top to bottom: the full title wrapping with the relative
-//! time (`12m`) right-aligned in the header's first line; the user's last
+//! issue order, top to bottom: the title clamped to three lines with the
+//! relative time (`12m`) right-aligned in the header's first line; the user's last
 //! message quoted and muted; the latest reply's first line in the state
 //! colour (which carries the status, so there is no separate status row);
 //! one inline meta row (branch, turn count, updated) that truncates
@@ -19,9 +19,11 @@
 //! gpui has no multi-line ellipsis, so the two excerpt budgets (ask: two
 //! lines, attention: three) are line budgets, not visual clamps: the card
 //! keeps the first N newline-separated lines and appends an ellipsis when
-//! lines beyond the budget are dropped. Long lines wrap naturally. The reply
-//! line is always the first line, truncating with an ellipsis at the card's
-//! width.
+//! lines beyond the budget are dropped. Long lines wrap naturally. The title
+//! instead uses a real wrapped clamp (`line_clamp`, three laid-out lines) on
+//! top of its newline/character budget, so it never exceeds three lines. The
+//! reply line is always the first line, truncating with an ellipsis at the
+//! card's width.
 //!
 //! Caller-owned state: the app decides which row is hovered and for how
 //! long. Open after [`SESSION_DETAIL_DELAY`] of hover, close on leave, on
@@ -73,11 +75,51 @@ pub const SESSION_DETAIL_ASK_LINES: usize = 2;
 /// are dropped with an ellipsis.
 pub const SESSION_DETAIL_ATTENTION_LINES: usize = 3;
 
+/// How many wrapped lines of the title the hover card keeps: the title
+/// element clamps to this many laid-out lines (see `line_clamp` in the
+/// render), so a long title wraps to at most three lines, never producing a
+/// panel taller than the cap.
+pub const SESSION_DETAIL_TITLE_LINES: usize = 3;
+
+/// Character budget for the clamped title: the line budget above, plus this
+/// ceiling for one unbroken run of text. At the card's text width a 13 px
+/// semibold title fits roughly 35 characters a line, so 100 characters hold
+/// about three wrapped lines; longer titles are cut with an ellipsis. Kept
+/// together with the newline clamp in [`clamp_detail_title`].
+pub const SESSION_DETAIL_TITLE_CHARS: usize = 100;
+
+/// Max height of the card's middle excerpt region (the ask quote and the
+/// attention box): excerpts past this clip inside the middle only, so the
+/// title, the meta row and the footer always stay visible. Sized so the whole
+/// panel — header, middle, meta, footer, padding — stays within
+/// [`SESSION_DETAIL_MAX_H`].
+pub const SESSION_DETAIL_MIDDLE_MAX_H: f32 = 260.0;
+
+/// Max height of the hover card: the whole panel never grows past this. Only
+/// the middle excerpt region clips under it — never the shadow, the title,
+/// or the bottom meta rows.
+pub const SESSION_DETAIL_MAX_H: f32 = 420.0;
+
+/// Clamp `title` to [`SESSION_DETAIL_TITLE_LINES`] newline-separated lines
+/// and [`SESSION_DETAIL_TITLE_CHARS`] characters; an ellipsis marks text
+/// dropped past either budget. Pure, so the cap is unit-testable.
+pub fn clamp_detail_title(title: &str) -> String {
+    let lines = first_lines(title, SESSION_DETAIL_TITLE_LINES);
+    if lines.chars().count() <= SESSION_DETAIL_TITLE_CHARS {
+        return lines;
+    }
+    let mut out: String = lines.chars().take(SESSION_DETAIL_TITLE_CHARS).collect();
+    out.push('…');
+    out
+}
+
 /// The hover detail's caller-supplied content. Build with
 /// [`session_detail`]; every field is optional, and only set fields draw.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionDetailData {
-    /// Full title, wrapping, never truncated.
+    /// Full title, clamped to [`SESSION_DETAIL_TITLE_LINES`] lines and
+    /// [`SESSION_DETAIL_TITLE_CHARS`] characters (see
+    /// [`clamp_detail_title`]).
     pub title: Option<SharedString>,
     /// The user's last message, quoted and muted, up to two lines.
     pub ask: Option<SharedString>,
@@ -145,7 +187,7 @@ pub struct SessionDetail {
 }
 
 impl SessionDetail {
-    /// The full title, wrapping, never truncated.
+    /// The full title, clamped to three lines (see [`clamp_detail_title`]).
     pub fn title(mut self, title: impl Into<SharedString>) -> Self {
         self.title = Some(title.into());
         self
@@ -310,12 +352,20 @@ impl RenderOnce for SessionDetail {
         let data = self.data();
         let p = cx.aui().colors;
         let mut body = v_flex().w_full().gap(px(scale::SP_3));
-        // Header: the full title wrapping, the relative time right-aligned
-        // in its first line.
+        // Header: the title clamped to three lines, the relative time
+        // right-aligned in its first line.
         if let Some(title) = data.title.clone().filter(|t| !t.trim().is_empty()) {
             let mut header = h_flex().w_full().items_start().gap(px(scale::SP_3));
             header = header.child(
-                div().flex_1().min_w(px(0.0)).ui(scale::FS_13).semibold().text_color(p.ink).child(title),
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .ui(scale::FS_13)
+                    .semibold()
+                    .line_clamp(SESSION_DETAIL_TITLE_LINES)
+                    .text_color(p.ink)
+                    .debug_selector(|| "detail-title".into())
+                    .child(SharedString::from(clamp_detail_title(&title))),
             );
             if let Some(updated) = data.updated.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
                 header = header.child(
@@ -344,6 +394,11 @@ impl RenderOnce for SessionDetail {
                 own.or_else(|| data.status.as_ref().map(|status| status.text().to_string()))
             }
         };
+        // The excerpts share one clamped middle region (see below): only the
+        // middle clips, so the title above and the meta rows below always
+        // stay visible.
+        let mut middle = v_flex().w_full().gap(px(scale::SP_3));
+        let mut middle_any = false;
         if ask.is_some() || reply.is_some() {
             let mut quote = v_flex()
                 .w_full()
@@ -368,7 +423,8 @@ impl RenderOnce for SessionDetail {
                         .child(SharedString::from(reply)),
                 );
             }
-            body = body.child(quote);
+            middle = middle.child(quote);
+            middle_any = true;
         }
         if let Some((label, words)) = attention {
             let shown = first_lines(&words, SESSION_DETAIL_ATTENTION_LINES);
@@ -381,7 +437,7 @@ impl RenderOnce for SessionDetail {
                 ..Default::default()
             };
             let glyph = if quoted { IconName::Question } else { IconName::Shield };
-            body = body.child(
+            middle = middle.child(
                 h_flex()
                     .w_full()
                     .items_start()
@@ -399,10 +455,27 @@ impl RenderOnce for SessionDetail {
                         ),
                     ),
             );
+            middle_any = true;
+        }
+        // Only the middle clips: long excerpts cannot push the meta rows or
+        // the footer out, and the card's own shadow is never cut.
+        if middle_any {
+            body = body.child(
+                div()
+                    .w_full()
+                    .min_h(px(0.0))
+                    .max_h(px(SESSION_DETAIL_MIDDLE_MAX_H))
+                    .overflow_hidden()
+                    .child(middle),
+            );
         }
         // One inline meta row; the branch shrinks with an ellipsis so the
         // count and the age always fit.
-        let mut meta = h_flex().w_full().items_center().gap(px(scale::SP_4));
+        let mut meta = h_flex()
+            .w_full()
+            .items_center()
+            .gap(px(scale::SP_4))
+            .debug_selector(|| "detail-meta".into());
         let mut meta_any = false;
         if let Some(branch) = data.branch.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             meta_any = true;
@@ -477,6 +550,11 @@ impl RenderOnce for SessionDetail {
             .id(self.id)
             .flex_none()
             .w(px(SESSION_DETAIL_WIDTH))
+            // The card never grows past its cap — without clipping itself, so
+            // the shadow paints whole and the meta rows below the clamped
+            // middle always stay visible.
+            .max_h(px(SESSION_DETAIL_MAX_H))
+            .debug_selector(|| "detail-card".into())
             .rounded(px(scale::R_MD))
             .border_1()
             .border_color(p.line)
@@ -689,6 +767,66 @@ mod tests {
     #[test]
     fn hover_delay_is_the_slow_token() {
         assert_eq!(SESSION_DETAIL_DELAY, durations::SLOW);
+    }
+
+    /// The title clamp keeps both budgets: at most three newline-separated
+    /// lines, at most [`SESSION_DETAIL_TITLE_CHARS`] characters plus the
+    /// ellipsis — the string half of the three-line guarantee (the laid-out
+    /// half is `line_clamp` in the render, covered below).
+    #[test]
+    fn detail_title_clamp_keeps_newline_and_char_budgets() {
+        let long = "checkout-flow-v2 ".repeat(125); // 2,000+ chars
+        assert!(long.chars().count() >= 2000, "the probe title is long");
+        let clamped = clamp_detail_title(&long);
+        assert!(clamped.lines().count() <= SESSION_DETAIL_TITLE_LINES, "at most three lines, got {:?}", clamped);
+        assert!(
+            clamped.chars().count() <= SESSION_DETAIL_TITLE_CHARS + 1,
+            "within the char budget plus the ellipsis"
+        );
+        assert!(clamped.ends_with('…'), "the cut is marked");
+        // Short titles pass through untouched.
+        assert_eq!(clamp_detail_title("cart-recovery-email"), "cart-recovery-email");
+        assert_eq!(clamp_detail_title("one\ntwo\nthree"), "one\ntwo\nthree");
+        // Newlines past the line budget are dropped with an ellipsis.
+        assert_eq!(clamp_detail_title("one\ntwo\nthree\nfour"), "one\ntwo\nthree…");
+    }
+
+    /// A 2,000-char title card stays within its max height *in layout* with
+    /// its meta row inside the card: the card paints at most
+    /// [`SESSION_DETAIL_MAX_H`] tall, and the meta row's bounds sit within
+    /// the card's bounds — so the middle clips, never the rows below it.
+    #[gpui::test]
+    fn long_title_card_layout_stays_within_max_height_with_meta_inside(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+        let cx = cx.add_empty_window();
+        let long = "checkout-flow-v2 ".repeat(125); // 2,000+ chars
+        assert!(long.chars().count() >= 2000, "the probe title is long");
+        cx.draw(
+            gpui::point(gpui::px(0.0), gpui::px(0.0)),
+            gpui::size(gpui::px(400.0), gpui::px(600.0)),
+            |_, _| {
+                gpui::div().w_full().child(
+                    session_detail("probe")
+                        .title(long.clone())
+                        .ask("Tighten validation")
+                        .reply("Patched the validator")
+                        .status(RowStatusKind::Working, "14m")
+                        .branch("feature/checkout-flow-v2")
+                        .turns(5)
+                        .updated("12m ago")
+                        .project("acme-web")
+                        .workspace("~/Projects/acme-web"),
+                )
+            },
+        );
+        let card = cx.debug_bounds("detail-card").expect("the card is painted");
+        let meta = cx.debug_bounds("detail-meta").expect("the meta row is painted");
+        let card_h = f32::from(card.size.height);
+        assert!(card_h <= SESSION_DETAIL_MAX_H + 1.0, "card height {card_h} exceeds the cap {SESSION_DETAIL_MAX_H}");
+        assert!(f32::from(meta.origin.y) >= f32::from(card.origin.y) - 1.0, "the meta row stays inside the card's top");
+        let meta_bottom = f32::from(meta.origin.y) + f32::from(meta.size.height);
+        let card_bottom = f32::from(card.origin.y) + f32::from(card.size.height);
+        assert!(meta_bottom <= card_bottom + 1.0, "the meta row's bottom {meta_bottom} stays inside the card {card_bottom}");
     }
 
     /// The side gap is the `SP_2` spacing token, not a literal.

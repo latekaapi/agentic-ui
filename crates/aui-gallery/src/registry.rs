@@ -224,7 +224,7 @@ pub static ENTRIES: &[Entry] = &[
         id: "sidebar/sidebar",
         group: "Sidebar",
         title: "Sidebar",
-        subtitle: "Header, primary nav, collapsible groups with counts, filters, account footer, and the collapsed rail; option-B status rows at 260 and 420 px with the hover detail",
+        subtitle: "Header, primary nav, collapsible groups with counts, filters, account footer, and the collapsed rail; one-line and two-line density rows at 260 and 420 px with the hover detail",
         width: 760.0,
         height: 1640.0,
         theme: CardTheme::Dark,

@@ -2,8 +2,8 @@
 //! legend. Reproduces `design/src/cards/sidebar/21-sidebar.html` at 760×640.
 
 use aui::nav::{
-    compact_session_row, rail, session_detail, sidebar, sidebar_footer, MetaItem, RailItem, RowStatusKind, SessionSummary, SidebarAccount,
-    SidebarGroup, SidebarNav, SidebarNavItem,
+    compact_session_row, rail, session_detail, sidebar, sidebar_footer, MetaItem, RailItem, RowDensity, RowStatusKind, SessionSummary,
+    SidebarAccount, SidebarGroup, SidebarNav, SidebarNavItem,
 };
 use aui_icons::{IconName, Provider};
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette};
@@ -23,7 +23,7 @@ const NARROW_FOOTER_W: f32 = 200.0;
 const FOOTER_PAD_Y: f32 = 8.0;
 /// Gap between the card's sections.
 const SECTION_GAP: f32 = 26.0;
-/// Option B at the sidebar's narrow and wide ends.
+/// The density panels at the sidebar's narrow and wide ends.
 const NARROW_ROWS_W: f32 = 260.0;
 const WIDE_ROWS_W: f32 = 420.0;
 /// Status panels pad like the worktree-rows list.
@@ -89,14 +89,14 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         .child(sidebar("card21-side", sample_nav()))
         .child(rail("card21-rail", items).avatar("B"))
         .child(legend(p));
-    // Option B at both ends of the sidebar's width range, then the hover
-    // detail for the question row.
+    // One density at the sidebar's narrow end, Two at the wide end, then
+    // the hover detail for the question row.
     let widths = h_flex()
         .w_full()
         .items_start()
         .gap(px(WRAP_GAP))
-        .child(status_panel(&p, "Status rows · 260 px", "card21-b260", NARROW_ROWS_W))
-        .child(status_panel(&p, "Status rows · 420 px", "card21-b420", WIDE_ROWS_W));
+        .child(status_panel(&p, "One-line density · 260 px", "card21-b260", NARROW_ROWS_W, RowDensity::One))
+        .child(status_panel(&p, "Two-line density · 420 px", "card21-b420", WIDE_ROWS_W, RowDensity::Two));
     v_flex()
         .w_full()
         .child(top)
@@ -105,10 +105,12 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         .into_any_element()
 }
 
-/// Option B's six states, as the mockups draw them: title with trailing age,
-/// one context line, one semibold status verb. The approval carries its
+/// The six states, as the mockups draw them: title with trailing age or
+/// state verb, one context line in Two density. The approval carries its
 /// command, the question its quoted question; the rest carry the byline the
 /// owner kept, or `project · branch` when there is nothing else to say.
+/// The waiting and failed rows read "Needs approval" / "Failed" in the
+/// state colour at the trailing slot.
 fn status_sessions() -> Vec<SessionSummary> {
     vec![
         SessionSummary::new("checkout", "checkout-flow-v2", AgentState::Running, "14m")
@@ -136,10 +138,12 @@ fn status_sessions() -> Vec<SessionSummary> {
     ]
 }
 
-/// One status panel: the caption plus a bordered box of B's six states at
-/// `width`. Every row is title plus context plus status — three lines in
-/// every state — truncating with an ellipsis at the panel's width.
-fn status_panel(p: &Palette, caption: &'static str, id: &'static str, width: f32) -> impl IntoElement {
+/// One status panel: the caption plus a bordered box of the six states at
+/// `width` in `density`. Line 1 is status glyph · title · trailing
+/// age/state; Two adds the context line. The first row is the active one
+/// (filled ground, full-ink title); the running row pulses. Long lines
+/// truncate with an ellipsis at the panel's width.
+fn status_panel(p: &Palette, caption: &'static str, id: &'static str, width: f32, density: RowDensity) -> impl IntoElement {
     let mut list = v_flex()
         .w_full()
         .p(px(PANEL_PAD))
@@ -148,7 +152,7 @@ fn status_panel(p: &Palette, caption: &'static str, id: &'static str, width: f32
         .border_color(p.line)
         .bg(p.surface_1);
     for (i, session) in status_sessions().into_iter().enumerate() {
-        list = list.child(compact_session_row((id, i), session).selected(i == 0));
+        list = list.child(compact_session_row((id, i), session).density(density).selected(i == 0));
     }
     v_flex()
         .flex_none()
@@ -193,7 +197,7 @@ fn legend(p: Palette) -> impl IntoElement {
         ("Groups", " collapse with a chevron on the swap spring; counts stay visible when closed so the sidebar is scannable at a glance."),
         ("Rail", " is the collapsed form (\u{2318}B): nav icons, then one dot per active worktree in its state colour, tooltips on hover."),
         ("Footer", " keeps the name: row one is the name, the plan and the chevron; row two is the meter beside the identity, or alone. The plan truncates first and drops out entirely under 40 px of room, so at 200 px only the name and the meter are left."),
-        ("Status", " rows read title, context, verb: the approval carries its command, the question its quoted question, the rest the byline or project and branch — three lines in every state, truncating at any width. Hover holds the whole picture after a 280 ms beat and lets go on leave, scroll or click."),
+        ("Status", " rows read title plus trailing age or state verb in One density, with the context line under it in Two: the approval carries its command, the question its quoted question, the rest the byline or project and branch — truncating at any width. The active row fills a step above hover. Hover holds the whole picture after a 280 ms beat and lets go on leave, scroll or click."),
     ];
     let mut col = v_flex()
         .max_w(px(LEGEND_MEASURE))

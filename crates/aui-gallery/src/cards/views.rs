@@ -28,11 +28,11 @@ const WIDTH_STATE_H: f32 = 300.0;
 /// The second-line states panel sits beside the width states at a sidebar's
 /// usual width.
 const SECOND_LINE_WIDTH: f32 = 300.0;
-/// Option B's six states at the sidebar's narrow and wide ends: 260 px and
-/// 420 px, matching the `/tmp/row-mockups` artboards.
+/// The six states at the sidebar's narrow and wide ends: 260 px and 420 px,
+/// matching the `/tmp/row-mockups` artboards.
 const OPTION_B_NARROW: f32 = 260.0;
 const OPTION_B_WIDE: f32 = 420.0;
-/// Six three-line rows plus the project head: the verbs sit on one rhythm.
+/// Six two-line rows plus the project head: one rhythm.
 const OPTION_B_H: f32 = 480.0;
 /// The gap between the card's main row and the width states.
 const ROW_GAP: f32 = 26.0;
@@ -114,8 +114,8 @@ fn project_groups() -> Vec<ProjectGroup> {
             .trailing("main")
             .state(AgentState::Running)
             // The project the open session belongs to: the same muted name
-            // as every other project — only the bar marks it, and the caller
-            // has not opted into one here.
+            // as every other project — `current` alone marks it, and the
+            // mark draws beside the running bar instead of yielding its slot.
             .current(true)
             // Twelve rows held back: the column shows the visible three and
             // the "Show 12 more" row after them.
@@ -230,18 +230,18 @@ fn sized_column(p: &Palette, title: &'static str, body: AnyElement, overlay: Opt
 /// `.pj` and `.sr` both carry an 8 px gutter, so that edge is the panel's
 /// inner edge less 8 whatever the width. The wide state is past the app's own
 /// `SIDEBAR_MAX_WIDTH` on purpose: the component must not assume a bound the
-/// shell happens to impose.
+/// shell happens to impose. The open `acme-web` group is current and running,
+/// so its row shows the current mark beside the state bar.
 fn width_state(p: &Palette, title: &'static str, id: &'static str, width: f32) -> Div {
     let view = sidebar_view(id, Grouping::Project(project_groups())).caption("Projects").selected("checkout");
     let body = v_flex().w_full().child(view).into_any_element();
     sized_column(p, title, body, None, width, WIDTH_STATE_H)
 }
 
-/// Option B's six states, mirroring `/tmp/row-mockups` `opt-b_*`: title with
-/// trailing time, one context line (approval command, ask, byline or
-/// `project · branch`), and the semibold status verb. Every row is three
-/// lines tall so the verbs sit on one rhythm; long lines truncate with an
-/// ellipsis instead of wrapping.
+/// The six states in Two density: title with trailing age or state verb,
+/// one context line (approval command, ask, byline or `project · branch`).
+/// Every row is two lines tall; long lines truncate with an ellipsis
+/// instead of wrapping.
 fn option_b_sessions() -> Vec<SessionSummary> {
     vec![
         SessionSummary::new("ob-checkout", "checkout-flow-v2", AgentState::Running, "14m")
@@ -270,19 +270,30 @@ fn option_b_sessions() -> Vec<SessionSummary> {
     ]
 }
 
-/// Option B at one width: the six states above in a panel `width` wide.
+/// The six states at one width: the states above in a panel `width` wide,
+/// with the first row selected.
 fn option_b_panel(p: &Palette, title: &'static str, id: &'static str, width: f32) -> Div {
     let group = ProjectGroup::new("option-b", "Sessions", "6").open(option_b_sessions());
-    let view = sidebar_view(id, Grouping::Project(vec![group])).caption("Option B · status verb").selected("ob-checkout");
+    let view = sidebar_view(id, Grouping::Project(vec![group])).caption("Two-line density").selected("ob-checkout");
     let body = v_flex().w_full().child(view).into_any_element();
     sized_column(p, title, body, None, width, OPTION_B_H)
 }
 
-/// The hover detail in its three states: one 320 px card per state, built
+/// One captioned 320 px detail card.
+fn detail_cell(p: &Palette, caption: &'static str, card: AnyElement) -> Div {
+    v_flex()
+        .flex_none()
+        .w(px(SESSION_DETAIL_WIDTH))
+        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.ink_3).child(caption))
+        .child(card)
+}
+
+/// The hover detail in its four states: one 320 px card per state, built
 /// with the same [`session_detail`] fields the app fills — settled with the
 /// green reply line, working with a long wrapping title and the accent reply
-/// line, and a question wait with the warning attention box in place of the
-/// reply line (a reply is set, and the box still wins).
+/// line, a question wait with the warning attention box in place of the
+/// reply line (a reply is set, and the box still wins), and a 2,000-char
+/// title clamped to three lines under the card's max height.
 fn detail_demo(p: &Palette) -> Div {
     let settled = session_detail("detail-demo-settled")
         .title("cart-recovery-email")
@@ -315,25 +326,42 @@ fn detail_demo(p: &Palette) -> Div {
         .turns(4)
         .updated("8m ago")
         .workspace("~/Projects/acme-web");
-    let mut row = h_flex().w_full().items_start().gap(px(COLUMN_GAP));
-    for (caption, card) in [
-        ("Settled", settled),
-        ("Working · long title wraps", working),
-        ("Asked a question", asked),
-    ] {
-        row = row.child(
-            v_flex()
-                .flex_none()
-                .w(px(SESSION_DETAIL_WIDTH))
-                .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.ink_3).child(caption))
-                .child(card.into_any_element()),
-        );
+    // Exactly 2,000 chars of wrapping title.
+    let long_title: String =
+        "checkout-flow-v2 — eu-payment-regression matrix ".repeat(45).chars().take(2000).collect();
+    debug_assert_eq!(long_title.chars().count(), 2000);
+    let clamping = session_detail("detail-demo-long-title")
+        .title(long_title)
+        .ask("Run the checkout regression suite")
+        .reply("Running checkout regression tests…")
+        .status(RowStatusKind::Working, "14m")
+        .project("acme-web")
+        .branch("feature/checkout-flow-v2")
+        .turns(3)
+        .updated("14m ago")
+        .workspace("~/Projects/acme-web");
+    let cards = vec![
+        ("Settled", settled.into_any_element()),
+        ("Working · long title wraps", working.into_any_element()),
+        ("Asked a question", asked.into_any_element()),
+        ("2,000-char title clamps", clamping.into_any_element()),
+    ];
+    // Two 320 px cards per row, so the fourth card is not clipped.
+    let mut cards = cards.into_iter();
+    let mut rows = v_flex().w_full().flex_none().gap(px(COLUMN_GAP));
+    while let Some((caption, card)) = cards.next() {
+        let mut row = h_flex().w_full().items_start().gap(px(COLUMN_GAP));
+        row = row.child(detail_cell(p, caption, card));
+        if let Some((caption, card)) = cards.next() {
+            row = row.child(detail_cell(p, caption, card));
+        }
+        rows = rows.child(row);
     }
     v_flex()
         .w_full()
         .flex_none()
-        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.ink_3).child("Hover detail · three states"))
-        .child(row)
+        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.ink_3).child("Hover detail · four states"))
+        .child(rows)
 }
 
 /// The second line's four states in one 300 px panel: title only (empty
@@ -798,17 +826,17 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(width_state(&p, "Wide · 520 px", "view-wide", WIDTH_WIDE))
         .child(second_line_state(&p));
 
-    // Option B at both mockup widths: six three-line rows at 260 px and
+    // Two density at both mockup widths: six two-line rows at 260 px and
     // 420 px.
     let option_b = h_flex()
         .w_full()
         .items_start()
         .gap(px(COLUMN_GAP))
-        .child(option_b_panel(&p, "Option B · 260 px", "view-option-b-narrow", OPTION_B_NARROW))
-        .child(option_b_panel(&p, "Option B · 420 px", "view-option-b-wide", OPTION_B_WIDE));
+        .child(option_b_panel(&p, "Two-line density · 260 px", "view-option-b-narrow", OPTION_B_NARROW))
+        .child(option_b_panel(&p, "Two-line density · 420 px", "view-option-b-wide", OPTION_B_WIDE));
 
-    // The hover detail's three states on their own row, so the three
-    // 320 px cards sit side by side.
+    // The hover detail's four states on their own rows, two 320 px cards
+    // per row.
 
     v_flex()
         .w_full()

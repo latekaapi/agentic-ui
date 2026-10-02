@@ -36,10 +36,10 @@ pub struct SessionSummary {
     /// when one exists. Wins the context (second) line over [`Byline`],
     /// preview and `project · branch`; the caller supplies the exact words.
     pub attention: Option<SharedString>,
-    /// Option B's status verb line (third line): the semibold state-coloured
-    /// sentence. The caller supplies the variable words in `detail`; the
-    /// library owns the colour and weight. `None` keeps the line as empty
-    /// space, so every row stays the same height.
+    /// The state-coloured sentence: the caller supplies the variable words
+    /// in `detail`; the library owns the colour and weight. The compact row
+    /// carries it on the trailing slot ("Needs approval" / "Failed") and the
+    /// hover card on its reply line — it is never a row line of its own.
     pub status: Option<RowStatus>,
     /// Unread: the 3 px accent bar at the left edge.
     pub unread: bool,

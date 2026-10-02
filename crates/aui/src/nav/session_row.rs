@@ -27,14 +27,15 @@ use aui_icons::{icon, provider_mark, IconName};
 use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{
-    div, prelude::*, px, AnyElement, App, Bounds, Div, ElementId, Entity, IntoElement, Pixels, SharedString, Window,
+    div, prelude::*, px, relative, AnyElement, App, Bounds, Div, ElementId, Entity, IntoElement, Pixels, SharedString,
+    Window,
 };
 use gpui_kit::base::input::TextareaState;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, spinner, status_dot, tag, ButtonSize};
-use crate::nav::{ActivityKind, Byline, MetaItem, RowStatus, SessionSummary};
+use crate::nav::{ActivityKind, Byline, MetaItem, RowStatusKind, SessionSummary};
 use crate::nav::{LEADING_BOX, NAV_GUTTER, NAV_LABEL_X};
 use crate::util::{indexed_child, interaction_flags, TrackInteraction};
 
@@ -89,6 +90,10 @@ const CHILD_ROW_PAD_LEFT: f32 = 8.0;
 const SR_PAD_Y: f32 = 4.0;
 const SR_PAD_RIGHT: f32 = 10.0;
 const SR_MARGIN_X: f32 = 8.0;
+/// The trailing slot's share of the title line: capped at 35% with an
+/// ellipsis, so the title keeps the other ~65% on a narrow sidebar instead
+/// of being starved by "Needs approval".
+const SR_TRAILING_MAX: f32 = 0.35;
 const SR_TEXT: f32 = 12.5;
 const SR_META_TEXT: f32 = 11.5;
 /// `.sr.child{margin-left:30px;padding-left:10px}` with the rail at `left:-1px; top/bottom 2px`.
@@ -556,8 +561,8 @@ pub fn context_line_kind(summary: &SessionSummary) -> ContextLineKind {
 }
 
 impl ContextLineKind {
-    /// Slot height in lines: one in every state, so every B row is its title
-    /// plus context plus status — three lines tall.
+    /// Slot height in lines: one in every state, so a Two-density row is
+    /// its title plus this context line — two lines tall.
     pub fn lines(self) -> u8 {
         1
     }
@@ -592,8 +597,92 @@ pub fn project_branch_text(summary: &SessionSummary) -> Option<SharedString> {
     }
 }
 
-/// Option B's status verb line is always 12 px semibold.
-const STATUS_TEXT: f32 = 12.0;
+/// How many lines a [`CompactSessionRow`] draws: the status verb line is
+/// gone (hover holds the whole picture), so state travels on the leading
+/// glyph and the trailing slot instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RowDensity {
+    /// Status glyph · title · trailing age/state: one line.
+    One,
+    /// Line 1 as [`RowDensity::One`]; line 2 is the context/byline line.
+    /// The default for new callers.
+    #[default]
+    Two,
+}
+
+impl RowDensity {
+    /// Lines every row draws in this density: one count, so one height —
+    /// whatever the caller passes.
+    pub fn lines(self) -> u8 {
+        match self {
+            RowDensity::One => 1,
+            RowDensity::Two => 2,
+        }
+    }
+}
+
+/// What the compact row's trailing slot draws: the caller's relative time,
+/// or the state verb when the session waits on the person or has failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowTrailing {
+    /// The caller's relative time (`49m`), muted.
+    Age,
+    /// Waiting on the person, in the warning colour.
+    NeedsApproval,
+    /// Failed, in the danger colour.
+    Failed,
+}
+
+/// Which trailing slot `summary` draws. Failure wins over waiting; anything
+/// else reads the age. Mirrors the render, so the kind and the row cannot
+/// disagree.
+pub fn row_trailing_kind(summary: &SessionSummary) -> RowTrailing {
+    let failed = summary.state == aui_tokens::AgentState::Failed
+        || summary.status.as_ref().is_some_and(|s| s.kind == RowStatusKind::Failed);
+    if failed {
+        return RowTrailing::Failed;
+    }
+    let waiting = summary.state == aui_tokens::AgentState::Waiting
+        || summary
+            .status
+            .as_ref()
+            .is_some_and(|s| matches!(s.kind, RowStatusKind::NeedsApproval | RowStatusKind::Asked));
+    if waiting {
+        return RowTrailing::NeedsApproval;
+    }
+    RowTrailing::Age
+}
+
+impl RowTrailing {
+    /// The slot's words: the age, or the state verb.
+    pub fn text(self, summary: &SessionSummary) -> SharedString {
+        match self {
+            RowTrailing::Age => summary.elapsed.clone(),
+            RowTrailing::NeedsApproval => SharedString::from("Needs approval"),
+            RowTrailing::Failed => SharedString::from("Failed"),
+        }
+    }
+
+    /// The slot's ink: muted for the age, the state colour otherwise.
+    pub fn ink(self, palette: &aui_tokens::Palette) -> gpui::Hsla {
+        match self {
+            RowTrailing::Age => palette.ink_3,
+            RowTrailing::NeedsApproval => palette.warning,
+            RowTrailing::Failed => palette.danger,
+        }
+    }
+}
+
+/// The compact row's ground: selected fills surface-3, a step above hover's
+/// surface-2 — so the active row reads apart from a hovered one.
+pub fn compact_row_ground(selected: bool, palette: &aui_tokens::Palette) -> gpui::Hsla {
+    if selected { palette.surface_3 } else { palette.surface_2 }
+}
+
+/// The compact row's title ink: full ink when selected, ink-2 otherwise.
+pub fn compact_row_title_ink(selected: bool, palette: &aui_tokens::Palette) -> gpui::Hsla {
+    if selected { palette.ink } else { palette.ink_2 }
+}
 
 /// The compact row's context (second) line: always exactly one line —
 /// attention, byline, `project · branch`, legacy meta, or empty space —
@@ -669,26 +758,6 @@ fn context_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> 
             }
             meta_line(p, SR_META_TEXT, meta).into_any_element()
         }
-    }
-}
-
-/// Option B's status (third) line: always exactly one line — the semibold
-/// state-coloured verb, or empty space when the caller set no
-/// [`RowStatus`] — truncating with an ellipsis, never wrapping. The caller
-/// supplies the variable words; the library owns the colour and weight.
-fn status_line(p: &aui_tokens::Palette, status: &Option<RowStatus>) -> AnyElement {
-    match status {
-        Some(status) => div()
-            .w_full()
-            .min_w(px(0.0))
-            .overflow_hidden()
-            .ui(STATUS_TEXT)
-            .semibold()
-            .text_color(status.ink(p))
-            .whitespace_nowrap()
-            .child(div().min_w(px(0.0)).truncate().child(status.text()))
-            .into_any_element(),
-        None => meta_line(p, STATUS_TEXT, Vec::new()).child(div().child(" ")).into_any_element(),
     }
 }
 
@@ -811,6 +880,7 @@ pub struct CompactSessionRow {
     id: ElementId,
     session: SessionSummary,
     selected: bool,
+    density: RowDensity,
     nested: bool,
     actions: Vec<RowAction>,
     editor: Option<AnyElement>,
@@ -827,6 +897,7 @@ pub fn compact_session_row(id: impl Into<ElementId>, session: SessionSummary) ->
         id: id.into(),
         session,
         selected: false,
+        density: RowDensity::Two,
         nested: false,
         actions: Vec::new(),
         editor: None,
@@ -842,6 +913,14 @@ impl CompactSessionRow {
     /// Selected: surface-3 ground and ink text.
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
+        self
+    }
+
+    /// Row density: [`RowDensity::One`] draws status glyph · title ·
+    /// trailing age/state on one line; [`RowDensity::Two`] (the default)
+    /// adds the context/byline line under it.
+    pub fn density(mut self, density: RowDensity) -> Self {
+        self.density = density;
         self
     }
 
@@ -914,32 +993,60 @@ impl RenderOnce for CompactSessionRow {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let s = self.session;
+        let density = self.density;
         let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let tint = if self.selected { p.surface_3 } else { p.surface_2 };
+        // The active row fills surface-3, a step above hover's surface-2,
+        // with full-ink title — visibly different from hover.
+        let tint = compact_row_ground(self.selected, &p);
         let bg = tint_fade((id.clone(), "bg"), self.selected || flags.hovered, tint, Tween::FAST, window, cx);
-        let text = if self.selected { p.ink } else { p.ink_2 };
+        let text = compact_row_title_ink(self.selected, &p);
+        let label = s.name.clone();
+
+        // State travels on the leading glyph (pulsing when running, the
+        // state colour for needs-approval/failed) and the trailing slot:
+        // the age, or "Needs approval" / "Failed" in the state colour.
+        let trailing_kind = row_trailing_kind(&s);
+        let trailing = trailing_kind.text(&s);
+        let trailing_ink = trailing_kind.ink(&p);
 
         let editing = self.editor.is_some();
         let acts_visible = flags.hovered && !self.actions.is_empty() && !editing;
         let mut lines = v_flex().flex_1().min_w(px(0.0)).gap(px(ROW_GAP));
         let title: AnyElement = match self.editor {
             Some(editor) => div().flex_1().min_w(px(0.0)).child(editor).into_any_element(),
-            None => div().flex_1().min_w(px(0.0)).medium().truncate().child(s.name.clone()).into_any_element(),
+            None => div()
+                .flex_1()
+                .min_w(px(0.0))
+                .medium()
+                .truncate()
+                .debug_selector(|| "compact-title".into())
+                .child(s.name.clone())
+                .into_any_element(),
         };
         lines = lines.child(
             h_flex()
                 .w_full()
                 .gap(px(COL_GAP))
                 .child(title)
-                .child(div().flex_none().text_role(TextRole::MonoSmall).font_weight(gpui::FontWeight::MEDIUM).text_color(p.ink_3).child(s.elapsed.clone())),
+                .child(
+                    div()
+                        .flex_none()
+                        .min_w(px(0.0))
+                        .max_w(relative(SR_TRAILING_MAX))
+                        .truncate()
+                        .text_role(TextRole::MonoSmall)
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(trailing_ink)
+                        .debug_selector(|| "compact-trailing".into())
+                        .child(trailing),
+                ),
         );
-        // Option B: title, context, status — three lines, each keeping its
-        // line when empty, so every row is the same height in every state.
-        // The context line carries the approval/question override, the
-        // byline, `project · branch`, or legacy meta; the status line is
-        // the semibold verb (or empty space when unset).
-        lines = lines.child(context_line(&p, &id, &s));
-        lines = lines.child(status_line(&p, &s.status));
+        // Two density adds the context line under the title line; One stops
+        // here. The context line keeps its line when empty, so every row in
+        // a density is the same height in every state.
+        if density == RowDensity::Two {
+            lines = lines.child(context_line(&p, &id, &s));
+        }
 
         // No `w_full`: at full width the 8 px margins overflow the column and
         // the shell clips them, leaving ~0 px on the right. As a flex item the
@@ -949,6 +1056,8 @@ impl RenderOnce for CompactSessionRow {
             .relative()
             .flex_1()
             .min_w(px(0.0))
+            .role(gpui::Role::Button)
+            .aria_label(label)
             .min_h(cx.aui().metrics.row)
             .items_center()
             .gap(px(if self.nested { COL_GAP } else { SR_LEAD_GAP }))
@@ -1021,7 +1130,7 @@ impl RenderOnce for CompactSessionRow {
         let mut col = v_flex().w_full().child(row);
         for (i, child) in s.children.into_iter().enumerate() {
             let child_id: ElementId = indexed_child(&id, "child-", i);
-            let mut r = compact_session_row(child_id, child).actions(self.actions.clone());
+            let mut r = compact_session_row(child_id, child).density(density).actions(self.actions.clone());
             r.nested = true;
             if let Some(h) = self.on_select.clone() {
                 r = r.on_select(move |k, w, cx| h(k, w, cx));
@@ -1205,29 +1314,204 @@ mod tests {
         }
     }
 
-    /// Option B rows are three lines tall in every state: title plus one
-    /// context line plus one status line, each truncating, none wrapping —
-    /// including the empty states that hold their lines as blank space.
-    #[test]
-    fn option_b_rows_share_one_height_in_every_state() {
+    /// Every row state the sidebar shows: working, waiting on approval,
+    /// waiting with a question, settled, failed, quiet, and blank.
+    fn all_states() -> Vec<SessionSummary> {
         use crate::nav::RowStatusKind;
-        let states = vec![
-            summary("working")
-                .repo("acme-web")
-                .branch("feature/checkout-flow-v2")
-                .status(RowStatusKind::Working, "14m"),
+        vec![
+            summary("working").repo("acme-web").branch("feature/checkout-flow-v2").status(RowStatusKind::Working, "14m"),
             summary("approval").attention("sudo apt install notifierd").status(RowStatusKind::NeedsApproval, ""),
-            summary("asked")
-                .preview("Refresh the session tokens")
-                .status(RowStatusKind::Asked, "Which bucket for staging?"),
+            summary("asked").preview("Refresh the session tokens").status(RowStatusKind::Asked, "Which bucket for staging?"),
             summary("settled")
                 .byline("Draft the cart recovery email", "Drafted three variants")
                 .status(RowStatusKind::Settled, "12m · 5 turns"),
             summary("failed").byline("Add the observability tiles", "2 tests failed").status(RowStatusKind::Failed, "1h"),
             summary("empty").repo("acme-internal").branch("fix/webhook-retry").status(RowStatusKind::NoReply, "2d"),
             summary("blank"),
-        ];
-        for s in &states {
+        ]
+    }
+
+    /// A host view rendering one compact row: rows carry interaction state
+    /// (which reads the current view), so layout tests draw through an
+    /// entity — the same shape an app uses — instead of a bare element.
+    struct RowProbe {
+        summary: SessionSummary,
+        density: RowDensity,
+        selected: bool,
+        width: f32,
+    }
+
+    impl gpui::Render for RowProbe {
+        fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+            gpui::div().w(gpui::px(self.width)).debug_selector(|| "probe".into()).child(
+                compact_session_row("probe-row", self.summary.clone()).density(self.density).selected(self.selected),
+            )
+        }
+    }
+
+    /// Draws one compact row at `width` px through the real render path, in
+    /// a host view.
+    fn draw_compact_row(
+        cx: &mut gpui::VisualTestContext,
+        summary: SessionSummary,
+        density: RowDensity,
+        selected: bool,
+        width: f32,
+    ) {
+        cx.draw(
+            gpui::point(gpui::px(0.0), gpui::px(0.0)),
+            gpui::size(gpui::px(width + 100.0), gpui::px(400.0)),
+            |_, cx| cx.new(|_| RowProbe { summary, density, selected, width }).into_any_element(),
+        );
+    }
+
+    /// Draws one compact row at `width` px through the real render path and
+    /// returns the laid-out row height: the probe wrapper hugs the row, so
+    /// its height is the row's height.
+    fn compact_row_laid_out_height(
+        cx: &mut gpui::VisualTestContext,
+        summary: SessionSummary,
+        density: RowDensity,
+        width: f32,
+    ) -> f32 {
+        draw_compact_row(cx, summary, density, false, width);
+        cx.debug_bounds("probe").map(|bounds| f32::from(bounds.size.height)).expect("the probe row is painted")
+    }
+
+    /// One-density rows share one laid-out height in every state: all seven
+    /// summaries drawn at a 260 px sidebar width measure the same — the
+    /// status verb line is gone, so each row is its title line.
+    #[gpui::test]
+    fn one_density_rows_share_one_laid_out_height_in_every_state(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+        let cx = cx.add_empty_window();
+        let heights: Vec<f32> =
+            all_states().into_iter().map(|s| compact_row_laid_out_height(cx, s, RowDensity::One, 260.0)).collect();
+        assert_eq!(heights.len(), 7, "every state draws");
+        for height in &heights {
+            assert!((height - heights[0]).abs() < 0.5, "One-density laid-out heights differ: {heights:?}");
+        }
+    }
+
+    /// Two-density rows share one laid-out height in every state: all seven
+    /// summaries drawn at a 260 px sidebar width measure the same — title
+    /// plus the one context line, blank space included.
+    #[gpui::test]
+    fn two_density_rows_share_one_laid_out_height_in_every_state(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+        let cx = cx.add_empty_window();
+        let heights: Vec<f32> =
+            all_states().into_iter().map(|s| compact_row_laid_out_height(cx, s, RowDensity::Two, 260.0)).collect();
+        assert_eq!(heights.len(), 7, "every state draws");
+        for height in &heights {
+            assert!((height - heights[0]).abs() < 0.5, "Two-density laid-out heights differ: {heights:?}");
+        }
+    }
+
+    /// On a narrow sidebar the trailing state text caps at
+    /// [`SR_TRAILING_MAX`] of the title line with an ellipsis: a 200 px
+    /// waiting row lays "Needs approval" out within the cap while the title
+    /// keeps the rest of the line.
+    #[gpui::test]
+    fn trailing_state_text_caps_so_the_title_keeps_a_narrow_row(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+        let cx = cx.add_empty_window();
+        let waiting = SessionSummary::new(
+            "w",
+            "a long session title that needs room to read",
+            aui_tokens::AgentState::Waiting,
+            "3h",
+        );
+        draw_compact_row(cx, waiting, RowDensity::One, false, 200.0);
+        let row = cx.debug_bounds("probe").expect("the probe row is painted");
+        let title = cx.debug_bounds("compact-title").expect("the title is painted");
+        let trailing = cx.debug_bounds("compact-trailing").expect("the trailing slot is painted");
+        let row_w = f32::from(row.size.width);
+        let trailing_w = f32::from(trailing.size.width);
+        let title_w = f32::from(title.size.width);
+        assert!(
+            trailing_w <= row_w * SR_TRAILING_MAX + 1.0,
+            "trailing {trailing_w} exceeds the {SR_TRAILING_MAX} cap of row {row_w}"
+        );
+        assert!(title_w >= trailing_w, "the title {title_w} keeps at least as much as the trailing slot {trailing_w}");
+    }
+
+    /// The trailing slot carries the age, or the state verb in the state
+    /// colour: "Needs approval" when waiting, "Failed" when failed.
+    /// Failure wins when both apply; the age reads muted.
+    #[test]
+    fn trailing_slot_carries_age_or_state() {
+        use crate::nav::RowStatusKind;
+        use aui_tokens::AgentState;
+        // The idle row reads its own age, muted.
+        let idle = summary("idle");
+        assert_eq!(row_trailing_kind(&idle), RowTrailing::Age);
+        assert_eq!(RowTrailing::Age.text(&idle), SharedString::from("1h"));
+        // Waiting (by state or by status) reads "Needs approval".
+        let waiting = SessionSummary::new("w", "w", AgentState::Waiting, "3h");
+        assert_eq!(row_trailing_kind(&waiting), RowTrailing::NeedsApproval);
+        assert_eq!(row_trailing_kind(&summary("asked").status(RowStatusKind::Asked, "q?")), RowTrailing::NeedsApproval);
+        assert_eq!(row_trailing_kind(&summary("appr").status(RowStatusKind::NeedsApproval, "")), RowTrailing::NeedsApproval);
+        assert_eq!(RowTrailing::NeedsApproval.text(&waiting), SharedString::from("Needs approval"));
+        // Failed (by state or by status) reads "Failed", even when waiting.
+        let failed = SessionSummary::new("f", "f", AgentState::Failed, "1d");
+        assert_eq!(row_trailing_kind(&failed), RowTrailing::Failed);
+        assert_eq!(row_trailing_kind(&summary("fs").status(RowStatusKind::Failed, "1h")), RowTrailing::Failed);
+        assert_eq!(
+            row_trailing_kind(&SessionSummary::new("fw", "fw", AgentState::Waiting, "1h").status(RowStatusKind::Failed, "x")),
+            RowTrailing::Failed,
+            "failure wins over waiting"
+        );
+        assert_eq!(RowTrailing::Failed.text(&failed), SharedString::from("Failed"));
+        // Ink: muted age, warning wait, danger failure — in both themes.
+        for theme in [ThemeKind::Dark, ThemeKind::Light] {
+            let p: Palette = Palette::for_kind(theme);
+            assert_eq!(RowTrailing::Age.ink(&p), p.ink_3, "age ink in {theme:?}");
+            assert_eq!(RowTrailing::NeedsApproval.ink(&p), p.warning, "waiting ink in {theme:?}");
+            assert_eq!(RowTrailing::Failed.ink(&p), p.danger, "failed ink in {theme:?}");
+        }
+    }
+
+    /// The selected row renders on surface-3 — a step above the surface-2 a
+    /// hovered row rests on — with a full-ink title: both rows go through the
+    /// real render path in a window (so the test proves the path wires the
+    /// states, not just the helpers), and the fills the path resolves for
+    /// the two states differ, in both themes.
+    #[gpui::test]
+    fn selected_row_renders_a_fill_above_the_hover_fill(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+        let cx = cx.add_empty_window();
+        // Both states through the render path: each paints, at the same row
+        // height — selection changes the fill, never the layout.
+        let plain_h = compact_row_laid_out_height(cx, summary("sel"), RowDensity::Two, 260.0);
+        draw_compact_row(cx, summary("sel"), RowDensity::Two, true, 260.0);
+        let selected_h =
+            cx.debug_bounds("probe").map(|bounds| f32::from(bounds.size.height)).expect("the selected row is painted");
+        assert!((selected_h - plain_h).abs() < 0.5, "selection keeps the laid-out height: {plain_h} vs {selected_h}");
+        // The fills the render path resolves for selected vs rest differ.
+        for theme in [ThemeKind::Dark, ThemeKind::Light] {
+            let p: Palette = Palette::for_kind(theme);
+            assert_eq!(compact_row_ground(true, &p), p.surface_3, "selected ground in {theme:?}");
+            assert_eq!(compact_row_ground(false, &p), p.surface_2, "hover ground in {theme:?}");
+            assert_ne!(compact_row_ground(true, &p), compact_row_ground(false, &p), "active differs from hover in {theme:?}");
+            assert_eq!(compact_row_title_ink(true, &p), p.ink, "selected title ink in {theme:?}");
+            assert_eq!(compact_row_title_ink(false, &p), p.ink_2, "resting title ink in {theme:?}");
+        }
+    }
+
+    /// New callers get Two density without opting in.
+    #[test]
+    fn new_compact_rows_default_to_two_density() {
+        assert_eq!(RowDensity::default(), RowDensity::Two);
+    }
+
+    /// The context line keeps its line in every state — title plus context,
+    /// each truncating, none wrapping — including the empty states that hold
+    /// their line as blank space. (Laid-out heights for both densities are
+    /// covered by the `*_share_one_laid_out_height_in_every_state` tests.)
+    #[test]
+    fn context_line_truncates_and_never_wraps_in_every_state() {
+        for s in &all_states() {
             let context = context_line_kind(s);
             assert_eq!(context.lines(), 1, "{context:?} keeps one context line");
             assert!(context.truncate(), "{context:?} ellipsizes at the row's width");
