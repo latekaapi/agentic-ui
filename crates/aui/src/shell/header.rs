@@ -335,24 +335,67 @@ impl RenderOnce for CentreHeader {
 }
 
 /// Right header cell. Build with [`right_header`].
+///
+/// The cell shows either a tab strip or a title (the tabs win when both are
+/// set), or neither: a tabbed right pane needs no title. The trailing `+`,
+/// spacer and close are unchanged by that choice.
 #[derive(IntoElement)]
 pub struct RightHeader {
     id: ElementId,
+    title: Option<SharedString>,
     tabs: Option<TabStrip>,
+    tabs_label: Option<SharedString>,
     on_add: Option<ClickHandler>,
     on_close: Option<ClickHandler>,
 }
 
-/// The right header: the pane's tab strip, `+`, spacer, close.
+/// The right header: the pane's title or tab strip, `+`, spacer, close.
 pub fn right_header(id: impl Into<ElementId>) -> RightHeader {
-    RightHeader { id: id.into(), tabs: None, on_add: None, on_close: None }
+    RightHeader {
+        id: id.into(),
+        title: None,
+        tabs: None,
+        tabs_label: Some("Right pane".into()),
+        on_add: None,
+        on_close: None,
+    }
 }
 
 impl RightHeader {
-    /// The tab strip (rendered at the shell height).
+    /// The title shown when there is no tab strip. Either may be set; the
+    /// tabs win. A tabbed pane sets no title.
+    pub fn title(mut self, title: impl Into<SharedString>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    /// The tab strip (rendered at the shell height), in place of the title.
     pub fn tabs(mut self, tabs: TabStrip) -> Self {
         self.tabs = Some(tabs.in_shell_header());
         self
+    }
+
+    /// The accessible name of the tab strip. It applies only when the strip
+    /// carries no [`TabStrip::accessibility_label`] of its own.
+    pub fn tabs_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.tabs_label = Some(label.into());
+        self
+    }
+
+    /// Whether a tab strip was set.
+    pub fn has_tabs(&self) -> bool {
+        self.tabs.is_some()
+    }
+
+    /// Whether a title was set.
+    pub fn has_title(&self) -> bool {
+        self.title.is_some()
+    }
+
+    /// The selected tab's id, or `None` when there is no strip (or its
+    /// `active` points past the tabs).
+    pub fn selected_tab(&self) -> Option<&SharedString> {
+        self.tabs.as_ref().and_then(|tabs| tabs.selected_id())
     }
 
     /// `+` click (new tab).
@@ -370,11 +413,39 @@ impl RightHeader {
 
 impl RenderOnce for RightHeader {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let p = cx.aui().colors;
         let id = self.id.clone();
-        let mut add = icon_button((id.clone(), "add"), IconName::Plus).ghost().muted().size(ButtonSize::Xs).icon_size(px(XS_GLYPH));
-        if let Some(h) = self.on_add {
-            add = add.on_click(move |e, w, cx| h(e, w, cx));
-        }
+        // The strip carries the header's default label unless it names
+        // itself; the title (or nothing) shows when there is no strip.
+        let tabs = self.tabs.map(|strip| {
+            if strip.has_accessibility_label() {
+                strip
+            } else {
+                match self.tabs_label {
+                    Some(label) => strip.accessibility_label(label),
+                    None => strip,
+                }
+            }
+        });
+        // The tabs stand in place of the title: with a strip set, a title
+        // would double the header's subject, so it is not drawn.
+        let title = if tabs.is_none() {
+            self.title.map(|title| {
+                div().min_w(px(0.0)).truncate().text_color(p.ink).ui(scale::FS_13).semibold().child(title).into_any_element()
+            })
+        } else {
+            None
+        };
+        // `+` draws only when someone handles it: a pane with fixed tabs has
+        // nothing to add, and a dead button is worse than none.
+        let add = self.on_add.map(|h| {
+            icon_button((id.clone(), "add"), IconName::Plus)
+                .ghost()
+                .muted()
+                .size(ButtonSize::Xs)
+                .icon_size(px(XS_GLYPH))
+                .on_click(move |e, w, cx| h(e, w, cx))
+        });
         h_flex()
             .id(id.clone())
             .w_full()
@@ -383,8 +454,9 @@ impl RenderOnce for RightHeader {
             .pl(px(TABS_PAD_LEFT))
             .pr(px(TABS_PAD_RIGHT))
             .min_w(px(0.0))
-            .children(self.tabs)
-            .child(add)
+            .children(tabs)
+            .children(title)
+            .children(add)
             .child(div().flex_1())
             .child(ghost(id, "close", IconName::X, self.on_close))
     }
@@ -393,7 +465,8 @@ impl RenderOnce for RightHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shell::RAIL_WIDTH_WITH_LIGHTS;
+    use crate::shell::{tab_strip, TabItem, RAIL_WIDTH_WITH_LIGHTS};
+    use aui_icons::IconName;
 
     #[test]
     fn native_lights_reservation_matches_rail_with_lights() {
@@ -404,5 +477,49 @@ mod tests {
         assert_eq!(NATIVE_LIGHTS_X, 12.0);
         assert_eq!(NATIVE_LIGHTS_WIDTH, 72.0);
         assert_eq!(NATIVE_LIGHTS_WIDTH, RAIL_WIDTH_WITH_LIGHTS);
+    }
+
+    fn right_pane_tabs(active: usize) -> TabStrip {
+        tab_strip(
+            "hd-tabs",
+            vec![
+                TabItem::new("changes", "Changes", IconName::Git).closable(false),
+                TabItem::new("files", "Files", IconName::Folder).closable(false),
+                TabItem::new("browser", "Browser", IconName::Globe).closable(false),
+            ],
+            active,
+        )
+    }
+
+    #[test]
+    fn right_header_without_tabs_or_title_has_neither() {
+        // The tabbed right pane needs no title: a bare header carries no
+        // strip, no title and no selection, with the trailing controls alone.
+        let header = right_header("hd-right");
+        assert!(!header.has_tabs());
+        assert!(!header.has_title());
+        assert_eq!(header.selected_tab(), None);
+    }
+
+    #[test]
+    fn right_header_title_shows_without_tabs() {
+        let header = right_header("hd-right").title("Files");
+        assert!(!header.has_tabs());
+        assert!(header.has_title());
+        assert_eq!(header.selected_tab(), None);
+    }
+
+    #[test]
+    fn right_header_selected_tab_tracks_the_strip() {
+        let header = right_header("hd-right").tabs(right_pane_tabs(2));
+        assert!(header.has_tabs());
+        assert_eq!(header.selected_tab(), Some(&SharedString::from("browser")));
+    }
+
+    #[test]
+    fn right_header_out_of_range_strip_selects_nothing() {
+        let header = right_header("hd-right").tabs(right_pane_tabs(9));
+        assert!(header.has_tabs());
+        assert_eq!(header.selected_tab(), None);
     }
 }
