@@ -972,7 +972,9 @@ impl RenderOnce for WebviewPane {
         let native = view.native;
         let obscured = view.obscured;
         let focus = view.focus.clone();
-        let stand_in = view.screenshot_image.clone();
+        // A blank page has nothing worth standing in for: its picture is
+        // WebKit's white ground, which reads as a white slab over a dark pane.
+        let stand_in = if is_blank_url(&view.url) { None } else { view.screenshot_image.clone() };
         // Below [`COMPACT_PANE_WIDTH`] the full nav row starves the URL
         // field, so the keycap and the annotate label get out of its way.
         let compact =
@@ -1406,6 +1408,12 @@ fn annotate_toggle(id: impl Into<ElementId>, on: bool, compact: bool, handler: O
     toggle
 }
 
+/// Whether `url` is a page with no content of its own: before the first
+/// load (empty) or `about:blank`.
+fn is_blank_url(url: &str) -> bool {
+    matches!(url.trim(), "" | "about:blank")
+}
+
 #[cfg(test)]
 mod tests {
     /// Every `set_bounds` call a fake backend saw: (origin, size).
@@ -1413,7 +1421,7 @@ mod tests {
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
-    use super::normalize_url;
+    use super::{is_blank_url, normalize_url};
     use super::{webview_pane, WebviewState};
     use crate::agent_js;
     use crate::backend::{ElementInfo, WebBackend, WebEvent};
@@ -1432,6 +1440,7 @@ mod tests {
         assert_eq!(normalize_url("file:///tmp/page.html"), "file:///tmp/page.html");
         assert_eq!(normalize_url("data:text/html,<b>hi</b>"), "data:text/html,<b>hi</b>");
         assert_eq!(normalize_url(""), "about:blank");
+        assert!(is_blank_url("") && is_blank_url("about:blank") && !is_blank_url("https://example.com"));
     }
 
     #[test]
