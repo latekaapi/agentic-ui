@@ -376,14 +376,11 @@ impl RenderOnce for TabStrip {
         if !self.trailing.is_empty() {
             strip = strip.child(div().flex_1().min_w(px(0.0))).children(self.trailing);
         }
+        // The ring is an outline overlay, never a box shadow: gpui paints a
+        // shadow's quad under the element too, and the strip has no background
+        // of its own, so a spread shadow filled the whole strip with accent.
         if ring {
-            strip = strip.shadow(vec![gpui::BoxShadow {
-                color: p.accent_ring,
-                offset: gpui::point(px(0.0), px(0.0)),
-                blur_radius: px(0.0),
-                spread_radius: px(3.0),
-                inset: false,
-            }]);
+            strip = strip.child(div().absolute().inset_0().rounded(px(4.0)).border_2().border_color(p.accent_ring));
         }
         strip.children(indicator)
     }
