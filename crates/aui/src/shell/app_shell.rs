@@ -287,6 +287,10 @@ impl RenderOnce for AppShell {
             spring_px((id.clone(), "right-width"), right_target, SpringKind::Layout, window, cx).max(px(0.0))
         };
         let right_inner = right_rest;
+        // Like the sidebar, the closed pane's content unmounts once the spring
+        // has settled at zero: clipped-but-mounted children stayed in the
+        // accessibility tree as off-screen tabs and buttons.
+        let right_mounted = self.right_open || right_w > px(0.5);
         // The pane keeps its resting width while the column springs, so the
         // content slides under the divider instead of reflowing every frame.
         // The rail is mounted beneath the sidebar on every frame: while
@@ -332,7 +336,7 @@ impl RenderOnce for AppShell {
             .child(
                 cell(div())
                     .w(right_w)
-                    .child(div().h_full().w(right_inner).flex_none().flex().items_center().border_l_1().border_color(p.line).children(self.header_right)),
+                    .child(div().h_full().w(right_inner).flex_none().flex().items_center().border_l_1().border_color(p.line).when(right_mounted, |d| d.children(self.header_right))),
             );
 
         let panes = h_flex()
@@ -377,7 +381,7 @@ impl RenderOnce for AppShell {
                     .h_full()
                     .flex_none()
                     .overflow_hidden()
-                    .child(div().w(right_inner).h_full().flex_none().border_l_1().border_color(p.line).bg(p.surface_1).children(self.right)),
+                    .child(div().w(right_inner).h_full().flex_none().border_l_1().border_color(p.line).bg(p.surface_1).when(right_mounted, |d| d.children(self.right))),
             );
 
         // The window-wide `:focus-visible` approximation: a mouse press anywhere
