@@ -890,7 +890,9 @@ pub fn footer_items(meta: &TurnMeta) -> Vec<SharedString> {
     };
     let mut items: Vec<SharedString> = vec![
         meta.model.clone().into(),
-        format!("{:.1} s", meta.duration_ms as f64 / 1000.0).into(),
+        // Zero is "the wire did not time it" (stored history, a replay),
+        // not a turn that took no time: dropped like the zero token cell.
+        if meta.duration_ms == 0 { String::new() } else { format!("{:.1} s", meta.duration_ms as f64 / 1000.0) }.into(),
         tokens.into(),
     ];
     // A provider that reports no model label leaves an empty cell, as does the
