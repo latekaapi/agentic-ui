@@ -19,7 +19,7 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{record_ax_label, spinner, tag};
+use crate::data::{glyph_ok, record_ax_label, spinner, tag};
 use crate::transcript::transcript_card;
 use crate::util::ClickHandler;
 
@@ -195,6 +195,7 @@ pub struct LiveActivityRow {
     target: SharedString,
     earlier: usize,
     elapsed_ms: u64,
+    running: bool,
     open: bool,
     children: Vec<AnyElement>,
     on_toggle: Option<ClickHandler>,
@@ -205,10 +206,17 @@ pub struct LiveActivityRow {
 /// it in the run, `elapsed_ms` is the run's wall-clock time. Clicking
 /// expands to the run's cards, given as children in run order.
 pub fn live_activity_row(id: impl Into<ElementId>, verb: impl Into<SharedString>, target: impl Into<SharedString>, earlier: usize, elapsed_ms: u64) -> LiveActivityRow {
-    LiveActivityRow { id: id.into(), verb: verb.into(), target: target.into(), earlier, elapsed_ms, open: false, children: Vec::new(), on_toggle: None }
+    LiveActivityRow { id: id.into(), verb: verb.into(), target: target.into(), earlier, elapsed_ms, running: true, open: false, children: Vec::new(), on_toggle: None }
 }
 
 impl LiveActivityRow {
+    /// Whether a call in the run is still in flight (the default). A run
+    /// whose calls have all finished shows the done glyph, not a spinner.
+    pub fn running(mut self, running: bool) -> Self {
+        self.running = running;
+        self
+    }
+
     /// Whether the run's cards are shown.
     pub fn open(mut self, open: bool) -> Self {
         self.open = open;
@@ -239,7 +247,7 @@ impl RenderOnce for LiveActivityRow {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let mut card = transcript_card(id.clone(), self.open)
-            .header(spinner((id.clone(), "spinner")))
+            .header(if self.running { spinner((id.clone(), "spinner")).into_any_element() } else { glyph_ok().into_any_element() })
             .header(div().medium().whitespace_nowrap().child(self.verb))
             .header(div().flex_1().min_w(px(0.0)).truncate().mono(scale::FS_12).text_color(p.ink_2).child(self.target));
         if let Some(earlier) = earlier_label(self.earlier) {
@@ -263,6 +271,12 @@ impl RenderOnce for LiveActivityRow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_live_row_spins_by_default_and_a_finished_run_does_not() {
+        assert!(live_activity_row("r", "Running", "ls", 0, 10).running);
+        assert!(!live_activity_row("r", "Ran", "ls", 0, 10).running(false).running);
+    }
 
     #[test]
     fn summary_counts_reads_edits_and_commands() {
