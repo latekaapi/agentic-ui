@@ -286,12 +286,38 @@ impl WryBackend {
     /// The annotator bridge is injected before the first document runs, so a
     /// page is annotatable the moment it loads.
     pub fn new<W: HasWindowHandle>(parent: &W, url: &str, bounds: Rect) -> wry::Result<Self> {
+        Self::build(parent, url, bounds, None)
+    }
+
+    /// [`Self::new`] with the colour the view paints before and beneath a page.
+    ///
+    /// Without one, WebKit draws white — a blank or still-loading page reads
+    /// as a white slab in a dark window. `rgba` is `(r, g, b, a)`.
+    pub fn new_with_background<W: HasWindowHandle>(
+        parent: &W,
+        url: &str,
+        bounds: Rect,
+        rgba: (u8, u8, u8, u8),
+    ) -> wry::Result<Self> {
+        Self::build(parent, url, bounds, Some(rgba))
+    }
+
+    fn build<W: HasWindowHandle>(
+        parent: &W,
+        url: &str,
+        bounds: Rect,
+        background: Option<(u8, u8, u8, u8)>,
+    ) -> wry::Result<Self> {
         let shared = Arc::new(Shared::default());
         let ipc = Arc::clone(&shared);
         let loads = Arc::clone(&shared);
         let titles = Arc::clone(&shared);
 
-        let webview = WebViewBuilder::new()
+        let mut builder = WebViewBuilder::new();
+        if let Some(rgba) = background {
+            builder = builder.with_background_color(rgba);
+        }
+        let webview = builder
             .with_url(url)
             .with_bounds(bounds)
             // Every navigation the page itself starts (a link, a redirect, a
@@ -325,6 +351,17 @@ impl WryBackend {
     /// type to build one.
     pub fn new_at<W: HasWindowHandle>(parent: &W, url: &str, origin: (f32, f32), size: (f32, f32)) -> wry::Result<Self> {
         Self::new(parent, url, logical_rect(origin, size))
+    }
+
+    /// [`Self::new_at`] with a background colour; see [`Self::new_with_background`].
+    pub fn new_at_with_background<W: HasWindowHandle>(
+        parent: &W,
+        url: &str,
+        origin: (f32, f32),
+        size: (f32, f32),
+        rgba: (u8, u8, u8, u8),
+    ) -> wry::Result<Self> {
+        Self::new_with_background(parent, url, logical_rect(origin, size), rgba)
     }
 
     /// The webview itself, for the things only the host can do: moving it with
