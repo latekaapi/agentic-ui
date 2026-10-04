@@ -125,7 +125,12 @@ pub enum WebEvent {
     /// [`WebBackend::take_popup_backends`]: `foreground` asks for the tab to
     /// be selected (`window.open` into a foreground tab), otherwise it opens
     /// in the background.
-    PopupOpened { url: String, foreground: bool },
+    PopupOpened {
+        /// Where the popup points.
+        url: String,
+        /// Whether the popup asked for the foreground tab.
+        foreground: bool,
+    },
     /// The page asked for one or more permissions (camera, microphone, …).
     /// The host shows its own UI and answers through
     /// [`WebBackend::answer_permission`].
@@ -576,6 +581,20 @@ pub fn download_emit_due(elapsed_ms: Option<u64>, state_changed: bool) -> bool {
     }
 }
 
+/// The file name a download suggestion lands under: the last path component
+/// only (either separator), with NUL and control characters stripped. `.`,
+/// `..` and the empty string read as `download`, so `dir.join` never sees an
+/// absolute path or a parent escape. Pure, so the scrubbing is unit-testable
+/// without a filesystem.
+pub fn sanitize_download_name(suggested: &str) -> String {
+    let last = suggested.split(['/', '\\']).rfind(|part| !part.is_empty()).unwrap_or("");
+    let scrubbed: String = last.chars().filter(|c| !c.is_control()).collect();
+    match scrubbed.as_str() {
+        "" | "." | ".." => String::from("download"),
+        _ => scrubbed,
+    }
+}
+
 /// A file name in the download folder that nothing has taken yet: `name`
 /// itself when free, else `stem (1).ext`, `stem (2).ext`, … `taken` is the
 /// folder's membership test (usually "this path exists"). An empty `name`
@@ -724,6 +743,25 @@ mod tests {
         // An empty suggestion still lands somewhere.
         assert_eq!(unique_download_name(&|_: &str| false, ""), "download");
         assert_eq!(unique_download_name(&|name: &str| name == "download", ""), "download (1)");
+    }
+
+    #[test]
+    fn suggested_names_scrub_to_a_safe_last_component() {
+        // Absolute paths never reach `dir.join`: only the last part survives.
+        assert_eq!(sanitize_download_name("/abs/x"), "x");
+        assert_eq!(sanitize_download_name("../x"), "x");
+        assert_eq!(sanitize_download_name("a/b"), "b");
+        assert_eq!(sanitize_download_name("a\\b"), "b");
+        // `.`, `..` and the empty string all land somewhere harmless.
+        assert_eq!(sanitize_download_name(""), "download");
+        assert_eq!(sanitize_download_name("."), "download");
+        assert_eq!(sanitize_download_name(".."), "download");
+        // NUL and control characters go away, the rest stays.
+        assert_eq!(sanitize_download_name("a\0b/c\0"), "c");
+        assert_eq!(sanitize_download_name("a/b\x07c\x1bd"), "bcd");
+        // Ordinary names pass through untouched.
+        assert_eq!(sanitize_download_name("report (1).pdf"), "report (1).pdf");
+        assert_eq!(sanitize_download_name(".zshrc"), ".zshrc");
     }
 
     #[test]
