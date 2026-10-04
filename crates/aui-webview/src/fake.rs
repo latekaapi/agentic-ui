@@ -15,7 +15,7 @@ use aui::workbench::Annotation;
 use gpui::SharedString;
 
 use crate::agent_js::{json_string, CLICK_MARKER, LINKS_MARKER, PAGE_TEXT_MARKER, TYPE_MARKER};
-use crate::backend::{ElementInfo, WebBackend, WebEvent};
+use crate::backend::{BackendFeature, ElementInfo, FindState, PageSecurity, WebBackend, WebEvent};
 use crate::page::{fake_elements, FakeElement};
 
 /// The page the mock opens on.
@@ -70,6 +70,17 @@ pub struct FakeWebBackend {
     /// Every [`WebBackend::set_focused`] argument, oldest first: the record
     /// the keyboard hand-back tests assert against.
     focus_calls: Vec<bool>,
+    /// How many times [`WebBackend::stop`] ran.
+    stop_calls: u32,
+    /// Every [`WebBackend::set_zoom`] argument, oldest first.
+    zoom_calls: Vec<u16>,
+    /// Every [`WebBackend::find`] call, as `(query, forward, match_case)`,
+    /// oldest first.
+    find_calls: Vec<(String, bool, bool)>,
+    /// How many times [`WebBackend::stop_find`] ran.
+    stop_find_calls: u32,
+    /// How many times [`WebBackend::show_devtools`] ran.
+    devtools_calls: u32,
 }
 
 impl Default for FakeWebBackend {
@@ -95,6 +106,11 @@ impl FakeWebBackend {
             typed: HashMap::new(),
             focused: false,
             focus_calls: Vec::new(),
+            stop_calls: 0,
+            zoom_calls: Vec::new(),
+            find_calls: Vec::new(),
+            stop_find_calls: 0,
+            devtools_calls: 0,
         };
         backend.announce();
         backend
@@ -114,6 +130,68 @@ impl FakeWebBackend {
     /// if anything.
     pub fn typed_text(&self, selector: &str) -> Option<&str> {
         self.typed.get(selector).map(String::as_str)
+    }
+
+    /// How many times [`WebBackend::stop`] ran.
+    pub fn stop_calls(&self) -> u32 {
+        self.stop_calls
+    }
+
+    /// Every [`WebBackend::set_zoom`] argument, oldest first.
+    pub fn zoom_calls(&self) -> &[u16] {
+        &self.zoom_calls
+    }
+
+    /// Every [`WebBackend::find`] call, as `(query, forward, match_case)`,
+    /// oldest first.
+    pub fn find_calls(&self) -> &[(String, bool, bool)] {
+        &self.find_calls
+    }
+
+    /// How many times [`WebBackend::stop_find`] ran.
+    pub fn stop_find_calls(&self) -> u32 {
+        self.stop_find_calls
+    }
+
+    /// How many times [`WebBackend::show_devtools`] ran.
+    pub fn devtools_calls(&self) -> u32 {
+        self.devtools_calls
+    }
+
+    /// Queues a [`WebEvent::Favicon`]: the toolbar reads the icon off this.
+    pub fn script_favicon(&mut self, url: Option<&str>) {
+        self.queue.push(WebEvent::Favicon(url.map(str::to_owned)));
+    }
+
+    /// Queues a [`WebEvent::Progress`], 0.0–1.0.
+    pub fn script_progress(&mut self, progress: f32) {
+        self.queue.push(WebEvent::Progress(progress));
+    }
+
+    /// Queues a [`WebEvent::Security`].
+    pub fn script_security(&mut self, security: PageSecurity) {
+        self.queue.push(WebEvent::Security(security));
+    }
+
+    /// Queues a [`WebEvent::Audible`].
+    pub fn script_audible(&mut self, audible: bool) {
+        self.queue.push(WebEvent::Audible(audible));
+    }
+
+    /// Queues a [`WebEvent::Crashed`]: the tab reads as crashed until the
+    /// next successful navigation.
+    pub fn script_crashed(&mut self, reason: &str) {
+        self.queue.push(WebEvent::Crashed(reason.to_owned()));
+    }
+
+    /// Queues a [`WebEvent::Find`]: one find-strip update ("3 of 12").
+    pub fn script_find(&mut self, query: &str, active: u32, total: u32, final_update: bool) {
+        self.queue.push(WebEvent::Find(FindState { query: query.to_owned(), active, total, final_update }));
+    }
+
+    /// Queues a [`WebEvent::Zoom`], in percent.
+    pub fn script_zoom(&mut self, percent: u16) {
+        self.queue.push(WebEvent::Zoom(percent));
     }
 
     /// Announces the page at `position`: a load, its URL and title.
@@ -417,6 +495,31 @@ impl WebBackend for FakeWebBackend {
     fn element_info(&self, index: usize) -> Option<ElementInfo> {
         self.elements.get(&index).cloned()
     }
+
+    fn stop(&mut self) {
+        self.stop_calls += 1;
+    }
+
+    fn set_zoom(&mut self, percent: u16) {
+        self.zoom_calls.push(percent);
+    }
+
+    fn find(&mut self, query: &str, forward: bool, match_case: bool) {
+        self.find_calls.push((query.to_owned(), forward, match_case));
+    }
+
+    fn stop_find(&mut self) {
+        self.stop_find_calls += 1;
+    }
+
+    fn show_devtools(&mut self) {
+        self.devtools_calls += 1;
+    }
+
+    fn supports(&self, _feature: BackendFeature) -> bool {
+        // The scripted page can drive every toolbar control.
+        true
+    }
 }
 
 #[cfg(test)]
@@ -535,5 +638,65 @@ mod tests {
         let selector = "div[data-x=\"a'b\"]";
         let (_, answer) = ask(&mut backend, 9, &agent_js::click(selector));
         assert_eq!(answer, Err(format!("element not found: {selector}")));
+    }
+
+    #[test]
+    fn scripted_page_state_events_poll_in_order() {
+        let mut backend = FakeWebBackend::new();
+        // Drain the opening announcement.
+        backend.poll_events();
+        backend.script_favicon(Some("https://example.com/icon.png"));
+        backend.script_progress(0.5);
+        backend.script_security(PageSecurity::Secure);
+        backend.script_audible(true);
+        backend.script_crashed("the page crashed (-1)");
+        backend.script_find("price", 3, 12, true);
+        backend.script_zoom(125);
+        backend.script_favicon(None);
+        assert_eq!(
+            backend.poll_events(),
+            vec![
+                WebEvent::Favicon(Some(String::from("https://example.com/icon.png"))),
+                WebEvent::Progress(0.5),
+                WebEvent::Security(PageSecurity::Secure),
+                WebEvent::Audible(true),
+                WebEvent::Crashed(String::from("the page crashed (-1)")),
+                WebEvent::Find(FindState { query: String::from("price"), active: 3, total: 12, final_update: true }),
+                WebEvent::Zoom(125),
+                WebEvent::Favicon(None),
+            ]
+        );
+        // Drained: nothing lingers for the next poll.
+        assert!(backend.poll_events().is_empty());
+    }
+
+    #[test]
+    fn the_fake_records_page_commands() {
+        let mut backend = FakeWebBackend::new();
+        backend.stop();
+        backend.set_zoom(125);
+        backend.set_zoom(110);
+        backend.find("price", true, false);
+        backend.find("price", true, true);
+        backend.stop_find();
+        backend.show_devtools();
+        assert_eq!(backend.stop_calls(), 1);
+        assert_eq!(backend.zoom_calls(), &[125, 110]);
+        assert_eq!(
+            backend.find_calls(),
+            &[(String::from("price"), true, false), (String::from("price"), true, true)]
+        );
+        assert_eq!(backend.stop_find_calls(), 1);
+        assert_eq!(backend.devtools_calls(), 1);
+        for feature in [
+            BackendFeature::Find,
+            BackendFeature::Zoom,
+            BackendFeature::DevTools,
+            BackendFeature::Stop,
+            BackendFeature::Favicon,
+            BackendFeature::Security,
+        ] {
+            assert!(backend.supports(feature), "{feature:?} must be supported by the fake");
+        }
     }
 }

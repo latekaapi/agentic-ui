@@ -101,6 +101,158 @@ pub enum WebEvent {
     Annotation(Annotation),
     /// An encoded PNG of the page.
     Screenshot(Vec<u8>),
+    /// The page's icon changed; the first icon URL, or `None` when the page
+    /// has none. The toolbar shows this on the tab.
+    Favicon(Option<String>),
+    /// How far the main-frame load has come, 0.0–1.0. The toolbar draws this
+    /// as its 2 px progress line while [`WebEvent::Loading`] is on.
+    Progress(f32),
+    /// What the address row's site button should say about the current page.
+    Security(PageSecurity),
+    /// Whether the page is currently making sound. Tabs show an audio
+    /// indicator while this is `true`.
+    Audible(bool),
+    /// The renderer went away; the reason reads like "the page crashed".
+    /// Cleared by the next successful navigation. [`WebBackend::reload`]
+    /// recovers the page.
+    Crashed(String),
+    /// A find-in-page result for the query [`WebBackend::find`] started.
+    /// `active` is the 1-based match under the cursor (0 while searching).
+    Find(FindState),
+    /// The page's zoom, in percent (100 is normal).
+    Zoom(u16),
+}
+
+/// What the address row's site button says about the current page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageSecurity {
+    /// An `https` page whose connection is secure.
+    Secure,
+    /// Plain `http`, or `https` whose certificate failed.
+    NotSecure,
+    /// A loopback or development host: `localhost`, `127.0.0.1`, `[::1]`,
+    /// `*.localhost`, `*.test`.
+    Local,
+    /// A `file://` URL.
+    File,
+    /// The browser's own pages: `chrome://`, `devtools://`, `about:`.
+    Internal,
+    /// Anything else: unknown schemes, unparseable URLs.
+    Unknown,
+}
+
+impl PageSecurity {
+    /// Classifies `url` given what the transport said: `Some(true)` when the
+    /// visible navigation entry reports a secure connection, `Some(false)`
+    /// on a certificate error, `None` when there is no SSL status (plain
+    /// `http`, files, internal pages).
+    ///
+    /// The host wins over the scheme: `http://localhost:5173` is [`PageSecurity::Local`],
+    /// and an `https` loopback page is too. `https` without evidence to the
+    /// contrary is [`PageSecurity::Secure`]; only `Some(false)` demotes it.
+    pub fn classify(url: &str, secure_connection: Option<bool>) -> PageSecurity {
+        let url = url.trim();
+        let Some((raw_scheme, rest)) = url.split_once(':') else {
+            return PageSecurity::Unknown;
+        };
+        if !is_url_scheme(raw_scheme) {
+            return PageSecurity::Unknown;
+        }
+        match raw_scheme.to_ascii_lowercase().as_str() {
+            "chrome" | "devtools" | "about" => PageSecurity::Internal,
+            "file" => PageSecurity::File,
+            "http" | "ws" => {
+                if is_local_host(&host_of(rest)) {
+                    PageSecurity::Local
+                } else {
+                    PageSecurity::NotSecure
+                }
+            }
+            "https" | "wss" => {
+                if is_local_host(&host_of(rest)) {
+                    PageSecurity::Local
+                } else if secure_connection == Some(false) {
+                    PageSecurity::NotSecure
+                } else {
+                    PageSecurity::Secure
+                }
+            }
+            _ => PageSecurity::Unknown,
+        }
+    }
+}
+
+/// Whether `text` reads as a URL scheme: leading letter, then letters,
+/// digits, `+`, `-` or `.`.
+fn is_url_scheme(text: &str) -> bool {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_alphabetic() => (),
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+}
+
+/// The host of the `//authority/path` that follows a URL's scheme, lowercased
+/// and without brackets, userinfo or port.
+fn host_of(after_scheme: &str) -> String {
+    let authority = after_scheme.strip_prefix("//").unwrap_or(after_scheme).split(['/', '?', '#']).next().unwrap_or_default();
+    // `rsplit` yields the text after the last `@`, or the whole authority.
+    let authority = authority.rsplit('@').next().unwrap_or_default();
+    let host = if let Some(rest) = authority.strip_prefix('[') {
+        rest.split(']').next().unwrap_or_default()
+    } else if authority.matches(':').count() >= 2 {
+        // A bare IPv6 literal (`::1`): the colons are the address, not a port.
+        authority
+    } else {
+        match authority.rsplit_once(':') {
+            Some((host, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => host,
+            _ => authority,
+        }
+    };
+    host.to_ascii_lowercase()
+}
+
+/// Whether `host` (already lowercased, no port) is a loopback or development
+/// host.
+fn is_local_host(host: &str) -> bool {
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host == "test"
+        || host.ends_with(".test")
+}
+
+/// One find-in-page result, as the find strip shows it ("3 of 12").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FindState {
+    /// What was searched for.
+    pub query: String,
+    /// The 1-based match under the cursor (0 while the search runs).
+    pub active: u32,
+    /// How many matches the page holds so far.
+    pub total: u32,
+    /// Whether this is the last update for the current search.
+    pub final_update: bool,
+}
+
+/// A page control a host may want to hide when its backend cannot do it.
+/// Hosts ask [`WebBackend::supports`] — never a hard-coded engine name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackendFeature {
+    /// [`WebBackend::find`] / [`WebBackend::stop_find`].
+    Find,
+    /// [`WebBackend::set_zoom`].
+    Zoom,
+    /// [`WebBackend::show_devtools`].
+    DevTools,
+    /// [`WebBackend::stop`].
+    Stop,
+    /// [`WebEvent::Favicon`].
+    Favicon,
+    /// [`WebEvent::Security`].
+    Security,
 }
 
 /// A page the [`crate::view::WebviewState`] can drive.
@@ -238,6 +390,40 @@ pub trait WebBackend {
         let _ = index;
         None
     }
+
+    /// Stops the current load, if any. Backends that cannot do it ignore
+    /// this, which is the default.
+    fn stop(&mut self) {}
+
+    /// Sets the page zoom to `percent` (100 is normal). Backends snap to
+    /// their engine's steps; backends that cannot zoom ignore this, which is
+    /// the default.
+    fn set_zoom(&mut self, percent: u16) {
+        let _ = percent;
+    }
+
+    /// Finds `query` in the page. Calling it again with the same query moves
+    /// to the next match (`forward`) or the previous one; a different query
+    /// starts a new search. Results arrive as [`WebEvent::Find`]. Backends
+    /// that cannot search ignore this, which is the default.
+    fn find(&mut self, query: &str, forward: bool, match_case: bool) {
+        let _ = (query, forward, match_case);
+    }
+
+    /// Ends the find session and clears the highlight. Does nothing by
+    /// default.
+    fn stop_find(&mut self) {}
+
+    /// Opens the developer tools. Does nothing by default.
+    fn show_devtools(&mut self) {}
+
+    /// Whether this backend implements `feature`, so a host can hide the
+    /// controls it cannot back. `false` by default: a backend opts each
+    /// control in.
+    fn supports(&self, feature: BackendFeature) -> bool {
+        let _ = feature;
+        false
+    }
 }
 
 #[cfg(test)]
@@ -268,5 +454,62 @@ mod tests {
         assert_eq!(backend.take_eval_results(), vec![(7, Err(String::from("not supported")))]);
         // Drained: a second take sees nothing.
         assert!(backend.take_eval_results().is_empty());
+    }
+
+    #[test]
+    fn new_controls_default_to_unsupported_no_ops() {
+        let mut backend = Minimal;
+        // They run without doing anything …
+        backend.stop();
+        backend.set_zoom(125);
+        backend.find("price", true, false);
+        backend.stop_find();
+        backend.show_devtools();
+        // … and report every feature as unsupported.
+        for feature in [
+            BackendFeature::Find,
+            BackendFeature::Zoom,
+            BackendFeature::DevTools,
+            BackendFeature::Stop,
+            BackendFeature::Favicon,
+            BackendFeature::Security,
+        ] {
+            assert!(!backend.supports(feature), "{feature:?} must default to false");
+        }
+    }
+
+    #[test]
+    fn security_classification_table() {
+        use PageSecurity::{File, Internal, Local, NotSecure, Secure, Unknown};
+        let cases = [
+            ("https://example.com/", Some(true), Secure),
+            ("https://example.com/", None, Secure),
+            ("https://example.com/", Some(false), NotSecure),
+            ("http://example.com/", None, NotSecure),
+            // An `http` page is never secure, whatever the transport claims.
+            ("http://example.com/", Some(true), NotSecure),
+            ("http://localhost:5173/", None, Local),
+            ("http://localhost/", None, Local),
+            ("http://127.0.0.1:3000/x", None, Local),
+            ("http://[::1]:8080/", None, Local),
+            ("http://shop.localhost/", None, Local),
+            ("http://api.test/", None, Local),
+            // The loopback host wins over a secure scheme too.
+            ("https://app.localhost/", Some(true), Local),
+            ("HTTPS://EXAMPLE.COM/", Some(true), Secure),
+            ("file:///etc/hosts", None, File),
+            ("chrome://settings/", None, Internal),
+            ("about:blank", None, Internal),
+            ("devtools://devtools/bundled/inspector.html", None, Internal),
+            ("data:text/html,hi", None, Unknown),
+            ("madeup:thing", None, Unknown),
+            ("", None, Unknown),
+            ("no scheme at all", None, Unknown),
+            // The fake page's schemeless home URL is not a page state.
+            ("localhost:3000/pricing", None, Unknown),
+        ];
+        for (url, secure, expected) in cases {
+            assert_eq!(PageSecurity::classify(url, secure), expected, "url: {url}");
+        }
     }
 }

@@ -22,7 +22,7 @@ use gpui::{actions, canvas, div, img, prelude::*, px, relative, App, Bounds, Con
 use gpui_kit::base::input::{Escape as InputEscape, InputEvent, InputState};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::backend::{ElementInfo, WebBackend, WebEvent};
+use crate::backend::{BackendFeature, ElementInfo, FindState, PageSecurity, WebBackend, WebEvent};
 use crate::page::{page_body, pin_at};
 
 /// How often the pane drains its backend. Fast enough that a title or a pin
@@ -115,6 +115,21 @@ pub struct WebviewState {
     note: Option<usize>,
     /// The last screenshot the backend produced.
     screenshot: Option<Vec<u8>>,
+    /// The page's icon URL, if it has one ([`WebEvent::Favicon`]).
+    favicon: Option<SharedString>,
+    /// How far the load has come, 0.0–1.0 ([`WebEvent::Progress`]).
+    progress: f32,
+    /// What the site button says ([`WebEvent::Security`]).
+    security: PageSecurity,
+    /// Whether the page is making sound ([`WebEvent::Audible`]).
+    audible: bool,
+    /// Why the renderer went away, if it did ([`WebEvent::Crashed`]).
+    /// Cleared by the next successful navigation.
+    crashed: Option<SharedString>,
+    /// The latest find-in-page result ([`WebEvent::Find`]).
+    find: Option<FindState>,
+    /// The page zoom in percent; 100 is normal ([`WebEvent::Zoom`]).
+    zoom: u16,
     /// Evaluation answers drained from the backend, waiting for
     /// [`Self::take_eval_results`].
     eval_results: Vec<(u64, Result<String, String>)>,
@@ -231,6 +246,13 @@ impl WebviewState {
             selected: None,
             note: None,
             screenshot: None,
+            favicon: None,
+            progress: 0.0,
+            security: PageSecurity::Unknown,
+            audible: false,
+            crashed: None,
+            find: None,
+            zoom: 100,
             screenshot_image: None,
             eval_results: Vec::new(),
             native,
@@ -347,6 +369,75 @@ impl WebviewState {
     /// The last screenshot the backend produced, PNG-encoded.
     pub fn screenshot(&self) -> Option<&[u8]> {
         self.screenshot.as_deref()
+    }
+
+    /// The page's icon URL, if the backend has reported one.
+    pub fn favicon(&self) -> Option<SharedString> {
+        self.favicon.clone()
+    }
+
+    /// How far the current load has come, 0.0–1.0.
+    pub fn progress(&self) -> f32 {
+        self.progress
+    }
+
+    /// What the site button says about the current page.
+    pub fn security(&self) -> PageSecurity {
+        self.security
+    }
+
+    /// Whether the page is currently making sound.
+    pub fn audible(&self) -> bool {
+        self.audible
+    }
+
+    /// Why the renderer went away, if it did. Cleared by the next
+    /// successful navigation.
+    pub fn crashed(&self) -> Option<SharedString> {
+        self.crashed.clone()
+    }
+
+    /// The latest find-in-page result, if a search is running.
+    pub fn find_state(&self) -> Option<FindState> {
+        self.find.clone()
+    }
+
+    /// The page zoom in percent; 100 is normal.
+    pub fn zoom(&self) -> u16 {
+        self.zoom
+    }
+
+    /// Stops the current load, if the backend can.
+    pub fn stop(&mut self) {
+        self.backend.stop();
+    }
+
+    /// Sets the page zoom to `percent` (100 is normal).
+    pub fn set_zoom(&mut self, percent: u16) {
+        self.backend.set_zoom(percent);
+    }
+
+    /// Finds `query` in the page; the same query again moves to the next
+    /// match (`forward`) or the previous one. Results arrive as
+    /// [`WebEvent::Find`].
+    pub fn find(&mut self, query: &str, forward: bool, match_case: bool) {
+        self.backend.find(query, forward, match_case);
+    }
+
+    /// Ends the find session and clears the highlight.
+    pub fn stop_find(&mut self) {
+        self.backend.stop_find();
+    }
+
+    /// Opens the developer tools, if the backend has any.
+    pub fn show_devtools(&mut self) {
+        self.backend.show_devtools();
+    }
+
+    /// Whether the backend implements `feature`, so the host can hide the
+    /// controls it cannot back.
+    pub fn supports(&self, feature: BackendFeature) -> bool {
+        self.backend.supports(feature)
     }
 
     /// **Hides the native page so gpui can paint over its rectangle.**
@@ -664,6 +755,11 @@ impl WebviewState {
                 WebEvent::Loading(loading) => {
                     self.loading = loading;
                     settled |= !loading;
+                    if !loading {
+                        // The load finished: whatever crashed before is gone —
+                        // a successful navigation clears the crashed tab.
+                        self.crashed = None;
+                    }
                 }
                 WebEvent::Annotation(annotation) => self.push_annotation(annotation),
                 WebEvent::Screenshot(bytes) => {
@@ -671,6 +767,13 @@ impl WebviewState {
                     self.screenshot = Some(bytes);
                     screenshot = true;
                 }
+                WebEvent::Favicon(url) => self.favicon = url.map(SharedString::from),
+                WebEvent::Progress(progress) => self.progress = progress.clamp(0.0, 1.0),
+                WebEvent::Security(security) => self.security = security,
+                WebEvent::Audible(audible) => self.audible = audible,
+                WebEvent::Crashed(reason) => self.crashed = Some(SharedString::from(reason)),
+                WebEvent::Find(found) => self.find = Some(found),
+                WebEvent::Zoom(percent) => self.zoom = percent,
             }
         }
         if !eval_results.is_empty() {
@@ -1424,7 +1527,7 @@ mod tests {
     use super::{is_blank_url, normalize_url};
     use super::{webview_pane, WebviewState};
     use crate::agent_js;
-    use crate::backend::{ElementInfo, WebBackend, WebEvent};
+    use crate::backend::{BackendFeature, ElementInfo, FindState, PageSecurity, WebBackend, WebEvent};
     use crate::fake::FakeWebBackend;
     use gpui::{
         AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _, IntoElement, ParentElement as _,
@@ -1468,6 +1571,122 @@ mod tests {
         assert_eq!(answers[0].1, Ok(String::from("\"Simple pricing\"")));
         let drained: Vec<(u64, Result<String, String>)> = state.update(cx, |state, _| state.take_eval_results());
         assert!(drained.is_empty());
+    }
+
+    /// A [`WebBackend`] over a shared [`FakeWebBackend`], so the test can
+    /// script events after the state has taken ownership of the backend.
+    struct SharedFake(Rc<RefCell<FakeWebBackend>>);
+
+    impl WebBackend for SharedFake {
+        fn navigate(&mut self, url: &str) {
+            self.0.borrow_mut().navigate(url);
+        }
+        fn back(&mut self) {
+            self.0.borrow_mut().back();
+        }
+        fn forward(&mut self) {
+            self.0.borrow_mut().forward();
+        }
+        fn reload(&mut self) {
+            self.0.borrow_mut().reload();
+        }
+        fn eval(&mut self, js: &str) {
+            self.0.borrow_mut().eval(js);
+        }
+        fn set_annotate(&mut self, on: bool) {
+            self.0.borrow_mut().set_annotate(on);
+        }
+        fn poll_events(&mut self) -> Vec<WebEvent> {
+            self.0.borrow_mut().poll_events()
+        }
+        fn take_eval_results(&mut self) -> Vec<(u64, Result<String, String>)> {
+            self.0.borrow_mut().take_eval_results()
+        }
+        fn stop(&mut self) {
+            self.0.borrow_mut().stop();
+        }
+        fn set_zoom(&mut self, percent: u16) {
+            self.0.borrow_mut().set_zoom(percent);
+        }
+        fn find(&mut self, query: &str, forward: bool, match_case: bool) {
+            self.0.borrow_mut().find(query, forward, match_case);
+        }
+        fn stop_find(&mut self) {
+            self.0.borrow_mut().stop_find();
+        }
+        fn show_devtools(&mut self) {
+            self.0.borrow_mut().show_devtools();
+        }
+        fn supports(&self, feature: BackendFeature) -> bool {
+            self.0.borrow().supports(feature)
+        }
+    }
+
+    /// The state keeps the latest of each page-state event, forwards its
+    /// commands to the backend, and clears the crashed tab on the next
+    /// successful navigation.
+    #[gpui::test]
+    fn page_state_tracks_events_and_crash_clears_on_navigation(cx: &mut gpui::TestAppContext) {
+        use gpui::AppContext as _;
+        use gpui::SharedString;
+        let fake = Rc::new(RefCell::new(FakeWebBackend::new()));
+        let state = cx.new(|cx| WebviewState::new(Box::new(SharedFake(fake.clone())), cx));
+        // Defaults before any page-state event arrives.
+        state.update(cx, |state, _| {
+            assert_eq!(state.favicon(), None);
+            assert_eq!(state.progress(), 0.0);
+            assert_eq!(state.security(), PageSecurity::Unknown);
+            assert!(!state.audible());
+            assert_eq!(state.crashed(), None);
+            assert_eq!(state.find_state(), None);
+            assert_eq!(state.zoom(), 100);
+            assert!(state.supports(BackendFeature::Find));
+        });
+        fake.borrow_mut().script_favicon(Some("https://example.com/icon.png"));
+        fake.borrow_mut().script_progress(0.5);
+        fake.borrow_mut().script_security(PageSecurity::Secure);
+        fake.borrow_mut().script_audible(true);
+        fake.borrow_mut().script_crashed("the page crashed");
+        fake.borrow_mut().script_find("price", 3, 12, true);
+        fake.borrow_mut().script_zoom(125);
+        state.update(cx, |state, _| {
+            let _ = state.apply_pending();
+        });
+        state.update(cx, |state, _| {
+            assert_eq!(state.favicon(), Some(SharedString::from("https://example.com/icon.png")));
+            assert_eq!(state.progress(), 0.5);
+            assert_eq!(state.security(), PageSecurity::Secure);
+            assert!(state.audible());
+            assert_eq!(state.crashed(), Some(SharedString::from("the page crashed")));
+            assert_eq!(
+                state.find_state(),
+                Some(FindState { query: String::from("price"), active: 3, total: 12, final_update: true })
+            );
+            assert_eq!(state.zoom(), 125);
+        });
+        // Commands forward to the backend, where the fake records them.
+        state.update(cx, |state, _| {
+            state.stop();
+            state.set_zoom(150);
+            state.find("price", true, false);
+            state.stop_find();
+            state.show_devtools();
+        });
+        assert_eq!(fake.borrow().stop_calls(), 1);
+        assert_eq!(fake.borrow().zoom_calls(), &[150]);
+        assert_eq!(fake.borrow().find_calls(), &[(String::from("price"), true, false)]);
+        assert_eq!(fake.borrow().stop_find_calls(), 1);
+        assert_eq!(fake.borrow().devtools_calls(), 1);
+        // The next successful navigation clears the crash but keeps the rest.
+        state.update(cx, |state, _| state.navigate("https://example.com/"));
+        state.update(cx, |state, _| {
+            let _ = state.apply_pending();
+        });
+        state.update(cx, |state, _| {
+            assert_eq!(state.crashed(), None);
+            assert_eq!(state.security(), PageSecurity::Secure);
+            assert_eq!(state.zoom(), 125);
+        });
     }
 
     /// `release_keyboard` hands focus back when the page holds it, and is a

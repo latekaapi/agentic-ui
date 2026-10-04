@@ -63,7 +63,7 @@ pub mod view;
 #[cfg(feature = "wry")]
 pub mod wry_backend;
 
-pub use backend::{ElementInfo, WebBackend, WebEvent};
+pub use backend::{BackendFeature, ElementInfo, FindState, PageSecurity, WebBackend, WebEvent};
 pub use fake::FakeWebBackend;
 pub use page::{fake_elements, FakeElement};
 pub use view::{bind_keys, webview_pane, FocusAddress, WebviewIntent, WebviewPane, WebviewState, WEBVIEW_CONTEXT};

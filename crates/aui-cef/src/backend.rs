@@ -54,7 +54,7 @@ use std::sync::{Arc, Mutex, Weak};
 use aui::workbench::Annotation;
 use aui_webview::backend::OUTER_HTML_LIMIT;
 use aui_webview::wry_backend::navigation_allowed;
-use aui_webview::{ElementInfo, WebBackend, WebEvent, ANNOTATOR_JS};
+use aui_webview::{BackendFeature, ElementInfo, FindState, PageSecurity, WebBackend, WebEvent, ANNOTATOR_JS};
 use base64::Engine as _;
 use cef::*;
 use gpui::SharedString;
@@ -113,6 +113,9 @@ struct Shared {
     can_back: bool,
     can_forward: bool,
     closed: bool,
+    /// The query the last [`WebBackend::find`] started. Find results carry
+    /// no query of their own, so this tags them on the way up.
+    find_query: String,
 }
 
 fn locked(shared: &Mutex<Shared>) -> std::sync::MutexGuard<'_, Shared> {
@@ -367,6 +370,70 @@ fn eval_answer(result: &Value) -> Result<String, String> {
     Ok(value.to_string())
 }
 
+// ------------------------------------------------------------------ page state (pure)
+
+/// Chrome's zoom menu steps, in percent.
+pub const ZOOM_STEPS: [u16; 17] = [25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500];
+
+/// Snaps `percent` to the nearest Chrome zoom step (ties go to the smaller step).
+pub fn snap_zoom_percent(percent: u16) -> u16 {
+    let mut best = ZOOM_STEPS[0];
+    for step in ZOOM_STEPS {
+        if step.abs_diff(percent) < best.abs_diff(percent) {
+            best = step;
+        }
+    }
+    best
+}
+
+/// CEF zoom levels are log base 1.2 of the scale factor: this maps a percent
+/// (snapped to [`ZOOM_STEPS`]) to the level [`WebBackend::set_zoom`] pushes.
+pub fn zoom_percent_to_level(percent: u16) -> f64 {
+    (f64::from(snap_zoom_percent(percent)) / 100.0).ln() / 1.2_f64.ln()
+}
+
+/// Maps a CEF zoom level back to a Chrome step percent (100 is normal).
+/// Non-finite levels read as 100.
+pub fn zoom_level_to_percent(level: f64) -> u16 {
+    if !level.is_finite() {
+        return 100;
+    }
+    snap_zoom_percent((1.2_f64.powf(level) * 100.0).round().max(0.0) as u16)
+}
+
+/// A human reason for a dead renderer, as [`WebEvent::Crashed`] carries it.
+fn crash_reason(status: TerminationStatus, error_code: i32, detail: &str) -> String {
+    let base = if status == TerminationStatus::PROCESS_CRASHED {
+        "the page crashed"
+    } else if status == TerminationStatus::PROCESS_OOM {
+        "the page ran out of memory"
+    } else if status == TerminationStatus::PROCESS_WAS_KILLED {
+        "the page was killed"
+    } else if status == TerminationStatus::ABNORMAL_TERMINATION {
+        "the page terminated abnormally"
+    } else {
+        "the page terminated unexpectedly"
+    };
+    let detail = detail.trim();
+    if detail.is_empty() {
+        format!("{base} ({error_code})")
+    } else {
+        format!("{base}: {detail} ({error_code})")
+    }
+}
+
+/// The [`PageSecurity`] of `url` from the visible navigation entry's SSL
+/// state. Makes no AppKit calls and holds no lock; callers lock only to push
+/// the resulting event.
+fn security_for(url: &str, browser: Option<&mut Browser>) -> PageSecurity {
+    let secure = browser
+        .and_then(|b| b.host())
+        .and_then(|host| host.visible_navigation_entry())
+        .and_then(|entry| entry.sslstatus())
+        .map(|status| status.is_secure_connection() == 1);
+    PageSecurity::classify(url, secure)
+}
+
 // ------------------------------------------------------------------ CEF handlers
 
 wrap_client! {
@@ -391,6 +458,14 @@ wrap_client! {
             Some(AuiRequest::new(self.shared.clone()))
         }
 
+        fn audio_handler(&self) -> Option<AudioHandler> {
+            Some(AuiAudio::new(self.shared.clone()))
+        }
+
+        fn find_handler(&self) -> Option<FindHandler> {
+            Some(AuiFind::new(self.shared.clone()))
+        }
+
         fn keyboard_handler(&self) -> Option<KeyboardHandler> {
             Some(AuiKeyboard::new(()))
         }
@@ -412,11 +487,34 @@ wrap_display_handler! {
             locked(&self.shared).events.push(WebEvent::Title(title));
         }
 
-        fn on_address_change(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, url: Option<&CefString>) {
+        fn on_address_change(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, url: Option<&CefString>) {
             if frame.map(|f| f.is_main() == 1).unwrap_or(true) {
                 let url = url.map(|u| u.to_string()).unwrap_or_default();
-                locked(&self.shared).events.push(WebEvent::Url(url));
+                // The entry's SSL state is a CEF call: read it before locking.
+                let security = security_for(&url, browser);
+                let mut s = locked(&self.shared);
+                s.events.push(WebEvent::Url(url));
+                s.events.push(WebEvent::Security(security));
             }
+        }
+
+        fn on_favicon_urlchange(&self, _browser: Option<&mut Browser>, icon_urls: Option<&mut CefStringList>) {
+            let first = icon_urls.and_then(|list| {
+                if cef::string_list_size(Some(&mut *list)) == 0 {
+                    return None;
+                }
+                let mut value = CefString::from("");
+                if cef::string_list_value(Some(&mut *list), 0, Some(&mut value)) == 1 {
+                    Some(value.to_string())
+                } else {
+                    None
+                }
+            });
+            locked(&self.shared).events.push(WebEvent::Favicon(first));
+        }
+
+        fn on_loading_progress_change(&self, _browser: Option<&mut Browser>, progress: f64) {
+            locked(&self.shared).events.push(WebEvent::Progress(progress.clamp(0.0, 1.0) as f32));
         }
     }
 }
@@ -438,6 +536,31 @@ wrap_load_handler! {
             s.can_back = can_go_back == 1;
             s.can_forward = can_go_forward == 1;
             s.events.push(WebEvent::Loading(is_loading == 1));
+        }
+
+        fn on_load_end(
+            &self,
+            browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            _http_status_code: ::std::os::raw::c_int,
+        ) {
+            if frame.map(|f| f.is_main() == 1).unwrap_or(true) {
+                // The entry read is a CEF call: finish it before locking.
+                let security = match browser.and_then(|b| b.host()) {
+                    Some(host) => {
+                        let entry = host.visible_navigation_entry();
+                        let url =
+                            entry.as_ref().map(|e| CefString::from(&e.url()).to_string()).unwrap_or_default();
+                        let secure = entry
+                            .as_ref()
+                            .and_then(|e| e.sslstatus())
+                            .map(|status| status.is_secure_connection() == 1);
+                        PageSecurity::classify(&url, secure)
+                    }
+                    None => PageSecurity::Unknown,
+                };
+                locked(&self.shared).events.push(WebEvent::Security(security));
+            }
         }
     }
 }
@@ -498,6 +621,22 @@ wrap_request_handler! {
             } else {
                 1
             }
+        }
+
+        fn on_render_process_terminated(
+            &self,
+            _browser: Option<&mut Browser>,
+            status: TerminationStatus,
+            error_code: ::std::os::raw::c_int,
+            error_string: Option<&CefString>,
+        ) {
+            let detail = error_string.map(|e| e.to_string()).unwrap_or_default();
+            let reason = crash_reason(status, error_code, &detail);
+            let mut s = locked(&self.shared);
+            s.events.push(WebEvent::Crashed(reason));
+            // A dead renderer never finishes its load; end it now so the
+            // toolbar leaves its loading state. `reload` recovers the page.
+            s.events.push(WebEvent::Loading(false));
         }
     }
 }
@@ -566,6 +705,62 @@ wrap_command_handler! {
             }
             crate::keys::record_blocked_command(command_id);
             1
+        }
+    }
+}
+
+// Reports page audio on the tab. CEF 154 has no `on_audio_state_change` —
+// the audio handler's stream callbacks are the only audio signal, so a
+// started stream reads as audible and its end as silent. Holds no lock.
+wrap_audio_handler! {
+    struct AuiAudio {
+        shared: Page,
+    }
+
+    impl AudioHandler {
+        fn on_audio_stream_started(
+            &self,
+            _browser: Option<&mut Browser>,
+            _params: Option<&AudioParameters>,
+            _channels: ::std::os::raw::c_int,
+        ) {
+            locked(&self.shared).events.push(WebEvent::Audible(true));
+        }
+
+        fn on_audio_stream_stopped(&self, _browser: Option<&mut Browser>) {
+            locked(&self.shared).events.push(WebEvent::Audible(false));
+        }
+    }
+}
+
+// Turns find-in-page results into the find strip's state ("3 of 12").
+// Results carry no query, so they are tagged with the latest `find`
+// command's. Holds no lock.
+wrap_find_handler! {
+    struct AuiFind {
+        shared: Page,
+    }
+
+    impl FindHandler {
+        fn on_find_result(
+            &self,
+            _browser: Option<&mut Browser>,
+            _identifier: ::std::os::raw::c_int,
+            count: ::std::os::raw::c_int,
+            _selection_rect: Option<&Rect>,
+            active_match_ordinal: ::std::os::raw::c_int,
+            final_update: ::std::os::raw::c_int,
+        ) {
+            let found = {
+                let s = locked(&self.shared);
+                FindState {
+                    query: s.find_query.clone(),
+                    active: active_match_ordinal.max(0) as u32,
+                    total: count.max(0) as u32,
+                    final_update: final_update == 1,
+                }
+            };
+            locked(&self.shared).events.push(WebEvent::Find(found));
         }
     }
 }
@@ -879,6 +1074,58 @@ impl WebBackend for CefBackend {
     fn capture(&mut self) {
         send(&self.page, "Page.captureScreenshot", json!({ "format": "png" }), Pending::Screenshot);
     }
+
+    fn stop(&mut self) {
+        if let Some(browser) = browser_of(&self.page) {
+            browser.stop_load();
+        }
+    }
+
+    fn set_zoom(&mut self, percent: u16) {
+        let level = zoom_percent_to_level(percent);
+        if let Some(host) = browser_of(&self.page).and_then(|b| b.host()) {
+            host.set_zoom_level(level);
+        }
+        // CEF emits no zoom-change event; the level just set is the state.
+        locked(&self.page).events.push(WebEvent::Zoom(zoom_level_to_percent(level)));
+    }
+
+    fn find(&mut self, query: &str, forward: bool, match_case: bool) {
+        let find_next = {
+            let mut s = locked(&self.page);
+            let again = s.find_query == query;
+            s.find_query = query.to_owned();
+            again
+        };
+        if let Some(host) = browser_of(&self.page).and_then(|b| b.host()) {
+            // The same query again keeps the session and moves (`find_next`);
+            // a new query starts a session.
+            host.find(
+                Some(&CefString::from(query)),
+                i32::from(forward),
+                i32::from(match_case),
+                i32::from(find_next),
+            );
+        }
+    }
+
+    fn stop_find(&mut self) {
+        if let Some(host) = browser_of(&self.page).and_then(|b| b.host()) {
+            host.stop_finding(1);
+        }
+    }
+
+    fn show_devtools(&mut self) {
+        // No window info: CEF opens DevTools in its own titled window — never
+        // adopted as a child of the page window, never flagged never-main.
+        if let Some(host) = browser_of(&self.page).and_then(|b| b.host()) {
+            host.show_dev_tools(None, None, None, None);
+        }
+    }
+
+    fn supports(&self, _feature: BackendFeature) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]
@@ -927,6 +1174,41 @@ mod tests {
         let other = json!({ "method": "Runtime.bindingCalled", "params": { "name": "evil", "payload": payload } }).to_string();
         on_devtools(&page, other.as_bytes());
         assert_eq!(locked(&page).elements.len(), 1);
+    }
+
+    #[test]
+    fn zoom_maps_round_trip_through_every_chrome_step() {
+        for step in ZOOM_STEPS {
+            let level = zoom_percent_to_level(step);
+            assert_eq!(zoom_level_to_percent(level), step, "step {step} must survive the round trip (level {level})");
+        }
+        assert_eq!(zoom_level_to_percent(0.0), 100);
+        assert_eq!(zoom_level_to_percent(f64::NAN), 100);
+    }
+
+    #[test]
+    fn zoom_snaps_to_chrome_steps() {
+        assert_eq!(snap_zoom_percent(24), 25);
+        assert_eq!(snap_zoom_percent(120), 125);
+        assert_eq!(snap_zoom_percent(149), 150);
+        assert_eq!(snap_zoom_percent(1000), 500);
+        // `set_zoom` snaps before converting, so near-misses share a level.
+        assert_eq!(zoom_percent_to_level(120), zoom_percent_to_level(125));
+        assert_eq!(zoom_level_to_percent(zoom_percent_to_level(67)), 67);
+    }
+
+    #[test]
+    fn crash_reasons_name_the_failure() {
+        assert_eq!(crash_reason(TerminationStatus::PROCESS_CRASHED, -1, ""), "the page crashed (-1)");
+        assert_eq!(
+            crash_reason(TerminationStatus::PROCESS_OOM, -2, "  out of memory  "),
+            "the page ran out of memory: out of memory (-2)"
+        );
+        assert_eq!(crash_reason(TerminationStatus::PROCESS_WAS_KILLED, 0, ""), "the page was killed (0)");
+        assert_eq!(
+            crash_reason(TerminationStatus::ABNORMAL_TERMINATION, 3, "oops"),
+            "the page terminated abnormally: oops (3)"
+        );
     }
 
     #[test]
