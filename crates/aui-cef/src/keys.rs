@@ -242,6 +242,34 @@ pub(crate) fn claim_keystroke(keystroke: &str) -> Option<String> {
     router.and_then(|r| decide_consume(keystroke, &r.claims))
 }
 
+/// An editing keystroke the page owns. On macOS Chromium expects these to
+/// arrive as Edit-menu actions (`paste:` …) through the app's main menu; the
+/// host's menu has no such key equivalents, so ⌘V reached the page as a bare
+/// keydown and did nothing (B1b, live). The handler runs them on the focused
+/// frame instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditCommand {
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+    Undo,
+    Redo,
+}
+
+/// The [`EditCommand`] a keystroke (as [`keystroke_of`] spells it) stands for.
+pub fn edit_command_of(keystroke: &str) -> Option<EditCommand> {
+    match keystroke {
+        "cmd-x" => Some(EditCommand::Cut),
+        "cmd-c" => Some(EditCommand::Copy),
+        "cmd-v" => Some(EditCommand::Paste),
+        "cmd-a" => Some(EditCommand::SelectAll),
+        "cmd-z" => Some(EditCommand::Undo),
+        "shift-cmd-z" => Some(EditCommand::Redo),
+        _ => None,
+    }
+}
+
 /// Runs the routing decision for a converted keystroke: consumes claimed
 /// keystrokes (queuing `deliver` on the main queue's next turn) and reports
 /// whether the CEF event was consumed. Holds no lock; calls neither AppKit
@@ -578,5 +606,17 @@ mod tests {
         let drained = take_blocked_commands();
         assert_eq!(drained.len(), 64);
         assert_eq!(drained, (6..70).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn page_editing_keys_map_to_frame_commands() {
+        assert_eq!(edit_command_of("cmd-v"), Some(EditCommand::Paste));
+        assert_eq!(edit_command_of("cmd-c"), Some(EditCommand::Copy));
+        assert_eq!(edit_command_of("cmd-x"), Some(EditCommand::Cut));
+        assert_eq!(edit_command_of("cmd-a"), Some(EditCommand::SelectAll));
+        assert_eq!(edit_command_of("cmd-z"), Some(EditCommand::Undo));
+        assert_eq!(edit_command_of("shift-cmd-z"), Some(EditCommand::Redo));
+        assert_eq!(edit_command_of("cmd-k"), None);
+        assert_eq!(edit_command_of("ctrl-v"), None);
     }
 }

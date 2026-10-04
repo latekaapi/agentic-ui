@@ -742,7 +742,7 @@ wrap_keyboard_handler! {
     impl KeyboardHandler {
         fn on_pre_key_event(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             event: Option<&KeyEvent>,
             _os_event: *mut u8,
             is_keyboard_shortcut: Option<&mut ::std::os::raw::c_int>,
@@ -759,6 +759,22 @@ wrap_keyboard_handler! {
                 return 1;
             }
             let Some(keystroke) = crate::keys::keystroke_of(event) else { return 0 };
+            if let Some(command) = crate::keys::edit_command_of(&keystroke) {
+                let Some(frame) = browser.and_then(|b| b.focused_frame()) else { return 0 };
+                match command {
+                    crate::keys::EditCommand::Cut => frame.cut(),
+                    crate::keys::EditCommand::Copy => frame.copy(),
+                    crate::keys::EditCommand::Paste => frame.paste(),
+                    crate::keys::EditCommand::SelectAll => frame.select_all(),
+                    crate::keys::EditCommand::Undo => frame.undo(),
+                    crate::keys::EditCommand::Redo => frame.redo(),
+                }
+                crate::keys::note_consumed_keydown(event.native_key_code);
+                if let Some(flag) = is_keyboard_shortcut {
+                    *flag = 1;
+                }
+                return 1;
+            }
             if !crate::keys::route_pre_key_event(keystroke, event.native_key_code) {
                 return 0;
             }
