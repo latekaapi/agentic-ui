@@ -23,6 +23,6 @@ pub mod backend;
 pub mod keys;
 pub mod runtime;
 
-pub use backend::CefBackend;
+pub use backend::{CefBackend, ZOOM_STEPS, snap_zoom_percent, zoom_level_to_percent, zoom_percent_to_level};
 pub use keys::{chrome_command_allowed, clear_key_router, keystroke_of, set_key_router, take_blocked_commands};
 pub use runtime::{available, configure, ensure_initialized, preload, run_helper, shutdown, state, warm_up_soon, Config, State};
