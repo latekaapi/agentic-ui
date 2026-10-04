@@ -139,6 +139,14 @@ void aui_cef_focus_parent(void *parent_view) {
   [pw makeFirstResponder:pv];
 }
 
+// Gives the page window the keyboard, as a click into the page would. CEF's
+// `set_focus` only moves focus inside the browser; the NSWindow must be key
+// too, or keystrokes keep going to the host (B1b, live probe).
+void aui_cef_focus_child(void *child_root_view) {
+  NSWindow *cw = window_of(child_root_view);
+  if (cw && !cw.isKeyWindow) [cw makeKeyWindow];
+}
+
 // Detach before closing, so the parent never holds a dying child.
 void aui_cef_detach(void *child_root_view) {
   NSWindow *cw = window_of(child_root_view);

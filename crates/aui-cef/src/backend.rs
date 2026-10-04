@@ -67,6 +67,7 @@ unsafe extern "C" {
     fn aui_cef_set_hidden(child: *mut c_void, hidden: i32);
     fn aui_cef_is_key(child: *mut c_void) -> i32;
     fn aui_cef_focus_parent(parent: *mut c_void);
+    fn aui_cef_focus_child(child: *mut c_void);
     fn aui_cef_detach(child: *mut c_void);
     fn aui_cef_defer(f: extern "C" fn(*mut c_void), ctx: *mut c_void);
     fn aui_cef_never_main(child: *mut c_void);
@@ -852,10 +853,14 @@ impl WebBackend for CefBackend {
     }
 
     fn set_focused(&mut self, focused: bool) {
-        let (host, parent) = {
+        let (host, parent, child) = {
             let s = locked(&self.page);
-            (s.browser.as_ref().and_then(|b| b.host()), s.parent_view)
+            (s.browser.as_ref().and_then(|b| b.host()), s.parent_view, s.child_view)
         };
+        if focused && child != 0 {
+            // Safety: the page window's live root view, main thread; lock released.
+            unsafe { aui_cef_focus_child(child as *mut c_void) };
+        }
         if let Some(host) = host {
             host.set_focus(if focused { 1 } else { 0 });
         }

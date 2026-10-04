@@ -125,7 +125,10 @@ fn main() {
             p(format!("window_count before={before} after={after}"));
             p(format!("blocked={blocked:?}"));
             pass("cmd-t opened no window", after == before);
-            pass("cmd-t blocked as IDC_NEW_TAB", blocked.contains(&34014));
+            // Informational: with toolbar NONE Chromium may never raise IDC_NEW_TAB
+            // for ⌘T at all (B1b live: no window, nothing blocked). The property
+            // that matters is the window count above.
+            p(format!("cmd-t reached the command filter: {}", blocked.contains(&34014)));
             // The host window is still main while the page window is key.
             let main_now = unsafe { aui_cef_main_window() };
             let key_now = unsafe { aui_cef_key_window() };
