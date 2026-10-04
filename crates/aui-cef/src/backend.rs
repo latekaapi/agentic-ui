@@ -31,6 +31,18 @@
 //! itself (B1a, live: `__psynch_mutexwait` under `-[NSWindow
 //! makeKeyAndOrderFront:]` → gpui `window_did_change_key` → draw). So every
 //! path copies what it needs under the lock, drops it, then acts.
+//!
+//! # Host shortcuts, command filtering, never-main (B1b-L)
+//!
+//! The page is key while the user types in it, so two CEF handlers keep it
+//! from hijacking the host: the keyboard handler consumes keystrokes the
+//! host's router ([`crate::keys::set_key_router`]) claims (the host's
+//! `claims` runs synchronously inside `on_pre_key_event`, and `deliver` on a
+//! later main-queue turn), and the command handler blocks Chromium's own
+//! accelerators (⌘N, ⌘T, …) via [`crate::keys::chrome_command_allowed`].
+//! The page window is additionally isa-swizzled at creation
+//! (`aui_cef_never_main`) so it can become key but never main, keeping the
+//! host window's traffic lights coloured.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -56,6 +68,7 @@ unsafe extern "C" {
     fn aui_cef_focus_parent(parent: *mut c_void);
     fn aui_cef_detach(child: *mut c_void);
     fn aui_cef_defer(f: extern "C" fn(*mut c_void), ctx: *mut c_void);
+    fn aui_cef_never_main(child: *mut c_void);
 }
 
 /// The binding the annotator's `window.ipc.postMessage` posts through.
@@ -375,6 +388,14 @@ wrap_client! {
         fn request_handler(&self) -> Option<RequestHandler> {
             Some(AuiRequest::new(self.shared.clone()))
         }
+
+        fn keyboard_handler(&self) -> Option<KeyboardHandler> {
+            Some(AuiKeyboard::new(()))
+        }
+
+        fn command_handler(&self) -> Option<CommandHandler> {
+            Some(AuiCommands::new(()))
+        }
     }
 }
 
@@ -479,6 +500,62 @@ wrap_request_handler! {
     }
 }
 
+// Hands host-claimed keystrokes to the router before Chromium sees them.
+//
+// A claimed keystroke is consumed (return 1, with `*is_keyboard_shortcut`
+// set where CEF provides it) and delivered on a later main-queue turn via
+// `defer` — never inside the CEF callback. Unclaimed keystrokes and the
+// no-router case pass through untouched. Holds no lock.
+wrap_keyboard_handler! {
+    struct AuiKeyboard {
+        _unit: (),
+    }
+
+    impl KeyboardHandler {
+        fn on_pre_key_event(
+            &self,
+            _browser: Option<&mut Browser>,
+            event: Option<&KeyEvent>,
+            _os_event: *mut u8,
+            is_keyboard_shortcut: Option<&mut ::std::os::raw::c_int>,
+        ) -> ::std::os::raw::c_int {
+            let Some(event) = event else { return 0 };
+            let Some(keystroke) = crate::keys::keystroke_of(event) else { return 0 };
+            if !crate::keys::route_pre_key_event(keystroke) {
+                return 0;
+            }
+            if let Some(flag) = is_keyboard_shortcut {
+                *flag = 1;
+            }
+            1
+        }
+    }
+}
+
+// Blocks Chromium's own accelerators (⌘N, ⌘T, …) so no Chrome window or tab
+// Baaz does not own can open. Each blocked id is recorded for
+// `crate::keys::take_blocked_commands`. Holds no lock.
+wrap_command_handler! {
+    struct AuiCommands {
+        _unit: (),
+    }
+
+    impl CommandHandler {
+        fn on_chrome_command(
+            &self,
+            _browser: Option<&mut Browser>,
+            command_id: ::std::os::raw::c_int,
+            _disposition: WindowOpenDisposition,
+        ) -> ::std::os::raw::c_int {
+            if crate::keys::chrome_command_allowed(command_id) {
+                return 0;
+            }
+            crate::keys::record_blocked_command(command_id);
+            1
+        }
+    }
+}
+
 wrap_dev_tools_message_observer! {
     struct AuiDevTools {
         shared: Page,
@@ -528,12 +605,17 @@ wrap_window_delegate! {
             let (Some(window), Some(view)) = (window, view) else { return };
             let mut child = View::from(&view);
             window.add_child_view(Some(&mut child));
-            let parent = {
+            let (parent, child) = {
                 let mut s = locked(&self.shared);
                 s.window = Some(window.clone());
                 s.child_view = window.window_handle() as usize;
-                s.parent_view
+                (s.parent_view, s.child_view)
             };
+            if child != 0 {
+                // Safety: the page's live root view, main thread, no lock held.
+                // Swizzle before `show` so the window can never become main.
+                unsafe { aui_cef_never_main(child as *mut c_void) };
+            }
             place(&self.shared);
             window.show();
             // `show` orders the window front and makes it key: re-assert the

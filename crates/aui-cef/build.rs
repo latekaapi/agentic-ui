@@ -6,4 +6,5 @@ fn main() {
     cc::Build::new().file("src/shim.m").flag("-fobjc-arc").flag("-Wno-unused-parameter").compile("aui_cef_shim");
     println!("cargo:rustc-link-lib=framework=AppKit");
     println!("cargo:rustc-link-lib=framework=CoreFoundation");
+    println!("cargo:rustc-link-lib=framework=CoreGraphics");
 }

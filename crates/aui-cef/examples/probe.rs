@@ -5,6 +5,21 @@ use std::time::{Duration, Instant};
 
 use aui_webview::{WebBackend, WebEvent};
 use gpui::{div, prelude::*, px, rgb, size, Bounds, Context, TitlebarOptions, WindowBounds, WindowOptions};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+unsafe extern "C" {
+    fn aui_cef_post_cmd_key(keycode: u16, down: std::os::raw::c_int);
+    fn aui_cef_window_count() -> std::os::raw::c_int;
+    fn aui_cef_main_window() -> *mut std::os::raw::c_void;
+    fn aui_cef_key_window() -> *mut std::os::raw::c_void;
+}
+
+static CMD_K_SEEN: AtomicBool = AtomicBool::new(false);
+static OTHER_SEEN: AtomicBool = AtomicBool::new(false);
+
+fn pass(name: &str, ok: bool) {
+    p(format!("{} {name}", if ok { "PASS" } else { "FAIL" }));
+}
 
 struct Blank;
 impl Render for Blank {
@@ -69,6 +84,51 @@ fn main() {
                 }
             }
             p(format!("loaded={loaded}"));
+            // B1b-L: host shortcut routing while the page has focus. USB HID
+            // keycodes: 40 = k, 8 = c, 17 = t.
+            backend.set_focused(true);
+            ex.timer(Duration::from_millis(1000)).await;
+            aui_cef::set_key_router(
+                |ks| ks == "cmd-k",
+                |ks| {
+                    if ks == "cmd-k" {
+                        CMD_K_SEEN.store(true, Ordering::SeqCst);
+                    } else {
+                        OTHER_SEEN.store(true, Ordering::SeqCst);
+                    }
+                },
+            );
+            let _ = aui_cef::take_blocked_commands();
+            let host_main = unsafe { aui_cef_main_window() };
+            // ⌘K reaches the router.
+            unsafe { aui_cef_post_cmd_key(40, 1) };
+            ex.timer(Duration::from_millis(120)).await;
+            unsafe { aui_cef_post_cmd_key(40, 0) };
+            ex.timer(Duration::from_millis(1500)).await;
+            pass("cmd-k delivered to the router", CMD_K_SEEN.load(Ordering::SeqCst));
+            // ⌘C is not claimed: nothing delivered.
+            unsafe { aui_cef_post_cmd_key(8, 1) };
+            ex.timer(Duration::from_millis(120)).await;
+            unsafe { aui_cef_post_cmd_key(8, 0) };
+            ex.timer(Duration::from_millis(1500)).await;
+            pass("cmd-c not delivered", !OTHER_SEEN.load(Ordering::SeqCst));
+            // ⌘T opens no new top-level window and is recorded as blocked.
+            let before = unsafe { aui_cef_window_count() };
+            unsafe { aui_cef_post_cmd_key(17, 1) };
+            ex.timer(Duration::from_millis(120)).await;
+            unsafe { aui_cef_post_cmd_key(17, 0) };
+            ex.timer(Duration::from_millis(2000)).await;
+            let after = unsafe { aui_cef_window_count() };
+            let blocked = aui_cef::take_blocked_commands();
+            p(format!("window_count before={before} after={after}"));
+            p(format!("blocked={blocked:?}"));
+            pass("cmd-t opened no window", after == before);
+            pass("cmd-t blocked as IDC_NEW_TAB", blocked.contains(&34014));
+            // The host window is still main while the page window is key.
+            let main_now = unsafe { aui_cef_main_window() };
+            let key_now = unsafe { aui_cef_key_window() };
+            pass("main window still host", !host_main.is_null() && main_now == host_main);
+            pass("page window key, host not main", !key_now.is_null() && key_now != host_main);
             backend.eval_with_result(1, "return document.title;");
             backend.eval_with_result(2, "return document.querySelectorAll('a').length;");
             backend.eval_with_result(3, "await new Promise(r => setTimeout(r, 50)); return {ok: true, n: [1,2]};");

@@ -151,3 +151,53 @@ void aui_cef_detach(void *child_root_view) {
 void aui_cef_defer(void (*f)(void *), void *ctx) {
   dispatch_async(dispatch_get_main_queue(), ^{ f(ctx); });
 }
+
+// MARK: - The page window never becomes main (B1b-L)
+
+static BOOL aui_never_main(id self, SEL _cmd) { return NO; }
+
+static Class g_hosted_window_class = Nil;
+static Class g_hosted_window_base = Nil;
+
+// Isa-swizzles THAT window instance to a runtime subclass overriding
+// `canBecomeMainWindow` → NO, so the host window keeps its coloured traffic
+// lights while the page has focus. Per instance only: other CEF windows
+// (DevTools, popups) keep their class. `canBecomeKey` is untouched, so typing
+// into the page keeps working.
+void aui_cef_never_main(void *child_root_view) {
+  NSWindow *cw = window_of(child_root_view);
+  if (!cw) return;
+  Class base = object_getClass(cw);
+  if (base == g_hosted_window_class) return;
+  if (g_hosted_window_class == Nil) {
+    g_hosted_window_base = base;
+    g_hosted_window_class = objc_allocateClassPair(base, "AuiCefHostedWindow", 0);
+    if (g_hosted_window_class == Nil) return;
+    Method m = class_getInstanceMethod(base, @selector(canBecomeMainWindow));
+    class_addMethod(g_hosted_window_class, @selector(canBecomeMainWindow),
+                    (IMP)aui_never_main, m ? method_getTypeEncoding(m) : "B@:");
+    objc_registerClassPair(g_hosted_window_class);
+  }
+  if (base != g_hosted_window_base) return;
+  object_setClass(cw, g_hosted_window_class);
+}
+
+// MARK: - Probe helpers (examples/probe.rs drives real key events)
+#import <CoreGraphics/CoreGraphics.h>
+#include <unistd.h>
+
+// Posts a Command-modified key down/up to this process (USB HID keycode,
+// e.g. 40 = k, 8 = c, 17 = t).
+void aui_cef_post_cmd_key(unsigned short keycode, int down) {
+  CGEventRef e = CGEventCreateKeyboardEvent(NULL, (CGKeyCode)keycode, down ? true : false);
+  if (!e) return;
+  CGEventSetFlags(e, kCGEventFlagMaskCommand);
+  CGEventPostToPid(getpid(), e);
+  CFRelease(e);
+}
+
+int aui_cef_window_count(void) { return (int)[NSApp windows].count; }
+
+void *aui_cef_main_window(void) { return (__bridge void *)NSApp.mainWindow; }
+
+void *aui_cef_key_window(void) { return (__bridge void *)NSApp.keyWindow; }
