@@ -139,6 +139,14 @@ void aui_cef_focus_parent(void *parent_view) {
   [pw makeFirstResponder:pv];
 }
 
+// Gives the page window the keyboard, as a click into the page would. CEF's
+// `set_focus` only moves focus inside the browser; the NSWindow must be key
+// too, or keystrokes keep going to the host (B1b, live probe).
+void aui_cef_focus_child(void *child_root_view) {
+  NSWindow *cw = window_of(child_root_view);
+  if (cw && !cw.isKeyWindow) [cw makeKeyWindow];
+}
+
 // Detach before closing, so the parent never holds a dying child.
 void aui_cef_detach(void *child_root_view) {
   NSWindow *cw = window_of(child_root_view);
@@ -150,4 +158,83 @@ void aui_cef_detach(void *child_root_view) {
 // window synchronously inside a gpui update lost that update (B1a, live).
 void aui_cef_defer(void (*f)(void *), void *ctx) {
   dispatch_async(dispatch_get_main_queue(), ^{ f(ctx); });
+}
+
+// MARK: - The page window never becomes main (B1b-L2)
+
+static const void *kNeverMainKey = &kNeverMainKey;
+
+static NSMutableSet<NSString *> *g_patched_classes = nil;
+static NSMutableDictionary<NSString *, NSValue *> *g_original_imps = nil;
+
+static BOOL aui_flagged_can_become_main(id self, SEL _cmd) {
+  if ([objc_getAssociatedObject(self, kNeverMainKey) boolValue]) return NO;
+  NSString *name = NSStringFromClass([self class]);
+  NSValue *boxed = [g_original_imps objectForKey:name];
+  IMP orig = boxed ? (IMP)[boxed pointerValue] : NULL;
+  if (orig) return ((BOOL (*)(id, SEL))orig)(self, _cmd);
+  Class sup = class_getSuperclass([self class]);
+  Method m = sup ? class_getInstanceMethod(sup, _cmd) : NULL;
+  if (m) {
+    IMP imp = method_getImplementation(m);
+    if (imp && imp != (IMP)aui_flagged_can_become_main) return ((BOOL (*)(id, SEL))imp)(self, _cmd);
+  }
+  return YES;
+}
+
+// Flags THAT window instance and swizzles its class (once per class) so
+// `canBecomeMainWindow` → NO on flagged instances, so the host window keeps
+// its coloured traffic lights while the page has focus. Flagged per instance:
+// other CEF windows (DevTools, popups) of the same class lack the associated-
+// object flag and keep the original behaviour. `canBecomeKey` is untouched,
+// so typing into the page keeps working. Never calls `object_setClass`.
+void aui_cef_never_main(void *child_root_view) {
+  NSWindow *cw = window_of(child_root_view);
+  if (!cw) return;
+  objc_setAssociatedObject(cw, kNeverMainKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  Class cls = [cw class];
+  NSString *name = NSStringFromClass(cls);
+  if (!g_patched_classes) g_patched_classes = [NSMutableSet set];
+  if (!g_original_imps) g_original_imps = [NSMutableDictionary dictionary];
+  if ([g_patched_classes containsObject:name]) return;
+  SEL sel = @selector(canBecomeMainWindow);
+  Method m = class_getInstanceMethod(cls, sel);
+  const char *types = m ? method_getTypeEncoding(m) : "B@:";
+  IMP prev = class_replaceMethod(cls, sel, (IMP)aui_flagged_can_become_main, types);
+  [g_original_imps setObject:[NSValue valueWithPointer:prev] forKey:name];
+  [g_patched_classes addObject:name];
+}
+
+// MARK: - Probe helpers (examples/probe.rs drives real key events)
+#import <CoreGraphics/CoreGraphics.h>
+#include <unistd.h>
+
+// Posts a Command-modified key down/up to this process (USB HID keycode,
+// e.g. 40 = k, 8 = c, 17 = t).
+void aui_cef_post_cmd_key(unsigned short keycode, int down) {
+  CGEventRef e = CGEventCreateKeyboardEvent(NULL, (CGKeyCode)keycode, down ? true : false);
+  if (!e) return;
+  CGEventSetFlags(e, kCGEventFlagMaskCommand);
+  CGEventPostToPid(getpid(), e);
+  CFRelease(e);
+}
+
+int aui_cef_window_count(void) { return (int)[NSApp windows].count; }
+
+void *aui_cef_main_window(void) { return (__bridge void *)NSApp.mainWindow; }
+
+void *aui_cef_key_window(void) { return (__bridge void *)NSApp.keyWindow; }
+
+// Probe: the page window's `[cw class]` name (static storage, do not free)
+// and whether a window can become main (1/0).
+const char *aui_cef_window_class_name(void *window) {
+  NSWindow *w = (__bridge NSWindow *)window;
+  if (!w) return "";
+  return class_getName([w class]);
+}
+
+int aui_cef_window_can_become_main(void *window) {
+  NSWindow *w = (__bridge NSWindow *)window;
+  if (!w) return -1;
+  return w.canBecomeMainWindow ? 1 : 0;
 }

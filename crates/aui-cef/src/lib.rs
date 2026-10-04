@@ -7,6 +7,11 @@
 //!   executable CEF launches for its subprocesses.
 //! - [`backend`]: [`CefBackend`], a [`aui_webview::WebBackend`] whose page is
 //!   a frameless Chrome-style window adopted as a child of the host window.
+//! - [`keys`]: host shortcut routing ([`set_key_router`]), keystroke
+//!   conversion ([`keystroke_of`]) and the Chromium command filter
+//!   ([`chrome_command_allowed`], [`take_blocked_commands`]). The page window
+//!   can become key (typing keeps working) but never main, so the host
+//!   window keeps its coloured traffic lights.
 //!
 //! The host bundles the CEF framework at
 //! `App.app/Contents/Frameworks/Chromium Embedded Framework.framework` and
@@ -15,7 +20,9 @@
 //! returns false and the host keeps its WebKit backend.
 
 pub mod backend;
+pub mod keys;
 pub mod runtime;
 
 pub use backend::CefBackend;
+pub use keys::{chrome_command_allowed, clear_key_router, keystroke_of, set_key_router, take_blocked_commands};
 pub use runtime::{available, configure, ensure_initialized, preload, run_helper, shutdown, state, warm_up_soon, Config, State};
