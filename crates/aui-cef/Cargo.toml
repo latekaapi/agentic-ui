@@ -1,0 +1,33 @@
+[package]
+name = "aui-cef"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+authors = ["latekaapi"]
+repository = "https://github.com/latekaapi/agentic-ui"
+description = "A Chromium (CEF, Chrome style) backend for aui-webview's browser pane: process lifecycle, a child-window host over a gpui rect, and a WebBackend over CEF's in-process DevTools channel."
+keywords = ["gpui", "webview", "cef", "chromium", "browser"]
+categories = ["gui"]
+
+# Not a member of the agentic-ui workspace (see its `exclude`): building it
+# downloads the CEF binary distribution and runs cmake on the C++ wrapper.
+[workspace]
+
+[dependencies]
+# Pinned exactly: the bundled framework, the C API headers and these
+# bindings must be the same CEF build (154.0.33, Chromium 154.0.8037.94).
+cef = { version = "=154.4.0", default-features = false, features = ["sandbox"] }
+aui-webview = { path = "../aui-webview", features = ["wry"] }
+aui = { path = "../aui" }
+gpui = { package = "gpui-pre", version = "0.3.1" }
+raw-window-handle = "0.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+
+[dev-dependencies]
+gpui_platform = { package = "gpui-pre-platform", version = "0.3.1" }
+
+[build-dependencies]
+cc = "1"

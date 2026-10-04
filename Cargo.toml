@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+# aui-cef bundles Chromium (a ~130 MB download plus a cmake build of the
+# CEF wrapper); it stays out of `cargo build --workspace` so CI and the
+# gallery never pay for it. Hosts depend on it by git like any other crate.
+exclude = ["crates/aui-cef"]
 
 [workspace.package]
 version = "0.1.0"
