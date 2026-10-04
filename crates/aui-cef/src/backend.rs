@@ -40,8 +40,9 @@
 //! `claims` runs synchronously inside `on_pre_key_event`, and `deliver` on a
 //! later main-queue turn), and the command handler blocks Chromium's own
 //! accelerators (⌘N, ⌘T, …) via [`crate::keys::chrome_command_allowed`].
-//! The page window is additionally isa-swizzled at creation
-//! (`aui_cef_never_main`) so it can become key but never main, keeping the
+//! The page window is additionally flagged at creation
+//! (`aui_cef_never_main`, a class-level `canBecomeMainWindow` swizzle guarded
+//! by a per-instance flag) so it can become key but never main, keeping the
 //! host window's traffic lights coloured.
 
 use std::cell::RefCell;
@@ -504,8 +505,10 @@ wrap_request_handler! {
 //
 // A claimed keystroke is consumed (return 1, with `*is_keyboard_shortcut`
 // set where CEF provides it) and delivered on a later main-queue turn via
-// `defer` — never inside the CEF callback. Unclaimed keystrokes and the
-// no-router case pass through untouched. Holds no lock.
+// `defer` — never inside the CEF callback. The KEYUP (and any CHAR) of a
+// consumed key is swallowed too, so the page never sees an orphan keyup.
+// Unclaimed keystrokes and the no-router case pass through untouched. Holds
+// no lock.
 wrap_keyboard_handler! {
     struct AuiKeyboard {
         _unit: (),
@@ -520,8 +523,18 @@ wrap_keyboard_handler! {
             is_keyboard_shortcut: Option<&mut ::std::os::raw::c_int>,
         ) -> ::std::os::raw::c_int {
             let Some(event) = event else { return 0 };
+            if event.type_ == KeyEventType::KEYUP || event.type_ == KeyEventType::CHAR {
+                let is_up = event.type_ == KeyEventType::KEYUP;
+                if !crate::keys::swallow_trailer(event.native_key_code, is_up) {
+                    return 0;
+                }
+                if let Some(flag) = is_keyboard_shortcut {
+                    *flag = 1;
+                }
+                return 1;
+            }
             let Some(keystroke) = crate::keys::keystroke_of(event) else { return 0 };
-            if !crate::keys::route_pre_key_event(keystroke) {
+            if !crate::keys::route_pre_key_event(keystroke, event.native_key_code) {
                 return 0;
             }
             if let Some(flag) = is_keyboard_shortcut {
@@ -613,7 +626,7 @@ wrap_window_delegate! {
             };
             if child != 0 {
                 // Safety: the page's live root view, main thread, no lock held.
-                // Swizzle before `show` so the window can never become main.
+                // Flag before `show` so the window can never become main.
                 unsafe { aui_cef_never_main(child as *mut c_void) };
             }
             place(&self.shared);

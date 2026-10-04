@@ -1,4 +1,4 @@
-//! Host shortcuts and Chromium command filtering (B1b-L).
+//! Host shortcuts and Chromium command filtering (B1b-L2).
 //!
 //! The page is a Chrome-style window: Chromium owns accelerators such as
 //! ⌘N/⌘T/⌘⇧N that would open real Chrome windows and tabs Baaz does not own,
@@ -6,7 +6,13 @@
 //! This module holds the three pieces that fix that:
 //!
 //! - [`keystroke_of`]: converts a CEF key event into a
-//!   `gpui::Keystroke::parse`-compatible string (`"cmd-k"`, `"cmd-shift-t"`).
+//!   `gpui::Keystroke::parse`-compatible string (`"cmd-k"`, `"shift-cmd-t"`).
+//!   Modifiers are emitted in gpui's documented key-syntax order (`ctrl-`,
+//!   `alt-`, `shift-`, `cmd-`, matching `Keystroke::unparse`'s canonical
+//!   `ctrl-`/`alt-`/`cmd-`/`shift-` sequence up to the `fn-` prefix CEF never
+//!   reports). Hosts must parse with `gpui::Keystroke::parse`, never
+//!   string-compare: `parse` accepts any modifier order, so the string form
+//!   is a transport, not a contract.
 //! - The host key router ([`set_key_router`]): the host registers a `claims`
 //!   predicate plus a `deliver` sink. CEF's `on_pre_key_event` asks `claims`
 //!   synchronously; a claimed keystroke is consumed (Chromium never sees it)
@@ -22,6 +28,9 @@
 //! the main thread under the external pump.
 
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
+use std::time::Instant;
 
 use cef::{KeyEvent, KeyEventType};
 
@@ -39,11 +48,13 @@ const VK_LWIN: i32 = 0x5B;
 const VK_RWIN: i32 = 0x5C;
 
 /// Converts a CEF key event into a `gpui::Keystroke::parse`-compatible string:
-/// `ctrl-`, `alt-`, `shift-`, `cmd-` prefixes (in that order) then the key —
-/// a lowercase letter/digit/punctuation from `unmodified_character`, or a
-/// named key (`enter`, `escape`, `tab`, `backspace`, `delete`, `space`, `up`,
-/// `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`, `f1`…`f12`)
-/// from `windows_key_code`.
+/// `ctrl-`, `alt-`, `shift-`, `cmd-` prefixes (in gpui's documented key-syntax
+/// order) then the key — a lowercase letter/digit/punctuation from
+/// `unmodified_character` (Shift-modified punctuation is mapped back to its
+/// unshifted key, keeping `shift-`), or a named key (`enter`, `escape`,
+/// `tab`, `backspace`, `delete`, `space`, `up`, `down`, `left`, `right`,
+/// `home`, `end`, `pageup`, `pagedown`, `f1`…`f12`, plus the `;=/,-./` `` ` ``
+/// `[` `\` `]` `'` OEM punctuation) from `windows_key_code`.
 ///
 /// Returns `None` for `KEYUP`/`CHAR` events (only `RAWKEYDOWN`/`KEYDOWN` are
 /// converted) and for bare modifier presses.
@@ -91,10 +102,42 @@ pub fn keystroke_of_fields(
     Some(out)
 }
 
+/// Maps Shift-modified punctuation back to its unshifted key, keeping the
+/// `shift-` prefix: on macOS `unmodified_character` still applies Shift
+/// (⌘⇧[ arrives as `{`, ⌘⇧1 as `!`), which would otherwise fall outside the
+/// key whitelist and could never be claimed by the host router.
+fn unshifted(c: char) -> char {
+    match c {
+        '{' => '[',
+        '}' => ']',
+        '~' => '`',
+        ':' => ';',
+        '"' => '\'',
+        '<' => ',',
+        '>' => '.',
+        '?' => '/',
+        '_' => '-',
+        '+' => '=',
+        '|' => '\\',
+        '!' => '1',
+        '@' => '2',
+        '#' => '3',
+        '$' => '4',
+        '%' => '5',
+        '^' => '6',
+        '&' => '7',
+        '*' => '8',
+        '(' => '9',
+        ')' => '0',
+        other => other,
+    }
+}
+
 /// The key part of a keystroke: printable characters from
 /// `unmodified_character`, named keys from `windows_key_code`.
 fn key_name(unmodified: u16, vk: i32) -> Option<String> {
     if let Some(c) = char::from_u32(unmodified as u32) {
+        let c = unshifted(c);
         if c.is_ascii_lowercase() || c.is_ascii_digit() {
             return Some(c.to_string());
         }
@@ -124,6 +167,18 @@ fn key_name(unmodified: u16, vk: i32) -> Option<String> {
         // A letter/digit whose character field was empty (dead key, layout gap).
         0x41..=0x5A => return Some(((vk as u8).to_ascii_lowercase() as char).to_string()),
         0x30..=0x39 => return Some((vk as u8 as char).to_string()),
+        // OEM punctuation (no printable character field to read).
+        0xBA => ";",
+        0xBB => "=",
+        0xBC => ",",
+        0xBD => "-",
+        0xBE => ".",
+        0xBF => "/",
+        0xC0 => "`",
+        0xDB => "[",
+        0xDC => "\\",
+        0xDD => "]",
+        0xDE => "'",
         _ => return None,
     };
     Some(named.to_owned())
@@ -138,9 +193,16 @@ struct Router {
 
 thread_local! {
     /// Main-thread-only: `None` until the host calls [`set_key_router`].
-    static ROUTER: RefCell<Option<Router>> = const { RefCell::new(None) };
+    /// The `Rc` is cloned out of the cell before `claims`/`deliver` run, so
+    /// a `deliver` that re-installs or clears the router cannot panic on a
+    /// `RefCell` double-borrow inside the `extern "C"` CEF callback.
+    static ROUTER: RefCell<Option<Rc<Router>>> = const { RefCell::new(None) };
     /// Chrome command ids blocked on the main thread, oldest first.
     static BLOCKED: RefCell<Vec<i32>> = const { RefCell::new(Vec::new()) };
+    /// When each blocked id was last logged, for the once-per-second cap.
+    static LAST_LOG: RefCell<HashMap<i32, Instant>> = RefCell::new(HashMap::new());
+    /// Native key codes consumed on keydown, awaiting their KEYUP.
+    static CONSUMED: RefCell<HashSet<i32>> = RefCell::new(HashSet::new());
 }
 
 /// Installs the host key router (main thread only). `claims` is asked
@@ -151,10 +213,10 @@ pub fn set_key_router(
     deliver: impl Fn(String) + 'static,
 ) {
     ROUTER.with(|slot| {
-        *slot.borrow_mut() = Some(Router {
+        *slot.borrow_mut() = Some(Rc::new(Router {
             claims: Box::new(claims),
             deliver: Box::new(deliver),
-        });
+        }));
     });
 }
 
@@ -170,14 +232,23 @@ pub fn decide_consume(keystroke: &str, claims: &dyn Fn(&str) -> bool) -> Option<
     claims(keystroke).then(|| keystroke.to_owned())
 }
 
+/// The routing decision over the installed router: clones the `Rc` out of the
+/// cell before calling `claims`, so re-entrant `set_key_router` /
+/// `clear_key_router` calls cannot panic. This is the same decision the CEF
+/// handler in [`route_pre_key_event`] uses; tests drive it plus
+/// [`deliver_keystroke`] directly to run the deferred step synchronously.
+pub(crate) fn claim_keystroke(keystroke: &str) -> Option<String> {
+    let router = ROUTER.with(|slot| slot.borrow().clone());
+    router.and_then(|r| decide_consume(keystroke, &r.claims))
+}
+
 /// Runs the routing decision for a converted keystroke: consumes claimed
 /// keystrokes (queuing `deliver` on the main queue's next turn) and reports
 /// whether the CEF event was consumed. Holds no lock; calls neither AppKit
 /// nor CEF itself.
-pub(crate) fn route_pre_key_event(keystroke: String) -> bool {
-    let queued = ROUTER
-        .with(|slot| slot.borrow().as_ref().and_then(|r| decide_consume(&keystroke, &r.claims)));
-    if let Some(owned) = queued {
+pub(crate) fn route_pre_key_event(keystroke: String, native_key_code: i32) -> bool {
+    if let Some(owned) = claim_keystroke(&keystroke) {
+        note_consumed_keydown(native_key_code);
         crate::backend::defer(move || deliver_keystroke(owned));
         true
     } else {
@@ -187,35 +258,87 @@ pub(crate) fn route_pre_key_event(keystroke: String) -> bool {
 
 /// Runs the router's `deliver` sink (a later main-queue turn, never the CEF
 /// callback). Drops the keystroke when no router is installed.
-fn deliver_keystroke(keystroke: String) {
-    ROUTER.with(|slot| {
-        if let Some(router) = slot.borrow().as_ref() {
-            (router.deliver)(keystroke);
+pub(crate) fn deliver_keystroke(keystroke: String) {
+    let router = ROUTER.with(|slot| slot.borrow().clone());
+    if let Some(router) = router {
+        (router.deliver)(keystroke);
+    }
+}
+
+/// Remembers a claimed keydown's native code so its KEYUP (and any CHAR) can
+/// be swallowed instead of reaching the page as an orphan keyup.
+pub(crate) fn note_consumed_keydown(native_key_code: i32) {
+    CONSUMED.with(|set| {
+        let mut set = set.borrow_mut();
+        if set.len() >= 32 {
+            set.clear();
         }
+        set.insert(native_key_code);
     });
+}
+
+/// Swallows the trailer of a consumed key: a KEYUP clears its code, a CHAR
+/// keeps it (the KEYUP is still coming). Returns true when the event must
+/// not reach the page.
+pub(crate) fn swallow_trailer(native_key_code: i32, is_key_up: bool) -> bool {
+    CONSUMED.with(|set| {
+        if is_key_up {
+            set.borrow_mut().remove(&native_key_code)
+        } else {
+            set.borrow().contains(&native_key_code)
+        }
+    })
 }
 
 // ------------------------------------------------------------------ the Chrome command filter
 
+/// "Open in new tab/window/profile/split view" context-menu ids (plus the
+/// link/image/AV/search neighbours in the same family): blocked and recorded
+/// so a later task can turn them into Baaz tabs instead of Chromium windows.
+const OPEN_IN_NEW: &[i32] = &[
+    50100, 50101, 50102, 50108, 50109, 50111, 50113, 50123, 50124, 50125, 50135, 50136, 50169,
+    50190, 50191, 50192,
+];
+
 /// Whether a Chrome command id may run. Allowed: navigation (33000–33999:
-/// back/forward/reload/…), the edit commands the header defines (cut 36000,
-/// copy 36001, paste 36003 — the 36000 block holds no select-all/undo/redo
-/// ids), zoom (38000–38999) and DevTools (40004–40008 per the task's range:
-/// DevTools, console, task manager, devices, feedback). Everything else —
-/// new window/tab, close tab/window, restore tab, tab selection, find,
-/// bookmarks, print, save page, focus location, history, downloads, options,
-/// exit, fullscreen, … — is blocked.
+/// back/forward/reload/…), edit (36000–36999), zoom (38000–38999), DevTools
+/// exactly {40004, 40005, 40007, 40023, 40237}, and context-menu commands
+/// (50000–59999) except the [`OPEN_IN_NEW`] "open in new …" ids (and 57316,
+/// the same family outside the menu range). Everything else — new
+/// window/tab, task manager, feedback, close tab/window, find, bookmarks,
+/// print, exit, fullscreen, … — is blocked.
 pub fn chrome_command_allowed(id: i32) -> bool {
+    if OPEN_IN_NEW.contains(&id) || id == 57316 {
+        return false;
+    }
     matches!(
         id,
-        33000..=33999 | 36000 | 36001 | 36003 | 38000..=38999 | 40004..=40008
+        33000..=33999 | 36000..=36999 | 38000..=38999 | 50000..=59999 | 40004 | 40005 | 40007 | 40023 | 40237
     )
 }
 
-/// Records a blocked Chrome command id for [`take_blocked_commands`].
+/// Records a blocked Chrome command id for [`take_blocked_commands`]: at most
+/// 64 entries (oldest dropped), logged at most once per second per id.
 pub(crate) fn record_blocked_command(id: i32) {
-    BLOCKED.with(|slot| slot.borrow_mut().push(id));
-    eprintln!("aui-cef: blocked Chrome command {id}");
+    BLOCKED.with(|slot| {
+        let mut blocked = slot.borrow_mut();
+        blocked.push(id);
+        while blocked.len() > 64 {
+            blocked.remove(0);
+        }
+    });
+    LAST_LOG.with(|slot| {
+        let mut last = slot.borrow_mut();
+        let now = Instant::now();
+        let due = match last.get(&id) {
+            Some(&t) => now.duration_since(t).as_secs() >= 1,
+            None => true,
+        };
+        if due {
+            last.insert(id, now);
+            eprintln!("aui-cef: blocked Chrome command {id}");
+        }
+    });
 }
 
 /// Drains the blocked Chrome command ids (main thread), oldest first, so the
@@ -242,7 +365,7 @@ mod tests {
     fn converts_host_shortcuts() {
         // ⌘K
         assert_eq!(down(CMD, 0x4B, 'k'), Some(String::from("cmd-k")));
-        // ⌘⇧T (modifier order follows gpui's documented syntax)
+        // ⌘⇧T (modifier order follows gpui's documented key syntax)
         assert_eq!(down(CMD | SHIFT, 0x54, 't'), Some(String::from("shift-cmd-t")));
         // ⌃`
         assert_eq!(down(CTRL, 0xC0, '`'), Some(String::from("ctrl-`")));
@@ -252,6 +375,44 @@ mod tests {
         assert_eq!(down(0, 0x41, 'a'), Some(String::from("a")));
         // Uppercase input still lowercases.
         assert_eq!(down(SHIFT, 0x41, 'A'), Some(String::from("shift-a")));
+    }
+
+    #[test]
+    fn shifted_punctuation_maps_to_its_unshifted_key() {
+        // ⌘⇧[ arrives as `{` on macOS but claims as `shift-cmd-[`.
+        assert_eq!(down(CMD | SHIFT, 0xDB, '{'), Some(String::from("shift-cmd-[")));
+        assert_eq!(down(CMD | SHIFT, 0xDD, '}'), Some(String::from("shift-cmd-]")));
+        assert_eq!(down(CMD | SHIFT, 0xC0, '~'), Some(String::from("shift-cmd-`")));
+        assert_eq!(down(CMD | SHIFT, 0xBA, ':'), Some(String::from("shift-cmd-;")));
+        assert_eq!(down(CMD | SHIFT, 0xDE, '"'), Some(String::from("shift-cmd-'")));
+        assert_eq!(down(SHIFT, 0xBF, '?'), Some(String::from("shift-/")));
+        assert_eq!(down(SHIFT, 0xBC, '<'), Some(String::from("shift-,")));
+        assert_eq!(down(SHIFT, 0xBD, '_'), Some(String::from("shift--")));
+        assert_eq!(down(SHIFT, 0xBB, '+'), Some(String::from("shift-=")));
+        // ⌘⇧1 arrives as `!` but claims as the digit, keeping `shift-`.
+        assert_eq!(down(CMD | SHIFT, 0x31, '!'), Some(String::from("shift-cmd-1")));
+        assert_eq!(down(CMD | SHIFT, 0x32, '@'), Some(String::from("shift-cmd-2")));
+        assert_eq!(down(CMD | SHIFT, 0x30, ')'), Some(String::from("shift-cmd-0")));
+    }
+
+    #[test]
+    fn oem_windows_key_codes_fall_back_to_punctuation() {
+        // No printable character field (dead key, layout gap): the VK decides.
+        for (vk, key) in [
+            (0xBA, ";"),
+            (0xBB, "="),
+            (0xBC, ","),
+            (0xBD, "-"),
+            (0xBE, "."),
+            (0xBF, "/"),
+            (0xC0, "`"),
+            (0xDB, "["),
+            (0xDC, "\\"),
+            (0xDD, "]"),
+            (0xDE, "'"),
+        ] {
+            assert_eq!(keystroke_of_fields(true, 0, vk, 0), Some(String::from(key)), "vk {vk:#X}");
+        }
     }
 
     #[test]
@@ -315,6 +476,26 @@ mod tests {
     }
 
     #[test]
+    fn filters_chrome_command_boundaries() {
+        // Navigation / edit / zoom range edges.
+        assert!(chrome_command_allowed(33999));
+        assert!(!chrome_command_allowed(34000));
+        assert!(chrome_command_allowed(36003));
+        assert!(chrome_command_allowed(38999));
+        assert!(!chrome_command_allowed(39000));
+        // DevTools: task manager and feedback stay blocked, inspect toggles pass.
+        assert!(!chrome_command_allowed(40006));
+        assert!(!chrome_command_allowed(40008));
+        assert!(chrome_command_allowed(40023));
+        assert!(chrome_command_allowed(40237));
+        // Context menu: ordinary items pass, "open in new …" is blocked.
+        assert!(chrome_command_allowed(50154));
+        assert!(!chrome_command_allowed(50100));
+        assert!(!chrome_command_allowed(50192));
+        assert!(!chrome_command_allowed(57316));
+    }
+
+    #[test]
     fn routes_claimed_keystrokes_to_delivery() {
         let claim_all = |_: &str| true;
         let claim_none = |_: &str| false;
@@ -329,11 +510,73 @@ mod tests {
     }
 
     #[test]
+    fn keyup_and_char_swallowed_after_a_claimed_keydown() {
+        clear_key_router();
+        // An unconsumed key's trailer always reaches the page.
+        assert!(!swallow_trailer(41, false));
+        assert!(!swallow_trailer(41, true));
+        // Claim a keydown through the installed router, as the CEF handler does.
+        set_key_router(|ks| ks == "cmd-k", |_| {});
+        assert_eq!(claim_keystroke("cmd-k"), Some(String::from("cmd-k")));
+        note_consumed_keydown(41);
+        // CHAR is swallowed but keeps the code (the KEYUP is still coming).
+        assert!(swallow_trailer(41, false));
+        assert!(swallow_trailer(41, false));
+        // KEYUP is swallowed and clears the code.
+        assert!(swallow_trailer(41, true));
+        assert!(!swallow_trailer(41, true));
+        clear_key_router();
+    }
+
+    #[test]
+    fn router_reentrancy_does_not_panic() {
+        clear_key_router();
+        // A `deliver` that re-installs the router, driven through the same
+        // claim + deliver path the CEF handler uses (`route_pre_key_event`
+        // defers `deliver_keystroke` to the main queue, which cannot run in
+        // a unit test, so the test runs that deferred step synchronously).
+        set_key_router(
+            |ks| ks == "shift-cmd-[",
+            |_| {
+                set_key_router(|_: &str| false, |_: String| {});
+            },
+        );
+        let queued = claim_keystroke("shift-cmd-[").expect("claimed");
+        note_consumed_keydown(26);
+        deliver_keystroke(queued);
+        assert!(swallow_trailer(26, true));
+        // The router was replaced from inside `deliver` without panicking.
+        assert_eq!(claim_keystroke("shift-cmd-["), None);
+        // And clearing from inside `deliver` is safe too.
+        set_key_router(
+            |ks| ks == "cmd-k",
+            |_| {
+                clear_key_router();
+            },
+        );
+        let queued = claim_keystroke("cmd-k").expect("claimed");
+        deliver_keystroke(queued);
+        assert_eq!(claim_keystroke("cmd-k"), None);
+        clear_key_router();
+    }
+
+    #[test]
     fn blocked_commands_drain_oldest_first() {
         let _ = take_blocked_commands();
         record_blocked_command(34014);
         record_blocked_command(34000);
         assert_eq!(take_blocked_commands(), vec![34014, 34000]);
         assert!(take_blocked_commands().is_empty());
+    }
+
+    #[test]
+    fn blocked_list_caps_at_64_dropping_oldest() {
+        let _ = take_blocked_commands();
+        for id in 0..70 {
+            record_blocked_command(id);
+        }
+        let drained = take_blocked_commands();
+        assert_eq!(drained.len(), 64);
+        assert_eq!(drained, (6..70).collect::<Vec<_>>());
     }
 }

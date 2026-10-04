@@ -152,34 +152,49 @@ void aui_cef_defer(void (*f)(void *), void *ctx) {
   dispatch_async(dispatch_get_main_queue(), ^{ f(ctx); });
 }
 
-// MARK: - The page window never becomes main (B1b-L)
+// MARK: - The page window never becomes main (B1b-L2)
 
-static BOOL aui_never_main(id self, SEL _cmd) { return NO; }
+static const void *kNeverMainKey = &kNeverMainKey;
 
-static Class g_hosted_window_class = Nil;
-static Class g_hosted_window_base = Nil;
+static NSMutableSet<NSString *> *g_patched_classes = nil;
+static NSMutableDictionary<NSString *, NSValue *> *g_original_imps = nil;
 
-// Isa-swizzles THAT window instance to a runtime subclass overriding
-// `canBecomeMainWindow` → NO, so the host window keeps its coloured traffic
-// lights while the page has focus. Per instance only: other CEF windows
-// (DevTools, popups) keep their class. `canBecomeKey` is untouched, so typing
-// into the page keeps working.
+static BOOL aui_flagged_can_become_main(id self, SEL _cmd) {
+  if ([objc_getAssociatedObject(self, kNeverMainKey) boolValue]) return NO;
+  NSString *name = NSStringFromClass([self class]);
+  NSValue *boxed = [g_original_imps objectForKey:name];
+  IMP orig = boxed ? (IMP)[boxed pointerValue] : NULL;
+  if (orig) return ((BOOL (*)(id, SEL))orig)(self, _cmd);
+  Class sup = class_getSuperclass([self class]);
+  Method m = sup ? class_getInstanceMethod(sup, _cmd) : NULL;
+  if (m) {
+    IMP imp = method_getImplementation(m);
+    if (imp && imp != (IMP)aui_flagged_can_become_main) return ((BOOL (*)(id, SEL))imp)(self, _cmd);
+  }
+  return YES;
+}
+
+// Flags THAT window instance and swizzles its class (once per class) so
+// `canBecomeMainWindow` → NO on flagged instances, so the host window keeps
+// its coloured traffic lights while the page has focus. Flagged per instance:
+// other CEF windows (DevTools, popups) of the same class lack the associated-
+// object flag and keep the original behaviour. `canBecomeKey` is untouched,
+// so typing into the page keeps working. Never calls `object_setClass`.
 void aui_cef_never_main(void *child_root_view) {
   NSWindow *cw = window_of(child_root_view);
   if (!cw) return;
-  Class base = object_getClass(cw);
-  if (base == g_hosted_window_class) return;
-  if (g_hosted_window_class == Nil) {
-    g_hosted_window_base = base;
-    g_hosted_window_class = objc_allocateClassPair(base, "AuiCefHostedWindow", 0);
-    if (g_hosted_window_class == Nil) return;
-    Method m = class_getInstanceMethod(base, @selector(canBecomeMainWindow));
-    class_addMethod(g_hosted_window_class, @selector(canBecomeMainWindow),
-                    (IMP)aui_never_main, m ? method_getTypeEncoding(m) : "B@:");
-    objc_registerClassPair(g_hosted_window_class);
-  }
-  if (base != g_hosted_window_base) return;
-  object_setClass(cw, g_hosted_window_class);
+  objc_setAssociatedObject(cw, kNeverMainKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  Class cls = [cw class];
+  NSString *name = NSStringFromClass(cls);
+  if (!g_patched_classes) g_patched_classes = [NSMutableSet set];
+  if (!g_original_imps) g_original_imps = [NSMutableDictionary dictionary];
+  if ([g_patched_classes containsObject:name]) return;
+  SEL sel = @selector(canBecomeMainWindow);
+  Method m = class_getInstanceMethod(cls, sel);
+  const char *types = m ? method_getTypeEncoding(m) : "B@:";
+  IMP prev = class_replaceMethod(cls, sel, (IMP)aui_flagged_can_become_main, types);
+  [g_original_imps setObject:[NSValue valueWithPointer:prev] forKey:name];
+  [g_patched_classes addObject:name];
 }
 
 // MARK: - Probe helpers (examples/probe.rs drives real key events)
@@ -201,3 +216,17 @@ int aui_cef_window_count(void) { return (int)[NSApp windows].count; }
 void *aui_cef_main_window(void) { return (__bridge void *)NSApp.mainWindow; }
 
 void *aui_cef_key_window(void) { return (__bridge void *)NSApp.keyWindow; }
+
+// Probe: the page window's `[cw class]` name (static storage, do not free)
+// and whether a window can become main (1/0).
+const char *aui_cef_window_class_name(void *window) {
+  NSWindow *w = (__bridge NSWindow *)window;
+  if (!w) return "";
+  return class_getName([w class]);
+}
+
+int aui_cef_window_can_become_main(void *window) {
+  NSWindow *w = (__bridge NSWindow *)window;
+  if (!w) return -1;
+  return w.canBecomeMainWindow ? 1 : 0;
+}

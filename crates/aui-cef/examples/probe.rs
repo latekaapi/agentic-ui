@@ -12,6 +12,8 @@ unsafe extern "C" {
     fn aui_cef_window_count() -> std::os::raw::c_int;
     fn aui_cef_main_window() -> *mut std::os::raw::c_void;
     fn aui_cef_key_window() -> *mut std::os::raw::c_void;
+    fn aui_cef_window_class_name(window: *mut std::os::raw::c_void) -> *const std::os::raw::c_char;
+    fn aui_cef_window_can_become_main(window: *mut std::os::raw::c_void) -> std::os::raw::c_int;
 }
 
 static CMD_K_SEEN: AtomicBool = AtomicBool::new(false);
@@ -129,6 +131,21 @@ fn main() {
             let key_now = unsafe { aui_cef_key_window() };
             pass("main window still host", !host_main.is_null() && main_now == host_main);
             pass("page window key, host not main", !key_now.is_null() && key_now != host_main);
+            // B1b-L2: the page window's `[cw class]` name and flagship behaviour.
+            if !key_now.is_null() {
+                let name = unsafe { std::ffi::CStr::from_ptr(aui_cef_window_class_name(key_now)) }
+                    .to_string_lossy()
+                    .into_owned();
+                p(format!("page window class={name}"));
+            }
+            pass(
+                "page canBecomeMainWindow NO",
+                !key_now.is_null() && unsafe { aui_cef_window_can_become_main(key_now) } == 0,
+            );
+            pass(
+                "host canBecomeMainWindow YES",
+                !host_main.is_null() && unsafe { aui_cef_window_can_become_main(host_main) } == 1,
+            );
             backend.eval_with_result(1, "return document.title;");
             backend.eval_with_result(2, "return document.querySelectorAll('a').length;");
             backend.eval_with_result(3, "await new Promise(r => setTimeout(r, 50)); return {ok: true, n: [1,2]};");
