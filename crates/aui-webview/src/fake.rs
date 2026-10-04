@@ -178,6 +178,12 @@ impl FakeWebBackend {
         self.queue.push(WebEvent::Audible(audible));
     }
 
+    /// Queues a [`WebEvent::Loading`]: one half of a crash batch
+    /// (`Crashed` + `Loading(false)`) or a bare load edge.
+    pub fn script_loading(&mut self, loading: bool) {
+        self.queue.push(WebEvent::Loading(loading));
+    }
+
     /// Queues a [`WebEvent::Crashed`]: the tab reads as crashed until the
     /// next successful navigation.
     pub fn script_crashed(&mut self, reason: &str) {

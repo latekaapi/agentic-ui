@@ -147,9 +147,17 @@ impl PageSecurity {
     /// on a certificate error, `None` when there is no SSL status (plain
     /// `http`, files, internal pages).
     ///
-    /// The host wins over the scheme: `http://localhost:5173` is [`PageSecurity::Local`],
-    /// and an `https` loopback page is too. `https` without evidence to the
-    /// contrary is [`PageSecurity::Secure`]; only `Some(false)` demotes it.
+    /// Classifies `url` given what the transport said: `Some(true)` when the
+    /// visible navigation entry reports a secure connection, `Some(false)`
+    /// on a certificate error, `None` when there is no SSL status (plain
+    /// `http`, files, internal pages).
+    ///
+    /// A certificate error wins over everything: `https://localhost` with
+    /// `Some(false)` is [`PageSecurity::NotSecure`], not
+    /// [`PageSecurity::Local`]. Otherwise the host wins over the scheme:
+    /// `http://localhost:5173` is [`PageSecurity::Local`], and so is an
+    /// `https` loopback page with no reported error. `https` without evidence
+    /// to the contrary is [`PageSecurity::Secure`].
     pub fn classify(url: &str, secure_connection: Option<bool>) -> PageSecurity {
         let url = url.trim();
         let Some((raw_scheme, rest)) = url.split_once(':') else {
@@ -169,10 +177,11 @@ impl PageSecurity {
                 }
             }
             "https" | "wss" => {
-                if is_local_host(&host_of(rest)) {
-                    PageSecurity::Local
-                } else if secure_connection == Some(false) {
+                // A certificate error is a broken page, whatever the host.
+                if secure_connection == Some(false) {
                     PageSecurity::NotSecure
+                } else if is_local_host(&host_of(rest)) {
+                    PageSecurity::Local
                 } else {
                     PageSecurity::Secure
                 }
@@ -194,9 +203,10 @@ fn is_url_scheme(text: &str) -> bool {
 }
 
 /// The host of the `//authority/path` that follows a URL's scheme, lowercased
-/// and without brackets, userinfo or port.
+/// and without brackets, userinfo or port. A backslash ends the authority
+/// like a slash does (WHATWG).
 fn host_of(after_scheme: &str) -> String {
-    let authority = after_scheme.strip_prefix("//").unwrap_or(after_scheme).split(['/', '?', '#']).next().unwrap_or_default();
+    let authority = after_scheme.strip_prefix("//").unwrap_or(after_scheme).split(['/', '\\', '?', '#']).next().unwrap_or_default();
     // `rsplit` yields the text after the last `@`, or the whole authority.
     let authority = authority.rsplit('@').next().unwrap_or_default();
     let host = if let Some(rest) = authority.strip_prefix('[') {
@@ -214,8 +224,9 @@ fn host_of(after_scheme: &str) -> String {
 }
 
 /// Whether `host` (already lowercased, no port) is a loopback or development
-/// host.
+/// host. A trailing dot is a fully-qualified name (`localhost.`), still local.
 fn is_local_host(host: &str) -> bool {
+    let host = host.strip_suffix('.').unwrap_or(host);
     host == "localhost"
         || host.ends_with(".localhost")
         || host == "127.0.0.1"
@@ -496,6 +507,19 @@ mod tests {
             ("http://api.test/", None, Local),
             // The loopback host wins over a secure scheme too.
             ("https://app.localhost/", Some(true), Local),
+            // … but a certificate error wins over the loopback host.
+            ("https://localhost:8443/", Some(false), NotSecure),
+            ("https://app.localhost/", Some(false), NotSecure),
+            ("https://127.0.0.1/", Some(false), NotSecure),
+            ("wss://localhost/socket", Some(false), NotSecure),
+            // A backslash ends the authority like a slash (WHATWG).
+            ("https://example.com\\@evil.com/", None, Secure),
+            ("http://localhost\\path", None, Local),
+            // A trailing dot is a fully-qualified name, still local.
+            ("http://localhost./", None, Local),
+            ("http://shop.localhost./x", None, Local),
+            ("http://127.0.0.1./", None, Local),
+            ("https://example.com./", Some(true), Secure),
             ("HTTPS://EXAMPLE.COM/", Some(true), Secure),
             ("file:///etc/hosts", None, File),
             ("chrome://settings/", None, Internal),

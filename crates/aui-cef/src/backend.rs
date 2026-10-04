@@ -113,9 +113,18 @@ struct Shared {
     can_back: bool,
     can_forward: bool,
     closed: bool,
-    /// The query the last [`WebBackend::find`] started. Find results carry
-    /// no query of their own, so this tags them on the way up.
-    find_query: String,
+    /// The `(query, match_case)` the last [`WebBackend::find`] started, or
+    /// `None` after [`WebBackend::stop_find`]. Find results carry no query of
+    /// their own, so this tags them on the way up — and decides `find_next`.
+    find_session: Option<(String, bool)>,
+    /// How many audio streams are currently open. The tab reads as audible
+    /// while this is non-zero.
+    audio_streams: u32,
+    /// The last progress pushed, so repeats under 0.02 stay quiet.
+    last_progress: Option<f32>,
+    /// The last favicon and security pushed, so unchanged repeats stay quiet.
+    last_favicon: Option<Option<String>>,
+    last_security: Option<PageSecurity>,
 }
 
 fn locked(shared: &Mutex<Shared>) -> std::sync::MutexGuard<'_, Shared> {
@@ -422,16 +431,67 @@ fn crash_reason(status: TerminationStatus, error_code: i32, detail: &str) -> Str
     }
 }
 
+/// Moves the audio-stream count by `delta` (+1 per started stream, −1 per
+/// stopped or errored one, floored at 0), answering the new count and the
+/// [`WebEvent::Audible`] to push, if the tab's audibility changed. Pure, so
+/// the counting rule is unit-testable without a browser.
+fn audio_update(count: u32, delta: i32) -> (u32, Option<bool>) {
+    let next = (count as i64 + delta as i64).max(0) as u32;
+    let event = match (count > 0, next > 0) {
+        (false, true) => Some(true),
+        (true, false) => Some(false),
+        _ => None,
+    };
+    (next, event)
+}
+
+/// Whether `find` with `query`/`match_case` continues the `active` session
+/// (`find_next`) or starts a new one. Only the same query *and* the same
+/// case sensitivity keep the session: after [`WebBackend::stop_find`] there
+/// is no active session, and toggling the case with the same query
+/// re-searches. Pure, so both misfires are unit-testable without a browser.
+fn find_is_next(active: Option<(&str, bool)>, query: &str, match_case: bool) -> bool {
+    matches!(active, Some((active_query, active_case)) if active_query == query && active_case == match_case)
+}
+
+/// Whether a `progress` report is worth pushing given the last pushed one:
+/// always the first, always the arrival at 1.0, otherwise only a move of at
+/// least 0.02. Pure, so the quiet rule is unit-testable without a browser.
+fn progress_should_push(last: Option<f32>, next: f32) -> bool {
+    match last {
+        None => true,
+        Some(last) => (next >= 1.0 && last < 1.0) || (next - last).abs() >= 0.02,
+    }
+}
+
 /// The [`PageSecurity`] of `url` from the visible navigation entry's SSL
 /// state. Makes no AppKit calls and holds no lock; callers lock only to push
 /// the resulting event.
-fn security_for(url: &str, browser: Option<&mut Browser>) -> PageSecurity {
+fn security_for(url: &str, browser: Option<&Browser>) -> PageSecurity {
     let secure = browser
         .and_then(|b| b.host())
         .and_then(|host| host.visible_navigation_entry())
         .and_then(|entry| entry.sslstatus())
         .map(|status| status.is_secure_connection() == 1);
     PageSecurity::classify(url, secure)
+}
+
+/// The current host zoom level as a Chrome-step percent, read off the
+/// browser host (a CEF call: never under the lock). Zoom is per-origin in
+/// Chromium, so address changes and load ends re-read it — `set_zoom` alone
+/// would go stale on navigation.
+fn zoom_for(browser: Option<&Browser>) -> u16 {
+    let level = browser.and_then(|b| b.host()).map(|host| host.zoom_level()).unwrap_or(0.0);
+    zoom_level_to_percent(level)
+}
+
+/// Pushes `security` unless it repeats the last pushed value.
+fn push_security_deduped(shared: &mut Shared, security: PageSecurity) {
+    if shared.last_security == Some(security) {
+        return;
+    }
+    shared.last_security = Some(security);
+    shared.events.push(WebEvent::Security(security));
 }
 
 // ------------------------------------------------------------------ CEF handlers
@@ -490,11 +550,14 @@ wrap_display_handler! {
         fn on_address_change(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, url: Option<&CefString>) {
             if frame.map(|f| f.is_main() == 1).unwrap_or(true) {
                 let url = url.map(|u| u.to_string()).unwrap_or_default();
-                // The entry's SSL state is a CEF call: read it before locking.
-                let security = security_for(&url, browser);
+                // The entry's SSL state and the host zoom level are CEF
+                // calls: read both before locking.
+                let security = security_for(&url, browser.as_deref());
+                let zoom = zoom_for(browser.as_deref());
                 let mut s = locked(&self.shared);
                 s.events.push(WebEvent::Url(url));
-                s.events.push(WebEvent::Security(security));
+                push_security_deduped(&mut s, security);
+                s.events.push(WebEvent::Zoom(zoom));
             }
         }
 
@@ -510,11 +573,24 @@ wrap_display_handler! {
                     None
                 }
             });
-            locked(&self.shared).events.push(WebEvent::Favicon(first));
+            // Repeats of the icon the pane already shows stay quiet.
+            let mut s = locked(&self.shared);
+            if s.last_favicon == Some(first.clone()) {
+                return;
+            }
+            s.last_favicon = Some(first.clone());
+            s.events.push(WebEvent::Favicon(first));
         }
 
         fn on_loading_progress_change(&self, _browser: Option<&mut Browser>, progress: f64) {
-            locked(&self.shared).events.push(WebEvent::Progress(progress.clamp(0.0, 1.0) as f32));
+            let progress = progress.clamp(0.0, 1.0) as f32;
+            // Sub-step repeats stay quiet; the arrival at 1.0 always lands.
+            let mut s = locked(&self.shared);
+            if !progress_should_push(s.last_progress, progress) {
+                return;
+            }
+            s.last_progress = Some(progress);
+            s.events.push(WebEvent::Progress(progress));
         }
     }
 }
@@ -545,8 +621,9 @@ wrap_load_handler! {
             _http_status_code: ::std::os::raw::c_int,
         ) {
             if frame.map(|f| f.is_main() == 1).unwrap_or(true) {
-                // The entry read is a CEF call: finish it before locking.
-                let security = match browser.and_then(|b| b.host()) {
+                // The entry read and the host zoom level are CEF calls:
+                // finish both before locking.
+                let security = match browser.as_deref().and_then(|b| b.host()) {
                     Some(host) => {
                         let entry = host.visible_navigation_entry();
                         let url =
@@ -559,7 +636,13 @@ wrap_load_handler! {
                     }
                     None => PageSecurity::Unknown,
                 };
-                locked(&self.shared).events.push(WebEvent::Security(security));
+                let zoom = zoom_for(browser.as_deref());
+                let mut s = locked(&self.shared);
+                push_security_deduped(&mut s, security);
+                // Zoom is per-origin: the load may have landed on an origin
+                // with its own level, so re-read it here, not just on
+                // address changes.
+                s.events.push(WebEvent::Zoom(zoom));
             }
         }
     }
@@ -633,10 +716,12 @@ wrap_request_handler! {
             let detail = error_string.map(|e| e.to_string()).unwrap_or_default();
             let reason = crash_reason(status, error_code, &detail);
             let mut s = locked(&self.shared);
-            s.events.push(WebEvent::Crashed(reason));
             // A dead renderer never finishes its load; end it now so the
             // toolbar leaves its loading state. `reload` recovers the page.
+            // The load edge goes first: the crash is the batch's last word,
+            // so a fold that clears crash state on load edges still shows it.
             s.events.push(WebEvent::Loading(false));
+            s.events.push(WebEvent::Crashed(reason));
         }
     }
 }
@@ -710,25 +795,56 @@ wrap_command_handler! {
 }
 
 // Reports page audio on the tab. CEF 154 has no `on_audio_state_change` —
-// the audio handler's stream callbacks are the only audio signal, so a
-// started stream reads as audible and its end as silent. Holds no lock.
+// the audio handler's stream callbacks are the only audio signal, so open
+// streams are counted (started +1, stopped or errored −1) and the tab reads
+// as audible while any is open. Returning 1 from `audio_parameters` leaves
+// the parameters as given and keeps capture running — the default 0 would
+// cancel it and these callbacks would never fire. Holds no lock.
 wrap_audio_handler! {
     struct AuiAudio {
         shared: Page,
     }
 
     impl AudioHandler {
+        fn audio_parameters(
+            &self,
+            _browser: Option<&mut Browser>,
+            _params: Option<&mut AudioParameters>,
+        ) -> ::std::os::raw::c_int {
+            1
+        }
+
         fn on_audio_stream_started(
             &self,
             _browser: Option<&mut Browser>,
             _params: Option<&AudioParameters>,
             _channels: ::std::os::raw::c_int,
         ) {
-            locked(&self.shared).events.push(WebEvent::Audible(true));
+            let mut s = locked(&self.shared);
+            let (next, event) = audio_update(s.audio_streams, 1);
+            s.audio_streams = next;
+            if let Some(audible) = event {
+                s.events.push(WebEvent::Audible(audible));
+            }
         }
 
         fn on_audio_stream_stopped(&self, _browser: Option<&mut Browser>) {
-            locked(&self.shared).events.push(WebEvent::Audible(false));
+            let mut s = locked(&self.shared);
+            let (next, event) = audio_update(s.audio_streams, -1);
+            s.audio_streams = next;
+            if let Some(audible) = event {
+                s.events.push(WebEvent::Audible(audible));
+            }
+        }
+
+        fn on_audio_stream_error(&self, _browser: Option<&mut Browser>, _message: Option<&CefString>) {
+            // An errored stream is gone like a stopped one.
+            let mut s = locked(&self.shared);
+            let (next, event) = audio_update(s.audio_streams, -1);
+            s.audio_streams = next;
+            if let Some(audible) = event {
+                s.events.push(WebEvent::Audible(audible));
+            }
         }
     }
 }
@@ -754,7 +870,7 @@ wrap_find_handler! {
             let found = {
                 let s = locked(&self.shared);
                 FindState {
-                    query: s.find_query.clone(),
+                    query: s.find_session.clone().map(|(query, _)| query).unwrap_or_default(),
                     active: active_match_ordinal.max(0) as u32,
                     total: count.max(0) as u32,
                     final_update: final_update == 1,
@@ -1093,9 +1209,11 @@ impl WebBackend for CefBackend {
     fn find(&mut self, query: &str, forward: bool, match_case: bool) {
         let find_next = {
             let mut s = locked(&self.page);
-            let again = s.find_query == query;
-            s.find_query = query.to_owned();
-            again
+            // Only the same query *and* case sensitivity keep the session;
+            // anything else — and any search after a stop — starts a new one.
+            let next = find_is_next(s.find_session.as_ref().map(|(q, c)| (q.as_str(), *c)), query, match_case);
+            s.find_session = Some((query.to_owned(), match_case));
+            next
         };
         if let Some(host) = browser_of(&self.page).and_then(|b| b.host()) {
             // The same query again keeps the session and moves (`find_next`);
@@ -1110,6 +1228,9 @@ impl WebBackend for CefBackend {
     }
 
     fn stop_find(&mut self) {
+        // The session is over: the next `find` starts a new one even with
+        // the same query.
+        locked(&self.page).find_session = None;
         if let Some(host) = browser_of(&self.page).and_then(|b| b.host()) {
             host.stop_finding(1);
         }
@@ -1209,6 +1330,50 @@ mod tests {
             crash_reason(TerminationStatus::ABNORMAL_TERMINATION, 3, "oops"),
             "the page terminated abnormally: oops (3)"
         );
+    }
+
+    #[test]
+    fn audible_follows_the_stream_count_not_any_single_stream() {
+        // Silence to sound on the first stream.
+        assert_eq!(audio_update(0, 1), (1, Some(true)));
+        // A second stream changes nothing audible.
+        assert_eq!(audio_update(1, 1), (2, None));
+        // One of two stopping leaves the tab audible.
+        assert_eq!(audio_update(2, -1), (1, None));
+        // The last one going quiet is the only other transition.
+        assert_eq!(audio_update(1, -1), (0, Some(false)));
+        // An error counts like a stop.
+        assert_eq!(audio_update(1, -1), (0, Some(false)));
+        // The floor holds: stray stops never underflow, never re-announce.
+        assert_eq!(audio_update(0, -1), (0, None));
+        assert_eq!(audio_update(0, -5), (0, None));
+    }
+
+    #[test]
+    fn find_next_only_continues_the_live_session() {
+        // No session (notably after a stop): a new search, even repeating.
+        assert!(!find_is_next(None, "a", false));
+        // The same query again keeps the session and moves.
+        assert!(find_is_next(Some(("a", false)), "a", false));
+        // A different query starts a new search.
+        assert!(!find_is_next(Some(("a", false)), "b", false));
+        // Toggling the case with the same query re-searches.
+        assert!(!find_is_next(Some(("a", false)), "a", true));
+        assert!(!find_is_next(Some(("a", true)), "a", false));
+        assert!(find_is_next(Some(("a", true)), "a", true));
+    }
+
+    #[test]
+    fn progress_pushes_moves_and_arrivals_only() {
+        assert!(progress_should_push(None, 0.0));
+        assert!(!progress_should_push(Some(0.5), 0.51));
+        assert!(progress_should_push(Some(0.5), 0.53));
+        assert!(!progress_should_push(Some(0.5), 0.49));
+        assert!(progress_should_push(Some(0.5), 0.47));
+        // The arrival at 1.0 always lands, however small the last step.
+        assert!(progress_should_push(Some(0.99), 1.0));
+        // … but 1.0 reported twice is not news twice.
+        assert!(!progress_should_push(Some(1.0), 1.0));
     }
 
     #[test]
