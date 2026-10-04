@@ -48,13 +48,18 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, Weak};
+use std::time::Instant;
 
 use aui::workbench::Annotation;
 use aui_webview::backend::OUTER_HTML_LIMIT;
 use aui_webview::wry_backend::navigation_allowed;
-use aui_webview::{BackendFeature, ElementInfo, FindState, PageSecurity, WebBackend, WebEvent, ANNOTATOR_JS};
+use aui_webview::{
+    BackendFeature, DownloadState, DownloadStatus, ElementInfo, FindState, PageSecurity, PermissionDecision, PermissionKind, PermissionRequest, WebBackend, WebEvent,
+    ANNOTATOR_JS, download_emit_due, unique_download_name,
+};
 use base64::Engine as _;
 use cef::*;
 use gpui::SharedString;
@@ -120,6 +125,30 @@ struct Shared {
     /// How many audio streams are currently open. The tab reads as audible
     /// while this is non-zero.
     audio_streams: u32,
+    /// Popups the host has not taken yet ([`CefBackend::take_popups`]),
+    /// oldest first.
+    popups: Vec<QueuedPopup>,
+    /// Popups `on_before_popup` announced but
+    /// `on_popup_browser_view_created` has not hosted yet, as
+    /// `(popup_id, popup)`.
+    pending_popups: Vec<(i32, QueuedPopup)>,
+    /// "Open this URL" requests from the context menu
+    /// ([`WebBackend::take_open_requests`]), oldest first.
+    open_requests: Vec<(String, bool)>,
+    /// The link (else media source) URL the open context menu points at, as
+    /// `on_before_context_menu` last saw it.
+    menu_link: Option<String>,
+    /// Permission callbacks waiting for [`WebBackend::answer_permission`],
+    /// by prompt id.
+    permissions: HashMap<u64, StoredPermission>,
+    /// The next host-minted permission id (media access has no engine id).
+    next_permission_id: u64,
+    /// Download cancel callbacks, by engine download id.
+    dl_callbacks: HashMap<u32, DownloadItemCallback>,
+    /// When each download last reported, and what state it reported.
+    dl_emit: HashMap<u32, (Instant, DownloadStatus)>,
+    /// Where each download writes, by engine download id.
+    dl_meta: HashMap<u32, DlMeta>,
     /// The last progress pushed, so repeats under 0.02 stay quiet.
     last_progress: Option<f32>,
     /// The last favicon and security pushed, so unchanged repeats stay quiet.
@@ -127,14 +156,70 @@ struct Shared {
     last_security: Option<PageSecurity>,
 }
 
-fn locked(shared: &Mutex<Shared>) -> std::sync::MutexGuard<'_, Shared> {
-    match shared.lock() {
+fn locked<T>(slot: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    match slot.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     }
 }
 
 type Page = Arc<Mutex<Shared>>;
+
+/// A popup page the opener queued for the host to tab.
+pub struct PopupTab {
+    /// The popup as its own backend: a frameless child-window host over the
+    /// opener's parent, starting hidden at zero size. The host tabs it by
+    /// pushing bounds and visibility, like any page.
+    pub backend: CefBackend,
+    /// Where the popup points.
+    pub url: String,
+    /// Where the opener pointed when the popup was made.
+    pub opener_url: String,
+    /// Whether the popup asked for the foreground tab.
+    pub foreground: bool,
+}
+
+/// A popup page waiting on its opener: the page plus what
+/// [`CefBackend::take_popups`] reports for it.
+struct QueuedPopup {
+    page: Page,
+    url: String,
+    opener_url: String,
+    foreground: bool,
+}
+
+/// A permission callback waiting for the host's answer.
+#[derive(Clone)]
+enum StoredPermission {
+    /// A prompt callback: answered with accept/deny/dismiss.
+    Prompt(PermissionPromptCallback),
+    /// A media-access callback: continued with `allowed` on allow,
+    /// cancelled on deny or dismiss.
+    Media { callback: MediaAccessCallback, allowed: u32 },
+}
+
+/// Where one download writes.
+#[derive(Clone)]
+struct DlMeta {
+    url: String,
+    file_name: String,
+    path: String,
+}
+
+/// The folder downloads land in, runtime-wide (every page).
+static DOWNLOAD_DIR: std::sync::OnceLock<Mutex<PathBuf>> = std::sync::OnceLock::new();
+
+fn download_dir_slot() -> &'static Mutex<PathBuf> {
+    DOWNLOAD_DIR.get_or_init(|| Mutex::new(default_download_dir()))
+}
+
+fn default_download_dir() -> PathBuf {
+    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp")).join("Downloads")
+}
+
+fn current_download_dir() -> PathBuf {
+    locked(download_dir_slot()).clone()
+}
 
 // ------------------------------------------------------------------ actions (lock released before acting)
 
@@ -494,6 +579,79 @@ fn push_security_deduped(shared: &mut Shared, security: PageSecurity) {
     shared.events.push(WebEvent::Security(security));
 }
 
+/// Maps engine permission bits to [`PermissionKind`]s, in the
+/// [`PermissionRequest`] order (camera, microphone, geolocation,
+/// notifications, clipboard, MIDI, then the rest by bit, one [`PermissionKind::Other`]
+/// per unknown set bit). Pure, so the mapping is unit-testable without a
+/// browser.
+pub fn permission_kinds_from_bits(bits: u32) -> Vec<PermissionKind> {
+    let camera = PermissionRequestTypes::CAMERA_STREAM.get_raw() | PermissionRequestTypes::CAMERA_PAN_TILT_ZOOM.get_raw();
+    let microphone = PermissionRequestTypes::MIC_STREAM.get_raw();
+    let geolocation = PermissionRequestTypes::GEOLOCATION.get_raw();
+    let notifications = PermissionRequestTypes::NOTIFICATIONS.get_raw();
+    let clipboard = PermissionRequestTypes::CLIPBOARD.get_raw();
+    let midi = PermissionRequestTypes::MIDI_SYSEX.get_raw();
+    let mut kinds = Vec::new();
+    if bits & camera != 0 {
+        kinds.push(PermissionKind::Camera);
+    }
+    if bits & microphone != 0 {
+        kinds.push(PermissionKind::Microphone);
+    }
+    if bits & geolocation != 0 {
+        kinds.push(PermissionKind::Geolocation);
+    }
+    if bits & notifications != 0 {
+        kinds.push(PermissionKind::Notifications);
+    }
+    if bits & clipboard != 0 {
+        kinds.push(PermissionKind::Clipboard);
+    }
+    if bits & midi != 0 {
+        kinds.push(PermissionKind::Midi);
+    }
+    let rest = bits & !(camera | microphone | geolocation | notifications | clipboard | midi);
+    for i in 0..32 {
+        if rest & (1u32 << i) != 0 {
+            kinds.push(PermissionKind::Other(1u32 << i));
+        }
+    }
+    kinds
+}
+
+/// Maps media-access permission bits to [`PermissionKind`]s: device and
+/// desktop video capture read as camera, device and desktop audio capture as
+/// microphone, anything else as [`PermissionKind::Other`]. Pure, so the
+/// mapping is unit-testable without a browser.
+pub fn media_kinds_from_bits(bits: u32) -> Vec<PermissionKind> {
+    let audio =
+        MediaAccessPermissionTypes::DEVICE_AUDIO_CAPTURE.get_raw() | MediaAccessPermissionTypes::DESKTOP_AUDIO_CAPTURE.get_raw();
+    let video =
+        MediaAccessPermissionTypes::DEVICE_VIDEO_CAPTURE.get_raw() | MediaAccessPermissionTypes::DESKTOP_VIDEO_CAPTURE.get_raw();
+    let mut kinds = Vec::new();
+    if bits & video != 0 {
+        kinds.push(PermissionKind::Camera);
+    }
+    if bits & audio != 0 {
+        kinds.push(PermissionKind::Microphone);
+    }
+    let rest = bits & !(audio | video);
+    for i in 0..32 {
+        if rest & (1u32 << i) != 0 {
+            kinds.push(PermissionKind::Other(1u32 << i));
+        }
+    }
+    kinds
+}
+
+/// Whether a popup disposition asks for the foreground tab: a new foreground
+/// tab — and a new window, which would have shown itself — does; background
+/// tabs, plain popups and everything else open behind. Pure, so the rule is
+/// unit-testable without a browser.
+fn popup_foreground(disposition: WindowOpenDisposition) -> bool {
+    disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB || disposition == WindowOpenDisposition::NEW_WINDOW
+}
+
 // ------------------------------------------------------------------ CEF handlers
 
 wrap_client! {
@@ -516,6 +674,18 @@ wrap_client! {
 
         fn request_handler(&self) -> Option<RequestHandler> {
             Some(AuiRequest::new(self.shared.clone()))
+        }
+
+        fn permission_handler(&self) -> Option<PermissionHandler> {
+            Some(AuiPermissions::new(self.shared.clone()))
+        }
+
+        fn download_handler(&self) -> Option<DownloadHandler> {
+            Some(AuiDownloads::new(self.shared.clone()))
+        }
+
+        fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
+            Some(AuiContextMenu::new(self.shared.clone()))
         }
 
         fn audio_handler(&self) -> Option<AudioHandler> {
@@ -678,6 +848,63 @@ wrap_life_span_handler! {
             s.registration = None;
             s.browser = None;
         }
+
+        // Announces a popup without cancelling it: the page is created here
+        // (its own hidden child-window host, bound to a fresh client so the
+        // popup browser never reports to the opener) and hosted as a tab in
+        // `on_popup_browser_view_created`. Holds no lock across CEF calls.
+        #[allow(clippy::too_many_arguments)]
+        fn on_before_popup(
+            &self,
+            browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            popup_id: ::std::os::raw::c_int,
+            target_url: Option<&CefString>,
+            _target_frame_name: Option<&CefString>,
+            target_disposition: WindowOpenDisposition,
+            _user_gesture: ::std::os::raw::c_int,
+            _popup_features: Option<&PopupFeatures>,
+            _window_info: Option<&mut WindowInfo>,
+            client: Option<&mut Option<Client>>,
+            _settings: Option<&mut BrowserSettings>,
+            _extra_info: Option<&mut Option<DictionaryValue>>,
+            _no_javascript_access: Option<&mut ::std::os::raw::c_int>,
+        ) -> ::std::os::raw::c_int {
+            // CEF reads first: the popup URL and the opener URL are engine
+            // calls, never made under the page Mutex.
+            let url = target_url.map(|u| u.to_string()).unwrap_or_default();
+            let opener_url = browser
+                .as_deref()
+                .and_then(|b| b.main_frame())
+                .map(|f| CefString::from(&f.url()).to_string())
+                .unwrap_or_default();
+            let foreground = popup_foreground(target_disposition);
+            let parent_view = locked(&self.shared).parent_view;
+            // The popup's own page: hidden at zero size until the host tabs
+            // it. Its client is swapped in below so the popup browser binds
+            // here — never to the opener — while `window.opener` still points
+            // at the opener.
+            let page: Page = Arc::new(Mutex::new(Shared {
+                parent_view,
+                bounds: ((0.0, 0.0), (0.0, 0.0)),
+                visible: false,
+                pending_url: if url.is_empty() { None } else { Some(url.clone()) },
+                ..Shared::default()
+            }));
+            OPEN.with(|open| open.borrow_mut().push(Arc::downgrade(&page)));
+            if let Some(client) = client {
+                *client = Some(AuiClient::new(page.clone()));
+            }
+            locked(&self.shared).pending_popups.push((popup_id, QueuedPopup { page, url, opener_url, foreground }));
+            // Never cancel: cancelling would break `window.opener`. The popup
+            // becomes a host tab in `on_popup_browser_view_created`, so no
+            // top-level window ever appears either.
+            0
+        }
+
+        fn on_before_popup_aborted(&self, _browser: Option<&mut Browser>, popup_id: ::std::os::raw::c_int) {
+            locked(&self.shared).pending_popups.retain(|(id, _)| *id != popup_id);
+        }
     }
 }
 
@@ -722,6 +949,235 @@ wrap_request_handler! {
             // so a fold that clears crash state on load edges still shows it.
             s.events.push(WebEvent::Loading(false));
             s.events.push(WebEvent::Crashed(reason));
+        }
+    }
+}
+
+// Turns engine permission asks into the host's own UI. Both entry points
+// return 1 (handled) so Chromium shows no bubble of its own; the host
+// answers later through [`WebBackend::answer_permission`], which runs the
+// stored callback as a CEF UI task — never under the page Mutex.
+wrap_permission_handler! {
+    struct AuiPermissions {
+        shared: Page,
+    }
+
+    impl PermissionHandler {
+        fn on_show_permission_prompt(
+            &self,
+            _browser: Option<&mut Browser>,
+            prompt_id: u64,
+            requesting_origin: Option<&CefString>,
+            requested_permissions: u32,
+            callback: Option<&mut PermissionPromptCallback>,
+        ) -> ::std::os::raw::c_int {
+            // Plain copies first; the lock only stores and queues.
+            let origin = requesting_origin.map(|o| o.to_string()).unwrap_or_default();
+            let kinds = permission_kinds_from_bits(requested_permissions);
+            let mut s = locked(&self.shared);
+            if let Some(callback) = callback {
+                s.permissions.insert(prompt_id, StoredPermission::Prompt(callback.clone()));
+            }
+            s.events.push(WebEvent::Permission(PermissionRequest { id: prompt_id, origin, kinds }));
+            1
+        }
+
+        fn on_dismiss_permission_prompt(
+            &self,
+            _browser: Option<&mut Browser>,
+            prompt_id: u64,
+            _result: PermissionRequestResult,
+        ) {
+            let mut s = locked(&self.shared);
+            s.permissions.remove(&prompt_id);
+            s.events.push(WebEvent::PermissionDismissed(prompt_id));
+        }
+
+        fn on_request_media_access_permission(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            requesting_origin: Option<&CefString>,
+            requested_permissions: u32,
+            callback: Option<&mut MediaAccessCallback>,
+        ) -> ::std::os::raw::c_int {
+            let origin = requesting_origin.map(|o| o.to_string()).unwrap_or_default();
+            let kinds = media_kinds_from_bits(requested_permissions);
+            let mut s = locked(&self.shared);
+            // Media access has no engine id: mint one far above the prompt
+            // range instead of risking a clash with `prompt_id`s.
+            if s.next_permission_id < 1u64 << 48 {
+                s.next_permission_id = 1u64 << 48;
+            }
+            let id = s.next_permission_id;
+            s.next_permission_id += 1;
+            if let Some(callback) = callback {
+                s.permissions.insert(id, StoredPermission::Media { callback: callback.clone(), allowed: requested_permissions });
+            }
+            s.events.push(WebEvent::Permission(PermissionRequest { id, origin, kinds }));
+            1
+        }
+    }
+}
+
+// Saves downloads to the host-chosen folder with no dialog, reporting them
+// as [`WebEvent::Download`]. `can_download` always proceeds; the path is
+// picked (and the callback run) synchronously in `on_before_download`;
+// `on_download_updated` coalesces progress to one report per id per
+// 250 ms except state changes. Holds no lock across CEF or filesystem calls.
+wrap_download_handler! {
+    struct AuiDownloads {
+        shared: Page,
+    }
+
+    impl DownloadHandler {
+        fn can_download(
+            &self,
+            _browser: Option<&mut Browser>,
+            _url: Option<&CefString>,
+            _request_method: Option<&CefString>,
+        ) -> ::std::os::raw::c_int {
+            1
+        }
+
+        fn on_before_download(
+            &self,
+            _browser: Option<&mut Browser>,
+            download_item: Option<&mut DownloadItem>,
+            suggested_name: Option<&CefString>,
+            callback: Option<&mut BeforeDownloadCallback>,
+        ) -> ::std::os::raw::c_int {
+            let (Some(item), Some(callback)) = (download_item, callback) else { return 0 };
+            // CEF reads and the folder scan first — all outside the lock.
+            let id = item.id();
+            let url = CefString::from(&item.url()).to_string();
+            let suggested = suggested_name.map(|name| name.to_string()).unwrap_or_default();
+            let dir = current_download_dir();
+            let file_name = unique_download_name(&|name| dir.join(name).exists(), &suggested);
+            let path = dir.join(&file_name).to_string_lossy().into_owned();
+            // No dialog (`show_dialog` 0): the host chose the folder.
+            callback.cont(Some(&CefString::from(path.as_str())), 0);
+            let mut s = locked(&self.shared);
+            s.dl_meta.insert(id, DlMeta { url: url.clone(), file_name: file_name.clone(), path: path.clone() });
+            s.dl_emit.insert(id, (Instant::now(), DownloadStatus::Downloading));
+            s.events.push(WebEvent::Download(DownloadState {
+                id,
+                url,
+                file_name,
+                path,
+                received: 0,
+                total: None,
+                state: DownloadStatus::Downloading,
+            }));
+            1
+        }
+
+        fn on_download_updated(
+            &self,
+            _browser: Option<&mut Browser>,
+            download_item: Option<&mut DownloadItem>,
+            callback: Option<&mut DownloadItemCallback>,
+        ) {
+            let (Some(item), Some(callback)) = (download_item, callback) else { return };
+            // CEF reads first; nothing below runs under the page Mutex.
+            let id = item.id();
+            let received = item.received_bytes().max(0) as u64;
+            let total = match item.total_bytes() {
+                n if n > 0 => Some(n as u64),
+                _ => None,
+            };
+            let state = if item.is_complete() == 1 {
+                DownloadStatus::Complete
+            } else if item.is_canceled() == 1 {
+                DownloadStatus::Cancelled
+            } else if item.is_interrupted() == 1 {
+                DownloadStatus::Failed
+            } else {
+                DownloadStatus::Downloading
+            };
+            let callback = callback.clone();
+            let mut s = locked(&self.shared);
+            // Updates before `on_before_download` chose a path have nothing
+            // to report yet; the cancel callback is still worth keeping.
+            if !s.dl_meta.contains_key(&id) {
+                s.dl_callbacks.insert(id, callback);
+                return;
+            }
+            let (elapsed, changed) = match s.dl_emit.get(&id) {
+                None => (None, true),
+                Some((at, known)) => {
+                    let elapsed = at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                    (Some(elapsed), *known != state)
+                }
+            };
+            s.dl_callbacks.insert(id, callback);
+            if download_emit_due(elapsed, changed) {
+                s.dl_emit.insert(id, (Instant::now(), state));
+                if let Some(meta) = s.dl_meta.get(&id).cloned() {
+                    s.events.push(WebEvent::Download(DownloadState {
+                        id,
+                        url: meta.url,
+                        file_name: meta.file_name,
+                        path: meta.path,
+                        received,
+                        total,
+                        state,
+                    }));
+                }
+            }
+            if !matches!(state, DownloadStatus::Downloading) {
+                // Terminal: the host's list keeps the last event; the live
+                // callbacks go away with the download.
+                s.dl_callbacks.remove(&id);
+                s.dl_emit.remove(&id);
+                s.dl_meta.remove(&id);
+            }
+        }
+    }
+}
+
+// Turns the context menu's "open in new …" commands into host tabs. The link
+// (else media source) URL is copied out in `on_before_context_menu` — params
+// die with that call — and the command handler queues an open request plus a
+// [`WebEvent::PopupOpened`], returning handled so Chromium opens nothing of
+// its own. Every other menu command stays with Chromium. Holds no lock
+// across CEF calls.
+wrap_context_menu_handler! {
+    struct AuiContextMenu {
+        shared: Page,
+    }
+
+    impl ContextMenuHandler {
+        fn on_before_context_menu(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            params: Option<&mut ContextMenuParams>,
+            _model: Option<&mut MenuModel>,
+        ) {
+            let url = params.map(|p| {
+                let link = CefString::from(&p.link_url()).to_string();
+                if link.is_empty() { CefString::from(&p.source_url()).to_string() } else { link }
+            });
+            locked(&self.shared).menu_link = url.filter(|u| !u.is_empty());
+        }
+
+        fn on_context_menu_command(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _params: Option<&mut ContextMenuParams>,
+            command_id: ::std::os::raw::c_int,
+            _event_flags: EventFlags,
+        ) -> ::std::os::raw::c_int {
+            let Some(foreground) = crate::keys::context_menu_open_foreground(command_id) else { return 0 };
+            // Brief lock, no CEF under it.
+            let mut s = locked(&self.shared);
+            let Some(url) = s.menu_link.clone() else { return 1 };
+            s.open_requests.push((url.clone(), foreground));
+            s.events.push(WebEvent::PopupOpened { url, foreground });
+            // Handled: Chromium opens nothing of its own.
+            1
         }
     }
 }
@@ -898,7 +1354,7 @@ wrap_dev_tools_message_observer! {
 
 wrap_browser_view_delegate! {
     struct AuiViewDelegate {
-        _unit: (),
+        shared: Page,
     }
 
     impl ViewDelegate {}
@@ -910,6 +1366,54 @@ wrap_browser_view_delegate! {
 
         fn browser_runtime_style(&self) -> RuntimeStyle {
             RuntimeStyle::CHROME
+        }
+
+        fn delegate_for_popup_browser_view(
+            &self,
+            _browser_view: Option<&mut BrowserView>,
+            _settings: Option<&BrowserSettings>,
+            _client: Option<&mut Client>,
+            is_devtools: ::std::os::raw::c_int,
+        ) -> Option<BrowserViewDelegate> {
+            if is_devtools == 1 {
+                return None;
+            }
+            // The popup view shares the opener's delegate, so a popup of a
+            // popup queues on the same page instead of opening a window.
+            Some(AuiViewDelegate::new(self.shared.clone()))
+        }
+
+        // Hosts the popup view in our own frameless child window — hidden at
+        // zero size until the host tabs it — and queues it on the opener,
+        // returning handled so CEF creates no top-level window. Holds no
+        // lock across CEF calls.
+        fn on_popup_browser_view_created(
+            &self,
+            _browser_view: Option<&mut BrowserView>,
+            popup_browser_view: Option<&mut BrowserView>,
+            is_devtools: ::std::os::raw::c_int,
+        ) -> ::std::os::raw::c_int {
+            if is_devtools == 1 {
+                return 0;
+            }
+            let Some(popup_browser_view) = popup_browser_view else { return 0 };
+            // The oldest announced popup (brief lock; no CEF under it).
+            let pending = {
+                let mut s = locked(&self.shared);
+                if s.pending_popups.is_empty() { None } else { Some(s.pending_popups.remove(0)) }
+            };
+            let Some((_, pending)) = pending else { return 0 };
+            // Our own window around the popup view: frameless, never-main,
+            // adopted as a child of the host — the same host
+            // `AuiWindowDelegate` gives every page. CEF calls, lock released.
+            let mut window_delegate = AuiWindowDelegate::new(pending.page.clone(), RefCell::new(Some(popup_browser_view.clone())));
+            if window_create_top_level(Some(&mut window_delegate)).is_none() {
+                eprintln!("aui-cef: popup window_create_top_level failed");
+            }
+            let mut s = locked(&self.shared);
+            s.events.push(WebEvent::PopupOpened { url: pending.url.clone(), foreground: pending.foreground });
+            s.popups.push(pending);
+            1
         }
     }
 }
@@ -1038,7 +1542,7 @@ impl CefBackend {
                 ..Default::default()
             };
             let mut client = AuiClient::new(pending.clone());
-            let mut view_delegate = AuiViewDelegate::new(());
+            let mut view_delegate = AuiViewDelegate::new(pending.clone());
             let Some(browser_view) = browser_view_create(
                 Some(&mut client),
                 Some(&CefString::from("about:blank")),
@@ -1056,6 +1560,26 @@ impl CefBackend {
             }
         });
         Ok(Self { page })
+    }
+
+    /// Takes the popup pages queued on this page since the last call, oldest
+    /// first. The host wraps each in a tab next to the opener.
+    pub fn take_popups(&mut self) -> Vec<PopupTab> {
+        std::mem::take(&mut locked(&self.page).popups)
+            .into_iter()
+            .map(|queued| PopupTab {
+                backend: CefBackend { page: queued.page },
+                url: queued.url,
+                opener_url: queued.opener_url,
+                foreground: queued.foreground,
+            })
+            .collect()
+    }
+
+    /// Points download saves at `dir` (runtime-wide, for every page).
+    /// Defaults to `~/Downloads`.
+    pub fn set_download_dir(dir: PathBuf) {
+        *locked(download_dir_slot()) = dir;
     }
 }
 
@@ -1247,6 +1771,44 @@ impl WebBackend for CefBackend {
     fn supports(&self, _feature: BackendFeature) -> bool {
         true
     }
+
+    fn take_popup_backends(&mut self) -> Vec<(String, bool, Box<dyn WebBackend>)> {
+        self.take_popups()
+            .into_iter()
+            .map(|popup| (popup.url, popup.foreground, Box::new(popup.backend) as Box<dyn WebBackend>))
+            .collect()
+    }
+
+    fn take_open_requests(&mut self) -> Vec<(String, bool)> {
+        std::mem::take(&mut locked(&self.page).open_requests)
+    }
+
+    fn answer_permission(&mut self, id: u64, decision: PermissionDecision) {
+        let stored = locked(&self.page).permissions.remove(&id);
+        let Some(stored) = stored else { return };
+        // The callback runs as a CEF UI task: never under the page Mutex.
+        on_cef_ui(move || match stored {
+            StoredPermission::Prompt(callback) => {
+                let result = match decision {
+                    PermissionDecision::Allow => PermissionRequestResult::ACCEPT,
+                    PermissionDecision::Deny => PermissionRequestResult::DENY,
+                    PermissionDecision::Dismiss => PermissionRequestResult::DISMISS,
+                };
+                callback.cont(result);
+            }
+            StoredPermission::Media { callback, allowed } => match decision {
+                PermissionDecision::Allow => callback.cont(allowed),
+                PermissionDecision::Deny | PermissionDecision::Dismiss => callback.cancel(),
+            },
+        });
+    }
+
+    fn cancel_download(&mut self, id: u32) {
+        let callback = locked(&self.page).dl_callbacks.remove(&id);
+        let Some(callback) = callback else { return };
+        // Never under the page Mutex.
+        on_cef_ui(move || callback.cancel());
+    }
 }
 
 #[cfg(test)]
@@ -1384,5 +1946,74 @@ mod tests {
         let s = locked(&page);
         assert!(s.ready);
         assert!(s.pending_url.is_none(), "taken for loading");
+    }
+
+    #[test]
+    fn permission_bits_map_to_kinds_in_request_order() {
+        use aui_webview::PermissionKind;
+        let camera = PermissionRequestTypes::CAMERA_STREAM.get_raw();
+        let mic = PermissionRequestTypes::MIC_STREAM.get_raw();
+        let geo = PermissionRequestTypes::GEOLOCATION.get_raw();
+        let notes = PermissionRequestTypes::NOTIFICATIONS.get_raw();
+        let clip = PermissionRequestTypes::CLIPBOARD.get_raw();
+        let midi = PermissionRequestTypes::MIDI_SYSEX.get_raw();
+        let pan_tilt = PermissionRequestTypes::CAMERA_PAN_TILT_ZOOM.get_raw();
+        assert!(permission_kinds_from_bits(0).is_empty());
+        assert_eq!(permission_kinds_from_bits(camera), vec![PermissionKind::Camera]);
+        // Pan/tilt/zoom is still the camera.
+        assert_eq!(permission_kinds_from_bits(pan_tilt), vec![PermissionKind::Camera]);
+        assert_eq!(permission_kinds_from_bits(mic), vec![PermissionKind::Microphone]);
+        assert_eq!(permission_kinds_from_bits(geo), vec![PermissionKind::Geolocation]);
+        assert_eq!(permission_kinds_from_bits(notes), vec![PermissionKind::Notifications]);
+        assert_eq!(permission_kinds_from_bits(clip), vec![PermissionKind::Clipboard]);
+        assert_eq!(permission_kinds_from_bits(midi), vec![PermissionKind::Midi]);
+        // Combined bits keep the request order whatever the input order.
+        assert_eq!(
+            permission_kinds_from_bits(midi | camera | geo),
+            vec![PermissionKind::Camera, PermissionKind::Geolocation, PermissionKind::Midi]
+        );
+        // Unknown bits survive one by one, after the known kinds.
+        let exotic = PermissionRequestTypes::SENSORS.get_raw();
+        assert_eq!(permission_kinds_from_bits(exotic), vec![PermissionKind::Other(exotic)]);
+        assert_eq!(
+            permission_kinds_from_bits(mic | exotic | camera),
+            vec![PermissionKind::Camera, PermissionKind::Microphone, PermissionKind::Other(exotic)]
+        );
+    }
+
+    #[test]
+    fn media_bits_map_to_camera_and_microphone() {
+        use aui_webview::PermissionKind;
+        let device_audio = MediaAccessPermissionTypes::DEVICE_AUDIO_CAPTURE.get_raw();
+        let device_video = MediaAccessPermissionTypes::DEVICE_VIDEO_CAPTURE.get_raw();
+        let desktop_audio = MediaAccessPermissionTypes::DESKTOP_AUDIO_CAPTURE.get_raw();
+        let desktop_video = MediaAccessPermissionTypes::DESKTOP_VIDEO_CAPTURE.get_raw();
+        assert!(media_kinds_from_bits(0).is_empty());
+        assert_eq!(media_kinds_from_bits(device_audio), vec![PermissionKind::Microphone]);
+        assert_eq!(media_kinds_from_bits(device_video), vec![PermissionKind::Camera]);
+        assert_eq!(media_kinds_from_bits(desktop_audio), vec![PermissionKind::Microphone]);
+        assert_eq!(media_kinds_from_bits(desktop_video), vec![PermissionKind::Camera]);
+        assert_eq!(
+            media_kinds_from_bits(device_audio | device_video),
+            vec![PermissionKind::Camera, PermissionKind::Microphone]
+        );
+        assert_eq!(media_kinds_from_bits(1u32 << 31), vec![PermissionKind::Other(1u32 << 31)]);
+    }
+
+    #[test]
+    fn only_foreground_dispositions_take_the_foreground_tab() {
+        assert!(popup_foreground(WindowOpenDisposition::NEW_FOREGROUND_TAB));
+        // A new window would have shown itself.
+        assert!(popup_foreground(WindowOpenDisposition::NEW_WINDOW));
+        for disposition in [
+            WindowOpenDisposition::UNKNOWN,
+            WindowOpenDisposition::CURRENT_TAB,
+            WindowOpenDisposition::SINGLETON_TAB,
+            WindowOpenDisposition::NEW_BACKGROUND_TAB,
+            WindowOpenDisposition::NEW_POPUP,
+            WindowOpenDisposition::SAVE_TO_DISK,
+        ] {
+            assert!(!popup_foreground(disposition), "{disposition:?} should open behind");
+        }
     }
 }

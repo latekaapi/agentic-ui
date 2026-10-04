@@ -121,6 +121,99 @@ pub enum WebEvent {
     Find(FindState),
     /// The page's zoom, in percent (100 is normal).
     Zoom(u16),
+    /// The page opened a popup. The host makes a tab for it out of
+    /// [`WebBackend::take_popup_backends`]: `foreground` asks for the tab to
+    /// be selected (`window.open` into a foreground tab), otherwise it opens
+    /// in the background.
+    PopupOpened { url: String, foreground: bool },
+    /// The page asked for one or more permissions (camera, microphone, …).
+    /// The host shows its own UI and answers through
+    /// [`WebBackend::answer_permission`].
+    Permission(PermissionRequest),
+    /// A permission prompt went away without an answer (navigated, closed,
+    /// dismissed by the engine). Drops the matching [`WebEvent::Permission`].
+    PermissionDismissed(u64),
+    /// A download started or moved: the latest state for `id`. The host
+    /// renders its own downloads UI and cancels through
+    /// [`WebBackend::cancel_download`].
+    Download(DownloadState),
+}
+
+/// One permission the page can ask for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionKind {
+    /// Camera access (video capture, pan/tilt/zoom).
+    Camera,
+    /// Microphone access (audio capture).
+    Microphone,
+    /// The page's geolocation.
+    Geolocation,
+    /// Showing notifications.
+    Notifications,
+    /// Reading or writing the clipboard.
+    Clipboard,
+    /// MIDI system-exclusive messages.
+    Midi,
+    /// Any other engine permission bit, as its raw bit value (a single
+    /// `1 << n`, never a combination).
+    Other(u32),
+}
+
+/// A page's permission ask, as [`WebEvent::Permission`] carries it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionRequest {
+    /// What [`WebBackend::answer_permission`] answers, and what
+    /// [`WebEvent::PermissionDismissed`] drops.
+    pub id: u64,
+    /// The origin asking (`https://example.com`).
+    pub origin: String,
+    /// What it asked for, in a fixed order (camera, microphone, geolocation,
+    /// notifications, clipboard, MIDI, then the rest by bit).
+    pub kinds: Vec<PermissionKind>,
+}
+
+/// The host's answer to a [`PermissionRequest`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionDecision {
+    /// Grant what was asked.
+    Allow,
+    /// Refuse it.
+    Deny,
+    /// Close the prompt without deciding.
+    Dismiss,
+}
+
+/// Where a download stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownloadStatus {
+    /// Bytes are still arriving.
+    Downloading,
+    /// The file landed whole.
+    Complete,
+    /// The host or the person cancelled it.
+    Cancelled,
+    /// It stopped some other way (interrupted, failed).
+    Failed,
+}
+
+/// The latest state of one download, as [`WebEvent::Download`] carries it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownloadState {
+    /// The engine's id for the download; [`WebBackend::cancel_download`]
+    /// takes it, and the pane keys its list on it.
+    pub id: u32,
+    /// Where the bytes come from.
+    pub url: String,
+    /// The file name under the download folder.
+    pub file_name: String,
+    /// The full path the bytes are written to.
+    pub path: String,
+    /// How many bytes have arrived.
+    pub received: u64,
+    /// How many are expected, when the server said.
+    pub total: Option<u64>,
+    /// Where the download stands.
+    pub state: DownloadStatus,
 }
 
 /// What the address row's site button says about the current page.
@@ -435,6 +528,77 @@ pub trait WebBackend {
         let _ = feature;
         false
     }
+
+    /// Takes the popup pages queued since the last call, oldest first: each
+    /// is `(url, foreground, page)`, a backend the host wraps in a new tab
+    /// next to the opener. Announced by [`WebEvent::PopupOpened`]; empty by
+    /// default.
+    fn take_popup_backends(&mut self) -> Vec<(String, bool, Box<dyn WebBackend>)> {
+        Vec::new()
+    }
+
+    /// Takes the "open this URL" requests queued since the last call, oldest
+    /// first: each is `(url, foreground)`. Context-menu "open in new tab"
+    /// lands here (the page cannot open it), and the host makes a tab for it
+    /// itself. Empty by default.
+    fn take_open_requests(&mut self) -> Vec<(String, bool)> {
+        Vec::new()
+    }
+
+    /// Answers the permission request `id` (see [`WebEvent::Permission`]).
+    /// Unknown ids are ignored. Does nothing by default.
+    fn answer_permission(&mut self, id: u64, decision: PermissionDecision) {
+        let _ = (id, decision);
+    }
+
+    /// Cancels the download `id` (see [`WebEvent::Download`]). Unknown ids
+    /// are ignored. Does nothing by default.
+    fn cancel_download(&mut self, id: u32) {
+        let _ = id;
+    }
+}
+
+/// How often a download may report progress: at most one [`DownloadState`]
+/// per id per interval, except state changes, which always land.
+pub const DOWNLOAD_EMIT_INTERVAL_MS: u64 = 250;
+
+/// Whether a download update is worth emitting: always the first
+/// (`elapsed_ms` is `None`), always a state change, otherwise only once per
+/// [`DOWNLOAD_EMIT_INTERVAL_MS`]. Pure, so the quiet rule is unit-testable
+/// without a browser.
+pub fn download_emit_due(elapsed_ms: Option<u64>, state_changed: bool) -> bool {
+    if state_changed {
+        return true;
+    }
+    match elapsed_ms {
+        None => true,
+        Some(elapsed) => elapsed >= DOWNLOAD_EMIT_INTERVAL_MS,
+    }
+}
+
+/// A file name in the download folder that nothing has taken yet: `name`
+/// itself when free, else `stem (1).ext`, `stem (2).ext`, … `taken` is the
+/// folder's membership test (usually "this path exists"). An empty `name`
+/// reads as `download`; a leading dot stays with the stem (`.zshrc` never
+/// grows an "extension"). Pure, so the numbering is unit-testable without a
+/// filesystem.
+pub fn unique_download_name(taken: &dyn Fn(&str) -> bool, name: &str) -> String {
+    let name = if name.is_empty() { "download" } else { name };
+    if !taken(name) {
+        return name.to_owned();
+    }
+    let (stem, ext) = match name.rfind('.') {
+        Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
+        _ => (name, ""),
+    };
+    let mut n = 1u32;
+    loop {
+        let candidate = format!("{stem} ({n}){ext}");
+        if !taken(&candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
 }
 
 #[cfg(test)]
@@ -535,5 +699,45 @@ mod tests {
         for (url, secure, expected) in cases {
             assert_eq!(PageSecurity::classify(url, secure), expected, "url: {url}");
         }
+    }
+
+    #[test]
+    fn new_popup_permission_and_download_controls_default_to_empty_no_ops() {
+        let mut backend = Minimal;
+        // They run without doing anything …
+        backend.answer_permission(1, PermissionDecision::Allow);
+        backend.cancel_download(9);
+        // … and the queues drain empty.
+        assert!(backend.take_popup_backends().is_empty());
+        assert!(backend.take_open_requests().is_empty());
+    }
+
+    #[test]
+    fn free_download_names_pass_through_and_taken_ones_number_up() {
+        let taken = |name: &str| matches!(name, "a.txt" | "a (1).txt" | "noext" | ".zshrc");
+        assert_eq!(unique_download_name(&|_: &str| false, "a.txt"), "a.txt");
+        assert_eq!(unique_download_name(&taken, "a.txt"), "a (2).txt");
+        assert_eq!(unique_download_name(&taken, "b.txt"), "b.txt");
+        assert_eq!(unique_download_name(&taken, "noext"), "noext (1)");
+        // A leading dot is not an extension.
+        assert_eq!(unique_download_name(&taken, ".zshrc"), ".zshrc (1)");
+        // An empty suggestion still lands somewhere.
+        assert_eq!(unique_download_name(&|_: &str| false, ""), "download");
+        assert_eq!(unique_download_name(&|name: &str| name == "download", ""), "download (1)");
+    }
+
+    #[test]
+    fn download_progress_reports_coalesce_but_state_changes_land() {
+        // The first report always lands.
+        assert!(download_emit_due(None, false));
+        assert!(download_emit_due(None, true));
+        // A state change always lands, however soon.
+        assert!(download_emit_due(Some(0), true));
+        // Progress alone waits out the interval …
+        assert!(!download_emit_due(Some(0), false));
+        assert!(!download_emit_due(Some(249), false));
+        // … then lands.
+        assert!(download_emit_due(Some(250), false));
+        assert!(download_emit_due(Some(10_000), false));
     }
 }

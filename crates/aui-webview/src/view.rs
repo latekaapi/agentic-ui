@@ -22,7 +22,7 @@ use gpui::{actions, canvas, div, img, prelude::*, px, relative, App, Bounds, Con
 use gpui_kit::base::input::{Escape as InputEscape, InputEvent, InputState};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::backend::{BackendFeature, ElementInfo, FindState, PageSecurity, WebBackend, WebEvent};
+use crate::backend::{BackendFeature, DownloadState, ElementInfo, FindState, PageSecurity, PermissionDecision, PermissionRequest, WebBackend, WebEvent};
 use crate::page::{page_body, pin_at};
 
 /// How often the pane drains its backend. Fast enough that a title or a pin
@@ -138,6 +138,11 @@ pub struct WebviewState {
     find_stopped: bool,
     /// The page zoom in percent; 100 is normal ([`WebEvent::Zoom`]).
     zoom: u16,
+    /// The permission asks waiting for an answer ([`WebEvent::Permission`]),
+    /// oldest first. Answered or dismissed ones are dropped.
+    permissions: Vec<PermissionRequest>,
+    /// Every download's latest state ([`WebEvent::Download`]), by id.
+    downloads: Vec<DownloadState>,
     /// Evaluation answers drained from the backend, waiting for
     /// [`Self::take_eval_results`].
     eval_results: Vec<(u64, Result<String, String>)>,
@@ -263,6 +268,8 @@ impl WebviewState {
             find: None,
             find_stopped: false,
             zoom: 100,
+            permissions: Vec::new(),
+            downloads: Vec::new(),
             screenshot_image: None,
             eval_results: Vec::new(),
             native,
@@ -455,6 +462,44 @@ impl WebviewState {
     /// controls it cannot back.
     pub fn supports(&self, feature: BackendFeature) -> bool {
         self.backend.supports(feature)
+    }
+
+    /// The permission asks waiting for an answer, oldest first.
+    pub fn permissions(&self) -> &[PermissionRequest] {
+        &self.permissions
+    }
+
+    /// Every download's latest state, oldest first.
+    pub fn downloads(&self) -> &[DownloadState] {
+        &self.downloads
+    }
+
+    /// Answers the permission request `id` and drops it from
+    /// [`Self::permissions`]. Unknown ids still reach the backend.
+    pub fn answer_permission(&mut self, id: u64, decision: PermissionDecision, cx: &mut Context<Self>) {
+        self.backend.answer_permission(id, decision);
+        let before = self.permissions.len();
+        self.permissions.retain(|request| request.id != id);
+        if self.permissions.len() != before {
+            cx.notify();
+        }
+    }
+
+    /// Asks the backend to cancel the download `id`. Its end arrives as a
+    /// [`WebEvent::Download`].
+    pub fn cancel_download(&mut self, id: u32) {
+        self.backend.cancel_download(id);
+    }
+
+    /// Takes the popup pages the backend queued, oldest first: each is
+    /// `(url, foreground, page)`, for the host to wrap in a new tab.
+    pub fn take_popup_backends(&mut self) -> Vec<(String, bool, Box<dyn WebBackend>)> {
+        self.backend.take_popup_backends()
+    }
+
+    /// Takes the "open this URL" requests the backend queued, oldest first.
+    pub fn take_open_requests(&mut self) -> Vec<(String, bool)> {
+        self.backend.take_open_requests()
     }
 
     /// **Hides the native page so gpui can paint over its rectangle.**
@@ -807,6 +852,29 @@ impl WebviewState {
                     }
                 }
                 WebEvent::Zoom(percent) => self.zoom = percent,
+                WebEvent::PopupOpened { .. } => {
+                    // The host drains the page itself through
+                    // `take_popup_backends`; the event only wakes the view.
+                }
+                WebEvent::Permission(request) => {
+                    // A re-ask for the same prompt replaces the pending one.
+                    if let Some(slot) = self.permissions.iter_mut().find(|pending| pending.id == request.id) {
+                        *slot = request;
+                    } else {
+                        self.permissions.push(request);
+                    }
+                }
+                WebEvent::PermissionDismissed(id) => {
+                    self.permissions.retain(|pending| pending.id != id);
+                }
+                WebEvent::Download(state) => {
+                    // One row per download: the latest state wins.
+                    if let Some(slot) = self.downloads.iter_mut().find(|known| known.id == state.id) {
+                        *slot = state;
+                    } else {
+                        self.downloads.push(state);
+                    }
+                }
             }
         }
         if !eval_results.is_empty() {
@@ -1653,6 +1721,18 @@ mod tests {
         fn show_devtools(&mut self) {
             self.0.borrow_mut().show_devtools();
         }
+        fn take_popup_backends(&mut self) -> Vec<(String, bool, Box<dyn WebBackend>)> {
+            self.0.borrow_mut().take_popup_backends()
+        }
+        fn take_open_requests(&mut self) -> Vec<(String, bool)> {
+            self.0.borrow_mut().take_open_requests()
+        }
+        fn answer_permission(&mut self, id: u64, decision: crate::backend::PermissionDecision) {
+            self.0.borrow_mut().answer_permission(id, decision);
+        }
+        fn cancel_download(&mut self, id: u32) {
+            self.0.borrow_mut().cancel_download(id);
+        }
         fn supports(&self, feature: BackendFeature) -> bool {
             self.0.borrow().supports(feature)
         }
@@ -1819,6 +1899,94 @@ mod tests {
         state.update(cx, |state, _| {
             assert_eq!(state.zoom(), 100);
         });
+    }
+
+    /// Permissions queue until answered or dismissed, downloads keep their
+    /// latest state by id, and popups drain through the passthroughs — with
+    /// answers and cancels forwarded to the backend.
+    #[gpui::test]
+    fn permission_download_and_popup_bookkeeping(cx: &mut gpui::TestAppContext) {
+        use gpui::AppContext as _;
+
+        use crate::backend::{DownloadState, DownloadStatus, PermissionDecision, PermissionKind};
+        let fake = Rc::new(RefCell::new(FakeWebBackend::new()));
+        let state = cx.new(|cx| WebviewState::new(Box::new(SharedFake(fake.clone())), cx));
+        state.update(cx, |state, _| {
+            assert!(state.permissions().is_empty());
+            assert!(state.downloads().is_empty());
+        });
+        fake.borrow_mut().script_permission(7, "https://example.com", vec![PermissionKind::Camera, PermissionKind::Microphone]);
+        fake.borrow_mut().script_permission(8, "https://example.com", vec![PermissionKind::Geolocation]);
+        downloading(&fake, 3, 10, DownloadStatus::Downloading);
+        downloading(&fake, 4, 0, DownloadStatus::Downloading);
+        state.update(cx, |state, _| {
+            let _ = state.apply_pending();
+        });
+        state.update(cx, |state, _| {
+            assert_eq!(state.permissions().len(), 2);
+            assert_eq!(state.permissions()[0].id, 7);
+            assert_eq!(state.permissions()[0].kinds, vec![PermissionKind::Camera, PermissionKind::Microphone]);
+            assert_eq!(state.downloads().len(), 2);
+            assert_eq!(state.downloads()[0].received, 10);
+        });
+        // A re-ask for the same prompt replaces it; progress replaces the row.
+        fake.borrow_mut().script_permission(7, "https://example.com", vec![PermissionKind::Camera]);
+        downloading(&fake, 3, 90, DownloadStatus::Downloading);
+        state.update(cx, |state, _| {
+            let _ = state.apply_pending();
+        });
+        state.update(cx, |state, _| {
+            assert_eq!(state.permissions().len(), 2);
+            assert_eq!(state.permissions()[0].kinds, vec![PermissionKind::Camera]);
+            assert_eq!(state.downloads().len(), 2);
+            assert_eq!(state.downloads()[0].received, 90);
+        });
+        // Answering drops the pending ask and reaches the backend …
+        state.update(cx, |state, cx| state.answer_permission(7, PermissionDecision::Allow, cx));
+        // … as does a dismissal from the page.
+        fake.borrow_mut().script_permission_dismissed(8);
+        state.update(cx, |state, _| {
+            let _ = state.apply_pending();
+        });
+        state.update(cx, |state, _| {
+            assert!(state.permissions().is_empty());
+        });
+        assert_eq!(fake.borrow().answers(), &[(7, PermissionDecision::Allow)]);
+        // Cancels forward; the end arrives as an event.
+        state.update(cx, |state, _| state.cancel_download(3));
+        assert_eq!(fake.borrow().cancelled_downloads(), &[3]);
+        downloading(&fake, 3, 90, DownloadStatus::Cancelled);
+        state.update(cx, |state, _| {
+            let _ = state.apply_pending();
+        });
+        state.update(cx, |state, _| {
+            assert_eq!(state.downloads().len(), 2);
+            assert_eq!(state.downloads()[0].state, DownloadStatus::Cancelled);
+        });
+        // Popups and open requests drain through the state to the host.
+        fake.borrow_mut().script_popup("https://example.com/pop", true);
+        fake.borrow_mut().script_open_request("https://example.com/menu", false);
+        state.update(cx, |state, _| {
+            let _ = state.apply_pending();
+        });
+        let popups = state.update(cx, |state, _| state.take_popup_backends());
+        assert_eq!(popups.len(), 1);
+        assert_eq!((popups[0].0.as_str(), popups[0].1), ("https://example.com/pop", true));
+        let requests = state.update(cx, |state, _| state.take_open_requests());
+        assert_eq!(requests, vec![(String::from("https://example.com/menu"), false)]);
+        assert!(state.update(cx, |state, _| state.take_popup_backends()).is_empty());
+
+        fn downloading(fake: &Rc<RefCell<FakeWebBackend>>, id: u32, received: u64, status: DownloadStatus) {
+            fake.borrow_mut().script_download(DownloadState {
+                id,
+                url: String::from("https://example.com/f.zip"),
+                file_name: String::from("f.zip"),
+                path: String::from("/tmp/f.zip"),
+                received,
+                total: Some(100),
+                state: status,
+            });
+        }
     }
 
     /// `release_keyboard` hands focus back when the page holds it, and is a
