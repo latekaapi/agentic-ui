@@ -236,6 +236,34 @@ static id aui_flagged_corner_mask(id self, SEL _cmd) {
   return nil;
 }
 
+static NSMutableDictionary<NSString *, NSValue *> *g_flat_key_imps = nil;
+
+// Borderless windows answer NO to `canBecomeKeyWindow` by default; a flat page
+// window must still take the keyboard (typing into the page).
+static BOOL aui_flagged_can_become_key(id self, SEL _cmd) {
+  if ([objc_getAssociatedObject(self, kFlatKey) boolValue]) return YES;
+  NSValue *boxed = [g_flat_key_imps objectForKey:NSStringFromClass([self class])];
+  IMP orig = boxed ? (IMP)[boxed pointerValue] : NULL;
+  if (orig) return ((BOOL (*)(id, SEL))orig)(self, _cmd);
+  Class sup = class_getSuperclass([self class]);
+  Method m = sup ? class_getInstanceMethod(sup, _cmd) : NULL;
+  if (m) {
+    IMP imp = method_getImplementation(m);
+    if (imp && imp != (IMP)aui_flagged_can_become_key) return ((BOOL (*)(id, SEL))imp)(self, _cmd);
+  }
+  return NO;
+}
+
+static void aui_swizzle_can_become_key_once(Class cls, NSString *name) {
+  if (!g_flat_key_imps) g_flat_key_imps = [NSMutableDictionary dictionary];
+  if ([g_flat_key_imps objectForKey:name]) return;
+  SEL sel = @selector(canBecomeKeyWindow);
+  Method m = class_getInstanceMethod(cls, sel);
+  const char *types = m ? method_getTypeEncoding(m) : "B@:";
+  IMP prev = class_replaceMethod(cls, sel, (IMP)aui_flagged_can_become_key, types);
+  [g_flat_key_imps setObject:[NSValue valueWithPointer:prev] forKey:name];
+}
+
 // Swizzles one private corner selector on `cls` (once per class+selector),
 // guarded so a missing selector is a no-op, never a crash. Never touches the
 // style mask (borderless would break `canBecomeKeyWindow` and typing) and
@@ -275,6 +303,15 @@ void aui_cef_flatten_window(void *child_root_view) {
   objc_setAssociatedObject(cw, kFlatKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   Class cls = [cw class];
   NSString *name = NSStringFromClass(cls);
+  // Titled windows get the system's corner mask (large on macOS 26) whatever
+  // `_cornerRadius` says — found live: the swizzles alone left the corners
+  // rounded. Borderless windows are plain rectangles; keep key-ability.
+  aui_swizzle_can_become_key_once(cls, name);
+  if (cw.styleMask & NSWindowStyleMaskTitled) {
+    NSRect frame = cw.frame;
+    cw.styleMask = NSWindowStyleMaskBorderless;
+    [cw setFrame:frame display:YES];
+  }
   SEL radiusSel = NSSelectorFromString(@"_cornerRadius");
   SEL getMaskSel = NSSelectorFromString(@"_getCornerMask");
   SEL maskSel = NSSelectorFromString(@"_cornerMask");
