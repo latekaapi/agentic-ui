@@ -72,6 +72,7 @@ pub struct AppShell {
     header_right: Option<AnyElement>,
     sidebar: Option<AnyElement>,
     rail: Option<AnyElement>,
+    hide_rail: bool,
     centre: Option<AnyElement>,
     right: Option<AnyElement>,
 }
@@ -98,6 +99,7 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         header_right: None,
         sidebar: None,
         rail: None,
+        hide_rail: false,
         centre: None,
         right: None,
     }
@@ -241,6 +243,14 @@ impl AppShell {
         self
     }
 
+    /// With the sidebar closed, reserve no rail column at all: the centre
+    /// runs from the window's left edge (a full-width page under a host's
+    /// own one-row chrome). The rail element, if any, is not drawn.
+    pub fn hide_rail(mut self, hide: bool) -> Self {
+        self.hide_rail = hide;
+        self
+    }
+
     /// The centre pane (transcript + composer).
     pub fn centre(mut self, el: impl IntoElement) -> Self {
         self.centre = Some(el.into_any_element());
@@ -260,7 +270,13 @@ impl RenderOnce for AppShell {
         let header_h = cx.aui().metrics.header;
         let id = self.id.clone();
 
-        let rail_width = if self.traffic_lights { px(RAIL_WIDTH_WITH_LIGHTS) } else { px(RAIL_WIDTH) };
+        let rail_width = if self.hide_rail && !self.sidebar_open {
+            px(0.0)
+        } else if self.traffic_lights {
+            px(RAIL_WIDTH_WITH_LIGHTS)
+        } else {
+            px(RAIL_WIDTH)
+        };
         // The app clamps every drag move (see `clamp_sidebar_width`); the
         // shell clamps the target again so a stale or hand-set width can never
         // push the rows under their minimum. The rail is exempt: it owns the
