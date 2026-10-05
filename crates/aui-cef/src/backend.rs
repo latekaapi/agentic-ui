@@ -1945,30 +1945,8 @@ impl WebBackend for CefBackend {
         }
     }
 
-    fn set_zoom(&mut self, percent: u16) {
-        // Chrome style crashes inside Chromium on `SetZoomLevel` (null deref
-        // under `cef_browser_host_get_browser_by_identifier`, found live
-        // from the ⋯ menu's zoom +). Its own zoom commands walk the same
-        // preset ladder as `ZOOM_STEPS`, so step there instead: RESET for
-        // 100 %, else IN/OUT once per ladder step between here and there.
-        let target = snap_zoom_percent(percent);
-        let Some(host) = browser_of(&self.page).and_then(|b| b.host()) else { return };
-        let current = zoom_level_to_percent(host.zoom_level());
-        let index = |p: u16| ZOOM_STEPS.iter().position(|&s| s == snap_zoom_percent(p)).unwrap_or(0) as i32;
-        if target == 100 {
-            host.zoom(ZoomCommand::RESET);
-        } else {
-            let steps = index(target) - index(current);
-            let command = if steps > 0 { ZoomCommand::IN } else { ZoomCommand::OUT };
-            for _ in 0..steps.unsigned_abs() {
-                if host.can_zoom(command) == 0 {
-                    break;
-                }
-                host.zoom(command);
-            }
-        }
-        // CEF emits no zoom-change event; the target just applied is the state.
-        locked(&self.page).events.push(WebEvent::Zoom(target));
+    fn set_zoom(&mut self, _percent: u16) {
+        // Unsupported (see `supports`): never call the host's zoom APIs.
     }
 
     fn find(&mut self, query: &str, forward: bool, match_case: bool) {
@@ -2009,8 +1987,12 @@ impl WebBackend for CefBackend {
         }
     }
 
-    fn supports(&self, _feature: BackendFeature) -> bool {
-        true
+    fn supports(&self, feature: BackendFeature) -> bool {
+        // Zoom through the browser host crashes inside Chromium for these
+        // toolbar-less Chrome-style windows (SetZoomLevel and the zoom
+        // commands alike, found live). Until the fork, hosts hide zoom;
+        // Chromium's own ⌘+/⌘−/⌘0 still zoom a focused page.
+        !matches!(feature, BackendFeature::Zoom)
     }
 
     fn take_popup_backends(&mut self) -> Vec<(String, bool, Box<dyn WebBackend>)> {
