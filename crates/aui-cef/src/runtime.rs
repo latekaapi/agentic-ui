@@ -133,6 +133,13 @@ wrap_app! {
                 if self.mock_keychain {
                     command_line.append_switch(Some(&CefString::from("use-mock-keychain")));
                 }
+                // The host owns downloads UI (toolbar button + popover): keep
+                // Chromium from drawing its own download bubble window over
+                // the host (found live, B2a).
+                command_line.append_switch_with_value(
+                    Some(&CefString::from("disable-features")),
+                    Some(&CefString::from("DownloadBubble,DownloadBubbleV2")),
+                );
             }
         }
     }
