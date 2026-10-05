@@ -308,6 +308,12 @@ impl WebviewState {
         self.title.clone()
     }
 
+    /// Whether the page is loading (between the engine's load start and
+    /// load end) — what a host's Stop/Reload button follows.
+    pub fn loading(&self) -> bool {
+        self.loading
+    }
+
     /// Whether annotate mode is on.
     pub fn annotating(&self) -> bool {
         self.annotate
@@ -1146,15 +1152,23 @@ pub struct WebviewPane {
     id: ElementId,
     state: Entity<WebviewState>,
     on_intent: Option<IntentHandler>,
+    nav: bool,
 }
 
 /// The pane for `state`: the nav row, the page with the annotator's overlays,
 /// and — only while annotate mode is on — the annotations panel.
 pub fn webview_pane(id: impl Into<ElementId>, state: &Entity<WebviewState>) -> WebviewPane {
-    WebviewPane { id: id.into(), state: state.clone(), on_intent: None }
+    WebviewPane { id: id.into(), state: state.clone(), on_intent: None, nav: true }
 }
 
 impl WebviewPane {
+    /// Leaves the nav row out: for hosts that draw their own toolbar for
+    /// the page (Baaz's Browse mode). The page fills the pane.
+    pub fn without_nav(mut self) -> Self {
+        self.nav = false;
+        self
+    }
+
     /// Called with every [`WebviewIntent`] the pane raises.
     pub fn on_intent(mut self, f: impl Fn(WebviewIntent, &mut Window, &mut App) + 'static) -> Self {
         self.on_intent = Some(Rc::new(f));
@@ -1168,6 +1182,7 @@ impl RenderOnce for WebviewPane {
         let id = self.id.clone();
         let state = self.state.clone();
         let handler = self.on_intent.clone();
+        let show_nav = self.nav;
         let view = state.read(cx);
         let annotate = view.annotate;
         let annotations = view.annotations.clone();
@@ -1391,7 +1406,7 @@ impl RenderOnce for WebviewPane {
             .size_full()
             .min_h(px(0.0))
             .bg(p.surface_1)
-            .child(nav)
+            .when(show_nav, |pane| pane.child(nav))
             .child(h_flex().flex_1().w_full().min_h(px(0.0)).items_stretch().child(page).children(panel))
     }
 }
