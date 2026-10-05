@@ -3,7 +3,6 @@
 // embedding (a frameless Chrome-style Views window adopted as a child window).
 #import <AppKit/AppKit.h>
 #import <objc/runtime.h>
-#import <objc/message.h>
 
 // MARK: - NSApp conformance (CefAppProtocol) on the host's NSApplication class
 
@@ -293,67 +292,6 @@ static BOOL aui_swizzle_corner_once(Class cls, NSString *name, SEL sel, BOOL isR
   return YES;
 }
 
-// MARK: frame-view corners (macOS 26): the window server shapes a window from
-// its FRAME VIEW (`CefThemeFrame`, an NSThemeFrame subclass, kept even after the
-// window goes borderless), not from the window: `_cornerRadius` and the
-// `_topCornerSize` / `_bottomCornerSize` it reports (16 / 16×16, read live with
-// lldb) round the page's top corners. Flagged windows' frames report zero.
-
-static NSMutableDictionary<NSString *, NSValue *> *g_frame_imps = nil;
-
-static BOOL aui_frame_is_flat(id frame) {
-  NSWindow *w = [frame respondsToSelector:@selector(window)] ? [frame window] : nil;
-  return w && [objc_getAssociatedObject(w, kFlatKey) boolValue];
-}
-
-static IMP aui_frame_orig(id self, SEL _cmd) {
-  NSString *key = [NSString stringWithFormat:@"%@:%@", NSStringFromClass([self class]), NSStringFromSelector(_cmd)];
-  NSValue *boxed = [g_frame_imps objectForKey:key];
-  return boxed ? (IMP)[boxed pointerValue] : NULL;
-}
-
-static CGFloat aui_frame_corner_radius(id self, SEL _cmd) {
-  if (aui_frame_is_flat(self)) return 0.0;
-  IMP orig = aui_frame_orig(self, _cmd);
-  return orig ? ((CGFloat (*)(id, SEL))orig)(self, _cmd) : 0.0;
-}
-
-static NSSize aui_frame_corner_size(id self, SEL _cmd) {
-  if (aui_frame_is_flat(self)) return NSZeroSize;
-  IMP orig = aui_frame_orig(self, _cmd);
-  return orig ? ((NSSize (*)(id, SEL))orig)(self, _cmd) : NSZeroSize;
-}
-
-static void aui_swizzle_frame_once(Class cls, SEL sel, IMP imp) {
-  if (![cls instancesRespondToSelector:sel]) return;
-  Method m = class_getInstanceMethod(cls, sel);
-  if (!m) return;
-  if (!g_frame_imps) g_frame_imps = [NSMutableDictionary dictionary];
-  NSString *key = [NSString stringWithFormat:@"%@:%@", NSStringFromClass(cls), NSStringFromSelector(sel)];
-  if ([g_frame_imps objectForKey:key]) return;
-  // class_replaceMethod returns NULL when the method was inherited; keep the
-  // inherited IMP so unflagged frames of this class behave as before.
-  IMP inherited = method_getImplementation(m);
-  IMP prev = class_replaceMethod(cls, sel, imp, method_getTypeEncoding(m));
-  [g_frame_imps setObject:[NSValue valueWithPointer:(prev ? prev : inherited)] forKey:key];
-}
-
-static void aui_flatten_frame_view(NSWindow *cw) {
-  NSView *frame = cw.contentView.superview;
-  if (!frame) return;
-  Class fcls = [frame class];
-  aui_swizzle_frame_once(fcls, NSSelectorFromString(@"_cornerRadius"), (IMP)aui_frame_corner_radius);
-  aui_swizzle_frame_once(fcls, NSSelectorFromString(@"_topCornerSize"), (IMP)aui_frame_corner_size);
-  aui_swizzle_frame_once(fcls, NSSelectorFromString(@"_bottomCornerSize"), (IMP)aui_frame_corner_size);
-  // Re-shape now that the frame reports square corners.
-  SEL changed = NSSelectorFromString(@"_cornerMaskChanged");
-  if ([cw respondsToSelector:changed]) ((void (*)(id, SEL))objc_msgSend)(cw, changed);
-  SEL shape = NSSelectorFromString(@"shapeWindow");
-  if ([frame respondsToSelector:shape]) ((void (*)(id, SEL))objc_msgSend)(frame, shape);
-  [frame setNeedsDisplay:YES];
-  [cw invalidateShadow];
-}
-
 // Flattens a page/popup window: no shadow, no system corner rounding, in
 // every focus state. Focus/key behaviour is untouched (style mask kept, so
 // `canBecomeKeyWindow` and typing keep working). Idempotent per instance.
@@ -374,7 +312,6 @@ void aui_cef_flatten_window(void *child_root_view) {
     cw.styleMask = NSWindowStyleMaskBorderless;
     [cw setFrame:frame display:YES];
   }
-  aui_flatten_frame_view(cw);
   SEL radiusSel = NSSelectorFromString(@"_cornerRadius");
   SEL getMaskSel = NSSelectorFromString(@"_getCornerMask");
   SEL maskSel = NSSelectorFromString(@"_cornerMask");
