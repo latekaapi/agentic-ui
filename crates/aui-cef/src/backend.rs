@@ -691,6 +691,14 @@ pub fn media_kinds_from_bits(bits: u32) -> Vec<PermissionKind> {
 /// tab — and a new window, which would have shown itself — does; background
 /// tabs, plain popups and everything else open behind. Pure, so the rule is
 /// unit-testable without a browser.
+/// Whether a popup request is a link opened in a new tab (cancelled and
+/// re-opened by the host as one of its tabs) rather than a scripted popup.
+fn opens_as_host_tab(disposition: WindowOpenDisposition) -> bool {
+    disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB
+        || disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB
+        || disposition == WindowOpenDisposition::SINGLETON_TAB
+}
+
 fn popup_foreground(disposition: WindowOpenDisposition) -> bool {
     disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB || disposition == WindowOpenDisposition::NEW_WINDOW
 }
@@ -1008,6 +1016,19 @@ wrap_life_span_handler! {
                 .map(|f| CefString::from(&f.url()).to_string())
                 .unwrap_or_default();
             let foreground = popup_foreground(target_disposition);
+            // A link opened "in a new tab" (`target=_blank`, ⌘-click) never
+            // reaches `on_popup_browser_view_created` in Chrome style: Chromium
+            // opened its own top-level window for it (found live). Those carry
+            // no script relationship worth keeping, so cancel Chromium's window
+            // and hand the host the URL to open as a tab. Scripted popups
+            // (`window.open`, NEW_POPUP/NEW_WINDOW) keep the adoption path and
+            // their `window.opener`.
+            if opens_as_host_tab(target_disposition) && !url.is_empty() {
+                let mut s = locked(&self.shared);
+                s.open_requests.push((url.clone(), foreground));
+                s.events.push(WebEvent::PopupOpened { url, foreground });
+                return 1;
+            }
             let parent_view = locked(&self.shared).parent_view;
             // The popup's own page: hidden at zero size until the host tabs
             // it, with no pending URL (CEF is already navigating it — see
@@ -2390,5 +2411,13 @@ mod tests {
         ] {
             assert!(!popup_foreground(disposition), "{disposition:?} should open behind");
         }
+    }
+
+    #[test]
+    fn links_opened_in_a_new_tab_become_host_tabs_but_scripted_popups_do_not() {
+        assert!(opens_as_host_tab(WindowOpenDisposition::NEW_FOREGROUND_TAB));
+        assert!(opens_as_host_tab(WindowOpenDisposition::NEW_BACKGROUND_TAB));
+        assert!(!opens_as_host_tab(WindowOpenDisposition::NEW_POPUP));
+        assert!(!opens_as_host_tab(WindowOpenDisposition::NEW_WINDOW));
     }
 }
