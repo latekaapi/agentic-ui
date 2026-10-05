@@ -156,6 +156,32 @@ pub(crate) fn kick_pump() {
     unsafe { aui_cef_pump_schedule(0) };
 }
 
+/// Removes Chromium's own session-restore data from the profile before CEF
+/// starts. The host restores its tabs itself; Chromium's copy is never wanted.
+/// Found live (2026-10-06): an unclean exit leaves `exit_type: Crashed`, and
+/// at the next launch Chrome-style CEF reopened every saved page from
+/// `Default/Sessions` as its OWN standalone browser windows (one visible
+/// "about:blank" window with a toolbar, the rest hidden) outside the host.
+/// Returns the paths it removed.
+pub fn discard_chromium_session(cache_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let profile = cache_dir.join("Default");
+    let mut removed = Vec::new();
+    for name in ["Sessions", "Current Session", "Current Tabs", "Last Session", "Last Tabs"] {
+        let path = profile.join(name);
+        let gone = if path.is_dir() {
+            std::fs::remove_dir_all(&path).is_ok()
+        } else if path.exists() {
+            std::fs::remove_file(&path).is_ok()
+        } else {
+            false
+        };
+        if gone {
+            removed.push(path);
+        }
+    }
+    removed
+}
+
 /// Initialises CEF once, lazily. Must run on the main thread after the app's
 /// run loop has started.
 pub fn ensure_initialized() -> Result<(), String> {
@@ -170,6 +196,7 @@ pub fn ensure_initialized() -> Result<(), String> {
     let started = Instant::now();
     let conformance = unsafe { aui_cef_install_app_conformance() };
     unsafe { aui_cef_pump_start(pump_work) };
+    discard_chromium_session(&config.cache_dir);
     let cache = config.cache_dir.to_string_lossy().into_owned();
     let log = config.log_file.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
     let settings = Settings {
@@ -262,4 +289,28 @@ pub fn run_helper() -> i32 {
     let code = execute_process(Some(args.as_main_args()), None::<&mut App>, std::ptr::null_mut());
     drop(loader);
     code
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::discard_chromium_session;
+
+    #[test]
+    fn chromium_session_data_is_removed_and_nothing_else() {
+        let root = std::env::temp_dir().join(format!("aui-cef-session-{}", std::process::id()));
+        let profile = root.join("Default");
+        std::fs::create_dir_all(profile.join("Sessions")).unwrap();
+        std::fs::write(profile.join("Sessions/Session_1"), b"x").unwrap();
+        std::fs::write(profile.join("Current Session"), b"x").unwrap();
+        std::fs::write(profile.join("Preferences"), b"{}").unwrap();
+        std::fs::create_dir_all(profile.join("Local Storage")).unwrap();
+        let removed = discard_chromium_session(&root);
+        assert_eq!(removed.len(), 2, "{removed:?}");
+        assert!(!profile.join("Sessions").exists());
+        assert!(!profile.join("Current Session").exists());
+        assert!(profile.join("Preferences").exists(), "settings are kept");
+        assert!(profile.join("Local Storage").exists(), "site data is kept");
+        assert!(discard_chromium_session(&root).is_empty(), "a second run finds nothing");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
