@@ -345,6 +345,24 @@ pub fn chrome_command_allowed(id: i32) -> bool {
     )
 }
 
+/// Maps a context-menu command id to the tab it should open as: `Some(false)`
+/// means "open this URL in a background tab" (handled by the context-menu
+/// handler through `take_open_requests`), `None` means Chromium handles the
+/// command itself.
+///
+/// Every [`OPEN_IN_NEW`] "open in new …" id (plus 57316, the same family
+/// outside the menu range) maps to a background tab: that is where Chromium
+/// puts context-menu tabs, and a "new window"/incognito choice degrades to a
+/// normal background tab — Baaz owns no other window to put it in. Pure, so
+/// the mapping is unit-testable without a browser.
+pub fn context_menu_open_foreground(command_id: i32) -> Option<bool> {
+    if OPEN_IN_NEW.contains(&command_id) || command_id == 57316 {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 /// Records a blocked Chrome command id for [`take_blocked_commands`]: at most
 /// 64 entries (oldest dropped), logged at most once per second per id.
 pub(crate) fn record_blocked_command(id: i32) {
@@ -586,6 +604,23 @@ mod tests {
         deliver_keystroke(queued);
         assert_eq!(claim_keystroke("cmd-k"), None);
         clear_key_router();
+    }
+
+    #[test]
+    fn context_menu_open_ids_become_background_tabs() {
+        // Every "open in new …" id lands as a background-tab request …
+        for id in [50100, 50101, 50102, 50108, 50109, 50111, 50113, 50123, 50124, 50125, 50135, 50136, 50169, 50190, 50191, 50192, 57316] {
+            assert_eq!(context_menu_open_foreground(id), Some(false), "{id} should open a background tab");
+        }
+        // … including the named ones from the task: new tab, new window,
+        // incognito, image/audio-video/search in a new tab.
+        for id in [50100, 50101, 50102, 50123, 50125, 50136, 50192] {
+            assert_eq!(context_menu_open_foreground(id), Some(false));
+        }
+        // Ordinary menu items and non-menu commands stay with Chromium.
+        for id in [50154, 50000, 33002, 36001, 40004] {
+            assert_eq!(context_menu_open_foreground(id), None, "{id} should reach Chromium");
+        }
     }
 
     #[test]

@@ -48,13 +48,18 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, Weak};
+use std::time::Instant;
 
 use aui::workbench::Annotation;
 use aui_webview::backend::OUTER_HTML_LIMIT;
 use aui_webview::wry_backend::navigation_allowed;
-use aui_webview::{BackendFeature, ElementInfo, FindState, PageSecurity, WebBackend, WebEvent, ANNOTATOR_JS};
+use aui_webview::{
+    BackendFeature, DownloadState, DownloadStatus, ElementInfo, FindState, PageSecurity, PermissionDecision, PermissionKind, PermissionRequest, WebBackend, WebEvent,
+    ANNOTATOR_JS, download_emit_due, sanitize_download_name, unique_download_name,
+};
 use base64::Engine as _;
 use cef::*;
 use gpui::SharedString;
@@ -120,6 +125,30 @@ struct Shared {
     /// How many audio streams are currently open. The tab reads as audible
     /// while this is non-zero.
     audio_streams: u32,
+    /// Popups the host has not taken yet ([`CefBackend::take_popups`]),
+    /// oldest first.
+    popups: Vec<QueuedPopup>,
+    /// Popups `on_before_popup` announced but
+    /// `on_popup_browser_view_created` has not hosted yet, as
+    /// `(popup_id, popup)`.
+    pending_popups: Vec<(i32, QueuedPopup)>,
+    /// "Open this URL" requests from the context menu
+    /// ([`WebBackend::take_open_requests`]), oldest first.
+    open_requests: Vec<(String, bool)>,
+    /// The link (else media source) URL the open context menu points at, as
+    /// `on_before_context_menu` last saw it.
+    menu_link: Option<String>,
+    /// Permission callbacks waiting for [`WebBackend::answer_permission`],
+    /// by prompt id.
+    permissions: HashMap<u64, StoredPermission>,
+    /// The next host-minted permission id (media access has no engine id).
+    next_permission_id: u64,
+    /// Download cancel callbacks, by engine download id.
+    dl_callbacks: HashMap<u32, DownloadItemCallback>,
+    /// When each download last reported, and what state it reported.
+    dl_emit: HashMap<u32, (Instant, DownloadStatus)>,
+    /// Where each download writes, by engine download id.
+    dl_meta: HashMap<u32, DlMeta>,
     /// The last progress pushed, so repeats under 0.02 stay quiet.
     last_progress: Option<f32>,
     /// The last favicon and security pushed, so unchanged repeats stay quiet.
@@ -127,14 +156,113 @@ struct Shared {
     last_security: Option<PageSecurity>,
 }
 
-fn locked(shared: &Mutex<Shared>) -> std::sync::MutexGuard<'_, Shared> {
-    match shared.lock() {
+fn locked<T>(slot: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    match slot.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     }
 }
 
 type Page = Arc<Mutex<Shared>>;
+
+/// A popup page the opener queued for the host to tab.
+pub struct PopupTab {
+    /// The popup as its own backend: a frameless child-window host over the
+    /// opener's parent, starting hidden at zero size. The host tabs it by
+    /// pushing bounds and visibility, like any page.
+    pub backend: CefBackend,
+    /// Where the popup points.
+    pub url: String,
+    /// Where the opener pointed when the popup was made.
+    pub opener_url: String,
+    /// Whether the popup asked for the foreground tab.
+    pub foreground: bool,
+}
+
+/// A popup page waiting on its opener: the page plus what
+/// [`CefBackend::take_popups`] reports for it.
+struct QueuedPopup {
+    page: Page,
+    url: String,
+    opener_url: String,
+    foreground: bool,
+}
+
+impl Drop for QueuedPopup {
+    /// An orphaned popup — aborted, failed to host, opener gone — closes its
+    /// page on the way out, so no hidden browser lingers. A queued popup the
+    /// host takes goes through [`QueuedPopup::into_taken`], never dropped.
+    fn drop(&mut self) {
+        close(&self.page);
+    }
+}
+
+impl QueuedPopup {
+    /// Moves the parts out for the host tab without closing the page: the
+    /// tab owns it now.
+    fn into_taken(self) -> (Page, String, String, bool) {
+        let taken = std::mem::ManuallyDrop::new(self);
+        // Safety: each field is read out exactly once, and `taken` — which
+        // would run no `Drop` anyway — is never used again.
+        unsafe {
+            let page = std::ptr::read(&taken.page);
+            let url = std::ptr::read(&taken.url);
+            let opener_url = std::ptr::read(&taken.opener_url);
+            (page, url, opener_url, taken.foreground)
+        }
+    }
+}
+
+/// Takes the staged popup with `popup_id`, wherever it sits in the queue —
+/// identity, not position, so concurrent popups claim their own entry however
+/// CEF interleaves them. Pure, so the matching is unit-testable without CEF.
+fn take_pending_popup_by_id(pending: &mut Vec<(i32, QueuedPopup)>, popup_id: i32) -> Option<QueuedPopup> {
+    pending.iter().position(|(id, _)| *id == popup_id).map(|at| pending.remove(at).1)
+}
+
+/// A popup page's [`Shared`]: hidden at zero size until the host tabs it, and
+/// with no pending URL. CEF is already navigating the popup browser, so a
+/// pending URL would navigate it twice — breaking POST/form-target popups,
+/// re-requesting OAuth URLs, and wiping `about:blank` popups the opener
+/// writes into. The setup scripts still register; [`release_first_navigation`]
+/// then only marks the page ready. Pure, so the no-reload rule is
+/// unit-testable without CEF.
+fn new_popup_shared(parent_view: usize) -> Shared {
+    Shared { parent_view, bounds: ((0.0, 0.0), (0.0, 0.0)), visible: false, ..Shared::default() }
+}
+
+/// A permission callback waiting for the host's answer.
+#[derive(Clone)]
+enum StoredPermission {
+    /// A prompt callback: answered with accept/deny/dismiss.
+    Prompt(PermissionPromptCallback),
+    /// A media-access callback: continued with `allowed` on allow,
+    /// cancelled on deny or dismiss.
+    Media { callback: MediaAccessCallback, allowed: u32 },
+}
+
+/// Where one download writes.
+#[derive(Clone)]
+struct DlMeta {
+    url: String,
+    file_name: String,
+    path: String,
+}
+
+/// The folder downloads land in, runtime-wide (every page).
+static DOWNLOAD_DIR: std::sync::OnceLock<Mutex<PathBuf>> = std::sync::OnceLock::new();
+
+fn download_dir_slot() -> &'static Mutex<PathBuf> {
+    DOWNLOAD_DIR.get_or_init(|| Mutex::new(default_download_dir()))
+}
+
+fn default_download_dir() -> PathBuf {
+    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp")).join("Downloads")
+}
+
+fn current_download_dir() -> PathBuf {
+    locked(download_dir_slot()).clone()
+}
 
 // ------------------------------------------------------------------ actions (lock released before acting)
 
@@ -494,6 +622,163 @@ fn push_security_deduped(shared: &mut Shared, security: PageSecurity) {
     shared.events.push(WebEvent::Security(security));
 }
 
+/// Maps engine permission bits to [`PermissionKind`]s, in the
+/// [`PermissionRequest`] order (camera, microphone, geolocation,
+/// notifications, clipboard, MIDI, then the rest by bit, one [`PermissionKind::Other`]
+/// per unknown set bit). Pure, so the mapping is unit-testable without a
+/// browser.
+pub fn permission_kinds_from_bits(bits: u32) -> Vec<PermissionKind> {
+    let camera = PermissionRequestTypes::CAMERA_STREAM.get_raw() | PermissionRequestTypes::CAMERA_PAN_TILT_ZOOM.get_raw();
+    let microphone = PermissionRequestTypes::MIC_STREAM.get_raw();
+    let geolocation = PermissionRequestTypes::GEOLOCATION.get_raw();
+    let notifications = PermissionRequestTypes::NOTIFICATIONS.get_raw();
+    let clipboard = PermissionRequestTypes::CLIPBOARD.get_raw();
+    let midi = PermissionRequestTypes::MIDI_SYSEX.get_raw();
+    let mut kinds = Vec::new();
+    if bits & camera != 0 {
+        kinds.push(PermissionKind::Camera);
+    }
+    if bits & microphone != 0 {
+        kinds.push(PermissionKind::Microphone);
+    }
+    if bits & geolocation != 0 {
+        kinds.push(PermissionKind::Geolocation);
+    }
+    if bits & notifications != 0 {
+        kinds.push(PermissionKind::Notifications);
+    }
+    if bits & clipboard != 0 {
+        kinds.push(PermissionKind::Clipboard);
+    }
+    if bits & midi != 0 {
+        kinds.push(PermissionKind::Midi);
+    }
+    let rest = bits & !(camera | microphone | geolocation | notifications | clipboard | midi);
+    for i in 0..32 {
+        if rest & (1u32 << i) != 0 {
+            kinds.push(PermissionKind::Other(1u32 << i));
+        }
+    }
+    kinds
+}
+
+/// Maps media-access permission bits to [`PermissionKind`]s: device and
+/// desktop video capture read as camera, device and desktop audio capture as
+/// microphone, anything else as [`PermissionKind::Other`]. Pure, so the
+/// mapping is unit-testable without a browser.
+pub fn media_kinds_from_bits(bits: u32) -> Vec<PermissionKind> {
+    let audio =
+        MediaAccessPermissionTypes::DEVICE_AUDIO_CAPTURE.get_raw() | MediaAccessPermissionTypes::DESKTOP_AUDIO_CAPTURE.get_raw();
+    let video =
+        MediaAccessPermissionTypes::DEVICE_VIDEO_CAPTURE.get_raw() | MediaAccessPermissionTypes::DESKTOP_VIDEO_CAPTURE.get_raw();
+    let mut kinds = Vec::new();
+    if bits & video != 0 {
+        kinds.push(PermissionKind::Camera);
+    }
+    if bits & audio != 0 {
+        kinds.push(PermissionKind::Microphone);
+    }
+    let rest = bits & !(audio | video);
+    for i in 0..32 {
+        if rest & (1u32 << i) != 0 {
+            kinds.push(PermissionKind::Other(1u32 << i));
+        }
+    }
+    kinds
+}
+
+/// Whether a popup disposition asks for the foreground tab: a new foreground
+/// tab — and a new window, which would have shown itself — does; background
+/// tabs, plain popups and everything else open behind. Pure, so the rule is
+/// unit-testable without a browser.
+fn popup_foreground(disposition: WindowOpenDisposition) -> bool {
+    disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB || disposition == WindowOpenDisposition::NEW_WINDOW
+}
+
+/// Forgets every pending permission prompt (both kinds), answering the ids
+/// the host must drop. Sorted, so the dismissals report deterministically.
+/// Dropping a stored callback un-runs it: the engine already moved on
+/// (navigated, terminated, closed), matching `on_dismiss_permission_prompt`.
+/// Holds no lock itself; pure over the page state, so the cleanup is
+/// unit-testable without CEF.
+fn clear_permissions(shared: &mut Shared) {
+    if shared.permissions.is_empty() {
+        return;
+    }
+    let mut ids: Vec<u64> = shared.permissions.keys().copied().collect();
+    ids.sort_unstable();
+    shared.permissions.clear();
+    for id in ids {
+        shared.events.push(WebEvent::PermissionDismissed(id));
+    }
+}
+
+/// The [`DownloadState`] for an update that arrived before
+/// `on_before_download` staged any metadata: what the item reported, with
+/// blanks where only metadata knows (URL, file name, path). Pure, so the
+/// early-terminal rule is unit-testable without CEF.
+fn early_download_state(id: u32, received: u64, total: Option<u64>, state: DownloadStatus) -> DownloadState {
+    DownloadState { id, url: String::new(), file_name: String::new(), path: String::new(), received, total, state }
+}
+
+/// Applies an update for `id` that arrived before `on_before_download`
+/// staged metadata. A terminal update (complete, cancelled, failed) reports
+/// what is known and keeps no callback; anything still downloading only parks
+/// its callback for the metadata to meet. Pure over the page state (the
+/// callback travels as `Option`, so tests exercise the decision with `None`).
+fn apply_pre_meta_update(
+    shared: &mut Shared,
+    id: u32,
+    received: u64,
+    total: Option<u64>,
+    state: DownloadStatus,
+    callback: Option<DownloadItemCallback>,
+) {
+    match state {
+        DownloadStatus::Downloading => {
+            if let Some(callback) = callback {
+                shared.dl_callbacks.insert(id, callback);
+            }
+        }
+        _ => {
+            shared.dl_callbacks.remove(&id);
+            shared.events.push(WebEvent::Download(early_download_state(id, received, total, state)));
+        }
+    }
+}
+
+/// Picks a free name for `base` under `dir` and reserves it with an empty
+/// `create_new` file before CEF is told to write there, so concurrent
+/// same-name downloads cannot clobber each other. A lost reservation race
+/// numbers up and retries; any other filesystem error keeps the last name
+/// and lets the download itself report the failure. Not pure (filesystem),
+/// so tests run it against a scratch directory.
+fn reserve_download_path(dir: &std::path::Path, base: &str, taken: &dyn Fn(&str) -> bool) -> (String, std::path::PathBuf) {
+    let mut file_name = unique_download_name(taken, base);
+    loop {
+        let path = dir.join(&file_name);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(_) => return (file_name, path),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                let previous = file_name.clone();
+                file_name = unique_download_name(&|name| name == previous.as_str() || taken(name), base);
+            }
+            Err(e) => {
+                eprintln!("aui-cef: could not reserve {}: {e}", path.display());
+                return (file_name, path);
+            }
+        }
+    }
+}
+
+/// Whether a terminal update must remove the reserved placeholder: cancelled
+/// before any data arrived, the empty `create_new` file is still ours. A
+/// completed or failed download owns its bytes, and any arrivals mean CEF
+/// wrote. Pure, so the rule is unit-testable without CEF.
+fn download_placeholder_cleanup(state: DownloadStatus, received: u64) -> bool {
+    state == DownloadStatus::Cancelled && received == 0
+}
+
 // ------------------------------------------------------------------ CEF handlers
 
 wrap_client! {
@@ -516,6 +801,18 @@ wrap_client! {
 
         fn request_handler(&self) -> Option<RequestHandler> {
             Some(AuiRequest::new(self.shared.clone()))
+        }
+
+        fn permission_handler(&self) -> Option<PermissionHandler> {
+            Some(AuiPermissions::new(self.shared.clone()))
+        }
+
+        fn download_handler(&self) -> Option<DownloadHandler> {
+            Some(AuiDownloads::new(self.shared.clone()))
+        }
+
+        fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
+            Some(AuiContextMenu::new(self.shared.clone()))
         }
 
         fn audio_handler(&self) -> Option<AudioHandler> {
@@ -677,6 +974,60 @@ wrap_life_span_handler! {
             s.closed = true;
             s.registration = None;
             s.browser = None;
+            // A closed page answers nothing: forget every pending prompt.
+            clear_permissions(&mut s);
+        }
+
+        // Announces a popup without cancelling it: the page is created here
+        // (its own hidden child-window host, bound to a fresh client so the
+        // popup browser never reports to the opener) and hosted as a tab in
+        // `on_popup_browser_view_created`. Holds no lock across CEF calls.
+        #[allow(clippy::too_many_arguments)]
+        fn on_before_popup(
+            &self,
+            browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            popup_id: ::std::os::raw::c_int,
+            target_url: Option<&CefString>,
+            _target_frame_name: Option<&CefString>,
+            target_disposition: WindowOpenDisposition,
+            _user_gesture: ::std::os::raw::c_int,
+            _popup_features: Option<&PopupFeatures>,
+            _window_info: Option<&mut WindowInfo>,
+            client: Option<&mut Option<Client>>,
+            _settings: Option<&mut BrowserSettings>,
+            _extra_info: Option<&mut Option<DictionaryValue>>,
+            _no_javascript_access: Option<&mut ::std::os::raw::c_int>,
+        ) -> ::std::os::raw::c_int {
+            // CEF reads first: the popup URL and the opener URL are engine
+            // calls, never made under the page Mutex.
+            let url = target_url.map(|u| u.to_string()).unwrap_or_default();
+            let opener_url = browser
+                .as_deref()
+                .and_then(|b| b.main_frame())
+                .map(|f| CefString::from(&f.url()).to_string())
+                .unwrap_or_default();
+            let foreground = popup_foreground(target_disposition);
+            let parent_view = locked(&self.shared).parent_view;
+            // The popup's own page: hidden at zero size until the host tabs
+            // it, with no pending URL (CEF is already navigating it — see
+            // `new_popup_shared`). Its client is swapped in below so the
+            // popup browser binds here — never to the opener — while
+            // `window.opener` still points at the opener.
+            let page: Page = Arc::new(Mutex::new(new_popup_shared(parent_view)));
+            OPEN.with(|open| open.borrow_mut().push(Arc::downgrade(&page)));
+            if let Some(client) = client {
+                *client = Some(AuiClient::new(page.clone()));
+            }
+            locked(&self.shared).pending_popups.push((popup_id, QueuedPopup { page, url, opener_url, foreground }));
+            // Never cancel: cancelling would break `window.opener`. The popup
+            // becomes a host tab in `on_popup_browser_view_created`, so no
+            // top-level window ever appears either.
+            0
+        }
+
+        fn on_before_popup_aborted(&self, _browser: Option<&mut Browser>, popup_id: ::std::os::raw::c_int) {
+            locked(&self.shared).pending_popups.retain(|(id, _)| *id != popup_id);
         }
     }
 }
@@ -690,11 +1041,16 @@ wrap_request_handler! {
         fn on_before_browse(
             &self,
             _browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
+            frame: Option<&mut Frame>,
             request: Option<&mut Request>,
             _user_gesture: ::std::os::raw::c_int,
             _is_redirect: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
+            // A main-frame navigation leaves every pending prompt behind.
+            let main = frame.map(|f| f.is_main() == 1).unwrap_or(true);
+            if main {
+                clear_permissions(&mut locked(&self.shared));
+            }
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
             // Same scheme rule as the wry backend: a page (or an agent clicking
             // in it) never reaches `javascript:`, `data:`, app schemes.
@@ -716,12 +1072,266 @@ wrap_request_handler! {
             let detail = error_string.map(|e| e.to_string()).unwrap_or_default();
             let reason = crash_reason(status, error_code, &detail);
             let mut s = locked(&self.shared);
+            // A dead renderer answers nothing: forget every pending prompt.
+            clear_permissions(&mut s);
             // A dead renderer never finishes its load; end it now so the
             // toolbar leaves its loading state. `reload` recovers the page.
             // The load edge goes first: the crash is the batch's last word,
             // so a fold that clears crash state on load edges still shows it.
             s.events.push(WebEvent::Loading(false));
             s.events.push(WebEvent::Crashed(reason));
+        }
+    }
+}
+
+// Turns engine permission asks into the host's own UI. Both entry points
+// return 1 (handled) so Chromium shows no bubble of its own; the host
+// answers later through [`WebBackend::answer_permission`], which runs the
+// stored callback as a CEF UI task — never under the page Mutex.
+wrap_permission_handler! {
+    struct AuiPermissions {
+        shared: Page,
+    }
+
+    impl PermissionHandler {
+        fn on_show_permission_prompt(
+            &self,
+            _browser: Option<&mut Browser>,
+            prompt_id: u64,
+            requesting_origin: Option<&CefString>,
+            requested_permissions: u32,
+            callback: Option<&mut PermissionPromptCallback>,
+        ) -> ::std::os::raw::c_int {
+            // Plain copies first; the lock only stores and queues.
+            let origin = requesting_origin.map(|o| o.to_string()).unwrap_or_default();
+            let kinds = permission_kinds_from_bits(requested_permissions);
+            let mut s = locked(&self.shared);
+            if let Some(callback) = callback {
+                s.permissions.insert(prompt_id, StoredPermission::Prompt(callback.clone()));
+            }
+            s.events.push(WebEvent::Permission(PermissionRequest { id: prompt_id, origin, kinds }));
+            1
+        }
+
+        fn on_dismiss_permission_prompt(
+            &self,
+            _browser: Option<&mut Browser>,
+            prompt_id: u64,
+            _result: PermissionRequestResult,
+        ) {
+            let mut s = locked(&self.shared);
+            s.permissions.remove(&prompt_id);
+            s.events.push(WebEvent::PermissionDismissed(prompt_id));
+        }
+
+        fn on_request_media_access_permission(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            requesting_origin: Option<&CefString>,
+            requested_permissions: u32,
+            callback: Option<&mut MediaAccessCallback>,
+        ) -> ::std::os::raw::c_int {
+            let origin = requesting_origin.map(|o| o.to_string()).unwrap_or_default();
+            let kinds = media_kinds_from_bits(requested_permissions);
+            let mut s = locked(&self.shared);
+            // Media access has no engine id: mint one far above the prompt
+            // range instead of risking a clash with `prompt_id`s.
+            if s.next_permission_id < 1u64 << 48 {
+                s.next_permission_id = 1u64 << 48;
+            }
+            let id = s.next_permission_id;
+            s.next_permission_id += 1;
+            if let Some(callback) = callback {
+                s.permissions.insert(id, StoredPermission::Media { callback: callback.clone(), allowed: requested_permissions });
+            }
+            s.events.push(WebEvent::Permission(PermissionRequest { id, origin, kinds }));
+            1
+        }
+    }
+}
+
+// Saves downloads to the host-chosen folder with no dialog, reporting them
+// as [`WebEvent::Download`]. `can_download` always proceeds; the path is
+// picked (and the callback run) synchronously in `on_before_download`;
+// `on_download_updated` coalesces progress to one report per id per
+// 250 ms except state changes. Holds no lock across CEF or filesystem calls.
+wrap_download_handler! {
+    struct AuiDownloads {
+        shared: Page,
+    }
+
+    impl DownloadHandler {
+        fn can_download(
+            &self,
+            _browser: Option<&mut Browser>,
+            _url: Option<&CefString>,
+            _request_method: Option<&CefString>,
+        ) -> ::std::os::raw::c_int {
+            1
+        }
+
+        fn on_before_download(
+            &self,
+            _browser: Option<&mut Browser>,
+            download_item: Option<&mut DownloadItem>,
+            suggested_name: Option<&CefString>,
+            callback: Option<&mut BeforeDownloadCallback>,
+        ) -> ::std::os::raw::c_int {
+            let (Some(item), Some(callback)) = (download_item, callback) else { return 0 };
+            // CEF reads first — all outside the lock.
+            let id = item.id();
+            let url = CefString::from(&item.url()).to_string();
+            let suggested = suggested_name.map(|name| name.to_string()).unwrap_or_default();
+            let dir = current_download_dir();
+            // Names held by in-flight downloads count as taken, and the
+            // suggestion is sanitised before it ever meets `dir.join`.
+            let inflight: Vec<String> = locked(&self.shared).dl_meta.values().map(|meta| meta.file_name.clone()).collect();
+            let base = sanitize_download_name(&suggested);
+            let taken = |name: &str| dir.join(name).exists() || inflight.iter().any(|held| held == name);
+            // Reserve the chosen path before `cont`, so a concurrent
+            // same-name download numbers up instead of clobbering. CEF
+            // writes the download into the `cont` path, truncating the empty
+            // reservation file — unverifiable without a live browser, so if
+            // relay ever shows CEF refusing an existing path instead, switch
+            // this reservation to a `<name>.baazpart` sentinel (reserved but
+            // never handed to CEF) and remove it on terminal updates.
+            let (file_name, reserved) = reserve_download_path(&dir, &base, &taken);
+            let path = reserved.to_string_lossy().into_owned();
+            // No dialog (`show_dialog` 0): the host chose the folder.
+            callback.cont(Some(&CefString::from(path.as_str())), 0);
+            let mut s = locked(&self.shared);
+            s.dl_meta.insert(id, DlMeta { url: url.clone(), file_name: file_name.clone(), path: path.clone() });
+            s.dl_emit.insert(id, (Instant::now(), DownloadStatus::Downloading));
+            s.events.push(WebEvent::Download(DownloadState {
+                id,
+                url,
+                file_name,
+                path,
+                received: 0,
+                total: None,
+                state: DownloadStatus::Downloading,
+            }));
+            1
+        }
+
+        fn on_download_updated(
+            &self,
+            _browser: Option<&mut Browser>,
+            download_item: Option<&mut DownloadItem>,
+            callback: Option<&mut DownloadItemCallback>,
+        ) {
+            let (Some(item), Some(callback)) = (download_item, callback) else { return };
+            // CEF reads first; nothing below runs under the page Mutex.
+            let id = item.id();
+            let received = item.received_bytes().max(0) as u64;
+            let total = match item.total_bytes() {
+                n if n > 0 => Some(n as u64),
+                _ => None,
+            };
+            let state = if item.is_complete() == 1 {
+                DownloadStatus::Complete
+            } else if item.is_canceled() == 1 {
+                DownloadStatus::Cancelled
+            } else if item.is_interrupted() == 1 {
+                DownloadStatus::Failed
+            } else {
+                DownloadStatus::Downloading
+            };
+            let callback = callback.clone();
+            let mut s = locked(&self.shared);
+            // Updates before `on_before_download` chose a path: a terminal
+            // one reports what is known and keeps no callback; anything
+            // still downloading only parks its callback.
+            if !s.dl_meta.contains_key(&id) {
+                apply_pre_meta_update(&mut s, id, received, total, state, Some(callback));
+                return;
+            }
+            let (elapsed, changed) = match s.dl_emit.get(&id) {
+                None => (None, true),
+                Some((at, known)) => {
+                    let elapsed = at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                    (Some(elapsed), *known != state)
+                }
+            };
+            s.dl_callbacks.insert(id, callback);
+            if download_emit_due(elapsed, changed) {
+                s.dl_emit.insert(id, (Instant::now(), state));
+                if let Some(meta) = s.dl_meta.get(&id).cloned() {
+                    s.events.push(WebEvent::Download(DownloadState {
+                        id,
+                        url: meta.url,
+                        file_name: meta.file_name,
+                        path: meta.path,
+                        received,
+                        total,
+                        state,
+                    }));
+                }
+            }
+            if !matches!(state, DownloadStatus::Downloading) {
+                // Terminal: the host's list keeps the last event; the live
+                // callbacks go away with the download.
+                s.dl_callbacks.remove(&id);
+                s.dl_emit.remove(&id);
+                let meta = s.dl_meta.remove(&id);
+                // Cancelled before any data arrived: the reservation file is
+                // still ours — remove it outside the lock.
+                let stale = match (&meta, download_placeholder_cleanup(state, received)) {
+                    (Some(meta), true) => Some(meta.path.clone()),
+                    _ => None,
+                };
+                drop(s);
+                if let Some(stale) = stale {
+                    let _ = std::fs::remove_file(&stale);
+                }
+            }
+        }
+    }
+}
+
+// Turns the context menu's "open in new …" commands into host tabs. The link
+// (else media source) URL is copied out in `on_before_context_menu` — params
+// die with that call — and the command handler queues an open request plus a
+// [`WebEvent::PopupOpened`], returning handled so Chromium opens nothing of
+// its own. Every other menu command stays with Chromium. Holds no lock
+// across CEF calls.
+wrap_context_menu_handler! {
+    struct AuiContextMenu {
+        shared: Page,
+    }
+
+    impl ContextMenuHandler {
+        fn on_before_context_menu(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            params: Option<&mut ContextMenuParams>,
+            _model: Option<&mut MenuModel>,
+        ) {
+            let url = params.map(|p| {
+                let link = CefString::from(&p.link_url()).to_string();
+                if link.is_empty() { CefString::from(&p.source_url()).to_string() } else { link }
+            });
+            locked(&self.shared).menu_link = url.filter(|u| !u.is_empty());
+        }
+
+        fn on_context_menu_command(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _params: Option<&mut ContextMenuParams>,
+            command_id: ::std::os::raw::c_int,
+            _event_flags: EventFlags,
+        ) -> ::std::os::raw::c_int {
+            let Some(foreground) = crate::keys::context_menu_open_foreground(command_id) else { return 0 };
+            // Brief lock, no CEF under it.
+            let mut s = locked(&self.shared);
+            let Some(url) = s.menu_link.clone() else { return 1 };
+            s.open_requests.push((url.clone(), foreground));
+            s.events.push(WebEvent::PopupOpened { url, foreground });
+            // Handled: Chromium opens nothing of its own.
+            1
         }
     }
 }
@@ -912,9 +1522,32 @@ wrap_dev_tools_message_observer! {
     }
 }
 
+/// Peeks at the oldest popup `page` staged on, as `(popup_id, popup page)`.
+/// The entry stays staged: `on_popup_browser_view_created` claims it by id,
+/// so an abort in between still finds and closes it. Brief lock, no CEF.
+fn peek_oldest_staged(page: &Page) -> Option<(i32, Page)> {
+    locked(page).pending_popups.first().map(|(id, queued)| (*id, queued.page.clone()))
+}
+
+/// The oldest staged popup on any open page, as `(owner, popup_id, popup
+/// page)`: the fallback when the parent view's delegate is bound to a page
+/// with nothing staged of its own. Brief locks, no CEF.
+fn staged_elsewhere() -> Option<(Page, i32, Page)> {
+    let pages: Vec<Page> = OPEN.with(|open| open.borrow().iter().filter_map(Weak::upgrade).collect());
+    pages.into_iter().filter_map(|page| peek_oldest_staged(&page).map(|(id, popup)| (page, id, popup))).next()
+}
+
 wrap_browser_view_delegate! {
     struct AuiViewDelegate {
-        _unit: (),
+        shared: Page,
+        // The page that staged this popup's entry (the opener, or the popup
+        // itself for a popup of a popup); the page's own delegate carries
+        // itself here.
+        owner: Page,
+        // The `on_before_popup` id this delegate was made for, carried to
+        // `on_popup_browser_view_created` with the popup view. `None` for a
+        // page's own delegate and for fallbacks with nothing staged.
+        popup_id: Option<i32>,
     }
 
     impl ViewDelegate {}
@@ -926,6 +1559,74 @@ wrap_browser_view_delegate! {
 
         fn browser_runtime_style(&self) -> RuntimeStyle {
             RuntimeStyle::CHROME
+        }
+
+        fn delegate_for_popup_browser_view(
+            &self,
+            _browser_view: Option<&mut BrowserView>,
+            _settings: Option<&BrowserSettings>,
+            _client: Option<&mut Client>,
+            is_devtools: ::std::os::raw::c_int,
+        ) -> Option<BrowserViewDelegate> {
+            if is_devtools == 1 {
+                return None;
+            }
+            // The page that owns the staged entry — this page first (a popup
+            // of a popup stages on its own page, whose delegate is already
+            // popup-bound), else any open page still staging one.
+            let staged = peek_oldest_staged(&self.shared)
+                .map(|(id, popup)| (self.shared.clone(), id, popup))
+                .or_else(staged_elsewhere);
+            let Some((owner, popup_id, popup)) = staged else {
+                // Nothing staged anywhere: stay opener-bound without an id,
+                // so the created callback can only decline.
+                return Some(AuiViewDelegate::new(self.shared.clone(), self.shared.clone(), None));
+            };
+            // Bind to the popup's page — never the opener's — so a nested
+            // popup stages on (and is claimed from) its own page instead of
+            // escaping as a stray top-level window.
+            Some(AuiViewDelegate::new(popup, owner, Some(popup_id)))
+        }
+
+        // Hosts the popup view in our own frameless child window — hidden at
+        // zero size until the host tabs it — and queues it on the page that
+        // staged it, returning handled so CEF creates no top-level window.
+        // Holds no lock across CEF calls.
+        fn on_popup_browser_view_created(
+            &self,
+            _browser_view: Option<&mut BrowserView>,
+            popup_browser_view: Option<&mut BrowserView>,
+            is_devtools: ::std::os::raw::c_int,
+        ) -> ::std::os::raw::c_int {
+            if is_devtools == 1 {
+                return 0;
+            }
+            let Some(popup_browser_view) = popup_browser_view else { return 0 };
+            // Claim this popup's staged entry by identity — never "oldest
+            // pending" — so concurrent popups cannot take each other's page.
+            // A miss means the popup was aborted or already claimed: decline,
+            // and there is no attributable entry to clear.
+            let queued = {
+                let mut owner = locked(&self.owner);
+                match self.popup_id.and_then(|id| take_pending_popup_by_id(&mut owner.pending_popups, id)) {
+                    Some(queued) => queued,
+                    None => return 0,
+                }
+            };
+            // Our own window around the popup view: frameless, never-main,
+            // adopted as a child of the host — the same host
+            // `AuiWindowDelegate` gives every page. CEF calls, lock released.
+            let mut window_delegate = AuiWindowDelegate::new(queued.page.clone(), RefCell::new(Some(popup_browser_view.clone())));
+            if window_create_top_level(Some(&mut window_delegate)).is_none() {
+                eprintln!("aui-cef: popup window_create_top_level failed");
+                // Closed, never queued: `QueuedPopup`'s `Drop` closes the page.
+                drop(queued);
+                return 0;
+            }
+            let mut owner = locked(&self.owner);
+            owner.events.push(WebEvent::PopupOpened { url: queued.url.clone(), foreground: queued.foreground });
+            owner.popups.push(queued);
+            1
         }
     }
 }
@@ -1054,7 +1755,8 @@ impl CefBackend {
                 ..Default::default()
             };
             let mut client = AuiClient::new(pending.clone());
-            let mut view_delegate = AuiViewDelegate::new(());
+            // The page's own delegate: owner and id both itself/empty.
+            let mut view_delegate = AuiViewDelegate::new(pending.clone(), pending.clone(), None);
             let Some(browser_view) = browser_view_create(
                 Some(&mut client),
                 Some(&CefString::from("about:blank")),
@@ -1073,10 +1775,40 @@ impl CefBackend {
         });
         Ok(Self { page })
     }
+
+    /// Takes the popup pages queued on this page since the last call, oldest
+    /// first. The host wraps each in a tab next to the opener.
+    pub fn take_popups(&mut self) -> Vec<PopupTab> {
+        std::mem::take(&mut locked(&self.page).popups)
+            .into_iter()
+            .map(|queued| {
+                let (page, url, opener_url, foreground) = queued.into_taken();
+                PopupTab { backend: CefBackend { page }, url, opener_url, foreground }
+            })
+            .collect()
+    }
+
+    /// Points download saves at `dir` (runtime-wide, for every page),
+    /// creating it first when it is missing. Defaults to `~/Downloads`.
+    pub fn set_download_dir(dir: PathBuf) {
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("aui-cef: could not create download dir {}: {e}", dir.display());
+        }
+        *locked(download_dir_slot()) = dir;
+    }
 }
 
 impl Drop for CefBackend {
     fn drop(&mut self) {
+        // Queued and still-staging popups orphan with their opener: dropping
+        // closes every one of their pages (`QueuedPopup`'s `Drop`).
+        let staged = {
+            let mut s = locked(&self.page);
+            let queued = std::mem::take(&mut s.popups);
+            let pending = std::mem::take(&mut s.pending_popups);
+            (queued, pending)
+        };
+        drop(staged);
         close(&self.page);
     }
 }
@@ -1263,6 +1995,44 @@ impl WebBackend for CefBackend {
     fn supports(&self, _feature: BackendFeature) -> bool {
         true
     }
+
+    fn take_popup_backends(&mut self) -> Vec<(String, bool, Box<dyn WebBackend>)> {
+        self.take_popups()
+            .into_iter()
+            .map(|popup| (popup.url, popup.foreground, Box::new(popup.backend) as Box<dyn WebBackend>))
+            .collect()
+    }
+
+    fn take_open_requests(&mut self) -> Vec<(String, bool)> {
+        std::mem::take(&mut locked(&self.page).open_requests)
+    }
+
+    fn answer_permission(&mut self, id: u64, decision: PermissionDecision) {
+        let stored = locked(&self.page).permissions.remove(&id);
+        let Some(stored) = stored else { return };
+        // The callback runs as a CEF UI task: never under the page Mutex.
+        on_cef_ui(move || match stored {
+            StoredPermission::Prompt(callback) => {
+                let result = match decision {
+                    PermissionDecision::Allow => PermissionRequestResult::ACCEPT,
+                    PermissionDecision::Deny => PermissionRequestResult::DENY,
+                    PermissionDecision::Dismiss => PermissionRequestResult::DISMISS,
+                };
+                callback.cont(result);
+            }
+            StoredPermission::Media { callback, allowed } => match decision {
+                PermissionDecision::Allow => callback.cont(allowed),
+                PermissionDecision::Deny | PermissionDecision::Dismiss => callback.cancel(),
+            },
+        });
+    }
+
+    fn cancel_download(&mut self, id: u32) {
+        let callback = locked(&self.page).dl_callbacks.remove(&id);
+        let Some(callback) = callback else { return };
+        // Never under the page Mutex.
+        on_cef_ui(move || callback.cancel());
+    }
 }
 
 #[cfg(test)]
@@ -1400,5 +2170,226 @@ mod tests {
         let s = locked(&page);
         assert!(s.ready);
         assert!(s.pending_url.is_none(), "taken for loading");
+    }
+
+    #[test]
+    fn permission_bits_map_to_kinds_in_request_order() {
+        use aui_webview::PermissionKind;
+        let camera = PermissionRequestTypes::CAMERA_STREAM.get_raw();
+        let mic = PermissionRequestTypes::MIC_STREAM.get_raw();
+        let geo = PermissionRequestTypes::GEOLOCATION.get_raw();
+        let notes = PermissionRequestTypes::NOTIFICATIONS.get_raw();
+        let clip = PermissionRequestTypes::CLIPBOARD.get_raw();
+        let midi = PermissionRequestTypes::MIDI_SYSEX.get_raw();
+        let pan_tilt = PermissionRequestTypes::CAMERA_PAN_TILT_ZOOM.get_raw();
+        assert!(permission_kinds_from_bits(0).is_empty());
+        assert_eq!(permission_kinds_from_bits(camera), vec![PermissionKind::Camera]);
+        // Pan/tilt/zoom is still the camera.
+        assert_eq!(permission_kinds_from_bits(pan_tilt), vec![PermissionKind::Camera]);
+        assert_eq!(permission_kinds_from_bits(mic), vec![PermissionKind::Microphone]);
+        assert_eq!(permission_kinds_from_bits(geo), vec![PermissionKind::Geolocation]);
+        assert_eq!(permission_kinds_from_bits(notes), vec![PermissionKind::Notifications]);
+        assert_eq!(permission_kinds_from_bits(clip), vec![PermissionKind::Clipboard]);
+        assert_eq!(permission_kinds_from_bits(midi), vec![PermissionKind::Midi]);
+        // Combined bits keep the request order whatever the input order.
+        assert_eq!(
+            permission_kinds_from_bits(midi | camera | geo),
+            vec![PermissionKind::Camera, PermissionKind::Geolocation, PermissionKind::Midi]
+        );
+        // Unknown bits survive one by one, after the known kinds.
+        let exotic = PermissionRequestTypes::SENSORS.get_raw();
+        assert_eq!(permission_kinds_from_bits(exotic), vec![PermissionKind::Other(exotic)]);
+        assert_eq!(
+            permission_kinds_from_bits(mic | exotic | camera),
+            vec![PermissionKind::Camera, PermissionKind::Microphone, PermissionKind::Other(exotic)]
+        );
+    }
+
+    #[test]
+    fn media_bits_map_to_camera_and_microphone() {
+        use aui_webview::PermissionKind;
+        let device_audio = MediaAccessPermissionTypes::DEVICE_AUDIO_CAPTURE.get_raw();
+        let device_video = MediaAccessPermissionTypes::DEVICE_VIDEO_CAPTURE.get_raw();
+        let desktop_audio = MediaAccessPermissionTypes::DESKTOP_AUDIO_CAPTURE.get_raw();
+        let desktop_video = MediaAccessPermissionTypes::DESKTOP_VIDEO_CAPTURE.get_raw();
+        assert!(media_kinds_from_bits(0).is_empty());
+        assert_eq!(media_kinds_from_bits(device_audio), vec![PermissionKind::Microphone]);
+        assert_eq!(media_kinds_from_bits(device_video), vec![PermissionKind::Camera]);
+        assert_eq!(media_kinds_from_bits(desktop_audio), vec![PermissionKind::Microphone]);
+        assert_eq!(media_kinds_from_bits(desktop_video), vec![PermissionKind::Camera]);
+        assert_eq!(
+            media_kinds_from_bits(device_audio | device_video),
+            vec![PermissionKind::Camera, PermissionKind::Microphone]
+        );
+        assert_eq!(media_kinds_from_bits(1u32 << 31), vec![PermissionKind::Other(1u32 << 31)]);
+    }
+
+    #[test]
+    fn popup_pages_start_with_no_pending_url() {
+        // CEF is already navigating the popup: a pending URL would navigate
+        // it a second time. Setup still runs; the release only marks ready.
+        let shared = new_popup_shared(123);
+        assert!(shared.pending_url.is_none());
+        assert!(!shared.ready);
+        assert!(!shared.visible);
+        assert_eq!(shared.parent_view, 123);
+    }
+
+    fn staged(id: i32) -> (i32, QueuedPopup) {
+        (
+            id,
+            QueuedPopup {
+                page: Arc::new(Mutex::new(Shared::default())),
+                url: format!("https://example.com/{id}"),
+                opener_url: String::from("https://opener.example/"),
+                foreground: false,
+            },
+        )
+    }
+
+    #[test]
+    fn staged_popups_claim_by_identity_not_position() {
+        let mut pending = vec![staged(3), staged(1), staged(2)];
+        // The middle entry claims by id, leaving the rest in order …
+        let claimed = take_pending_popup_by_id(&mut pending, 1).expect("staged id 1");
+        assert_eq!(claimed.url, "https://example.com/1");
+        assert_eq!(pending.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![3, 2]);
+        // … an unknown id claims nothing …
+        assert!(take_pending_popup_by_id(&mut pending, 9).is_none());
+        assert_eq!(pending.len(), 2);
+        // … and the oldest goes last when asked for by id.
+        let claimed = take_pending_popup_by_id(&mut pending, 3).expect("staged id 3");
+        assert_eq!(claimed.url, "https://example.com/3");
+    }
+
+    #[test]
+    fn clearing_permissions_with_none_pending_stays_quiet() {
+        let mut shared = Shared::default();
+        clear_permissions(&mut shared);
+        assert!(shared.events.is_empty());
+    }
+
+    #[test]
+    fn answering_an_unknown_permission_is_a_no_op() {
+        let page: Page = Arc::new(Mutex::new(Shared::default()));
+        let mut backend = CefBackend { page: page.clone() };
+        // Unknown ids never reach a CEF task: no callback, no panic, no events.
+        backend.answer_permission(999, PermissionDecision::Allow);
+        backend.answer_permission(999, PermissionDecision::Dismiss);
+        assert!(locked(&page).events.is_empty());
+        assert!(locked(&page).permissions.is_empty());
+    }
+
+    #[test]
+    fn renderer_termination_keeps_its_crash_report_with_no_prompts_pending() {
+        let page: Page = Arc::new(Mutex::new(Shared::default()));
+        let handler = AuiRequest::new(page.clone());
+        handler.on_render_process_terminated(None, TerminationStatus::PROCESS_CRASHED, -1, None);
+        let events = std::mem::take(&mut locked(&page).events);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0], WebEvent::Loading(false));
+        assert!(matches!(&events[1], WebEvent::Crashed(_)));
+    }
+
+    #[test]
+    fn main_frame_browse_clears_nothing_when_nothing_pends() {
+        let page: Page = Arc::new(Mutex::new(Shared::default()));
+        let handler = AuiRequest::new(page.clone());
+        // No frame reads as main; the empty URL is still blocked as before.
+        let decision = handler.on_before_browse(None, None, None, 0, 0);
+        assert_eq!(decision, 1);
+        assert!(locked(&page).events.is_empty());
+    }
+
+    #[test]
+    fn early_terminal_download_updates_report_what_is_known_and_keep_no_callback() {
+        for state in [DownloadStatus::Complete, DownloadStatus::Cancelled, DownloadStatus::Failed] {
+            let mut shared = Shared::default();
+            apply_pre_meta_update(&mut shared, 5, 1234, Some(9999), state, None);
+            assert!(shared.dl_callbacks.is_empty(), "{state:?} must keep no callback");
+            let [WebEvent::Download(reported)] = shared.events.as_slice() else {
+                panic!("{state:?} must emit one Download event, got {:?}", shared.events);
+            };
+            assert_eq!(reported.id, 5);
+            assert_eq!(reported.received, 1234);
+            assert_eq!(reported.total, Some(9999));
+            assert_eq!(reported.state, state);
+            // Blanks where only metadata knows.
+            assert!(reported.url.is_empty() && reported.file_name.is_empty() && reported.path.is_empty());
+        }
+    }
+
+    #[test]
+    fn early_downloading_updates_stay_quiet_without_a_callback() {
+        let mut shared = Shared::default();
+        apply_pre_meta_update(&mut shared, 5, 10, None, DownloadStatus::Downloading, None);
+        assert!(shared.events.is_empty());
+        assert!(shared.dl_callbacks.is_empty());
+    }
+
+    #[test]
+    fn inflight_download_names_count_as_taken() {
+        let inflight = ["a.txt".to_owned()];
+        let taken = |name: &str| name == "b.txt" || inflight.iter().any(|held| held == name);
+        // On disk (b.txt) and in flight (a.txt) both number up …
+        assert_eq!(unique_download_name(&taken, "a.txt"), "a (1).txt");
+        assert_eq!(unique_download_name(&taken, "b.txt"), "b (1).txt");
+        // … while a free name passes through.
+        assert_eq!(unique_download_name(&taken, "c.txt"), "c.txt");
+    }
+
+    #[test]
+    fn reserving_a_path_creates_it_and_numbers_up_on_collision() {
+        let dir = std::env::temp_dir().join(format!("aui-cef-dltest-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let taken = |name: &str| dir.join(name).exists();
+        let (first, first_path) = reserve_download_path(&dir, "a.txt", &taken);
+        assert_eq!(first, "a.txt");
+        assert!(first_path.exists());
+        // The reservation itself counts: the next identical download moves on.
+        let (second, second_path) = reserve_download_path(&dir, "a.txt", &taken);
+        assert_eq!(second, "a (1).txt");
+        assert!(second_path.exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn only_cancelled_before_data_removes_the_placeholder() {
+        assert!(download_placeholder_cleanup(DownloadStatus::Cancelled, 0));
+        assert!(!download_placeholder_cleanup(DownloadStatus::Cancelled, 1));
+        assert!(!download_placeholder_cleanup(DownloadStatus::Complete, 0));
+        assert!(!download_placeholder_cleanup(DownloadStatus::Failed, 0));
+        assert!(!download_placeholder_cleanup(DownloadStatus::Downloading, 0));
+    }
+
+    #[test]
+    fn dropping_the_opener_drops_its_staged_popups() {
+        let page: Page = Arc::new(Mutex::new(Shared::default()));
+        {
+            let mut s = locked(&page);
+            s.popups.push(staged(1).1);
+            s.pending_popups.push(staged(2));
+        }
+        // Runs the drain (closing each page, a no-op before CEF init) without
+        // hanging or panicking.
+        drop(CefBackend { page });
+    }
+
+    #[test]
+    fn only_foreground_dispositions_take_the_foreground_tab() {
+        assert!(popup_foreground(WindowOpenDisposition::NEW_FOREGROUND_TAB));
+        // A new window would have shown itself.
+        assert!(popup_foreground(WindowOpenDisposition::NEW_WINDOW));
+        for disposition in [
+            WindowOpenDisposition::UNKNOWN,
+            WindowOpenDisposition::CURRENT_TAB,
+            WindowOpenDisposition::SINGLETON_TAB,
+            WindowOpenDisposition::NEW_BACKGROUND_TAB,
+            WindowOpenDisposition::NEW_POPUP,
+            WindowOpenDisposition::SAVE_TO_DISK,
+        ] {
+            assert!(!popup_foreground(disposition), "{disposition:?} should open behind");
+        }
     }
 }

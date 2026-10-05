@@ -15,7 +15,7 @@ use aui::workbench::Annotation;
 use gpui::SharedString;
 
 use crate::agent_js::{json_string, CLICK_MARKER, LINKS_MARKER, PAGE_TEXT_MARKER, TYPE_MARKER};
-use crate::backend::{BackendFeature, ElementInfo, FindState, PageSecurity, WebBackend, WebEvent};
+use crate::backend::{BackendFeature, DownloadState, ElementInfo, FindState, PageSecurity, PermissionDecision, PermissionKind, PermissionRequest, WebBackend, WebEvent};
 use crate::page::{fake_elements, FakeElement};
 
 /// The page the mock opens on.
@@ -81,6 +81,16 @@ pub struct FakeWebBackend {
     stop_find_calls: u32,
     /// How many times [`WebBackend::show_devtools`] ran.
     devtools_calls: u32,
+    /// Popup pages waiting for [`WebBackend::take_popup_backends`], oldest
+    /// first, as `(url, foreground)`.
+    popups: Vec<(String, bool)>,
+    /// "Open this URL" requests waiting for
+    /// [`WebBackend::take_open_requests`], oldest first.
+    open_requests: Vec<(String, bool)>,
+    /// Every [`WebBackend::answer_permission`] call, oldest first.
+    answers: Vec<(u64, PermissionDecision)>,
+    /// Every [`WebBackend::cancel_download`] id, oldest first.
+    cancelled_downloads: Vec<u32>,
 }
 
 impl Default for FakeWebBackend {
@@ -111,6 +121,10 @@ impl FakeWebBackend {
             find_calls: Vec::new(),
             stop_find_calls: 0,
             devtools_calls: 0,
+            popups: Vec::new(),
+            open_requests: Vec::new(),
+            answers: Vec::new(),
+            cancelled_downloads: Vec::new(),
         };
         backend.announce();
         backend
@@ -198,6 +212,45 @@ impl FakeWebBackend {
     /// Queues a [`WebEvent::Zoom`], in percent.
     pub fn script_zoom(&mut self, percent: u16) {
         self.queue.push(WebEvent::Zoom(percent));
+    }
+
+    /// Queues a [`WebEvent::PopupOpened`] and the popup page behind it: the
+    /// next [`WebBackend::take_popup_backends`] hands back a scripted page on
+    /// `url`.
+    pub fn script_popup(&mut self, url: &str, foreground: bool) {
+        self.popups.push((url.to_owned(), foreground));
+        self.queue.push(WebEvent::PopupOpened { url: url.to_owned(), foreground });
+    }
+
+    /// Queues an "open this URL" request for
+    /// [`WebBackend::take_open_requests`] (no event: the host asked for it).
+    pub fn script_open_request(&mut self, url: &str, foreground: bool) {
+        self.open_requests.push((url.to_owned(), foreground));
+    }
+
+    /// Queues a [`WebEvent::Permission`].
+    pub fn script_permission(&mut self, id: u64, origin: &str, kinds: Vec<PermissionKind>) {
+        self.queue.push(WebEvent::Permission(PermissionRequest { id, origin: origin.to_owned(), kinds }));
+    }
+
+    /// Queues a [`WebEvent::PermissionDismissed`].
+    pub fn script_permission_dismissed(&mut self, id: u64) {
+        self.queue.push(WebEvent::PermissionDismissed(id));
+    }
+
+    /// Queues a [`WebEvent::Download`].
+    pub fn script_download(&mut self, state: DownloadState) {
+        self.queue.push(WebEvent::Download(state));
+    }
+
+    /// Every [`WebBackend::answer_permission`] call, oldest first.
+    pub fn answers(&self) -> &[(u64, PermissionDecision)] {
+        &self.answers
+    }
+
+    /// Every [`WebBackend::cancel_download`] id, oldest first.
+    pub fn cancelled_downloads(&self) -> &[u32] {
+        &self.cancelled_downloads
     }
 
     /// Announces the page at `position`: a load, its URL and title.
@@ -522,6 +575,32 @@ impl WebBackend for FakeWebBackend {
         self.devtools_calls += 1;
     }
 
+    fn take_popup_backends(&mut self) -> Vec<(String, bool, Box<dyn WebBackend>)> {
+        std::mem::take(&mut self.popups)
+            .into_iter()
+            .map(|(url, foreground)| {
+                // A fresh scripted page sitting on the popup's URL, with its
+                // opening announcement drained so it polls clean.
+                let mut page = FakeWebBackend::new();
+                page.navigate(&url);
+                let _ = page.poll_events();
+                (url, foreground, Box::new(page) as Box<dyn WebBackend>)
+            })
+            .collect()
+    }
+
+    fn take_open_requests(&mut self) -> Vec<(String, bool)> {
+        std::mem::take(&mut self.open_requests)
+    }
+
+    fn answer_permission(&mut self, id: u64, decision: PermissionDecision) {
+        self.answers.push((id, decision));
+    }
+
+    fn cancel_download(&mut self, id: u32) {
+        self.cancelled_downloads.push(id);
+    }
+
     fn supports(&self, _feature: BackendFeature) -> bool {
         // The scripted page can drive every toolbar control.
         true
@@ -704,5 +783,45 @@ mod tests {
         ] {
             assert!(backend.supports(feature), "{feature:?} must be supported by the fake");
         }
+    }
+
+    #[test]
+    fn the_fake_scripts_popups_permissions_downloads_and_records_replies() {
+        use crate::backend::{DownloadStatus, PermissionDecision, PermissionKind};
+        let mut backend = FakeWebBackend::new();
+        let _ = backend.poll_events();
+        backend.script_popup("https://example.com/pop", true);
+        backend.script_open_request("https://example.com/menu", false);
+        backend.script_permission(7, "https://example.com", vec![PermissionKind::Camera]);
+        backend.script_permission_dismissed(8);
+        backend.script_download(DownloadState {
+            id: 3,
+            url: String::from("https://example.com/f.zip"),
+            file_name: String::from("f.zip"),
+            path: String::from("/tmp/f.zip"),
+            received: 10,
+            total: Some(100),
+            state: DownloadStatus::Downloading,
+        });
+        let events = backend.poll_events();
+        assert!(matches!(&events[0], WebEvent::PopupOpened { url, foreground } if url == "https://example.com/pop" && *foreground));
+        assert!(matches!(&events[1], WebEvent::Permission(req) if req.id == 7 && req.kinds == vec![PermissionKind::Camera]));
+        assert_eq!(events[2], WebEvent::PermissionDismissed(8));
+        assert!(matches!(&events[3], WebEvent::Download(state) if state.id == 3 && state.total == Some(100)));
+        // The popup page behind the event sits on its URL …
+        let mut popups = backend.take_popup_backends();
+        assert_eq!(popups.len(), 1);
+        let (url, foreground, mut page) = popups.pop().expect("one popup");
+        assert_eq!((url.as_str(), foreground), ("https://example.com/pop", true));
+        assert!(page.poll_events().is_empty());
+        // … and a second take sees nothing.
+        assert!(backend.take_popup_backends().is_empty());
+        assert_eq!(backend.take_open_requests(), vec![(String::from("https://example.com/menu"), false)]);
+        assert!(backend.take_open_requests().is_empty());
+        // Replies are recorded for the state to assert against.
+        backend.answer_permission(7, PermissionDecision::Deny);
+        backend.cancel_download(3);
+        assert_eq!(backend.answers(), &[(7, PermissionDecision::Deny)]);
+        assert_eq!(backend.cancelled_downloads(), &[3]);
     }
 }
