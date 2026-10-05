@@ -76,6 +76,7 @@ unsafe extern "C" {
     fn aui_cef_detach(child: *mut c_void);
     fn aui_cef_defer(f: extern "C" fn(*mut c_void), ctx: *mut c_void);
     fn aui_cef_never_main(child: *mut c_void);
+    fn aui_cef_flatten_window(child: *mut c_void);
 }
 
 /// The binding the annotator's `window.ipc.postMessage` posts through.
@@ -1676,8 +1677,13 @@ wrap_window_delegate! {
             };
             if child != 0 {
                 // Safety: the page's live root view, main thread, no lock held.
-                // Flag before `show` so the window can never become main.
-                unsafe { aui_cef_never_main(child as *mut c_void) };
+                // Flag before `show` so the window can never become main, and
+                // flatten (no shadow, no corner rounding) every page and
+                // popup window we host — focus/key behaviour untouched.
+                unsafe {
+                    aui_cef_never_main(child as *mut c_void);
+                    aui_cef_flatten_window(child as *mut c_void);
+                }
             }
             place(&self.shared);
             window.show();

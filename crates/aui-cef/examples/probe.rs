@@ -14,6 +14,8 @@ unsafe extern "C" {
     fn aui_cef_key_window() -> *mut std::os::raw::c_void;
     fn aui_cef_window_class_name(window: *mut std::os::raw::c_void) -> *const std::os::raw::c_char;
     fn aui_cef_window_can_become_main(window: *mut std::os::raw::c_void) -> std::os::raw::c_int;
+    fn aui_cef_window_has_shadow(window: *mut std::os::raw::c_void) -> std::os::raw::c_int;
+    fn aui_cef_window_corner_radius(window: *mut std::os::raw::c_void) -> f64;
 }
 
 static CMD_K_SEEN: AtomicBool = AtomicBool::new(false);
@@ -148,6 +150,21 @@ fn main() {
             pass(
                 "host canBecomeMainWindow YES",
                 !host_main.is_null() && unsafe { aui_cef_window_can_become_main(host_main) } == 1,
+            );
+            // R1: the page window after placement is flat — no shadow, no
+            // system corner rounding, in every focus state.
+            if !key_now.is_null() {
+                let shadow = unsafe { aui_cef_window_has_shadow(key_now) };
+                let radius = unsafe { aui_cef_window_corner_radius(key_now) };
+                p(format!("page hasShadow={shadow} cornerRadius={radius}"));
+            }
+            pass(
+                "page hasShadow NO",
+                !key_now.is_null() && unsafe { aui_cef_window_has_shadow(key_now) } == 0,
+            );
+            pass(
+                "page _cornerRadius 0",
+                !key_now.is_null() && unsafe { aui_cef_window_corner_radius(key_now) } == 0.0,
             );
             backend.eval_with_result(1, "return document.title;");
             backend.eval_with_result(2, "return document.querySelectorAll('a').length;");

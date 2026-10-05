@@ -98,6 +98,9 @@ static NSWindow *window_of(void *view) {
   return view ? ((__bridge NSView *)view).window : nil;
 }
 
+// Forward: defined with the never-main flag below; called on adoption above.
+void aui_cef_flatten_window(void *child_root_view);
+
 // Places the page's window over `x, y, w, h` — the parent view's coordinates,
 // top-left origin, logical pixels (what gpui lays out in) — adopting it as a
 // child window first. Returns 1 when placed.
@@ -111,6 +114,7 @@ int aui_cef_place(void *parent_view, void *child_root_view, double x, double y, 
   NSRect onScreen = [pw convertRectToScreen:[pv convertRect:r toView:nil]];
   if (cw.parentWindow != pw) {
     [pw addChildWindow:cw ordered:NSWindowAbove];
+    aui_cef_flatten_window(child_root_view);
   }
   if (!NSEqualRects(cw.frame, onScreen)) [cw setFrame:onScreen display:YES];
   return 1;
@@ -203,6 +207,104 @@ void aui_cef_never_main(void *child_root_view) {
   IMP prev = class_replaceMethod(cls, sel, (IMP)aui_flagged_can_become_main, types);
   [g_original_imps setObject:[NSValue valueWithPointer:prev] forKey:name];
   [g_patched_classes addObject:name];
+}
+
+// MARK: - Flat page windows: no shadow, no corner rounding (R1)
+
+static const void *kFlatKey = &kFlatKey;
+static const void *kFlatLoggedKey = &kFlatLoggedKey;
+
+static NSMutableSet<NSString *> *g_flat_patched = nil;
+static NSMutableDictionary<NSString *, NSValue *> *g_flat_radius_imps = nil;
+static NSMutableDictionary<NSString *, NSValue *> *g_flat_mask_imps = nil;
+
+static CGFloat aui_flagged_corner_radius(id self, SEL _cmd) {
+  if ([objc_getAssociatedObject(self, kFlatKey) boolValue]) return 0.0;
+  NSString *name = NSStringFromClass([self class]);
+  NSValue *boxed = [g_flat_radius_imps objectForKey:name];
+  IMP orig = boxed ? (IMP)[boxed pointerValue] : NULL;
+  if (orig) return ((CGFloat (*)(id, SEL))orig)(self, _cmd);
+  return 0.0;
+}
+
+static id aui_flagged_corner_mask(id self, SEL _cmd) {
+  if ([objc_getAssociatedObject(self, kFlatKey) boolValue]) return nil;
+  NSString *key = [NSString stringWithFormat:@"%@:%@", NSStringFromClass([self class]), NSStringFromSelector(_cmd)];
+  NSValue *boxed = [g_flat_mask_imps objectForKey:key];
+  IMP orig = boxed ? (IMP)[boxed pointerValue] : NULL;
+  if (orig) return ((id (*)(id, SEL))orig)(self, _cmd);
+  return nil;
+}
+
+// Swizzles one private corner selector on `cls` (once per class+selector),
+// guarded so a missing selector is a no-op, never a crash. Never touches the
+// style mask (borderless would break `canBecomeKeyWindow` and typing) and
+// never calls `object_setClass`.
+static BOOL aui_swizzle_corner_once(Class cls, NSString *name, SEL sel, BOOL isRadius) {
+  if (![cls instancesRespondToSelector:sel]) return NO;
+  Method m = class_getInstanceMethod(cls, sel);
+  if (!m) return NO;
+  if (!g_flat_patched) g_flat_patched = [NSMutableSet set];
+  NSString *key = isRadius ? [@"R:" stringByAppendingString:name] : [@"M:" stringByAppendingString:name];
+  key = [key stringByAppendingFormat:@":%@", NSStringFromSelector(sel)];
+  if ([g_flat_patched containsObject:key]) return YES;
+  const char *types = method_getTypeEncoding(m);
+  IMP prev;
+  if (isRadius) {
+    if (!g_flat_radius_imps) g_flat_radius_imps = [NSMutableDictionary dictionary];
+    prev = class_replaceMethod(cls, sel, (IMP)aui_flagged_corner_radius, types ? types : "d@:");
+    [g_flat_radius_imps setObject:[NSValue valueWithPointer:prev] forKey:name];
+  } else {
+    if (!g_flat_mask_imps) g_flat_mask_imps = [NSMutableDictionary dictionary];
+    prev = class_replaceMethod(cls, sel, (IMP)aui_flagged_corner_mask, types ? types : "@@:");
+    NSString *impKey = [NSString stringWithFormat:@"%@:%@", name, NSStringFromSelector(sel)];
+    [g_flat_mask_imps setObject:[NSValue valueWithPointer:prev] forKey:impKey];
+  }
+  [g_flat_patched addObject:key];
+  return YES;
+}
+
+// Flattens a page/popup window: no shadow, no system corner rounding, in
+// every focus state. Focus/key behaviour is untouched (style mask kept, so
+// `canBecomeKeyWindow` and typing keep working). Idempotent per instance.
+void aui_cef_flatten_window(void *child_root_view) {
+  NSWindow *cw = window_of(child_root_view);
+  if (!cw) return;
+  cw.hasShadow = NO;
+  [cw invalidateShadow];
+  objc_setAssociatedObject(cw, kFlatKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  Class cls = [cw class];
+  NSString *name = NSStringFromClass(cls);
+  SEL radiusSel = NSSelectorFromString(@"_cornerRadius");
+  SEL getMaskSel = NSSelectorFromString(@"_getCornerMask");
+  SEL maskSel = NSSelectorFromString(@"_cornerMask");
+  BOOL radiusFound = aui_swizzle_corner_once(cls, name, radiusSel, YES);
+  BOOL getMaskFound = aui_swizzle_corner_once(cls, name, getMaskSel, NO);
+  BOOL maskFound = aui_swizzle_corner_once(cls, name, maskSel, NO);
+  if (![objc_getAssociatedObject(cw, kFlatLoggedKey) boolValue] && getenv("AUI_CEF_TRACE")) {
+    objc_setAssociatedObject(cw, kFlatLoggedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    NSLog(@"aui-cef flat: class=%s styleMask=0x%lx hasShadow=%d _cornerRadius=%d _getCornerMask=%d _cornerMask=%d",
+          class_getName(cls), (unsigned long)cw.styleMask, (int)cw.hasShadow,
+          (int)radiusFound, (int)getMaskFound, (int)maskFound);
+  }
+}
+
+// Probe getters: the page window's `hasShadow` (1/0, -1 for nil) and what its
+// `_cornerRadius` now returns (-1 when the selector is absent or nil).
+int aui_cef_window_has_shadow(void *window) {
+  NSWindow *w = (__bridge NSWindow *)window;
+  if (!w) return -1;
+  return w.hasShadow ? 1 : 0;
+}
+
+double aui_cef_window_corner_radius(void *window) {
+  NSWindow *w = (__bridge NSWindow *)window;
+  if (!w) return -1;
+  SEL sel = NSSelectorFromString(@"_cornerRadius");
+  if (![w respondsToSelector:sel]) return -1;
+  IMP imp = [w methodForSelector:sel];
+  if (!imp) return -1;
+  return (double)((CGFloat (*)(id, SEL))imp)(w, sel);
 }
 
 // MARK: - Probe helpers (examples/probe.rs drives real key events)
