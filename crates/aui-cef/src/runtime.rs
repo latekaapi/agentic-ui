@@ -133,6 +133,16 @@ wrap_app! {
                 if self.mock_keychain {
                     command_line.append_switch(Some(&CefString::from("use-mock-keychain")));
                 }
+                // `AUI_CEF_DISABLE_FEATURES=A,B` → `--disable-features=A,B`:
+                // a diagnosis aid for Chromium UI features (no rebuild).
+                if let Ok(features) = std::env::var("AUI_CEF_DISABLE_FEATURES") {
+                    if !features.trim().is_empty() {
+                        command_line.append_switch_with_value(
+                            Some(&CefString::from("disable-features")),
+                            Some(&CefString::from(features.trim())),
+                        );
+                    }
+                }
             }
         }
     }
