@@ -14,7 +14,7 @@ use aui::browse::{
     task_folder_row, Address, Pin, TabRowData, TaskFace,
 };
 use aui::data::{arm_ax_probe, take_ax_labels};
-use gpui::{AnyElement, IntoElement, ParentElement, TestAppContext, Window};
+use gpui::{AnyElement, IntoElement, ParentElement, SharedString, TestAppContext, Window};
 
 fn init(cx: &mut TestAppContext) {
     cx.update(|cx| aui::init(aui_tokens::ThemeKind::Dark, cx));
@@ -48,51 +48,84 @@ fn drawn_labels(
     labels
 }
 
-/// Every row kind with all of its controls present: the active tab shows its
-/// close `×` (inactive rows reveal it only on hover, which tests cannot do).
+/// Every row kind with all of its controls present: every tab row carries
+/// its close `×` (opacity 0 until hovered or active, always in the tree).
 fn rows(window: &mut Window, cx: &mut gpui::App) -> AnyElement {
     let _ = (window, cx);
     let pins = vec![
-        Pin::new("pin-u", "U", "UDISE+ dashboard"),
-        Pin::new("pin-p", "P", "PGI scores"),
-        Pin::new("pin-d", "D", "data.gov.in"),
-        Pin::new("pin-m", "M", "NAS report cards"),
+        Pin::new("pin-u", "U", "UDISE+ dashboard").position(1),
+        Pin::new("pin-p", "P", "PGI scores").position(2),
+        Pin::new("pin-d", "D", "data.gov.in").position(3),
+        Pin::new("pin-m", "M", "NAS report cards").position(4),
     ];
     gpui::div()
         .children([
-            address_line("t-address", Address::new("pgi.udiseplus.gov.in", "/#/home", false, None, true))
-                .on_click(|_, _, _| {})
-                .into_any_element(),
+            address_line(
+                "t-address",
+                Address::new("pgi.udiseplus.gov.in", "/#/home", false, None, true, Some("https".to_owned())),
+            )
+            .on_click(|_, _, _| {})
+            .into_any_element(),
             pin_grid("t-pins", pins).on_select(|_, _, _| {}).into_any_element(),
-            tab_row("t-tab-active", TabRowData::new("PGI 2.0 · state scores 2023-24", "P").active())
+            tab_row("t-tab-active", TabRowData::new("PGI 2.0 · state scores 2023-24", "P").active().position(1))
                 .on_select(|_, _, _| {})
                 .on_close(|_, _, _| {})
                 .into_any_element(),
-            tab_row("t-tab-idle", TabRowData::new("UDISE+ 2024-25 · dashboard", "U"))
+            tab_row("t-tab-idle", TabRowData::new("UDISE+ 2024-25 · dashboard", "U").position(2))
                 .on_select(|_, _, _| {})
                 .on_close(|_, _, _| {})
                 .into_any_element(),
             folder_row("t-folder", "Karnataka review", true, 0).on_toggle(|_, _, _| {}).into_any_element(),
-            task_folder_row("t-task-typing", "PGI vs school indicators · 5 states", TaskFace::Typing, "typing", true)
-                .on_toggle(|_, _, _| {})
-                .on_open_chat(|_, _, _| {})
-                .into_any_element(),
-            task_folder_row("t-task-reading", "Overnight brief", TaskFace::Reading, "reading", false)
-                .on_toggle(|_, _, _| {})
-                .on_open_chat(|_, _, _| {})
-                .into_any_element(),
-            task_folder_row("t-task-needs", "Release sign-off", TaskFace::NeedsYou, "needs you", false)
-                .on_toggle(|_, _, _| {})
-                .on_open_chat(|_, _, _| {})
-                .into_any_element(),
-            task_folder_row("t-task-paused", "Backfill job", TaskFace::Paused, "paused", false)
-                .on_toggle(|_, _, _| {})
-                .on_open_chat(|_, _, _| {})
-                .into_any_element(),
-            task_folder_row("t-task-done", "Fix ledger chart", TaskFace::Done, "done · 1 tab", false)
-                .on_toggle(|_, _, _| {})
-                .on_open_chat(|_, _, _| {})
-                .into_any_element(),
+            task_folder_row(
+                "t-task-typing",
+                "PGI vs school indicators · 5 states",
+                TaskFace::Typing,
+                TaskFace::Typing.status_word(),
+                true,
+            )
+            .on_toggle(|_, _, _| {})
+            .on_open_chat(|_, _, _| {})
+            .into_any_element(),
+            task_folder_row(
+                "t-task-reading",
+                "Overnight brief",
+                TaskFace::Reading,
+                TaskFace::Reading.status_word(),
+                false,
+            )
+            .on_toggle(|_, _, _| {})
+            .on_open_chat(|_, _, _| {})
+            .into_any_element(),
+            task_folder_row(
+                "t-task-needs",
+                "Release sign-off",
+                TaskFace::NeedsYou,
+                TaskFace::NeedsYou.status_word(),
+                false,
+            )
+            .on_toggle(|_, _, _| {})
+            .on_open_chat(|_, _, _| {})
+            .into_any_element(),
+            task_folder_row(
+                "t-task-paused",
+                "Backfill job",
+                TaskFace::Paused,
+                TaskFace::Paused.status_word(),
+                false,
+            )
+            .on_toggle(|_, _, _| {})
+            .on_open_chat(|_, _, _| {})
+            .into_any_element(),
+            task_folder_row(
+                "t-task-done",
+                "Fix ledger chart",
+                TaskFace::Done,
+                SharedString::from(format!("{} · 1 tab", TaskFace::Done.status_word())),
+                false,
+            )
+            .on_toggle(|_, _, _| {})
+            .on_open_chat(|_, _, _| {})
+            .into_any_element(),
             task_face(TaskFace::Typing).into_any_element(),
             browse_footer("t-footer", "Education")
                 .on_space(|_, _, _| {})
@@ -121,20 +154,25 @@ fn every_browse_row_has_an_accessibility_label(cx: &mut TestAppContext) {
     assert_eq!(unlabelled, 0, "unlabelled controls: {unlabelled} of {}", labels.len());
     for want in [
         "Address, pgi.udiseplus.gov.in/#/home",
-        "Pinned: UDISE+ dashboard",
-        "Pinned: PGI scores",
-        "Pinned: data.gov.in",
-        "Pinned: NAS report cards",
-        "PGI 2.0 · state scores 2023-24",
-        "Close PGI 2.0 · state scores 2023-24",
-        "UDISE+ 2024-25 · dashboard",
+        "Pinned 1: UDISE+ dashboard",
+        "Pinned 2: PGI scores",
+        "Pinned 3: data.gov.in",
+        "Pinned 4: NAS report cards",
+        "Tab 1: PGI 2.0 · state scores 2023-24, selected",
+        "Close tab 1: PGI 2.0 · state scores 2023-24",
+        "Tab 2: UDISE+ 2024-25 · dashboard",
+        "Close tab 2: UDISE+ 2024-25 · dashboard",
         "Folder: Karnataka review",
         "Task folder: PGI vs school indicators · 5 states, typing",
+        "typing, PGI vs school indicators · 5 states",
         "Task folder: Overnight brief, reading",
+        "reading, Overnight brief",
         "Task folder: Release sign-off, needs you",
+        "needs you, Release sign-off",
         "Task folder: Backfill job, paused",
+        "paused, Backfill job",
         "Task folder: Fix ledger chart, done · 1 tab",
-        "Open chat, Fix ledger chart",
+        "done · 1 tab, Fix ledger chart",
         "Space, Education",
         "Downloads",
         "Extensions",
@@ -149,12 +187,12 @@ fn every_browse_row_has_an_accessibility_label(cx: &mut TestAppContext) {
 /// The address splitter: host, path, locality and port.
 #[test]
 fn split_address_table() {
-    let gubernatorial = split_address("https://pgi.udiseplus.gov.in/#/home");
-    assert_eq!(gubernatorial.host.as_ref(), "pgi.udiseplus.gov.in");
-    assert_eq!(gubernatorial.path.as_ref(), "/#/home");
-    assert!(!gubernatorial.local);
-    assert_eq!(gubernatorial.port, None);
-    assert!(gubernatorial.secure);
+    let site = split_address("https://pgi.udiseplus.gov.in/#/home");
+    assert_eq!(site.host.as_ref(), "pgi.udiseplus.gov.in");
+    assert_eq!(site.path.as_ref(), "/#/home");
+    assert!(!site.local);
+    assert_eq!(site.port, None);
+    assert!(site.secure);
 
     let dev = split_address("http://localhost:5173/overview");
     assert_eq!(dev.host.as_ref(), "localhost");
@@ -178,6 +216,170 @@ fn split_address_table() {
     // A non-numeric port is not a port: the authority stays intact.
     assert_eq!(split_address("https://example.com:abc/a").port, None);
     assert_eq!(split_address("https://example.com:abc/a").host.as_ref(), "example.com:abc");
+}
+
+/// The review cases, one row each: the authority ends at the first `/`,
+/// `?` or `#`, schemes match case-insensitively, internal schemes stay
+/// secure without a port, userinfo never reaches the host, every loopback
+/// form is local, non-default ports show and default ports hide.
+#[test]
+fn split_address_review_cases() {
+    struct Case {
+        url: &'static str,
+        host: &'static str,
+        path: &'static str,
+        local: bool,
+        port: Option<u16>,
+        secure: bool,
+    }
+    let cases = [
+        Case {
+            url: "https://example.com?x=1",
+            host: "example.com",
+            path: "/?x=1",
+            local: false,
+            port: None,
+            secure: true,
+        },
+        Case {
+            url: "https://example.com#frag",
+            host: "example.com",
+            path: "/#frag",
+            local: false,
+            port: None,
+            secure: true,
+        },
+        Case {
+            url: "HTTPS://example.com/",
+            host: "example.com",
+            path: "/",
+            local: false,
+            port: None,
+            secure: true,
+        },
+        Case {
+            url: "about:blank",
+            host: "about:blank",
+            path: "/",
+            local: false,
+            port: None,
+            secure: true,
+        },
+        Case {
+            url: "file:///x",
+            host: "file",
+            path: "/x",
+            local: false,
+            port: None,
+            secure: true,
+        },
+        Case {
+            url: "chrome://settings/",
+            host: "settings",
+            path: "/",
+            local: false,
+            port: None,
+            secure: true,
+        },
+        Case {
+            url: "https://user:pw@example.com/",
+            host: "example.com",
+            path: "/",
+            local: false,
+            port: None,
+            secure: true,
+        },
+        Case {
+            url: "http://[::1]:8080/a",
+            host: "[::1]",
+            path: "/a",
+            local: true,
+            port: Some(8080),
+            secure: false,
+        },
+        Case {
+            url: "http://127.0.0.5/",
+            host: "127.0.0.5",
+            path: "/",
+            local: true,
+            port: None,
+            secure: false,
+        },
+        Case {
+            url: "http://localhost./",
+            host: "localhost.",
+            path: "/",
+            local: true,
+            port: None,
+            secure: false,
+        },
+        Case {
+            url: "http://0.0.0.0:3000/",
+            host: "0.0.0.0",
+            path: "/",
+            local: true,
+            port: Some(3000),
+            secure: false,
+        },
+        Case {
+            url: "https://example.com:8443/",
+            host: "example.com",
+            path: "/",
+            local: false,
+            port: Some(8443),
+            secure: true,
+        },
+        Case {
+            url: "https://example.com:443/",
+            host: "example.com",
+            path: "/",
+            local: false,
+            port: None,
+            secure: true,
+        },
+        Case {
+            url: "http://example.com",
+            host: "example.com",
+            path: "/",
+            local: false,
+            port: None,
+            secure: false,
+        },
+    ];
+    for case in cases {
+        let got = split_address(case.url);
+        assert_eq!(got.host.as_ref(), case.host, "host for {}", case.url);
+        assert_eq!(got.path.as_ref(), case.path, "path for {}", case.url);
+        assert_eq!(got.local, case.local, "local for {}", case.url);
+        assert_eq!(got.port, case.port, "port for {}", case.url);
+        assert_eq!(got.secure, case.secure, "secure for {}", case.url);
+    }
+    // The internal schemes keep their scheme so callers can tell.
+    assert_eq!(split_address("chrome://settings/").scheme.as_deref(), Some("chrome"));
+    assert_eq!(split_address("about:blank").scheme.as_deref(), Some("about"));
+    assert_eq!(split_address("file:///x").scheme.as_deref(), Some("file"));
+    assert_eq!(split_address("https://example.com/").scheme.as_deref(), Some("https"));
+}
+
+/// An inactive, unhovered tab row still carries its close button: the `×`
+/// hides through opacity, never by leaving the tree.
+#[gpui::test]
+fn inactive_tab_row_keeps_its_close_button(cx: &mut TestAppContext) {
+    init(cx);
+    let labels = drawn_labels(cx, |_, _| {
+        tab_row("t-tab-idle", TabRowData::new("UDISE+ 2024-25 · dashboard", "U").position(2))
+            .on_select(|_, _, _| {})
+            .on_close(|_, _, _| {})
+            .into_any_element()
+    });
+    assert!(
+        labels.iter().any(|l| l == "Tab 2: UDISE+ 2024-25 · dashboard"),
+        "missing tab label; got {labels:?}"
+    );
+    assert!(
+        labels.iter().any(|l| l == "Close tab 2: UDISE+ 2024-25 · dashboard"),
+        "missing close label; got {labels:?}"
+    );
 }
 
 /// Each face maps to its quiet status word; `done` composes with the count

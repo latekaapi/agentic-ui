@@ -2,7 +2,7 @@
 //! forward / reload cluster for the Browse sidebar header.
 
 use aui_icons::{icon, IconName};
-use aui_motion::{tint_fade, Tween};
+use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -34,8 +34,12 @@ const TITLE_TEXT: f32 = 12.5;
 type KeyHandler = std::rc::Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 
 /// The 16 px letter tile shared by tab rows: `surface-2` ground, `ink-2`
-/// letter.
+/// letter, clipped to the square, showing only the first character (no
+/// grapheme segmenter is available here, so a multi-char mark is cut after
+/// its first `char`).
 fn letter_tile(letter: SharedString, p: &aui_tokens::Palette) -> impl IntoElement {
+    let first: SharedString =
+        letter.chars().next().map(|c| c.to_string()).unwrap_or_default().into();
     div()
         .flex_none()
         .flex()
@@ -47,7 +51,8 @@ fn letter_tile(letter: SharedString, p: &aui_tokens::Palette) -> impl IntoElemen
         .text_color(p.ink_2)
         .ui(TILE_TEXT)
         .medium()
-        .child(letter)
+        .overflow_hidden()
+        .child(first)
 }
 
 /// Ground for a 30 px row: `surface-3` when active, `surface-2` on hover.
@@ -97,7 +102,7 @@ impl RenderOnce for PinGrid {
                 // Quiet at rest (border + letter only); the `surface-2`
                 // tint fades in on hover.
                 let bg = tint_fade((tile_id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
-                let label: SharedString = format!("Pinned: {}", pin.title).into();
+                let label: SharedString = format!("Pinned {}: {}", pin.position, pin.title).into();
                 record_ax_label(&label);
                 let key = pin.id.clone();
                 let mut tile = h_flex()
@@ -129,8 +134,9 @@ impl RenderOnce for PinGrid {
     }
 }
 
-/// A 30 px tab row: 16 px letter tile, title, optional port tag, close `×`
-/// on hover (always when active). Build with [`tab_row`].
+/// A 30 px tab row: 16 px letter tile, title, optional port tag, and the
+/// close `×` — always in the tree, opacity 0 until hovered or active.
+/// Build with [`tab_row`].
 #[derive(IntoElement)]
 pub struct TabRow {
     id: ElementId,
@@ -165,7 +171,12 @@ impl RenderOnce for TabRow {
         let id = self.id.clone();
         let (state, flags) = interaction_flags(id.clone(), window, cx);
         let bg = row_bg(&id, self.data.active, flags.hovered, &p, window, cx);
-        record_ax_label(&self.data.title);
+        let label: SharedString = if self.data.active {
+            format!("Tab {}: {}, selected", self.data.position, self.data.title).into()
+        } else {
+            format!("Tab {}: {}", self.data.position, self.data.title).into()
+        };
+        record_ax_label(&label);
         let mut row = h_flex()
             .id(id.clone())
             .h(px(ROW_H))
@@ -181,31 +192,33 @@ impl RenderOnce for TabRow {
             .text_color(if self.data.active { p.ink } else { p.ink_2 })
             .cursor_pointer()
             .role(gpui::Role::Button)
-            .aria_label(self.data.title.clone())
+            .aria_label(label)
             .track_interaction(&state)
             .child(letter_tile(self.data.letter.clone(), &p))
             .child(div().flex_1().min_w(px(0.0)).truncate().child(self.data.title.clone()));
         if let Some(port) = self.data.port {
             row = row.child(tag(SharedString::from(format!(":{port}"))));
         }
-        // The `×` shows on hover, and always on the active row (which has
-        // no hover state to reveal it).
-        if flags.hovered || self.data.active {
-            let title = self.data.title.clone();
-            let close_label: SharedString = format!("Close {}", self.data.title).into();
-            let mut close = icon_button((id, "close"), IconName::X)
-                .ghost()
-                .size(ButtonSize::Xs)
-                .icon_size(px(CLOSE_GLYPH))
-                .accessibility_label(close_label);
-            if let Some(on_close) = self.on_close.clone() {
-                close = close.on_click(move |_, w, cx| {
-                    cx.stop_propagation();
-                    on_close(&title, w, cx);
-                });
-            }
-            row = row.child(close);
+        // The `×` is always in the tree (so it keeps its role and name);
+        // only its opacity changes — 0 until hovered or active.
+        let show_close = flags.hovered || self.data.active;
+        let close_opacity =
+            tween((id.clone(), "close"), if show_close { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
+        let title = self.data.title.clone();
+        let close_label: SharedString =
+            format!("Close tab {}: {}", self.data.position, self.data.title).into();
+        let mut close = icon_button((id, "close"), IconName::X)
+            .ghost()
+            .size(ButtonSize::Xs)
+            .icon_size(px(CLOSE_GLYPH))
+            .accessibility_label(close_label);
+        if let Some(on_close) = self.on_close.clone() {
+            close = close.on_click(move |_, w, cx| {
+                cx.stop_propagation();
+                on_close(&title, w, cx);
+            });
         }
+        row = row.child(div().flex_none().opacity(close_opacity).child(close));
         if let Some(on_select) = self.on_select {
             let title = self.data.title.clone();
             row = row.on_click(move |_, w, cx| on_select(&title, w, cx));
@@ -334,7 +347,9 @@ impl RenderOnce for TaskFolderRow {
         let bg = row_bg(&row_id, false, flags.hovered, &p, window, cx);
         let label: SharedString = format!("Task folder: {}, {}", self.name, self.status).into();
         record_ax_label(&label);
-        let chat_label: SharedString = format!("Open chat, {}", self.name).into();
+        // The status button's name is its visible text with the folder
+        // name, so it stays unique in the tree.
+        let chat_label: SharedString = format!("{}, {}", self.status, self.name).into();
         record_ax_label(&chat_label);
         let status_ink = if self.face == TaskFace::NeedsYou { p.warning } else { p.ink_3 };
         let mut toggle = h_flex()
@@ -413,7 +428,7 @@ pub struct BrowseNavCluster {
 pub fn browse_nav_cluster(id: impl Into<ElementId>) -> BrowseNavCluster {
     BrowseNavCluster {
         id: id.into(),
-        can_go_back: true,
+        can_go_back: false,
         can_go_forward: false,
         on_back: None,
         on_forward: None,

@@ -94,10 +94,10 @@ fn new_tab_row(p: Palette) -> impl IntoElement {
 
 fn sample_pins() -> Vec<Pin> {
     vec![
-        Pin::new("u", "U", "UDISE+"),
-        Pin::new("p", "P", "PGI 2.0"),
-        Pin::new("d", "D", "data.gov.in"),
-        Pin::new("m", "M", "NAS 2024"),
+        Pin::new("u", "U", "UDISE+").position(1),
+        Pin::new("p", "P", "PGI 2.0").position(2),
+        Pin::new("d", "D", "data.gov.in").position(3),
+        Pin::new("m", "M", "NAS 2024").position(4),
     ]
 }
 
@@ -118,34 +118,37 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         .overflow_hidden()
         .child(header_row(p))
         .child(
-            address_line("browse-address", Address::new("pgi.udiseplus.gov.in", "/#/home", false, None, true))
-                .on_click(|_, _, _| {}),
+            address_line(
+                "browse-address",
+                Address::new("pgi.udiseplus.gov.in", "/#/home", false, None, true, Some("https".to_owned())),
+            )
+            .on_click(|_, _, _| {}),
         )
         .child(new_tab_row(p))
         .child(pin_grid("browse-pins", sample_pins()).on_select(|_, _, _| {}))
         .child(
-            tab_row("browse-tab-1", TabRowData::new("PGI 2.0 · state scores 2023-24", "P").active())
+            tab_row("browse-tab-1", TabRowData::new("PGI 2.0 · state scores 2023-24", "P").active().position(1))
                 .on_select(|_, _, _| {})
                 .on_close(|_, _, _| {}),
         )
         .child(
-            tab_row("browse-tab-2", TabRowData::new("UDISE+ 2024-25 · dashboard", "U"))
+            tab_row("browse-tab-2", TabRowData::new("UDISE+ 2024-25 · dashboard", "U").position(2))
                 .on_select(|_, _, _| {})
                 .on_close(|_, _, _| {}),
         )
         .child(
-            tab_row("browse-tab-3", TabRowData::new("NAS 2024 · state report cards", "N"))
+            tab_row("browse-tab-3", TabRowData::new("NAS 2024 · state report cards", "N").position(3))
                 .on_select(|_, _, _| {})
                 .on_close(|_, _, _| {}),
         )
         .child(folder_row("browse-folder-ka", "Karnataka review", true, 0).on_toggle(|_, _, _| {}))
         .child(
-            tab_row("browse-tab-ka-1", TabRowData::new("KSEEB · SSLC results 2025", "K").depth(1))
+            tab_row("browse-tab-ka-1", TabRowData::new("KSEEB · SSLC results 2025", "K").depth(1).position(4))
                 .on_select(|_, _, _| {})
                 .on_close(|_, _, _| {}),
         )
         .child(
-            tab_row("browse-tab-ka-2", TabRowData::new("Samagra Shiksha · Karnataka", "S").depth(1))
+            tab_row("browse-tab-ka-2", TabRowData::new("Samagra Shiksha · Karnataka", "S").depth(1).position(5))
                 .on_select(|_, _, _| {})
                 .on_close(|_, _, _| {}),
         )
@@ -155,36 +158,56 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                 "browse-task-pgi",
                 "PGI vs school indicators · 5 states",
                 TaskFace::Typing,
-                "typing",
+                TaskFace::Typing.status_word(),
                 true,
             )
             .on_toggle(|_, _, _| {})
             .on_open_chat(|_, _, _| {}),
         )
         .child(
-            tab_row("browse-tab-pgi-1", TabRowData::new("PGI 2.0 scores · 5 states", "P").depth(1))
+            tab_row("browse-tab-pgi-1", TabRowData::new("PGI 2.0 scores · 5 states", "P").depth(1).position(6))
                 .on_select(|_, _, _| {})
                 .on_close(|_, _, _| {}),
         )
         .child(
-            tab_row("browse-tab-pgi-2", TabRowData::new("UDISE+ · PTR by state", "U").depth(1).port(5173))
+            tab_row("browse-tab-pgi-2", TabRowData::new("UDISE+ · PTR by state", "U").depth(1).position(7))
                 .on_select(|_, _, _| {})
                 .on_close(|_, _, _| {}),
         )
         .child(
-            tab_row("browse-tab-pgi-3", TabRowData::new("UDISE+ · dropout, secondary", "U").depth(1))
-                .on_select(|_, _, _| {})
-                .on_close(|_, _, _| {}),
+            tab_row(
+                "browse-tab-pgi-3",
+                TabRowData::new("UDISE+ · dropout, secondary", "U").depth(1).position(8),
+            )
+            .on_select(|_, _, _| {})
+            .on_close(|_, _, _| {}),
         )
         .child(
-            tab_row("browse-tab-pgi-4", TabRowData::new("data.gov.in · enrolment 2024-25", "D").depth(1))
-                .on_select(|_, _, _| {})
-                .on_close(|_, _, _| {}),
+            tab_row(
+                "browse-tab-pgi-4",
+                TabRowData::new("data.gov.in · enrolment 2024-25", "D").depth(1).position(9),
+            )
+            .on_select(|_, _, _| {})
+            .on_close(|_, _, _| {}),
         )
         .child(
-            task_folder_row("browse-task-ledger", "Fix ledger chart", TaskFace::Done, "done · 1 tab", false)
-                .on_toggle(|_, _, _| {})
-                .on_open_chat(|_, _, _| {}),
+            task_folder_row(
+                "browse-task-ledger",
+                "Fix ledger chart",
+                TaskFace::Done,
+                SharedString::from(format!("{} · 1 tab", TaskFace::Done.status_word())),
+                false,
+            )
+            .on_toggle(|_, _, _| {})
+            .on_open_chat(|_, _, _| {}),
+        )
+        .child(
+            tab_row(
+                "browse-tab-ledger-1",
+                TabRowData::new("localhost:5173 · Ledger", "L").depth(1).position(10).port(5173),
+            )
+            .on_select(|_, _, _| {})
+            .on_close(|_, _, _| {}),
         )
         .child(div().flex_1())
         .child(
@@ -200,15 +223,20 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
 pub fn build_faces(_window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
     let rows = [
-        ("browse-faces-reading", "Overnight brief", TaskFace::Reading, "reading"),
-        ("browse-faces-typing", "Ledger rewrite", TaskFace::Typing, "typing"),
-        ("browse-faces-needs", "Release sign-off", TaskFace::NeedsYou, "needs you"),
-        ("browse-faces-paused", "Backfill job", TaskFace::Paused, "paused"),
-        ("browse-faces-done", "Ledger chart fix", TaskFace::Done, "done · 3 tabs"),
+        ("browse-faces-reading", "Overnight brief", TaskFace::Reading),
+        ("browse-faces-typing", "Ledger rewrite", TaskFace::Typing),
+        ("browse-faces-needs", "Release sign-off", TaskFace::NeedsYou),
+        ("browse-faces-paused", "Backfill job", TaskFace::Paused),
+        ("browse-faces-done", "Ledger chart fix", TaskFace::Done),
     ];
     let mut col =
         v_flex().gap(px(2.0)).p(px(8.0)).rounded(px(scale::R_LG)).border_1().border_color(p.line).bg(p.surface_1);
-    for (id, name, face, status) in rows {
+    for (id, name, face) in rows {
+        let status = if face == TaskFace::Done {
+            SharedString::from(format!("{} · 3 tabs", face.status_word()))
+        } else {
+            SharedString::from(face.status_word())
+        };
         col = col.child(
             task_folder_row(id, name, face, status, false).on_toggle(|_, _, _| {}).on_open_chat(|_, _, _| {}),
         );

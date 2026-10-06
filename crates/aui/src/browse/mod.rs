@@ -28,20 +28,27 @@ use gpui::SharedString;
 /// The Browse sidebar's fixed width.
 pub const BROWSE_SIDEBAR_WIDTH: f32 = 248.0;
 
-/// What the address line shows: the host in `ink`, the path in `ink-3`, and
-/// — for local pages — the port tag and the `>_` glyph instead of the lock.
+/// What the address line shows: the host in `ink`, the path in `ink-3`, the
+/// port tag for non-default ports, and the glyph: `✦` for internal pages,
+/// `>_` for local ones, the lock when secure, the warning lock otherwise.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Address {
-    /// The host (`pgi.udiseplus.gov.in`, `localhost`).
+    /// The host (`pgi.udiseplus.gov.in`, `localhost`, `settings`).
     pub host: SharedString,
     /// The path including any query or hash (`/#/home`, `/overview`, `/`).
     pub path: SharedString,
-    /// True for `localhost`, `127.0.0.1`, `*.localhost` and `*.test`.
+    /// True for loopbacks (`localhost` with an optional trailing dot,
+    /// `*.localhost`, `*.test`, `127.0.0.0/8`, `0.0.0.0`, `[::1]`).
     pub local: bool,
-    /// The port when the URL names one (`5173`).
+    /// The port when the URL names a non-default one (`5173`); default
+    /// ports (80 for `http`, 443 for `https`) are hidden (`None`).
     pub port: Option<u16>,
-    /// True for `https:` (and for bare hosts, which are assumed `https:`).
+    /// True for `https:` (and for bare hosts, which are assumed `https:`),
+    /// and always true for internal schemes.
     pub secure: bool,
+    /// The lowercased URL scheme (`https`, `chrome`, …); `None` for bare
+    /// hosts, which are assumed `https:`.
+    pub scheme: Option<String>,
 }
 
 impl Address {
@@ -52,8 +59,15 @@ impl Address {
         local: bool,
         port: Option<u16>,
         secure: bool,
+        scheme: Option<String>,
     ) -> Self {
-        Self { host: host.into(), path: path.into(), local, port, secure }
+        Self { host: host.into(), path: path.into(), local, port, secure, scheme }
+    }
+
+    /// True for the internal schemes (`about:`, `chrome:`, `file:`,
+    /// `data:`): those render the `✦` glyph and never the insecure state.
+    pub fn is_internal(&self) -> bool {
+        matches!(self.scheme.as_deref(), Some("about" | "chrome" | "file" | "data"))
     }
 }
 
@@ -64,19 +78,27 @@ pub struct Pin {
     pub id: SharedString,
     /// The single letter (or short mark) drawn on the tile.
     pub letter: SharedString,
-    /// The page title; the tile's accessible name is `Pinned: <title>`.
+    /// The page title; the tile's accessible name is `Pinned <n>: <title>`.
     pub title: SharedString,
+    /// The pin's position in the grid, used in the accessible name.
+    pub position: usize,
 }
 
 impl Pin {
     /// A pin with an id, a tile letter and a title.
     pub fn new(id: impl Into<SharedString>, letter: impl Into<SharedString>, title: impl Into<SharedString>) -> Self {
-        Self { id: id.into(), letter: letter.into(), title: title.into() }
+        Self { id: id.into(), letter: letter.into(), title: title.into(), position: 0 }
+    }
+
+    /// Sets the pin's grid position, used in the accessible name.
+    pub fn position(mut self, position: usize) -> Self {
+        self.position = position;
+        self
     }
 }
 
-/// One tab row: a 16 px letter tile, the title, an optional port tag and —
-/// on hover or when active — the close `×`.
+/// One tab row: a 16 px letter tile, the title, an optional port tag and the
+/// close `×` (always in the tree; opacity 0 until hovered or active).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TabRowData {
     /// The tab title (truncated, reported by `on_select` / `on_close`).
@@ -89,12 +111,15 @@ pub struct TabRowData {
     pub port: Option<u16>,
     /// Nesting depth; each level indents 22 px.
     pub depth: u8,
+    /// The row's position, passed in by the caller and used in the
+    /// accessible names (`Tab <n>: <title>`, `Close tab <n>: <title>`).
+    pub position: usize,
 }
 
 impl TabRowData {
     /// An inactive top-level tab with no port tag.
     pub fn new(title: impl Into<SharedString>, letter: impl Into<SharedString>) -> Self {
-        Self { title: title.into(), letter: letter.into(), active: false, port: None, depth: 0 }
+        Self { title: title.into(), letter: letter.into(), active: false, port: None, depth: 0, position: 0 }
     }
 
     /// Marks the tab active (tinted `surface-3`, close always visible).
@@ -112,6 +137,12 @@ impl TabRowData {
     /// Nests the row one level deeper (22 px per level).
     pub fn depth(mut self, depth: u8) -> Self {
         self.depth = depth;
+        self
+    }
+
+    /// Sets the row's position, used in the accessible names.
+    pub fn position(mut self, position: usize) -> Self {
+        self.position = position;
         self
     }
 }

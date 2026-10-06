@@ -1,6 +1,7 @@
-//! The 28 px address line: lock glyph (or the `>_` glyph when local),
-//! host in `ink` at weight 500, path in `ink-3`, mono port tag when local.
-//! The whole row is one quiet button; the host opens the Field on click.
+//! The 28 px address line: `✦` for internal pages, `>_` when local, the
+//! lock when secure, the warning lock otherwise; host in `ink` at weight
+//! 500, path in `ink-3`, mono port tag for non-default ports. The whole row
+//! is one quiet button; the host opens the Field on click.
 
 use aui_icons::{icon, IconName};
 use aui_motion::{tint_fade, Tween};
@@ -48,9 +49,25 @@ impl RenderOnce for AddressLine {
         let id = self.id.clone();
         let (state, flags) = interaction_flags(id.clone(), window, cx);
         let bg = tint_fade((id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
-        let label: SharedString = format!("Address, {}{}", self.address.host, self.address.path).into();
+        // Internal pages never show the insecure state; a non-local,
+        // non-internal `http:` page does (`not secure` in the name).
+        let insecure = !self.address.is_internal() && !self.address.local && !self.address.secure;
+        let label: SharedString = if insecure {
+            format!("Address, not secure, {}{}", self.address.host, self.address.path).into()
+        } else {
+            format!("Address, {}{}", self.address.host, self.address.path).into()
+        };
         record_ax_label(&label);
-        let glyph = if self.address.local { IconName::Terminal } else { IconName::Shield };
+        let glyph = if self.address.is_internal() {
+            IconName::Sparkle
+        } else if self.address.local {
+            IconName::Terminal
+        } else {
+            IconName::Shield
+        };
+        // No triangle / alert glyph exists in the sprite (adding one is out
+        // of scope), so the insecure state reuses the shield in `warning`.
+        let glyph_color = if insecure { p.warning } else { p.ink_3 };
         // No `w_full`: as a column item the row stretches between its
         // 8 px margins on its own; full width plus margins would overflow
         // the column (see `CompactSessionRow`).
@@ -68,7 +85,7 @@ impl RenderOnce for AddressLine {
             .role(gpui::Role::Button)
             .aria_label(label)
             .track_interaction(&state)
-            .child(icon(glyph).size(px(GLYPH)).color(p.ink_3))
+            .child(icon(glyph).size(px(GLYPH)).color(glyph_color))
             .child(
                 h_flex()
                     .flex_1()
@@ -93,7 +110,9 @@ impl RenderOnce for AddressLine {
                             .child(self.address.path.clone()),
                     ),
             );
-        if let (true, Some(port)) = (self.address.local, self.address.port) {
+        // `split_address` already hides default ports, so any port left
+        // shows — local or not.
+        if let Some(port) = self.address.port {
             row = row.child(tag(SharedString::from(format!(":{port}"))));
         }
         if let Some(on_click) = self.on_click {
@@ -103,34 +122,138 @@ impl RenderOnce for AddressLine {
     }
 }
 
-/// Splits `url` into host, path, locality and port: `local` is `localhost`,
-/// `127.0.0.1`, `*.localhost` or `*.test`; the path keeps any query or hash
-/// and defaults to `/`; `secure` follows the scheme (`https:`, or a bare
-/// host assumed `https:`).
+/// Splits `url` into host, path, locality, port, security and scheme.
+///
+/// The authority ends at the first `/`, `?` or `#`, so
+/// `https://example.com?x=1` keeps host `example.com`; the path keeps the
+/// query and fragment (gaining a leading `/` when it starts with `?` or
+/// `#`) and defaults to `/`. The scheme matches case-insensitively, and
+/// userinfo is stripped (`https://user:pw@host/` → host `host`).
+///
+/// Internal schemes (`about:`, `chrome:`, `file:`, `data:`) are always
+/// secure, never local, and carry no port: `about:blank` → host
+/// `about:blank`, path `/`; `file:///Users/x` → host `file`, path
+/// `/Users/x`; `data:` URLs show host `data` with the mediatype as the
+/// path. `chrome://settings/` keeps host `settings` with `scheme`
+/// `Some("chrome")` (the scheme tells callers apart what the bare host
+/// cannot) — this one representation, not `chrome://settings` as the host.
 pub fn split_address(url: &str) -> Address {
+    if let Some(address) = split_internal(url) {
+        return address;
+    }
     let (scheme, rest) = match url.split_once("://") {
-        Some((scheme, rest)) => (Some(scheme), rest),
+        Some((scheme, rest)) => (Some(scheme.to_ascii_lowercase()), rest),
         None => (None, url),
     };
-    let secure = match scheme {
+    let secure = match scheme.as_deref() {
         Some("https") => true,
         Some("http") => false,
         Some(_) => false,
         None => true,
     };
-    let (authority, path) = match rest.find('/') {
+    let (authority, raw_path) = match rest.find(['/', '?', '#']) {
         Some(at) => (&rest[..at], &rest[at..]),
         None => (rest, "/"),
     };
-    let (host, port) = match authority.rsplit_once(':') {
+    // Keep the query / fragment, but keep host + path reading as one URL.
+    let path = if raw_path.starts_with(['?', '#']) { format!("/{raw_path}") } else { raw_path.to_owned() };
+    // Strip userinfo; credentials never reach the host.
+    let authority = match authority.rsplit_once('@') {
+        Some((_, host)) => host,
+        None => authority,
+    };
+    let (host, port) = split_host_port(authority);
+    // Default ports stay hidden; any other port shows, local or not.
+    let port = match (scheme.as_deref(), port) {
+        (Some("http"), Some(80)) | (Some("https") | None, Some(443)) => None,
+        _ => port,
+    };
+    let local = is_local(host);
+    Address::new(host, path, local, port, secure, scheme)
+}
+
+/// Splits the internal schemes (`about:`, `chrome:`, `file:`, `data:`);
+/// `None` for anything else. See [`split_address`] for the representations.
+fn split_internal(url: &str) -> Option<Address> {
+    let (scheme, rest) = url.split_once(':')?;
+    let scheme = scheme.to_ascii_lowercase();
+    let internal = |host: &str, path: &str| {
+        Address::new(host, path, false, None, true, Some(scheme.clone()))
+    };
+    match scheme.as_str() {
+        "about" => {
+            let (authority, path) = split_path_rest(rest);
+            Some(internal(&format!("about:{authority}"), &path))
+        }
+        "chrome" => {
+            let rest = rest.strip_prefix("//").unwrap_or(rest);
+            let (authority, path) = split_path_rest(rest);
+            Some(internal(authority, &path))
+        }
+        "file" => {
+            let rest = rest.strip_prefix("//").unwrap_or(rest);
+            let (authority, path) = split_path_rest(rest);
+            let host = if authority.is_empty() { "file" } else { authority };
+            Some(internal(host, &path))
+        }
+        "data" => Some(internal("data", &format!("/{rest}"))),
+        _ => None,
+    }
+}
+
+/// Splits `rest` (no scheme) at the first `/`, `?` or `#`; the second half
+/// keeps the query / fragment and gains a leading `/` when it starts with
+/// `?` or `#`, defaulting to `/`.
+fn split_path_rest(rest: &str) -> (&str, String) {
+    match rest.find(['/', '?', '#']) {
+        Some(at) => {
+            let path = &rest[at..];
+            let path = if path.starts_with(['?', '#']) { format!("/{path}") } else { path.to_owned() };
+            (&rest[..at], path)
+        }
+        None => (rest, "/".to_owned()),
+    }
+}
+
+/// Splits an authority (userinfo already stripped) into host and port,
+/// bracket-aware so `[::1]:8080` keeps host `[::1]`. A non-numeric port is
+/// not a port: the authority stays intact.
+fn split_host_port(authority: &str) -> (&str, Option<u16>) {
+    if let Some(inner) = authority.strip_prefix('[') {
+        return match inner.find(']') {
+            // `end` is relative to `inner` (past the `[`), so the `]` sits
+            // at `end + 1` in `authority` and the host ends past it.
+            Some(end) => {
+                let host = &authority[..end + 2];
+                let port = authority[end + 2..].strip_prefix(':').and_then(|tail| tail.parse::<u16>().ok());
+                (host, port)
+            }
+            None => (authority, None),
+        };
+    }
+    match authority.rsplit_once(':') {
         Some((head, tail)) if !head.is_empty() => match tail.parse::<u16>() {
             Ok(port) => (head, Some(port)),
             Err(_) => (authority, None),
         },
         _ => (authority, None),
-    };
+    }
+}
+
+/// True for the loopbacks: `localhost` (a trailing dot counts),
+/// `*.localhost`, `*.test`, `127.0.0.0/8`, `0.0.0.0` and `[::1]`.
+fn is_local(host: &str) -> bool {
     let lower = host.to_ascii_lowercase();
-    let local =
-        lower == "localhost" || lower == "127.0.0.1" || lower.ends_with(".localhost") || lower.ends_with(".test");
-    Address::new(host, path, local, port, secure)
+    let bare = lower.strip_suffix('.').unwrap_or(&lower);
+    if bare == "localhost" || bare.ends_with(".localhost") || bare.ends_with(".test") {
+        return true;
+    }
+    if bare == "[::1]" || bare == "0.0.0.0" {
+        return true;
+    }
+    // Any `127.x.y.z`: every part numeric, leading `127`.
+    if !bare.split('.').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())) {
+        return false;
+    }
+    bare == "127" || bare.starts_with("127.")
 }
