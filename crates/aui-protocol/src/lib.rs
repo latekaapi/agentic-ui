@@ -56,6 +56,7 @@
 mod block;
 mod delta;
 mod intent;
+mod run;
 mod session;
 mod tool;
 mod turn;
@@ -77,3 +78,9 @@ pub use tool::{
     ToolStatus, WebResult,
 };
 pub use turn::{Attachment, AttachmentKind, Mention, MentionKind, Turn, TurnMeta, UploadState};
+pub use run::{
+    CheckMethod, Criterion, CriterionResult, Evidence, EvidenceKind, EvidenceRow, GoalStatus,
+    NativeWorkflow, NoteKind, PeerDirection, PeerMessage, PeerReply, PeerState, QuestionOption as RunQuestionOption,
+    Rung, RungState, RunNote, RunPlan, RunProgress, RunQuestion, RunStage, RunSummary, RunViewModel,
+    RunViewNode, SubagentControls, TaskLine, TaskState, WorkflowChild, WorkerHeader, RunOutcome,
+};

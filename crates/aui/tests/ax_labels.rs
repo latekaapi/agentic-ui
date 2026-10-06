@@ -208,6 +208,20 @@ fn block_element(block: &Block, n: usize) -> AnyElement {
             .link("details", |_, _, _| {})
             .into_any_element(),
         Block::Handoff { .. } => handoff_entries(),
+        // R2/R3 replace this with the orchestration component
+        Block::RunPlan(..) => gpui::div().into_any_element(),
+        // R2/R3 replace this with the orchestration component
+        Block::RunProgress(..) => gpui::div().into_any_element(),
+        // R2/R3 replace this with the orchestration component
+        Block::RunQuestion(..) => gpui::div().into_any_element(),
+        // R2/R3 replace this with the orchestration component
+        Block::RunSummary(..) => gpui::div().into_any_element(),
+        // R2/R3 replace this with the orchestration component
+        Block::RunNote(..) => gpui::div().into_any_element(),
+        // R2/R3 replace this with the orchestration component
+        Block::NativeWorkflow(..) => gpui::div().into_any_element(),
+        // R2/R3 replace this with the orchestration component
+        Block::PeerMessage(..) => gpui::div().into_any_element(),
     }
 }
 
