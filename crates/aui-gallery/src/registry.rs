@@ -946,6 +946,16 @@ pub static ENTRIES: &[Entry] = &[
         theme: CardTheme::Both,
         build: crate::cards::orch_sidebar_nesting::build,
     },
+    Entry {
+        id: "screens/orchestration",
+        group: "Screens",
+        title: "Orchestration",
+        subtitle: "Runs, subagents, goals, workflows, questions and peer sessions, chat-first",
+        width: 1440.0,
+        height: 900.0,
+        theme: CardTheme::Light,
+        build: crate::orchestration::build,
+    },
 ];
 
 /// Looks an entry up by id.

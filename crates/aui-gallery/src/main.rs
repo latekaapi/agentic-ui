@@ -16,6 +16,7 @@
 //! ```
 
 mod assistant;
+mod orchestration;
 mod cards;
 mod gallery;
 mod idle;
