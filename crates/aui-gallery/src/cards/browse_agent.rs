@@ -2,7 +2,8 @@
 //! and the `⌘E` agent card with the sample PGI transcript.
 
 use aui::browse::agent_window::{
-    agent_card, agent_line, AgentItem, AgentTranscript, ApprovalData, LineState, Step, StepState, TaskFace,
+    agent_card, agent_column, agent_line, AgentItem, AgentTranscript, ApprovalData, LineState, Step, StepState,
+    TaskFace,
 };
 use aui::composer::{composer_state_rows, ComposerChip, ComposerChipKind};
 use aui_tokens::{scale, ActiveAui};
@@ -43,7 +44,20 @@ fn approval_state() -> LineState {
         hint: "Always asks before downloading".into(),
         deny: "Don't allow".into(),
         allow: "Download".into(),
+        allow_always: None,
     })
+}
+
+/// The page chip the card footer and the ask line share.
+fn page_chip() -> ComposerChip {
+    ComposerChip {
+        id: "this-page".into(),
+        kind: ComposerChipKind::File,
+        label: "This page".into(),
+        removable: true,
+        thumbnail: None,
+        detail: None,
+    }
 }
 
 /// The sample transcript: PGI grades against PTR, dropout and girls'
@@ -52,6 +66,7 @@ fn sample_transcript() -> AgentTranscript {
     AgentTranscript {
         title: "PGI vs school indicators".into(),
         model: "Claude Sonnet".into(),
+        chips: vec![page_chip()],
         items: vec![
             AgentItem::User(
                 "compare PGI 2.0 grades with PTR, dropout and girls' enrolment for Karnataka, Tamil Nadu, Kerala, Maharashtra and Gujarat — one table, with sources"
@@ -65,6 +80,23 @@ fn sample_transcript() -> AgentTranscript {
             AgentItem::Queued("also add girls' GER".into()),
         ],
     }
+}
+
+/// The column transcript: the sample plus the answered comparison and the
+/// follow-up question waiting on the person.
+fn column_transcript() -> AgentTranscript {
+    let mut transcript = sample_transcript();
+    transcript.items.push(
+        AgentItem::Answer(
+            "Karnataka and Tamil Nadu lead the five-state table on PTR and girls' enrolment. Gujarat improved 3.5 points since 2021, while dropout is highest in Maharashtra."
+                .into(),
+        ),
+    );
+    transcript.items.push(AgentItem::Question {
+        text: "Which year for PTR?".into(),
+        choices: vec!["2023-24".into(), "2024-25".into()],
+    });
+    transcript
 }
 
 /// Five stacked lines on a muted page strip, 640 wide.
@@ -109,5 +141,19 @@ pub fn build_card(window: &mut Window, cx: &mut App) -> AnyElement {
         .w_full()
         .justify_center()
         .child(agent_card("browse-card", &transcript, &steer))
+        .into_any_element()
+}
+
+/// The column with the answered comparison and the follow-up question, in a
+/// 420 × 640 frame standing in for the host's right pane.
+pub fn build_column(window: &mut Window, cx: &mut App) -> AnyElement {
+    let steer = window.use_keyed_state("browse-column-steer", cx, |window, cx| {
+        composer_state_rows("Steer, or ⌘↩ to queue", 1, 4, window, cx)
+    });
+    let transcript = column_transcript();
+    h_flex()
+        .w_full()
+        .justify_center()
+        .child(div().w(px(420.0)).h(px(640.0)).child(agent_column("browse-column", &transcript, &steer)))
         .into_any_element()
 }

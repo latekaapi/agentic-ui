@@ -20,10 +20,10 @@ use gpui_kit::base::input::TextareaState;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::input::Textarea;
 
-use crate::composer::ComposerChip;
+use crate::composer::{ComposerChip, ComposerChipKind};
 use crate::data::{button, chip, icon_button, kbd, pill, record_ax_label};
 use crate::icons::{icon, IconName};
-use crate::keys::{APPROVAL_CONTEXT, ApproveOnce, Cancel, Deny};
+use crate::keys::{APPROVAL_CONTEXT, ApproveAlways, ApproveOnce, Cancel, ChooseNth, Confirm, Deny, MENU_CONTEXT};
 use crate::transcript::{activity_group, user_turn};
 
 /// The `⌘J` row height.
@@ -48,6 +48,8 @@ const SMALL_TEXT: f32 = 12.0;
 const CAPTION_TEXT: f32 = 11.0;
 /// The remove `×` in a context chip.
 const CHIP_X: f32 = 10.0;
+/// The leading kind glyph in a context chip, mirroring the composer's row.
+const CHIP_GLYPH: f32 = 11.0;
 
 /// Which face the agent line wears while it works.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +112,9 @@ pub struct ApprovalData {
     pub deny: SharedString,
     /// The primary button (`Download`).
     pub allow: SharedString,
+    /// The third quiet choice (`Always on this site`), drawn only when set;
+    /// the `a` key reports [`LineIntent::AllowAlways`] only then too.
+    pub allow_always: Option<String>,
 }
 
 /// The `⌘J` line's state.
@@ -170,6 +175,9 @@ pub enum LineIntent {
     Stop,
     /// Allow the pending request.
     Allow,
+    /// Allow it and remember the rule (`a`, only when the approval offers
+    /// the always choice).
+    AllowAlways,
     /// Deny the pending request.
     Deny,
     /// Remove one context chip, by id.
@@ -205,6 +213,8 @@ pub struct AgentTranscript {
     pub title: SharedString,
     /// The model under the title (`Claude Sonnet`).
     pub model: SharedString,
+    /// Context chips for the footer row (`This page` with `×`).
+    pub chips: Vec<ComposerChip>,
     /// The body, top to bottom.
     pub items: Vec<AgentItem>,
 }
@@ -233,6 +243,8 @@ pub enum CardIntent {
     ChipRemove(SharedString),
     /// Dock the card into the column.
     Dock,
+    /// Undock the column back into the card.
+    Undock,
     /// Close the card.
     Close,
     /// Open the model picker.
@@ -242,15 +254,18 @@ pub enum CardIntent {
 }
 
 /// The one line saying what the agent is doing now: the last running step's
-/// text; when no step runs but steps exist, `Done`; when there are no steps
-/// at all, the last answer's first sentence; empty when there is nothing.
+/// text; when no step runs but steps exist, `Failed: <step>` when the last
+/// step failed, else `Done`; when there are no steps at all, the last
+/// answer's first sentence; empty when there is nothing.
 pub fn transcript_summary_line(transcript: &AgentTranscript) -> String {
     let mut last_running: Option<&str> = None;
     let mut saw_steps = false;
+    let mut last_step: Option<&Step> = None;
     for item in &transcript.items {
         if let AgentItem::Steps(steps) = item {
             saw_steps = true;
             for step in steps {
+                last_step = Some(step);
                 if step.is_running() {
                     last_running = Some(&step.text);
                 }
@@ -261,7 +276,10 @@ pub fn transcript_summary_line(transcript: &AgentTranscript) -> String {
         return text.to_string();
     }
     if saw_steps {
-        return "Done".to_string();
+        match last_step {
+            Some(step) if step.state == StepState::Failed => return format!("Failed: {}", step.text),
+            _ => return "Done".to_string(),
+        }
     }
     for item in transcript.items.iter().rev() {
         if let AgentItem::Answer(text) = item {
@@ -271,11 +289,38 @@ pub fn transcript_summary_line(transcript: &AgentTranscript) -> String {
     String::new()
 }
 
-/// Up to the first `.`, `!`, `?` or newline, trimmed.
+/// Up to the first sentence break — `. `, `! `, `? ` or a newline — trimmed.
+/// A bare `.` never breaks, so decimals (`3.5`) stay whole; a `. ` that only
+/// ends an abbreviation (`e.g.`) is not a break either. Text with no break
+/// returns whole, trimmed.
 fn first_sentence(text: &str) -> String {
-    let head = text.find(['.', '!', '?', '\n']).map(|i| &text[..i]).unwrap_or(text);
-    let head = head.trim();
-    if head.is_empty() { text.trim().to_string() } else { head.to_string() }
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'\n' {
+            return text[..i].trim().to_string();
+        }
+        if (b == b'.' || b == b'!' || b == b'?')
+            && i + 1 < bytes.len()
+            && bytes[i + 1] == b' '
+            && (b != b'.' || !is_abbreviation_dot(bytes, i))
+        {
+            return text[..i].trim().to_string();
+        }
+        i += 1;
+    }
+    text.trim().to_string()
+}
+
+/// Whether the `.` at `dot` only ends an abbreviation (`e.g.`, `i.e.`): the
+/// letter before it stands alone — at the start or after a non-letter — so
+/// the `. ` after it is not a sentence break.
+fn is_abbreviation_dot(bytes: &[u8], dot: usize) -> bool {
+    if dot == 0 || !bytes[dot - 1].is_ascii_alphabetic() {
+        return false;
+    }
+    dot == 1 || !bytes[dot - 2].is_ascii_alphabetic()
 }
 
 type LineHandler = Rc<dyn Fn(LineIntent, &mut Window, &mut App)>;
@@ -318,12 +363,22 @@ fn click(handler: Option<LineHandler>, intent: LineIntent) -> crate::util::Click
     })
 }
 
+/// Reports the input's current text as [`LineIntent::Send`], unless it is
+/// blank: trimmed-empty text emits nothing.
+fn send_current_text(handler: &Option<LineHandler>, input: &Entity<TextareaState>, w: &mut Window, cx: &mut App) {
+    let trimmed = input.read(cx).value().trim().to_string();
+    if trimmed.is_empty() {
+        return;
+    }
+    if let Some(h) = handler {
+        h(LineIntent::Send(trimmed), w, cx);
+    }
+}
+
 /// Reports the input's current text as [`LineIntent::Send`] at click time.
 fn click_send(handler: Option<LineHandler>, input: Entity<TextareaState>) -> crate::util::ClickHandler {
     Box::new(move |_: &gpui::ClickEvent, w: &mut Window, cx: &mut App| {
-        if let Some(h) = &handler {
-            h(LineIntent::Send(input.read(cx).value().to_string()), w, cx);
-        }
+        send_current_text(&handler, &input, w, cx);
     })
 }
 
@@ -428,6 +483,10 @@ fn work_row(
 
 /// The `Ask` card: the 48 px input row, then the chip row and the site
 /// actions below it.
+///
+/// Enter in the input sends through [`Confirm`] under [`MENU_CONTEXT`] — the
+/// input state's own submit is left unwired, so one Enter yields exactly one
+/// [`LineIntent::Send`].
 #[allow(clippy::too_many_arguments)]
 fn ask_card(
     id: &ElementId,
@@ -443,6 +502,13 @@ fn ask_card(
         .primary()
         .accessibility_label("Send")
         .on_click(click_send(handler.clone(), input.clone()));
+    let confirm = {
+        let handler = handler.clone();
+        let input = input.clone();
+        move |_: &Confirm, w: &mut Window, cx: &mut App| {
+            send_current_text(&handler, &input, w, cx);
+        }
+    };
     let row = h_flex()
         .w_full()
         .h(px(LINE_H))
@@ -455,6 +521,8 @@ fn ask_card(
         .child(send);
     let mut card = v_flex()
         .id(id.clone())
+        .key_context(MENU_CONTEXT)
+        .on_action(confirm)
         .w_full()
         .min_w(px(LINE_MIN_W))
         .max_w(px(LINE_MAX_W))
@@ -465,7 +533,10 @@ fn ask_card(
         .shadow(p.shadow(3))
         .pb(px(ROW_PAD_X))
         .child(row)
-        .child(chips_row(id, chips, handler.clone(), cx));
+        .child(chips_row(id, chips, {
+            let handler = handler.clone();
+            move |chip_id: SharedString| click(handler.clone(), LineIntent::ChipRemove(chip_id))
+        }, click(handler.clone(), LineIntent::Plus), cx));
     if !site_actions.is_empty() {
         let mut actions = h_flex().gap(px(ROW_GAP)).flex_wrap();
         for (action_id, label) in site_actions {
@@ -509,12 +580,46 @@ fn ask_input(id: impl Into<ElementId>, label: &SharedString, input: &Entity<Text
         .into_any_element()
 }
 
-/// The chip row: the given chips with `×`, then the composer's bordered `+`.
-fn chips_row(id: &ElementId, chips: &[ComposerChip], handler: Option<LineHandler>, cx: &mut App) -> gpui::AnyElement {
+/// The context-chip row the Ask line and the card footer share: one chip per
+/// entry, then the composer's bordered `+`.
+///
+/// Each chip draws the way the composer's own row draws it (its chips row is
+/// inline in `composer.rs`, so this mirrors it): the kind's leading glyph —
+/// `@`, `$`, file, image — the file's detail suffix, and a real remove `×`
+/// (button role, `Remove <label>`, [`IconName::X`]) reporting through
+/// `on_remove`. The `+` reports through `on_plus`.
+fn chips_row(
+    id: &ElementId,
+    chips: &[ComposerChip],
+    on_remove: impl Fn(SharedString) -> crate::util::ClickHandler,
+    on_plus: crate::util::ClickHandler,
+    cx: &mut App,
+) -> gpui::AnyElement {
     let p = cx.aui().colors;
     let mut row = h_flex().w_full().flex_wrap().gap(px(6.0)).px(px(ROW_PAD_X)).pt(px(6.0));
     for c in chips {
-        let mut el = chip((id.clone(), SharedString::from(format!("chip-{}", c.id))), c.label.clone());
+        let leading: gpui::AnyElement = match c.kind {
+            ComposerChipKind::Mention => div()
+                .mono(scale::FS_12)
+                .line_height(relative(1.0))
+                .text_color(p.accent_ink)
+                .child("@")
+                .into_any_element(),
+            ComposerChipKind::Skill => div()
+                .mono(scale::FS_12)
+                .line_height(relative(1.0))
+                .text_color(p.accent_ink)
+                .child("$")
+                .into_any_element(),
+            ComposerChipKind::Image => icon(IconName::Image).size(px(CHIP_GLYPH)).into_any_element(),
+            ComposerChipKind::File => icon(IconName::File).size(px(CHIP_GLYPH)).into_any_element(),
+        };
+        let mut el = chip((id.clone(), SharedString::from(format!("chip-{}", c.id))), c.label.clone()).leading(leading);
+        if c.kind == ComposerChipKind::File {
+            if let Some(detail) = &c.detail {
+                el = el.detail(detail.clone());
+            }
+        }
         if c.removable {
             record_ax_label(&format!("Remove {}", c.label));
             el = el.trailing(
@@ -523,7 +628,7 @@ fn chips_row(id: &ElementId, chips: &[ComposerChip], handler: Option<LineHandler
                     .cursor_pointer()
                     .role(gpui::Role::Button)
                     .aria_label(SharedString::from(format!("Remove {}", c.label)))
-                    .on_click(click(handler.clone(), LineIntent::ChipRemove(c.id.clone())))
+                    .on_click(on_remove(c.id.clone()))
                     .child(icon(IconName::X).size(px(CHIP_X)).color(p.ink_4)),
             );
         }
@@ -532,7 +637,7 @@ fn chips_row(id: &ElementId, chips: &[ComposerChip], handler: Option<LineHandler
     row = row.child(
         icon_button((id.clone(), "plus"), IconName::Plus)
             .accessibility_label("Attach or add")
-            .on_click(click(handler, LineIntent::Plus)),
+            .on_click(on_plus),
     );
     row.into_any_element()
 }
@@ -543,7 +648,10 @@ fn chips_row(id: &ElementId, chips: &[ComposerChip], handler: Option<LineHandler
 ///
 /// The card takes the keyboard once when it opens (the settings dialog's
 /// pattern): `y` allows, `n` denies through [`ApproveOnce`] and [`Deny`] in
-/// [`APPROVAL_CONTEXT`], and escape denies too. The host binds `⌘↩` to allow.
+/// [`APPROVAL_CONTEXT`], and escape denies too. When the approval offers the
+/// always choice, `a` reports [`LineIntent::AllowAlways`] through
+/// [`ApproveAlways`]; otherwise nothing claims that key. The host binds `⌘↩`
+/// to allow.
 fn approval_card(
     id: &ElementId,
     data: &ApprovalData,
@@ -565,6 +673,12 @@ fn approval_card(
     let deny = button((id.clone(), "deny"), data.deny.clone()).on_click(click(handler.clone(), LineIntent::Deny));
     let allow =
         button((id.clone(), "allow"), data.allow.clone()).primary().on_click(click(handler.clone(), LineIntent::Allow));
+    let always: Option<gpui::AnyElement> = data.allow_always.as_ref().map(|label| {
+        button((id.clone(), "allow-always"), SharedString::from(label.clone()))
+            .ghost()
+            .on_click(click(handler.clone(), LineIntent::AllowAlways))
+            .into_any_element()
+    });
     let head = h_flex()
         .w_full()
         .items_center()
@@ -582,7 +696,7 @@ fn approval_card(
         )
         .child(div().flex_1().min_w(px(0.0)).font_weight(gpui::FontWeight::SEMIBOLD).ui(BODY_TEXT).child(data.title.clone()))
         .child(pill(data.kind_pill.clone()));
-    v_flex()
+    let mut card = v_flex()
         .id(id.clone())
         .key_context(APPROVAL_CONTEXT)
         .track_focus(&focus)
@@ -609,8 +723,18 @@ fn approval_card(
                     h(LineIntent::Deny, w, cx);
                 }
             }
-        })
-        .w_full()
+        });
+    if data.allow_always.is_some() {
+        card = card.on_action({
+            let handler = handler.clone();
+            move |_: &ApproveAlways, w: &mut Window, cx: &mut App| {
+                if let Some(h) = &handler {
+                    h(LineIntent::AllowAlways, w, cx);
+                }
+            }
+        });
+    }
+    card.w_full()
         .min_w(px(LINE_MIN_W))
         .max_w(px(LINE_MAX_W))
         .rounded(px(scale::R_XL))
@@ -627,8 +751,9 @@ fn approval_card(
                 .w_full()
                 .items_center()
                 .gap(px(ROW_GAP))
-                .child(div().ui(SMALL_TEXT).text_color(p.ink_3).child(data.hint.clone()))
+                .child(div().min_w(px(0.0)).truncate().ui(SMALL_TEXT).text_color(p.ink_3).child(data.hint.clone()))
                 .child(div().flex_1())
+                .children(always)
                 .child(deny)
                 .child(allow),
         )
@@ -687,13 +812,27 @@ fn card_click(handler: Option<CardHandler>, intent: CardIntent) -> crate::util::
     })
 }
 
-/// Reports the footer's current text as [`CardIntent::Send`] at click time.
+/// Reports the footer's current text as [`CardIntent::Send`] at click time,
+/// unless it is blank: trimmed-empty text emits nothing.
 fn card_click_send(handler: Option<CardHandler>, input: Entity<TextareaState>) -> crate::util::ClickHandler {
     Box::new(move |_: &gpui::ClickEvent, w: &mut Window, cx: &mut App| {
+        let trimmed = input.read(cx).value().trim().to_string();
+        if trimmed.is_empty() {
+            return;
+        }
         if let Some(h) = &handler {
-            h(CardIntent::Send(input.read(cx).value().to_string()), w, cx);
+            h(CardIntent::Send(trimmed), w, cx);
         }
     })
+}
+
+/// The current question's choice count, when the transcript's last item is a
+/// [`AgentItem::Question`] waiting on the person.
+fn current_question_choices(transcript: &AgentTranscript) -> Option<usize> {
+    match transcript.items.last() {
+        Some(AgentItem::Question { choices, .. }) if !choices.is_empty() => Some(choices.len()),
+        _ => None,
+    }
 }
 
 impl RenderOnce for AgentCard {
@@ -703,10 +842,13 @@ impl RenderOnce for AgentCard {
         let handler = self.on_intent.clone();
         let header = card_header(&id, &self.transcript, self.size, handler.clone(), window, cx);
         let body = agent_body(&id, &self.transcript, handler.clone(), window, cx);
-        let footer = card_footer(&id, &self.input, handler, window, cx);
-        match self.size {
+        let footer = card_footer(&id, &self.transcript, &self.input, handler.clone(), window, cx);
+        // Digits pick the current question's choices through [`ChooseNth`] in
+        // [`APPROVAL_CONTEXT`], the approval card's pattern: the context and
+        // the focus stay off the tree until a question is actually current.
+        let mut shell = match self.size {
             AgentSize::Card => v_flex()
-                .id(id)
+                .id(id.clone())
                 .w(px(CARD_W))
                 .h(px(CARD_H))
                 .rounded(px(scale::R_LG))
@@ -717,23 +859,48 @@ impl RenderOnce for AgentCard {
                 .overflow_hidden()
                 .child(header)
                 .child(body)
-                .child(footer)
-                .into_any_element(),
+                .child(footer),
             AgentSize::Column => v_flex()
-                .id(id)
+                .id(id.clone())
                 .w_full()
                 .h_full()
                 .bg(p.overlay)
                 .child(header)
                 .child(body)
-                .child(footer)
-                .into_any_element(),
+                .child(footer),
+        };
+        if let Some(count) = current_question_choices(&self.transcript) {
+            let keyboard = window.use_keyed_state((id.clone(), "question-focus"), cx, |_, cx| ApprovalFocus {
+                focus: cx.focus_handle(),
+                claimed: false,
+            });
+            if !keyboard.read(cx).claimed {
+                let focus = keyboard.read(cx).focus.clone();
+                window.focus(&focus, cx);
+                keyboard.update(cx, |s, _| s.claimed = true);
+            }
+            let focus = keyboard.read(cx).focus.clone();
+            shell = shell
+                .key_context(APPROVAL_CONTEXT)
+                .track_focus(&focus)
+                .on_action({
+                    let handler = handler.clone();
+                    move |action: &ChooseNth, w: &mut Window, cx: &mut App| {
+                        if action.index < count {
+                            if let Some(h) = &handler {
+                                h(CardIntent::Choose(action.index), w, cx);
+                            }
+                        }
+                    }
+                });
         }
+        shell.into_any_element()
     }
 }
 
-/// The header: bold title, the `Model, <name>` button under it, dock (or
-/// undock) and close at the right.
+/// The header: bold title, the model button left-aligned under it, dock (or
+/// undock) and close at the right. The model button reads `<model> ▾` while
+/// its accessible name stays `Model, <model>`.
 fn card_header(
     id: &ElementId,
     transcript: &AgentTranscript,
@@ -744,9 +911,9 @@ fn card_header(
 ) -> gpui::AnyElement {
     let p = cx.aui().colors;
     let _ = window;
-    let (dock_label, dock_intent) = match size {
-        AgentSize::Card => ("Dock to column", CardIntent::Dock),
-        AgentSize::Column => ("Undock", CardIntent::Dock),
+    let (dock_label, dock_icon, dock_intent) = match size {
+        AgentSize::Card => ("Dock to column", IconName::PanelRight, CardIntent::Dock),
+        AgentSize::Column => ("Undock", IconName::Layout, CardIntent::Undock),
     };
     h_flex()
         .w_full()
@@ -759,18 +926,20 @@ fn card_header(
             v_flex()
                 .flex_1()
                 .min_w(px(0.0))
+                .items_start()
                 .gap(px(2.0))
                 .child(div().font_weight(gpui::FontWeight::SEMIBOLD).ui(BODY_TEXT).text_color(p.ink).child(transcript.title.clone()))
                 .child(
-                    button((id.clone(), "model"), SharedString::from(format!("Model, {}", transcript.model)))
+                    button((id.clone(), "model"), transcript.model.clone())
                         .ghost()
                         .sm()
                         .trailing(icon(IconName::ChevronDown).size(px(10.0)).color(p.ink_3))
+                        .accessibility_label(SharedString::from(format!("Model, {}", transcript.model)))
                         .on_click(card_click(handler.clone(), CardIntent::Model)),
                 ),
         )
         .child(
-            icon_button((id.clone(), "dock"), IconName::PanelRight)
+            icon_button((id.clone(), "dock"), dock_icon)
                 .ghost()
                 .xs()
                 .accessibility_label(dock_label)
@@ -787,7 +956,8 @@ fn card_header(
 }
 
 /// The body the card and the column share: user bubbles, steps cards,
-/// queued chips, answers, questions.
+/// queued chips, answers, questions. The body scrolls while the steering
+/// footer stays pinned.
 fn agent_body(
     id: &ElementId,
     transcript: &AgentTranscript,
@@ -797,7 +967,15 @@ fn agent_body(
 ) -> gpui::AnyElement {
     let p = cx.aui().colors;
     let _ = window;
-    let mut body = v_flex().flex_1().min_h(px(0.0)).w_full().gap(px(10.0)).px(px(ROW_PAD_X)).py(px(ROW_GAP));
+    let mut body = v_flex()
+        .id((id.clone(), "body"))
+        .flex_1()
+        .min_h(px(0.0))
+        .overflow_y_scroll()
+        .w_full()
+        .gap(px(10.0))
+        .px(px(ROW_PAD_X))
+        .py(px(ROW_GAP));
     for (i, item) in transcript.items.iter().enumerate() {
         let item_id = (id.clone(), SharedString::from(format!("item-{i}")));
         match item {
@@ -872,35 +1050,20 @@ fn steps_card(id: impl Into<ElementId>, steps: &[Step]) -> impl IntoElement {
 }
 
 /// The steering footer: the composer row (`Steer, or ⌘↩ to queue` comes from
-/// the input state's own placeholder), the page chip row, send.
+/// the input state's own placeholder), the transcript's chip row, send. The
+/// chips are the same shared row the Ask line draws.
 fn card_footer(
     id: &ElementId,
+    transcript: &AgentTranscript,
     input: &Entity<TextareaState>,
     handler: Option<CardHandler>,
     window: &mut Window,
     cx: &mut App,
 ) -> gpui::AnyElement {
     let p = cx.aui().colors;
-    record_ax_label("Remove This page");
-    let page = chip((id.clone(), "page"), "This page").trailing(
-        div()
-            .id((id.clone(), "page-x"))
-            .cursor_pointer()
-            .role(gpui::Role::Button)
-            .aria_label("Remove This page")
-            .on_click({
-                let handler = handler.clone();
-                move |_: &gpui::ClickEvent, w: &mut Window, cx: &mut App| {
-                    if let Some(h) = &handler {
-                        h(CardIntent::ChipRemove("this-page".into()), w, cx);
-                    }
-                }
-            }),
-    );
     v_flex()
         .w_full()
         .gap(px(6.0))
-        .px(px(ROW_PAD_X))
         .pt(px(ROW_GAP))
         .pb(px(ROW_PAD_X))
         .border_t_1()
@@ -910,6 +1073,7 @@ fn card_footer(
                 .w_full()
                 .items_center()
                 .gap(px(ROW_GAP))
+                .px(px(ROW_PAD_X))
                 .child(multiline_input((id.clone(), "steer"), "Steer the agent", input, window, cx))
                 .child(
                     icon_button((id.clone(), "send"), IconName::ArrowUp)
@@ -918,16 +1082,10 @@ fn card_footer(
                         .on_click(card_click_send(handler.clone(), input.clone())),
                 ),
         )
-        .child(
-            h_flex()
-                .gap(px(6.0))
-                .child(page)
-                .child(
-                    icon_button((id.clone(), "plus"), IconName::Plus)
-                        .accessibility_label("Attach or add")
-                        .on_click(card_click(handler, CardIntent::Plus)),
-                ),
-        )
+        .child(chips_row(id, &transcript.chips, {
+            let handler = handler.clone();
+            move |chip_id: SharedString| card_click(handler.clone(), CardIntent::ChipRemove(chip_id))
+        }, card_click(handler, CardIntent::Plus), cx))
         .into_any_element()
 }
 

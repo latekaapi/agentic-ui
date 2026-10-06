@@ -835,6 +835,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::browse_agent::build_card,
     },
     Entry {
+        id: "browse/agent-column",
+        group: "Browse",
+        title: "Agent column",
+        subtitle: "The column with the answered PGI comparison and the follow-up question",
+        width: 420.0,
+        height: 640.0,
+        theme: CardTheme::Both,
+        build: crate::cards::browse_agent::build_column,
+    },
+    Entry {
         id: "screens/all",
         group: "Screens",
         title: "Screens",
