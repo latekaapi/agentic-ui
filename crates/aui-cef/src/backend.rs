@@ -2427,3 +2427,18 @@ mod tests {
         assert!(!opens_as_host_tab(WindowOpenDisposition::NEW_WINDOW));
     }
 }
+
+// Overlay-spike probes (examples/overlay.rs, S1 spike; additive). Declared
+// here so the crate owns the shim helpers; the example declares them again
+// at its own use site. Never called from the crate itself.
+#[allow(dead_code)]
+unsafe extern "C" {
+    fn aui_overlay_window(view: *mut c_void) -> *mut c_void;
+    fn aui_overlay_first_child(view: *mut c_void) -> *mut c_void;
+    fn aui_overlay_level(window: *mut c_void) -> std::os::raw::c_long;
+    fn aui_overlay_is_above(a: *mut c_void, b: *mut c_void) -> std::os::raw::c_int;
+    fn aui_overlay_is_key(window: *mut c_void) -> std::os::raw::c_int;
+    fn aui_overlay_move_host(view: *mut c_void, dx: f64, dy: f64);
+    fn aui_overlay_frame(window: *mut c_void, x: *mut f64, y: *mut f64, w: *mut f64, h: *mut f64);
+    fn aui_overlay_number(window: *mut c_void) -> std::os::raw::c_long;
+}

@@ -377,3 +377,77 @@ int aui_cef_window_can_become_main(void *window) {
   if (!w) return -1;
   return w.canBecomeMainWindow ? 1 : 0;
 }
+
+// MARK: - Overlay-spike probes (examples/overlay.rs, S1 spike; additive)
+
+// The NSWindow hosting `view` (NULL when nil).
+void *aui_overlay_window(void *view) {
+  NSView *v = (__bridge NSView *)view;
+  if (!v) return NULL;
+  return (__bridge void *)v.window;
+}
+
+// The host window's first child window — the CEF page (NULL when none yet).
+void *aui_overlay_first_child(void *view) {
+  NSView *v = (__bridge NSView *)view;
+  NSWindow *w = v ? v.window : nil;
+  if (!w || w.childWindows.count == 0) return NULL;
+  return (__bridge void *)w.childWindows[0];
+}
+
+// `[w level]` (-1 for NULL).
+long aui_overlay_level(void *window) {
+  NSWindow *w = (__bridge NSWindow *)window;
+  if (!w) return -1;
+  return (long)w.level;
+}
+
+// 1 when `a` sorts before `b` in `[NSWindow windowNumbersWithOptions:0]`
+// (earlier = frontmost), 0 when it does not, -1 when either window is
+// absent from the list.
+int aui_overlay_is_above(void *a, void *b) {
+  NSWindow *wa = (__bridge NSWindow *)a;
+  NSWindow *wb = (__bridge NSWindow *)b;
+  if (!wa || !wb) return -1;
+  NSArray<NSNumber *> *order = [NSWindow windowNumbersWithOptions:0];
+  NSUInteger ia = [order indexOfObject:@(wa.windowNumber)];
+  NSUInteger ib = [order indexOfObject:@(wb.windowNumber)];
+  if (ia == NSNotFound || ib == NSNotFound) return -1;
+  return ia < ib ? 1 : 0;
+}
+
+// 1 when `window` is the key window (0 for NULL or not key).
+int aui_overlay_is_key(void *window) {
+  NSWindow *w = (__bridge NSWindow *)window;
+  if (!w) return 0;
+  return w.isKeyWindow ? 1 : 0;
+}
+
+// Shifts the host window's frame by (dx, dy) screen points.
+void aui_overlay_move_host(void *view, double dx, double dy) {
+  NSView *v = (__bridge NSView *)view;
+  NSWindow *w = v ? v.window : nil;
+  if (!w) return;
+  NSRect f = w.frame;
+  f.origin.x += dx;
+  f.origin.y += dy;
+  [w setFrame:f display:YES];
+}
+
+// The window's frame in screen coordinates (all zeros for NULL).
+void aui_overlay_frame(void *window, double *x, double *y, double *w, double *h) {
+  NSWindow *ww = (__bridge NSWindow *)window;
+  if (!ww) {
+    if (x) *x = 0; if (y) *y = 0; if (w) *w = 0; if (h) *h = 0;
+    return;
+  }
+  NSRect f = ww.frame;
+  if (x) *x = f.origin.x; if (y) *y = f.origin.y; if (w) *w = f.size.width; if (h) *h = f.size.height;
+}
+
+// `[w windowNumber]` (-1 for NULL): the id `screencapture -l` wants.
+long aui_overlay_number(void *window) {
+  NSWindow *w = (__bridge NSWindow *)window;
+  if (!w) return -1;
+  return (long)w.windowNumber;
+}
