@@ -406,6 +406,14 @@ fn goal_and_generic_blocks_round_trip() {
         percent_complete: Some(140.0),
         current_work: Some("Rewriting the validator".into()),
         next_work: None,
+        provider: None,
+        tokens_used: None,
+        token_budget: None,
+        elapsed: None,
+        turn: None,
+        last_reason: None,
+        gated_by_baaz: false,
+        reopened: false,
     };
     let json = serde_json::to_value(&goal).unwrap();
     assert_eq!(json["kind"], "goal");
@@ -811,4 +819,113 @@ fn turn_replaced_round_trips_through_json() {
     assert_eq!(json["kind"], "turn_replaced");
     let back: Delta = serde_json::from_value(json).expect("deserialize");
     assert_eq!(back, delta);
+}
+
+fn orchestration_round_trip(block: Block, kind: &str) {
+    let json = serde_json::to_value(&block).expect("serialize");
+    assert_eq!(json["kind"], kind);
+    let back: Block = serde_json::from_value(json).expect("deserialize");
+    assert_eq!(back, block);
+}
+
+#[test]
+fn run_plan_blocks_round_trip_with_their_kind_tag() {
+    orchestration_round_trip(aui_protocol::sample::run_plan_proposed(), "run_plan");
+    orchestration_round_trip(aui_protocol::sample::run_plan_started(), "run_plan");
+    // Proposed means no start time on the wire.
+    let json = serde_json::to_value(aui_protocol::sample::run_plan_proposed()).unwrap();
+    assert!(json.get("started_at").is_none(), "proposed plan has no start: {json}");
+}
+
+#[test]
+fn run_progress_blocks_round_trip_with_their_kind_tag() {
+    use aui_protocol::sample;
+    orchestration_round_trip(sample::run_progress_running(), "run_progress");
+    orchestration_round_trip(sample::run_progress_needs_you(), "run_progress");
+    orchestration_round_trip(sample::run_progress_paused(), "run_progress");
+    orchestration_round_trip(sample::run_progress_quota_wait(), "run_progress");
+    orchestration_round_trip(sample::run_progress_reconciling(), "run_progress");
+}
+
+#[test]
+fn run_question_blocks_round_trip_with_their_kind_tag() {
+    orchestration_round_trip(aui_protocol::sample::run_question_open(), "run_question");
+    orchestration_round_trip(aui_protocol::sample::run_question_answered(), "run_question");
+    // Open means no answer on the wire.
+    let json = serde_json::to_value(aui_protocol::sample::run_question_open()).unwrap();
+    assert!(json.get("answer").is_none(), "open question has no answer: {json}");
+}
+
+#[test]
+fn run_summary_blocks_round_trip_with_their_kind_tag() {
+    orchestration_round_trip(aui_protocol::sample::run_summary_finished(), "run_summary");
+    orchestration_round_trip(aui_protocol::sample::run_summary_stopped(), "run_summary");
+    orchestration_round_trip(aui_protocol::sample::run_summary_merged(), "run_summary");
+}
+
+#[test]
+fn run_note_blocks_round_trip_with_their_kind_tag() {
+    orchestration_round_trip(aui_protocol::sample::run_note_preference(), "run_note");
+}
+
+#[test]
+fn native_workflow_blocks_round_trip_with_their_kind_tag() {
+    orchestration_round_trip(
+        aui_protocol::sample::workflow_muse_with_failed_child(),
+        "native_workflow",
+    );
+    orchestration_round_trip(aui_protocol::sample::workflow_claude_phases(), "native_workflow");
+}
+
+#[test]
+fn peer_message_blocks_round_trip_with_their_kind_tag() {
+    use aui_protocol::sample;
+    orchestration_round_trip(sample::peer_outgoing_waiting(), "peer_message");
+    orchestration_round_trip(sample::peer_outgoing_replied(), "peer_message");
+    orchestration_round_trip(sample::peer_outgoing_queued(), "peer_message");
+    orchestration_round_trip(sample::peer_outgoing_unreachable(), "peer_message");
+    orchestration_round_trip(sample::peer_incoming(), "peer_message");
+}
+
+#[test]
+fn old_goal_blocks_without_the_orchestration_fields_decode_with_nones() {
+    // Payloads written before the orchestration fields existed carry only the
+    // original five keys; the block still decodes.
+    let back: Block = serde_json::from_value(serde_json::json!({
+        "kind": "goal",
+        "objective": "Ship the checkout rewrite",
+        "status": "in_progress",
+        "percent_complete": 40.0,
+        "current_work": null,
+        "next_work": null,
+    }))
+    .expect("deserialize");
+    match &back {
+        Block::Goal {
+            provider,
+            tokens_used,
+            token_budget,
+            elapsed,
+            turn,
+            last_reason,
+            gated_by_baaz,
+            reopened,
+            ..
+        } => {
+            assert_eq!(*provider, None);
+            assert_eq!(*tokens_used, None);
+            assert_eq!(*token_budget, None);
+            assert_eq!(*elapsed, None);
+            assert_eq!(*turn, None);
+            assert_eq!(*last_reason, None);
+            assert!(!gated_by_baaz);
+            assert!(!reopened);
+        }
+        other => panic!("expected a goal, got {other:?}"),
+    }
+    // `None`/`false` stay off the wire, so old consumers see the old shape.
+    let json = serde_json::to_value(&back).expect("serialize");
+    assert!(json.get("provider").is_none(), "no provider was drawn: {json}");
+    assert!(json.get("gated_by_baaz").is_none(), "false stays off the wire: {json}");
+    assert!(json.get("reopened").is_none(), "false stays off the wire: {json}");
 }

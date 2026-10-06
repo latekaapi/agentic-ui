@@ -213,6 +213,31 @@ pub enum Block {
         current_work: Option<String>,
         /// What it intends to do next.
         next_work: Option<String>,
+        /// Which provider is doing the work, when known.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider: Option<crate::session::Provider>,
+        /// Tokens spent so far, when the host measured them.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tokens_used: Option<u64>,
+        /// Token budget the goal runs against, when there is one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        token_budget: Option<u64>,
+        /// How long the goal has been running, e.g. `"7 s"`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        elapsed: Option<String>,
+        /// Turn count, when the provider reports one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn: Option<u32>,
+        /// Why the goal is where it is, e.g. `"2 tests still failing"`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        last_reason: Option<String>,
+        /// Whether Baaz gates this goal (it only moves when Baaz says so).
+        #[serde(default, skip_serializing_if = "is_false")]
+        gated_by_baaz: bool,
+        /// Whether the provider said done, the checks disagreed, and the goal
+        /// is moving again.
+        #[serde(default, skip_serializing_if = "is_false")]
+        reopened: bool,
     },
     /// The mandated fallback card for an item kind this client does not know.
     ///
@@ -274,6 +299,26 @@ pub enum Block {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         destination_session: Option<String>,
     },
+    /// A conductor run plan, proposed or started (orchestration card).
+    RunPlan(crate::run::RunPlan),
+    /// A conductor run's live progress: header counts plus task rows.
+    RunProgress(crate::run::RunProgress),
+    /// A question the run asks the person, open or answered.
+    RunQuestion(crate::run::RunQuestion),
+    /// The end-of-run rollup: outcome, proof per criterion, diff stats.
+    RunSummary(crate::run::RunSummary),
+    /// A one-line note the run files, e.g. a remembered preference.
+    RunNote(crate::run::RunNote),
+    /// A provider-native subagent tree the conductor watches but does not own.
+    NativeWorkflow(crate::run::NativeWorkflow),
+    /// A message to or from a peer session.
+    PeerMessage(crate::run::PeerMessage),
+}
+
+/// Whether a `bool` field is set, for `skip_serializing_if` on additive
+/// `false`-default fields: `false` stays off the wire.
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl Block {

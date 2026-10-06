@@ -18,6 +18,12 @@ use crate::tool::{
     Diff, DiffKind, DiffLine, DiffStat, Hunk, SearchHit, ToolBody, ToolCall, ToolKind, ToolStatus,
     WebResult,
 };
+use crate::run::{
+    CheckMethod, Criterion, CriterionResult, Evidence, EvidenceKind, EvidenceRow, NativeWorkflow,
+    NoteKind, PeerDirection, PeerMessage, PeerReply, PeerState, RunNote, RunOutcome, RunPlan,
+    RunProgress, RunQuestion, RunStage, RunSummary, RunViewModel, RunViewNode, Rung, RungState,
+    TaskLine, TaskState, WorkflowChild, WorkerHeader,
+};
 use crate::turn::{
     Attachment, AttachmentKind, Mention, MentionKind, Turn, TurnMeta, UploadState,
 };
@@ -309,6 +315,14 @@ pub fn muse_goals() -> Vec<Block> {
             percent_complete: Some(40.0),
             current_work: Some("Branching validateAddress per country".into()),
             next_work: Some("Add the CA and GB test cases".into()),
+            provider: None,
+            tokens_used: None,
+            token_budget: None,
+            elapsed: None,
+            turn: None,
+            last_reason: None,
+            gated_by_baaz: false,
+            reopened: false,
         },
         Block::Goal {
             objective: "Ship the checkout fix".into(),
@@ -316,6 +330,14 @@ pub fn muse_goals() -> Vec<Block> {
             percent_complete: Some(120.0),
             current_work: Some("Re-running the focused tests".into()),
             next_work: None,
+            provider: None,
+            tokens_used: None,
+            token_budget: None,
+            elapsed: None,
+            turn: None,
+            last_reason: None,
+            gated_by_baaz: false,
+            reopened: false,
         },
     ]
 }
@@ -1016,5 +1038,567 @@ fn validators_diff() -> Diff {
         }],
         added: 8,
         removed: 3,
+    }
+}
+
+// ---------------------------------------------------------------- orchestration
+
+fn run_stages() -> Vec<RunStage> {
+    vec![
+        RunStage {
+            name: "Plan · Opus".into(),
+            provider: Some(Provider::Claude),
+            model: "opus 4.6".into(),
+            writes: false,
+        },
+        RunStage {
+            name: "Implement · Muse".into(),
+            provider: Some(Provider::Muse),
+            model: "muse-spark-1.3".into(),
+            writes: true,
+        },
+        RunStage {
+            name: "Review · Codex".into(),
+            provider: Some(Provider::Codex),
+            model: "gpt-5.6".into(),
+            writes: false,
+        },
+        RunStage {
+            name: "Fix · Muse".into(),
+            provider: Some(Provider::Muse),
+            model: "muse-spark-1.3".into(),
+            writes: true,
+        },
+        RunStage {
+            name: "Verify · browser".into(),
+            // Baaz runs the verify stage itself: no provider.
+            provider: None,
+            model: "baaz".into(),
+            writes: false,
+        },
+    ]
+}
+
+fn run_criteria() -> Vec<Criterion> {
+    vec![
+        Criterion {
+            text: "form validates email and password before submit".into(),
+            method: CheckMethod::Test,
+        },
+        Criterion {
+            text: "errors shown inline; email kept after a wrong password".into(),
+            method: CheckMethod::Browser,
+        },
+        Criterion {
+            text: "submit calls /api/login and lands on projects".into(),
+            method: CheckMethod::Browser,
+        },
+        Criterion {
+            text: "matches the app's existing styles".into(),
+            method: CheckMethod::Review,
+        },
+        Criterion { text: "tests added".into(), method: CheckMethod::Test },
+    ]
+}
+
+fn run_assumptions() -> Vec<String> {
+    vec![
+        "from main at 3db2220".into(),
+        "dev server is npm run dev (from package.json) on this worktree's own port".into(),
+        "2 workers at a time (each build of this project peaks near 3 GB here)".into(),
+        "2 held-out checks the implementers won't see".into(),
+    ]
+}
+
+fn run_plan_inner(started_at: Option<String>) -> RunPlan {
+    RunPlan {
+        run_id: "run-login-screen".into(),
+        title: "Login screen".into(),
+        intro: "I'll run this in five stages with the models you named. Opus, Muse and Codex are all signed in.".into(),
+        stages: run_stages(),
+        criteria: run_criteria(),
+        assumptions: run_assumptions(),
+        started_at,
+    }
+}
+
+/// The login-screen run plan as proposed: no start time, so the footer reads
+/// `Reply "go" to start, or tell me what to change.`
+pub fn run_plan_proposed() -> Block {
+    Block::RunPlan(run_plan_inner(None))
+}
+
+/// The login-screen run plan once accepted and started.
+pub fn run_plan_started() -> Block {
+    Block::RunPlan(run_plan_inner(Some("09:14".into())))
+}
+
+fn progress_lines() -> Vec<TaskLine> {
+    vec![
+        TaskLine {
+            task_id: "t-impl-form".into(),
+            stage: "Implement".into(),
+            title: "Implement · form and validation".into(),
+            provider: Provider::Muse,
+            model: Some("muse-spark-1.3".into()),
+            state: TaskState::Verifying,
+            activity: "running the checks".into(),
+            elapsed: "6m".into(),
+            rungs: vec![
+                Rung { name: "scope".into(), state: RungState::Pass, detail: None },
+                Rung { name: "build".into(), state: RungState::Pass, detail: None },
+                Rung { name: "tests".into(), state: RungState::Running, detail: None },
+            ],
+        },
+        TaskLine {
+            task_id: "t-auth-call".into(),
+            stage: "Implement".into(),
+            title: "Implement · auth call".into(),
+            provider: Provider::Muse,
+            model: Some("muse-spark-1.3".into()),
+            state: TaskState::Working,
+            activity: "editing src/auth/login.ts".into(),
+            elapsed: "4m".into(),
+            rungs: Vec::new(),
+        },
+    ]
+}
+
+fn run_progress_inner() -> RunProgress {
+    RunProgress {
+        run_id: "run-login-screen".into(),
+        title: "Login screen".into(),
+        stage_index: 1,
+        stage_count: 5,
+        stage_name: "Implement".into(),
+        working: 1,
+        verifying: 1,
+        needs_you: 0,
+        accepted: 0,
+        elapsed: "6m".into(),
+        tokens: Some("48k".into()),
+        paused: false,
+        waiting_reason: None,
+        lines: progress_lines(),
+    }
+}
+
+/// The running login-screen run: one task working, one verifying.
+pub fn run_progress_running() -> Block {
+    Block::RunProgress(run_progress_inner())
+}
+
+/// The run waiting on the person's answer to the Remember-me question.
+pub fn run_progress_needs_you() -> Block {
+    let mut progress = run_progress_inner();
+    progress.needs_you = 1;
+    progress.lines[1].state = TaskState::NeedsYou;
+    progress.lines[1].activity = "waiting on your answer".into();
+    Block::RunProgress(progress)
+}
+
+/// The run paused by the person: nothing moves.
+pub fn run_progress_paused() -> Block {
+    let mut progress = run_progress_inner();
+    progress.paused = true;
+    for line in &mut progress.lines {
+        line.state = TaskState::Paused;
+    }
+    Block::RunProgress(progress)
+}
+
+/// The run waiting on quota before it can continue.
+pub fn run_progress_quota_wait() -> Block {
+    let mut progress = run_progress_inner();
+    progress.waiting_reason = Some("Codex quota resets at 15:00".into());
+    Block::RunProgress(progress)
+}
+
+/// The run reconciling after a worker disagreed about the state.
+pub fn run_progress_reconciling() -> Block {
+    let mut progress = run_progress_inner();
+    progress.lines[0].state = TaskState::Reconciling;
+    progress.lines[0].activity = "re-deriving state after a worker report".into();
+    Block::RunProgress(progress)
+}
+
+fn run_question_inner(answer: Option<String>, answered_at: Option<String>) -> RunQuestion {
+    RunQuestion {
+        question_id: "q-remember-me".into(),
+        run_id: "run-login-screen".into(),
+        source_label: "QUESTION FROM THE RUN · IMPLEMENT · AUTH CALL".into(),
+        text: "The design shows a \"Remember me\" checkbox, but it isn't in the criteria. Add it, or leave it out?".into(),
+        hint: "Muse worker paused · you can also just type the answer".into(),
+        options: vec![
+            crate::run::QuestionOption {
+                id: "add".into(),
+                label: "Add it".into(),
+                recommended: false,
+            },
+            crate::run::QuestionOption {
+                id: "leave-out".into(),
+                label: "Leave it out".into(),
+                recommended: true,
+            },
+        ],
+        answer,
+        answered_at,
+    }
+}
+
+/// The Remember-me question while open.
+pub fn run_question_open() -> Block {
+    Block::RunQuestion(run_question_inner(None, None))
+}
+
+/// The Remember-me question collapsed after answering.
+pub fn run_question_answered() -> Block {
+    Block::RunQuestion(run_question_inner(Some("Leave it out".into()), Some("14:31".into())))
+}
+
+fn run_summary_inner(outcome: RunOutcome, merged: Option<String>) -> RunSummary {
+    let evidence = |label: &str, evidence_kind: EvidenceKind| Evidence {
+        label: label.into(),
+        evidence_kind,
+    };
+    RunSummary {
+        run_id: "run-login-screen".into(),
+        title: "Login screen".into(),
+        outcome,
+        elapsed: "31m".into(),
+        workers: 4,
+        criteria: vec![
+            CriterionResult {
+                text: "form validates email and password before submit".into(),
+                met: true,
+                evidence: vec![evidence(
+                    "npm test exited 0 · 12 passed",
+                    EvidenceKind::Test,
+                )],
+            },
+            CriterionResult {
+                text: "errors shown inline; email kept after a wrong password".into(),
+                met: true,
+                evidence: vec![evidence("screenshot", EvidenceKind::Screenshot)],
+            },
+            CriterionResult {
+                text: "submit calls /api/login and lands on projects".into(),
+                met: true,
+                evidence: vec![evidence(
+                    "held-out 2/2 · screenshot",
+                    EvidenceKind::HeldOut,
+                )],
+            },
+            CriterionResult {
+                text: "matches the app's existing styles".into(),
+                met: true,
+                evidence: vec![evidence("review: no findings", EvidenceKind::Review)],
+            },
+            CriterionResult {
+                text: "tests added".into(),
+                met: true,
+                evidence: vec![evidence("+4 tests", EvidenceKind::Count)],
+            },
+        ],
+        additions: 412,
+        deletions: 36,
+        files: 6,
+        review_rounds: 2,
+        extra: Some("mutation check passed on both fixes".into()),
+        not_proven: vec!["the OAuth provider flow (no test account in this project)".into()],
+        next_hint: "Branch baaz/login-screen. Say \"merge\" to merge into main, or \"open a PR\".".into(),
+        merged,
+    }
+}
+
+/// The finished login-screen summary.
+pub fn run_summary_finished() -> Block {
+    Block::RunSummary(run_summary_inner(RunOutcome::Finished, None))
+}
+
+/// The login-screen summary for a run the person stopped early.
+pub fn run_summary_stopped() -> Block {
+    Block::RunSummary(run_summary_inner(RunOutcome::Stopped, None))
+}
+
+/// The login-screen summary once merged.
+pub fn run_summary_merged() -> Block {
+    Block::RunSummary(run_summary_inner(RunOutcome::Finished, Some("a91f04c".into())))
+}
+
+/// The remembered-preference note: reviews use Codex.
+pub fn run_note_preference() -> Block {
+    Block::RunNote(RunNote {
+        text: "Remembered: reviews use Codex. Say \"forget that\" to undo.".into(),
+        note_kind: NoteKind::Preference,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn goal_block(
+    objective: &str,
+    status: &str,
+    percent_complete: Option<f32>,
+    provider: Provider,
+    tokens_used: u64,
+    token_budget: u64,
+    elapsed: &str,
+    turn: Option<u32>,
+    last_reason: Option<&str>,
+    reopened: bool,
+) -> Block {
+    Block::Goal {
+        objective: objective.into(),
+        status: status.into(),
+        percent_complete,
+        current_work: None,
+        next_work: None,
+        provider: Some(provider),
+        tokens_used: Some(tokens_used),
+        token_budget: Some(token_budget),
+        elapsed: Some(elapsed.into()),
+        turn,
+        last_reason: last_reason.map(Into::into),
+        gated_by_baaz: false,
+        reopened,
+    }
+}
+
+/// The Codex calc goal while active: 6713 of 80000 tokens, 7 s in.
+pub fn goal_codex_active() -> Block {
+    goal_block(
+        "Make python3 -m unittest -q exit 0 by fixing calc.py",
+        "active",
+        Some(8.4),
+        Provider::Codex,
+        6713,
+        80_000,
+        "7 s",
+        None,
+        None,
+        false,
+    )
+}
+
+/// The Codex calc goal complete: 9578 of 80000 tokens, 19 s in.
+pub fn goal_codex_complete() -> Block {
+    goal_block(
+        "Make python3 -m unittest -q exit 0 by fixing calc.py",
+        "complete",
+        Some(12.0),
+        Provider::Codex,
+        9578,
+        80_000,
+        "19 s",
+        None,
+        None,
+        false,
+    )
+}
+
+/// The Claude calc goal on turn 3, with two tests still failing.
+pub fn goal_claude_active() -> Block {
+    goal_block(
+        "Make python3 -m unittest -q exit 0 by fixing calc.py",
+        "active",
+        Some(64.0),
+        Provider::Claude,
+        12_400,
+        80_000,
+        "4m",
+        Some(3),
+        Some("2 tests still failing in test_calc.py"),
+        false,
+    )
+}
+
+/// The Muse login-screen goal just started: 0 % active.
+pub fn goal_muse_active() -> Block {
+    goal_block(
+        "Implement the login screen",
+        "active",
+        Some(0.0),
+        Provider::Muse,
+        0,
+        80_000,
+        "0 s",
+        None,
+        None,
+        false,
+    )
+}
+
+/// A goal the provider called done while tests still fail.
+pub fn goal_reopened() -> Block {
+    goal_block(
+        "Make python3 -m unittest -q exit 0 by fixing calc.py",
+        "active",
+        Some(86.0),
+        Provider::Claude,
+        12_400,
+        80_000,
+        "4m",
+        Some(3),
+        Some("Provider said done; tests still fail: 2 of 14"),
+        true,
+    )
+}
+
+/// A Muse-owned native workflow with a failed child that can retry or skip.
+pub fn workflow_muse_with_failed_child() -> Block {
+    Block::NativeWorkflow(NativeWorkflow {
+        provider: Provider::Muse,
+        name: "Login screen fixes".into(),
+        children: vec![
+            WorkflowChild {
+                child_id: "w-1".into(),
+                attempt: 1,
+                label: "Implement · form and validation".into(),
+                phase: None,
+                status: TaskState::Failed,
+            },
+            WorkflowChild {
+                child_id: "w-2".into(),
+                attempt: 1,
+                label: "Implement · auth call".into(),
+                phase: None,
+                status: TaskState::Working,
+            },
+        ],
+        can_retry: true,
+        can_skip: true,
+        provisional: false,
+    })
+}
+
+/// A Claude-owned native workflow whose children report provider phases.
+pub fn workflow_claude_phases() -> Block {
+    Block::NativeWorkflow(NativeWorkflow {
+        provider: Provider::Claude,
+        name: "Checkout validation".into(),
+        children: vec![
+            WorkflowChild {
+                child_id: "w-1".into(),
+                attempt: 1,
+                label: "Research postcode formats".into(),
+                phase: Some("Explore".into()),
+                status: TaskState::Accepted,
+            },
+            WorkflowChild {
+                child_id: "w-2".into(),
+                attempt: 2,
+                label: "Branch the validator".into(),
+                phase: Some("Implement".into()),
+                status: TaskState::Working,
+            },
+        ],
+        can_retry: true,
+        can_skip: false,
+        provisional: true,
+    })
+}
+
+fn peer_outgoing_inner(state: PeerState, reason: Option<String>, reply: Option<PeerReply>) -> PeerMessage {
+    PeerMessage {
+        message_id: "pm-1".into(),
+        direction: PeerDirection::Outgoing,
+        peer_title: "Browser audit".into(),
+        peer_provider: Provider::Codex,
+        peer_project: Some("agentic-ui".into()),
+        text: "Do you touch registry.rs or cards/mod.rs in agentic-ui? I'm about to start orchestration mocks.".into(),
+        state,
+        reason,
+        at: "14:20".into(),
+        reply,
+    }
+}
+
+/// An outgoing peer message still waiting for a reply.
+pub fn peer_outgoing_waiting() -> Block {
+    Block::PeerMessage(peer_outgoing_inner(PeerState::Sent, None, None))
+}
+
+/// An outgoing peer message the peer replied to.
+pub fn peer_outgoing_replied() -> Block {
+    Block::PeerMessage(peer_outgoing_inner(
+        PeerState::Replied,
+        None,
+        Some(PeerReply {
+            text: "No clash: I only append a Browse group at the end of registry.rs and add browse_* modules to cards/mod.rs. Keep yours at the end too.".into(),
+            at: "14:26".into(),
+        }),
+    ))
+}
+
+/// An outgoing peer message queued for a peer that is not listening yet.
+pub fn peer_outgoing_queued() -> Block {
+    Block::PeerMessage(peer_outgoing_inner(PeerState::Queued, None, None))
+}
+
+/// An outgoing peer message that can never arrive: the session is closed.
+pub fn peer_outgoing_unreachable() -> Block {
+    Block::PeerMessage(peer_outgoing_inner(
+        PeerState::Unreachable,
+        Some("the session is closed".into()),
+        None,
+    ))
+}
+
+/// An incoming peer message from the Claude orchestration session.
+pub fn peer_incoming() -> Block {
+    Block::PeerMessage(PeerMessage {
+        message_id: "pm-2".into(),
+        direction: PeerDirection::Incoming,
+        peer_title: "Orchestration in Baaz".into(),
+        peer_provider: Provider::Claude,
+        peer_project: None,
+        text: "The run plan is ready for your review.".into(),
+        state: PeerState::Delivered,
+        reason: None,
+        at: "14:18".into(),
+        reply: None,
+    })
+}
+
+/// The header of the Muse worker view for the auth-call task.
+pub fn worker_header_sample() -> WorkerHeader {
+    WorkerHeader {
+        run_title: "Login screen".into(),
+        stage: "Implement · auth call".into(),
+        attempt: 1,
+        provider: Provider::Muse,
+        model: "muse-spark-1.3".into(),
+        branch: "baaz/login-screen".into(),
+    }
+}
+
+/// The run tree view for the login-screen run.
+pub fn run_view_sample() -> RunViewModel {
+    RunViewModel {
+        run_id: "run-login-screen".into(),
+        title: "Login screen".into(),
+        tree: vec![
+            RunViewNode {
+                task_id: "t-impl-form".into(),
+                depth: 0,
+                label: "Implement · form and validation".into(),
+                provider: Provider::Muse,
+                state: TaskState::Verifying,
+                note: None,
+            },
+            RunViewNode {
+                task_id: "t-auth-call".into(),
+                depth: 0,
+                label: "Implement · auth call".into(),
+                provider: Provider::Muse,
+                state: TaskState::Working,
+                note: Some("editing src/auth/login.ts".into()),
+            },
+        ],
+        evidence: vec![EvidenceRow {
+            task_id: "t-impl-form".into(),
+            text: "npm test exited 0 · 12 passed".into(),
+            evidence_kind: EvidenceKind::Test,
+        }],
     }
 }
