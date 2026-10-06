@@ -826,6 +826,26 @@ pub static ENTRIES: &[Entry] = &[
         theme: CardTheme::Light,
         build: crate::assistant::build_all,
     },
+    Entry {
+        id: "browse/sidebar",
+        group: "Browse",
+        title: "Browse sidebar",
+        subtitle: "The Browse sidebar at 248 px: traffic lights with back, forward and reload, the address line, new tab, pins, tabs, folders, task folders with status faces, and the space footer",
+        width: 320.0,
+        height: 720.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::browse_sidebar::build,
+    },
+    Entry {
+        id: "browse/task-faces",
+        group: "Browse",
+        title: "Task faces",
+        subtitle: "The five task-folder states stacked: reading, typing, needs you, paused and done",
+        width: 320.0,
+        height: 320.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::browse_sidebar::build_faces,
+    },
 ];
 
 /// Looks an entry up by id.
