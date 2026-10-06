@@ -79,7 +79,7 @@ pub fn udise_page() -> AnyElement {
                 .items_center()
                 .gap(px(12.0))
                 .child(div().w(px(120.0)).flex_none().truncate().ui(scale::FS_12).text_color(gpui::rgb(INK)).child(state.to_string()))
-                .child(div().w(px(f32::from(value) * 9.0)).h(px(14.0)).rounded(px(4.0)).bg(gpui::rgb(INK).opacity(0.75)))
+                .child(div().w(px(value as f32 * 9.0)).h(px(14.0)).rounded(px(4.0)).bg(gpui::rgb(INK).opacity(0.75)))
                 .child(div().ui(scale::FS_12).text_color(gpui::rgb(INK)).child(value.to_string())),
         );
     }

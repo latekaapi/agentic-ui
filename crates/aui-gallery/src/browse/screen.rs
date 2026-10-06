@@ -11,8 +11,8 @@ use aui::browse::agent_window::{
     agent_card, agent_column, agent_line, AgentItem, AgentTranscript, CardIntent, LineIntent, LineState, Step, StepState,
 };
 use aui::browse::field::{
-    field, field_state, intent_for, rank, select_next, select_prev, FieldCommand, FieldHistory, FieldIntent, FieldKey,
-    FieldModel, FieldRowKind, FieldSources, FieldTab,
+    completion, field, field_state, intent_for, rank, select_next, select_prev, FieldCommand, FieldHistory, FieldIntent,
+    FieldKey, FieldModel, FieldRowKind, FieldSources, FieldTab,
 };
 use aui::browse::{
     address_line, browse_footer, browse_nav_cluster, folder_row, pin_grid, split_address, tab_row, task_folder_row, Pin, TabRowData,
@@ -509,7 +509,11 @@ impl BrowseView {
                     self.field_open = false;
                     cx.notify();
                 }
-                FieldRowKind::Open { url } | FieldRowKind::History { url } | FieldRowKind::Clipboard { url } => {
+                FieldRowKind::Open { url } | FieldRowKind::Clipboard { url } => {
+                    let page = StoryPage::Generic(url.clone().into());
+                    self.navigate(&url, page, cx);
+                }
+                FieldRowKind::History { url } => {
                     let url = url.to_string();
                     let page = StoryPage::Generic(url.clone().into());
                     self.navigate(&url, page, cx);
@@ -647,6 +651,7 @@ impl BrowseView {
         let seg = |label: &str, on: bool| {
             record_ax_label(label);
             div()
+                .id(SharedString::from(format!("browse-mode-{label}")))
                 .flex_1()
                 .h_full()
                 .flex()
@@ -690,7 +695,7 @@ impl BrowseView {
     fn render_sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
         let p = cx.aui().colors;
         let tabs = self.space_tabs();
-        let mut col = v_flex().size_full().overflow_y_scroll().py(px(4.0)).child(self.mode_switch(cx));
+        let mut col = v_flex().size_full().id("browse-sidebar-scroll").overflow_y_scroll().py(px(4.0)).child(self.mode_switch(cx));
         col = col.child(
             address_line("browse-address", split_address(&self.address))
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -815,12 +820,14 @@ impl BrowseView {
                 })),
             );
         }
-        col.child(div().flex_1()).child(browse_footer("browse-footer", self.space.name()).on_space(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                this.space_menu = !this.space_menu;
-                cx.notify();
-            },
-        )))
+        col.child(div().flex_1())
+            .child(browse_footer("browse-footer", self.space.name()).on_space(cx.listener(
+                |this, _: &ClickEvent, _, cx| {
+                    this.space_menu = !this.space_menu;
+                    cx.notify();
+                },
+            )))
+            .into_any_element()
     }
 
     /// The centre: the drawn page (plus the split page), or the 28 px
@@ -912,6 +919,7 @@ impl BrowseView {
         let model = self.field_model.clone();
         let editor = self.field_editor.clone();
         let card = v_flex()
+            .id("browse-field-card")
             .w(px(640.0))
             .max_w(relative(0.9))
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.stop_propagation()))
@@ -935,17 +943,19 @@ impl BrowseView {
                         this.field_open = false;
                         cx.notify();
                     }))
-                    .child(
+                    .child({
+                        let hover = cx.listener(|this, index: &usize, _, cx: &mut Context<Self>| {
+                            this.field_model.selected = *index;
+                            cx.notify();
+                        });
+                        let intent = cx.listener(|this, intent: &FieldIntent, window, cx| {
+                            this.on_field_intent(intent.clone(), window, cx);
+                        });
                         field("browse-field", &model)
                             .query_slot(Textarea::new(&editor).appearance(false).bordered(false))
-                            .on_hover(cx.listener(|this, index: &usize, _, cx| {
-                                this.field_model.selected = *index;
-                                cx.notify();
-                            }))
-                            .on_intent(cx.listener(|this, intent: &FieldIntent, window, cx| {
-                                this.on_field_intent(intent.clone(), window, cx);
-                            })),
-                    ),
+                            .on_hover(move |index: usize, window, cx| hover(&index, window, cx))
+                            .on_intent(move |next: FieldIntent, window, cx| intent(&next, window, cx))
+                    }),
             );
         let card = match self.field_answer.clone() {
             Some(answer) => card.child(
@@ -983,15 +993,14 @@ impl BrowseView {
         }
         let state = self.line_state();
         let input = self.line_input.clone();
+        let handler = cx.listener(|this, intent: &LineIntent, window, cx| this.on_line_intent(intent.clone(), window, cx));
         popover_layer(
             div()
                 .id("browse-line-layer")
                 .absolute()
                 .left(px(20.0))
                 .bottom(px(72.0))
-                .child(agent_line("browse-line", &state, &input).on_intent(cx.listener(
-                    |this, intent: &LineIntent, window, cx| this.on_line_intent(intent.clone(), window, cx),
-                ))),
+                .child(agent_line("browse-line", &state, &input).on_intent(move |next: LineIntent, window, cx| handler(&next, window, cx))),
         )
         .into_any_element()
     }
@@ -1000,15 +1009,14 @@ impl BrowseView {
     fn render_card(&self, cx: &mut Context<Self>) -> AnyElement {
         let transcript = self.transcript();
         let input = self.card_input.clone();
+        let handler = cx.listener(|this, intent: &CardIntent, window, cx| this.on_card_intent(intent.clone(), window, cx));
         popover_layer(
             div()
                 .id("browse-card-layer")
                 .absolute()
                 .right(px(20.0))
                 .bottom(px(72.0))
-                .child(agent_card("browse-card", &transcript, &input).on_intent(cx.listener(
-                    |this, intent: &CardIntent, window, cx| this.on_card_intent(intent.clone(), window, cx),
-                ))),
+                .child(agent_card("browse-card", &transcript, &input).on_intent(move |next: CardIntent, window, cx| handler(&next, window, cx))),
         )
         .into_any_element()
     }
@@ -1017,8 +1025,9 @@ impl BrowseView {
     fn render_column(&self, cx: &mut Context<Self>) -> AnyElement {
         let transcript = self.transcript();
         let input = self.card_input.clone();
+        let handler = cx.listener(|this, intent: &CardIntent, window, cx| this.on_card_intent(intent.clone(), window, cx));
         agent_column("browse-column", &transcript, &input)
-            .on_intent(cx.listener(|this, intent: &CardIntent, window, cx| this.on_card_intent(intent.clone(), window, cx)))
+            .on_intent(move |next: CardIntent, window, cx| handler(&next, window, cx))
             .into_any_element()
     }
 
@@ -1054,7 +1063,7 @@ impl BrowseView {
                                 )),
                             ),
                     )
-                    .child(div().flex_1().min_h(px(0.0)).w_full().overflow_y_scroll().child(render_page(
+                    .child(div().id("browse-peek-scroll").flex_1().min_h(px(0.0)).w_full().overflow_y_scroll().child(render_page(
                         &StoryPage::Peek,
                         cx.listener(|_, _: &ClickEvent, _, _| {}),
                         cx.listener(|_, _: &ClickEvent, _, _| {}),
@@ -1354,7 +1363,7 @@ impl Render for BrowseView {
 
 /// One screen in window state, keyed for the gallery entry.
 pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
-    let view = window.use_keyed_state(SharedString::from("browse-screen"), cx, move |window, cx| BrowseView::new(window, cx));
+    let view = window.use_keyed_state(SharedString::from("browse-screen"), cx, BrowseView::new);
     div().size_full().child(view).into_any_element()
 }
 
@@ -1384,13 +1393,16 @@ mod tests {
         cx.update(|cx| aui::init(aui_tokens::ThemeKind::Dark, cx));
         arm_ax_probe(true);
         take_ax_labels();
-        let (_host, mut vcx) = cx.add_window_view(|_, _| Host);
+        // Shadow the context with the window's, per `add_window_view`'s
+        // docs: the returned context borrows the old one, so keeping both
+        // alive does not compile.
+        let (_host, cx) = cx.add_window_view(|_, _| Host);
         // The harness applies steps after its first-frame delay; advance
         // the simulated clock past it, park the step task, then land a
         // frame so the takeover renders.
         cx.executor().advance_clock(std::time::Duration::from_millis(600));
         cx.run_until_parked();
-        vcx.update(|window, app| {
+        cx.update(|window, app| {
             window.simulate_next_frame(app);
         });
         let labels = take_ax_labels();

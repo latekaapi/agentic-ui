@@ -21,6 +21,8 @@ pub const ASK_TEXT: &str = "compare PGI 2.0 grades with PTR, dropout and girls' 
 pub const ANSWER_TEXT: &str = "Karnataka and Tamil Nadu lead the five-state table on PTR and girls' enrolment. Gujarat improved 3.5 points since 2021, while dropout is highest in Maharashtra.";
 
 /// The queued follow-up chip a steer leaves behind a running turn.
+/// (Pinned by the screen's queued-chip contract; read by the tests.)
+#[allow(dead_code)]
 pub const QUEUED_TEXT: &str = "also add girls' GER · queued";
 
 /// The site actions under the Ask line.
@@ -217,11 +219,15 @@ impl BrowseStory {
     }
 
     /// Whether the approval card waits on the person.
+    /// (Read by the state-machine tests; the screen branches on `phase`.)
+    #[allow(dead_code)]
     pub fn approval_open(&self) -> bool {
         self.approval_open
     }
 
     /// Whether the spreadsheet downloaded.
+    /// (Read by the state-machine tests; the screen branches on `completed`.)
+    #[allow(dead_code)]
     pub fn downloaded(&self) -> bool {
         self.downloaded
     }
@@ -348,10 +354,16 @@ impl BrowseStory {
         if self.completed < 6 {
             self.approval_open = false;
             self.downloaded = true;
-            self.completed = 6;
             self.phase = Phase::Running;
             self.face = TaskFace::Typing;
             self.status = "typing".into();
+            // The harness jumps straight to the tail: land the tabs and the
+            // centre the skipped steps would have left, then build on top.
+            let tabs = story_tabs();
+            self.tabs = tabs[..4].to_vec();
+            self.task_open = true;
+            self.centre = StoryPage::Datagov;
+            self.completed = 6;
         }
         self.advance_to(7);
     }
