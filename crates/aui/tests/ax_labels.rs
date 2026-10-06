@@ -228,7 +228,7 @@ fn block_element(block: &Block, n: usize) -> AnyElement {
         Block::NativeWorkflow(..) => gpui::div().into_any_element(),
         Block::PeerMessage(message) => {
             aui::orchestration::peer_message(id("peer"), message)
-                .expanded(n % 2 == 0)
+                .expanded(n.is_multiple_of(2))
                 .on_intent(|_, _, _| {})
                 .into_any_element()
         }
