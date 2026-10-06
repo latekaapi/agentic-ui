@@ -20,8 +20,9 @@ use gpui_kit::base::input::TextareaState;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::input::Textarea;
 
+use crate::browse::{task_face, TaskFace};
 use crate::composer::{ComposerChip, ComposerChipKind};
-use crate::data::{button, chip, icon_button, kbd, pill, record_ax_label};
+use crate::data::{button, chip, icon_button, kbd, pill};
 use crate::icons::{icon, IconName};
 use crate::keys::{APPROVAL_CONTEXT, ApproveAlways, ApproveOnce, Cancel, ChooseNth, Confirm, Deny, MENU_CONTEXT};
 use crate::transcript::{activity_group, user_turn};
@@ -34,8 +35,7 @@ const LINE_MAX_W: f32 = 640.0;
 /// The `⌘E` card measure.
 const CARD_W: f32 = 400.0;
 const CARD_H: f32 = 520.0;
-/// The state face (and the approval shield): the same 26 px tile the
-/// approval card leads with.
+/// The approval shield: the 26 px tile the approval card leads with.
 const FACE: f32 = 26.0;
 const FACE_RADIUS: f32 = 7.0;
 const FACE_GLYPH: f32 = 14.0;
@@ -50,17 +50,6 @@ const CAPTION_TEXT: f32 = 11.0;
 const CHIP_X: f32 = 10.0;
 /// The leading kind glyph in a context chip, mirroring the composer's row.
 const CHIP_GLYPH: f32 = 11.0;
-
-/// Which face the agent line wears while it works.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaskFace {
-    /// Running: an accent-tinted tile with a spinner.
-    Working,
-    /// Parked with the person driving: a quiet tile with a clock.
-    Paused,
-    /// The person must step in: a warning-tinted tile with a bell.
-    Warning,
-}
 
 /// One step of an agent transcript body.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,7 +120,8 @@ pub enum LineState {
         /// `(id, label)` ghost actions under `ON THIS SITE`.
         site_actions: Vec<(SharedString, SharedString)>,
     },
-    /// The agent is working: face, status, `Take over`.
+    /// The agent is working: face, status, `Take over`. The face is the
+    /// task's own [`TaskFace`], drawn with the sidebar's [`task_face`].
     Driving {
         /// One status line (`Claude is reading UDISE+ · dropout`).
         status: SharedString,
@@ -150,7 +140,8 @@ pub enum LineState {
 }
 
 impl LineState {
-    /// The working line for `face` with one `status` line.
+    /// The working line for the task's `face` with one `status` line: the
+    /// row draws the sidebar's [`task_face`] for it.
     pub fn from_task(face: TaskFace, status: impl Into<SharedString>) -> Self {
         LineState::Driving { status: status.into(), face }
     }
@@ -292,21 +283,26 @@ pub fn transcript_summary_line(transcript: &AgentTranscript) -> String {
 /// Up to the first sentence break — `. `, `! `, `? ` or a newline — trimmed.
 /// A bare `.` never breaks, so decimals (`3.5`) stay whole; a `. ` that only
 /// ends an abbreviation (`e.g.`) is not a break either. Text with no break
-/// returns whole, trimmed.
+/// returns whole, trimmed. A break with nothing before it (text starting
+/// with a newline) falls back to the trimmed full text, not `""`.
 fn first_sentence(text: &str) -> String {
+    fn head_or_full(text: &str, end: usize) -> String {
+        let head = text[..end].trim();
+        if head.is_empty() { text.trim().to_string() } else { head.to_string() }
+    }
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
         let b = bytes[i];
         if b == b'\n' {
-            return text[..i].trim().to_string();
+            return head_or_full(text, i);
         }
         if (b == b'.' || b == b'!' || b == b'?')
             && i + 1 < bytes.len()
             && bytes[i + 1] == b' '
             && (b != b'.' || !is_abbreviation_dot(bytes, i))
         {
-            return text[..i].trim().to_string();
+            return head_or_full(text, i);
         }
         i += 1;
     }
@@ -348,7 +344,8 @@ impl AgentLine {
     }
 }
 
-/// The keyboard the approval card keeps for itself.
+/// The keyboard a card keeps for itself: the approval card's, and the current
+/// question block's digit keys.
 struct ApprovalFocus {
     focus: FocusHandle,
     claimed: bool,
@@ -395,7 +392,7 @@ impl RenderOnce for AgentLine {
                 let take_over = button((id.clone(), "take-over"), "Take over")
                     .trailing(kbd("⌘."))
                     .on_click(click(handler.clone(), LineIntent::TakeOver));
-                work_row(&id, *face, div().child(status.clone()), vec![take_over.into_any_element()], handler, &p, cx)
+                work_row(&id, *face, div().child(status.clone()), vec![take_over.into_any_element()], handler, &p)
                     .into_any_element()
             }
             LineState::YouDrive => {
@@ -406,39 +403,19 @@ impl RenderOnce for AgentLine {
                     .gap(px(0.0))
                     .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("You're driving"))
                     .child(div().ui(SMALL_TEXT).text_color(p.ink_2).child("The agent is waiting"));
-                work_row(&id, TaskFace::Paused, label, vec![hand_back.into_any_element()], handler, &p, cx)
+                work_row(&id, TaskFace::Paused, label, vec![hand_back.into_any_element()], handler, &p)
                     .into_any_element()
             }
             LineState::NeedsYou { text } => {
                 let stop = button((id.clone(), "stop"), "Stop").on_click(click(handler.clone(), LineIntent::Stop));
                 let done = button((id.clone(), "done"), "Done").primary().on_click(click(handler.clone(), LineIntent::Done));
                 let label = div().child(format!("Needs you · {text}"));
-                work_row(&id, TaskFace::Warning, label, vec![stop.into_any_element(), done.into_any_element()], handler, &p, cx)
+                work_row(&id, TaskFace::NeedsYou, label, vec![stop.into_any_element(), done.into_any_element()], handler, &p)
                     .into_any_element()
             }
             LineState::Approval(data) => approval_card(&id, data, handler, window, cx).into_any_element(),
         }
     }
-}
-
-/// The state face: a 26 px tile tinted by [`TaskFace`].
-fn face_tile(id: &ElementId, face: TaskFace, cx: &mut App) -> gpui::AnyElement {
-    let p = cx.aui().colors;
-    let (bg, glyph): (gpui::Hsla, gpui::AnyElement) = match face {
-        TaskFace::Working => (p.accent_soft, crate::data::spinner((id.clone(), "face")).into_any_element()),
-        TaskFace::Paused => (p.surface_3, icon(IconName::Clock).size(px(FACE_GLYPH)).color(p.ink_3).into_any_element()),
-        TaskFace::Warning => (p.warning_soft, icon(IconName::Bell).size(px(FACE_GLYPH)).color(p.warning).into_any_element()),
-    };
-    div()
-        .flex_none()
-        .size(px(FACE))
-        .rounded(px(FACE_RADIUS))
-        .bg(bg)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(glyph)
-        .into_any_element()
 }
 
 /// The trailing window chrome shared by the 48 px rows: expand the line into
@@ -451,7 +428,9 @@ fn expand_button(id: &ElementId, handler: Option<LineHandler>) -> impl IntoEleme
         .on_click(click(handler, LineIntent::Expand))
 }
 
-/// One 48 px working row: face, label, spacer, action buttons, expand.
+/// One 48 px working row: the sidebar's [`task_face`] for `face`, the
+/// label, a spacer, action buttons, expand. The warning colour of
+/// [`TaskFace::NeedsYou`] comes from the glyph itself.
 fn work_row(
     id: &ElementId,
     face: TaskFace,
@@ -459,7 +438,6 @@ fn work_row(
     actions: Vec<gpui::AnyElement>,
     handler: Option<LineHandler>,
     p: &aui_tokens::Palette,
-    cx: &mut App,
 ) -> gpui::Stateful<gpui::Div> {
     h_flex()
         .id(id.clone())
@@ -475,7 +453,7 @@ fn work_row(
         .border_color(p.line)
         .bg(p.overlay)
         .shadow(p.shadow(3))
-        .child(face_tile(id, face, cx))
+        .child(task_face(face))
         .child(div().flex_1().min_w(px(0.0)).ui(BODY_TEXT).text_color(p.ink).child(label))
         .children(actions)
         .child(expand_button(id, handler))
@@ -621,15 +599,13 @@ fn chips_row(
             }
         }
         if c.removable {
-            record_ax_label(&format!("Remove {}", c.label));
             el = el.trailing(
-                div()
-                    .id((id.clone(), SharedString::from(format!("chip-x-{}", c.id))))
-                    .cursor_pointer()
-                    .role(gpui::Role::Button)
-                    .aria_label(SharedString::from(format!("Remove {}", c.label)))
-                    .on_click(on_remove(c.id.clone()))
-                    .child(icon(IconName::X).size(px(CHIP_X)).color(p.ink_4)),
+                icon_button((id.clone(), SharedString::from(format!("chip-x-{}", c.id))), IconName::X)
+                    .ghost()
+                    .xs()
+                    .icon_size(px(CHIP_X))
+                    .accessibility_label(SharedString::from(format!("Remove {}", c.label)))
+                    .on_click(on_remove(c.id.clone())),
             );
         }
         row = row.child(el);
@@ -826,15 +802,6 @@ fn card_click_send(handler: Option<CardHandler>, input: Entity<TextareaState>) -
     })
 }
 
-/// The current question's choice count, when the transcript's last item is a
-/// [`AgentItem::Question`] waiting on the person.
-fn current_question_choices(transcript: &AgentTranscript) -> Option<usize> {
-    match transcript.items.last() {
-        Some(AgentItem::Question { choices, .. }) if !choices.is_empty() => Some(choices.len()),
-        _ => None,
-    }
-}
-
 impl RenderOnce for AgentCard {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
@@ -843,10 +810,7 @@ impl RenderOnce for AgentCard {
         let header = card_header(&id, &self.transcript, self.size, handler.clone(), window, cx);
         let body = agent_body(&id, &self.transcript, handler.clone(), window, cx);
         let footer = card_footer(&id, &self.transcript, &self.input, handler.clone(), window, cx);
-        // Digits pick the current question's choices through [`ChooseNth`] in
-        // [`APPROVAL_CONTEXT`], the approval card's pattern: the context and
-        // the focus stay off the tree until a question is actually current.
-        let mut shell = match self.size {
+        let shell = match self.size {
             AgentSize::Card => v_flex()
                 .id(id.clone())
                 .w(px(CARD_W))
@@ -869,31 +833,6 @@ impl RenderOnce for AgentCard {
                 .child(body)
                 .child(footer),
         };
-        if let Some(count) = current_question_choices(&self.transcript) {
-            let keyboard = window.use_keyed_state((id.clone(), "question-focus"), cx, |_, cx| ApprovalFocus {
-                focus: cx.focus_handle(),
-                claimed: false,
-            });
-            if !keyboard.read(cx).claimed {
-                let focus = keyboard.read(cx).focus.clone();
-                window.focus(&focus, cx);
-                keyboard.update(cx, |s, _| s.claimed = true);
-            }
-            let focus = keyboard.read(cx).focus.clone();
-            shell = shell
-                .key_context(APPROVAL_CONTEXT)
-                .track_focus(&focus)
-                .on_action({
-                    let handler = handler.clone();
-                    move |action: &ChooseNth, w: &mut Window, cx: &mut App| {
-                        if action.index < count {
-                            if let Some(h) = &handler {
-                                h(CardIntent::Choose(action.index), w, cx);
-                            }
-                        }
-                    }
-                });
-        }
         shell.into_any_element()
     }
 }
@@ -958,6 +897,12 @@ fn card_header(
 /// The body the card and the column share: user bubbles, steps cards,
 /// queued chips, answers, questions. The body scrolls while the steering
 /// footer stays pinned.
+///
+/// Digits pick the current question's choices through [`ChooseNth`] in
+/// [`APPROVAL_CONTEXT`], the approval card's pattern: the context lives on
+/// the question block itself — never on an ancestor of the steering input —
+/// so digits typed into the focused input stay text, while digits with the
+/// input unfocused pick the choice.
 fn agent_body(
     id: &ElementId,
     transcript: &AgentTranscript,
@@ -966,7 +911,7 @@ fn agent_body(
     cx: &mut App,
 ) -> gpui::AnyElement {
     let p = cx.aui().colors;
-    let _ = window;
+    let last = transcript.items.len().saturating_sub(1);
     let mut body = v_flex()
         .id((id.clone(), "body"))
         .flex_1()
@@ -1000,14 +945,51 @@ fn agent_body(
                 );
             }
             AgentItem::Question { text, choices } => {
-                let mut question =
-                    v_flex().w_full().gap(px(6.0)).child(div().ui(BODY_TEXT).text_color(p.ink).child(text.clone()));
+                let mut question = v_flex()
+                    .id(item_id)
+                    .w_full()
+                    .gap(px(6.0))
+                    .child(div().ui(BODY_TEXT).text_color(p.ink).child(text.clone()));
                 for (n, choice) in choices.iter().enumerate() {
                     question = question.child(
                         button((id.clone(), SharedString::from(format!("item-{i}-choice-{n}"))), choice.clone())
                             .sm()
                             .on_click(card_click(handler.clone(), CardIntent::Choose(n))),
                     );
+                }
+                // Only the current question (the last item) owns the digit
+                // keys, and only while it has choices to pick from.
+                if i == last && !choices.is_empty() {
+                    let count = choices.len();
+                    let keyboard = window.use_keyed_state((id.clone(), "question-focus"), cx, |_, cx| ApprovalFocus {
+                        focus: cx.focus_handle(),
+                        claimed: false,
+                    });
+                    if !keyboard.read(cx).claimed {
+                        // A question arriving mid-steer must not pull the
+                        // caret out of the input: claim the keyboard only
+                        // while nothing else holds it.
+                        let free = window.focused(cx).is_none();
+                        let focus = keyboard.read(cx).focus.clone();
+                        if free {
+                            window.focus(&focus, cx);
+                        }
+                        keyboard.update(cx, |s, _| s.claimed = true);
+                    }
+                    let focus = keyboard.read(cx).focus.clone();
+                    question = question
+                        .key_context(APPROVAL_CONTEXT)
+                        .track_focus(&focus)
+                        .on_action({
+                            let handler = handler.clone();
+                            move |action: &ChooseNth, w: &mut Window, cx: &mut App| {
+                                if action.index < count {
+                                    if let Some(h) = &handler {
+                                        h(CardIntent::Choose(action.index), w, cx);
+                                    }
+                                }
+                            }
+                        });
                 }
                 body = body.child(question);
             }

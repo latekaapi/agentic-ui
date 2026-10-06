@@ -3,8 +3,8 @@
 
 use aui::browse::agent_window::{
     agent_card, agent_column, agent_line, AgentItem, AgentTranscript, ApprovalData, LineState, Step, StepState,
-    TaskFace,
 };
+use aui::browse::TaskFace;
 use aui::composer::{composer_state_rows, ComposerChip, ComposerChipKind};
 use aui_tokens::{scale, ActiveAui};
 use gpui::*;
@@ -106,7 +106,7 @@ pub fn build_line_states(window: &mut Window, cx: &mut App) -> AnyElement {
     });
     let states = [
         ask_state(),
-        LineState::from_task(TaskFace::Working, "Claude is reading UDISE+ · dropout"),
+        LineState::from_task(TaskFace::Reading, "Claude is reading UDISE+ · dropout"),
         LineState::YouDrive,
         LineState::NeedsYou { text: "data.gov.in asks you to sign in".into() },
         approval_state(),

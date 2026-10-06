@@ -15,7 +15,7 @@ use gpui_kit::base::{h_flex, v_flex};
 const QUERY: &str = "nas";
 /// The row the card shows highlighted: Ask.
 const SELECTED: usize = 0;
-/// The card stage: 760 × 520, the Field's 640 px card centred on it.
+/// The card stage: full width × 480, the Field's 640 px card centred on it.
 const STAGE_H: f32 = 480.0;
 /// How far below the stage top the Field sits.
 const FIELD_PAD_TOP: f32 = 40.0;

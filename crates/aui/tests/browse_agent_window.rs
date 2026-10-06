@@ -11,8 +11,9 @@ use std::rc::Rc;
 
 use aui::browse::agent_window::{
     agent_card, agent_column, agent_line, AgentItem, AgentTranscript, ApprovalData, CardIntent, LineIntent,
-    LineState, Step, StepState, TaskFace, transcript_summary_line,
+    LineState, Step, StepState, transcript_summary_line,
 };
+use aui::browse::{task_face, TaskFace};
 use aui::composer::{composer_state, composer_state_rows, ComposerChip, ComposerChipKind};
 use aui::transcript::{arm_ax_probe, take_ax_labels};
 use gpui::{point, px, AppContext, Entity, IntoElement, Modifiers, ParentElement, SharedString, Styled, TestAppContext, VisualTestContext};
@@ -120,11 +121,23 @@ fn ask_renders_its_labels(cx: &mut TestAppContext) {
 /// The driving line offers taking over.
 #[gpui::test]
 fn driving_renders_its_labels(cx: &mut TestAppContext) {
-    let state = LineState::from_task(TaskFace::Working, "Claude is reading UDISE+ · dropout");
+    let state = LineState::from_task(TaskFace::Reading, "Claude is reading UDISE+ · dropout");
     let labels = drawn_labels(cx, state);
     for want in ["Take over", "Expand"] {
         assert!(labels.iter().any(|l| l == want), "the Driving line must label {want:?}, got {labels:?}");
     }
+}
+
+/// The Driving line draws the sidebar's own glyph element for its face: the
+/// same [`task_face`] the task-folder rows use, which carries no AX label of
+/// its own.
+#[test]
+fn driving_uses_the_sidebar_glyph() {
+    for face in [TaskFace::Reading, TaskFace::Typing, TaskFace::Paused, TaskFace::NeedsYou, TaskFace::Done] {
+        assert_eq!(task_face(face).face(), face, "the line's glyph must be the sidebar's glyph for {face:?}");
+    }
+    let state = LineState::from_task(TaskFace::Typing, "typing");
+    assert_eq!(state, LineState::Driving { status: SharedString::from("typing"), face: TaskFace::Typing });
 }
 
 /// The parked line offers handing back.
@@ -240,6 +253,7 @@ fn first_sentence_breaks_only_on_sentence_bounds() {
         ("Gujarat improved most since 2021! The rest is flat.", "Gujarat improved most since 2021"),
         ("Which year for PTR? 2023-24 or 2024-25?", "Which year for PTR"),
         ("Top gainers\nthe rest is flat.", "Top gainers"),
+        ("\nthe rest is flat.", "the rest is flat."),
         ("No break here", "No break here"),
     ];
     for (input, want) in cases {
@@ -279,10 +293,10 @@ fn summary_ignores_questions() {
 /// `from_task` builds the driving line; only `Running` runs.
 #[test]
 fn task_helpers() {
-    let state = LineState::from_task(TaskFace::Working, "reading");
+    let state = LineState::from_task(TaskFace::Reading, "reading");
     assert_eq!(
         state,
-        LineState::Driving { status: SharedString::from("reading"), face: TaskFace::Working }
+        LineState::Driving { status: SharedString::from("reading"), face: TaskFace::Reading }
     );
     assert!(Step::new("x", StepState::Running).is_running());
     assert!(!Step::new("x", StepState::Done).is_running());
@@ -461,7 +475,7 @@ fn approval_a_key_needs_the_always_choice(cx: &mut TestAppContext) {
 /// Clicking the driving row's button reports taking over.
 #[gpui::test]
 fn driving_click_reports_take_over(cx: &mut TestAppContext) {
-    let state = LineState::from_task(TaskFace::Working, "Claude is reading UDISE+ · dropout");
+    let state = LineState::from_task(TaskFace::Reading, "Claude is reading UDISE+ · dropout");
     let entries = sweep_line(cx, state);
     assert!(entries.iter().any(|e| e == "TakeOver"), "a Take over click must report TakeOver, got {entries:?}");
 }
@@ -519,10 +533,17 @@ fn send_is_not_emitted_for_empty_text(cx: &mut TestAppContext) {
 }
 
 /// The card draws its labels: the chip's remove name, the model name as
-/// `Model, <model>`, and the dock control.
+/// `Model, <model>`, and the dock control. Every label — the chip `×`
+/// included — comes from a rendered element, never a bare record.
 #[gpui::test]
 fn card_renders_chip_model_and_dock_labels(cx: &mut TestAppContext) {
     let labels = drawn_card_labels(cx, card_transcript(), false);
+    assert!(!labels.is_empty(), "the card draws controls at all");
+    assert_eq!(
+        labels.iter().filter(|l| l.is_empty()).count(),
+        0,
+        "every card control names itself from its rendered element, got {labels:?}"
+    );
     for want in ["Remove This page", "Model, Claude Sonnet", "Dock to column", "Close"] {
         assert!(labels.iter().any(|l| l == want), "the card must label {want:?}, got {labels:?}");
     }
@@ -619,4 +640,48 @@ fn digits_do_nothing_without_a_current_question(cx: &mut TestAppContext) {
     assert!(log.borrow().is_empty(), "a digit with no current question must emit nothing, got {:?}", log.borrow());
     let value = vcx.update(|_, cx| host.read(cx).input.read(cx).value().to_string());
     assert_eq!(value, "1", "the digit must land in the steering input, proving focus was inside the card");
+}
+
+/// With a question current, a digit typed into the focused steering input
+/// stays text: the question's digit context lives on the question block,
+/// which is not an ancestor of the footer input.
+#[gpui::test]
+fn question_digit_stays_text_in_the_focused_input(cx: &mut TestAppContext) {
+    init(cx);
+    let log: CardLog = Rc::new(RefCell::new(Vec::new()));
+    let (host, vcx) = cx.add_window_view(CardHost::build(question_transcript(), log.clone(), false));
+    // Focus the steering input; the card is 400 × 520 at the top-left.
+    vcx.simulate_click(point(px(100.0), px(460.0)), Modifiers::none());
+    vcx.simulate_keystrokes("2");
+    assert!(
+        log.borrow().is_empty(),
+        "a digit typed into the steering input must not choose, got {:?}",
+        log.borrow()
+    );
+    let value = vcx.update(|_, cx| host.read(cx).input.read(cx).value().to_string());
+    assert_eq!(value, "2", "the digit must land in the steering input, not in a choice");
+}
+
+/// A question arriving while the person steers keeps the caret: the
+/// question block's one-time keyboard claim never steals the steering
+/// input's focus.
+#[gpui::test]
+fn question_arriving_mid_steer_keeps_input_focus(cx: &mut TestAppContext) {
+    init(cx);
+    let log: CardLog = Rc::new(RefCell::new(Vec::new()));
+    let (host, vcx) = cx.add_window_view(CardHost::build(card_transcript(), log.clone(), false));
+    // Focus the steering input and start typing a year.
+    vcx.simulate_click(point(px(100.0), px(460.0)), Modifiers::none());
+    vcx.simulate_input("20");
+    // The follow-up question lands while the person types.
+    vcx.update(|_, cx| host.update(cx, |h, _| h.transcript = question_transcript()));
+    vcx.run_until_parked();
+    vcx.simulate_keystrokes("2");
+    assert!(
+        log.borrow().is_empty(),
+        "a digit typed after the question lands must not choose, got {:?}",
+        log.borrow()
+    );
+    let value = vcx.update(|_, cx| host.read(cx).input.read(cx).value().to_string());
+    assert_eq!(value, "202", "the digit must extend the steered text, proving the input kept focus");
 }

@@ -530,10 +530,10 @@ const Q_ICON: f32 = 16.0;
 /// The caret after the query: a 1 px bar at the text height.
 const CARET_W: f32 = 1.0;
 const CARET_H: f32 = 18.0;
-/// How tall the grouped list may grow before it scrolls: a full three-group
-/// result fits without scrolling. Twelve 34 px rows plus three captions (8 px
-/// top, an 11 px caps line at 1.5 line-height, 6 px bottom) plus the 4 px
-/// body bottom: 408 + 91.5 + 4 = 503.5.
+/// How tall the grouped list may grow before it scrolls: twelve 34 px rows
+/// plus three captions (8 px top, an 11 px caps line at 1.5 line-height,
+/// 6 px bottom) plus the 4 px body bottom fit inside with room to spare:
+/// 408 + 91.5 + 4 = 503.5 against the 512 cap.
 const BODY_MAX_H: f32 = 512.0;
 /// `.sec{padding:8px 6px 4px}` and `.sec .caps{padding:0 10px 6px}`, like the
 /// command palette's sections.
@@ -935,9 +935,12 @@ fn query_text(
     if query.is_empty() {
         row = row.child(div().flex_none().truncate().text_color(p.ink_4).child(placeholder.clone()));
     } else {
-        // The query yields and truncates: a long address never pushes the
-        // completion tail or the caret off the row.
-        row = row.child(div().flex_1().min_w(px(0.0)).truncate().child(query.clone()));
+        // The query and the caret draw as one inline run, so the caret
+        // follows the text; the spacer pushes the completion tail to the
+        // row's right edge, ahead of the `esc` keycap.
+        row = row.child(div().flex_none().truncate().child(query.clone()));
+        row = row.child(div().flex_none().w(px(CARET_W)).h(px(CARET_H)).bg(p.ink));
+        row = row.child(div().flex_1());
         if let Some(full) = complete_to {
             // The candidate starts with the query (see [`completion`]), so
             // the tail is the untyped rest; an empty tail draws nothing.
@@ -958,7 +961,6 @@ fn query_text(
                 row = row.child(tail_el);
             }
         }
-        row = row.child(div().flex_none().w(px(CARET_W)).h(px(CARET_H)).bg(p.ink));
     }
     row
 }
