@@ -90,23 +90,26 @@ pub fn goal_line(id: impl Into<ElementId>, fields: &GoalLineFields<'_>) -> GoalL
 }
 
 /// The canonical pill word and variant for a provider status string: active is
-/// accent, complete is success, blocked/limited/paused is warning, and a
-/// reopened goal always reads `Reopened` in warning.
+/// accent, complete is success, blocked/limited/paused/reopened is warning,
+/// and a reopened goal always reads `Reopened` in warning.
+///
+/// Matching is whole-token and case-insensitive on the trimmed status, with
+/// `_` and `-` separators folded away: `budgetLimited`, `budget-limited` and
+/// `budget_limited` all read `Limited`, while `incomplete` and `unblocked`
+/// stay `Active`.
 fn status_pill(status: &str, reopened: bool) -> (&'static str, PillVariant) {
     if reopened {
         return ("Reopened", PillVariant::Warning);
     }
-    let lower = status.to_lowercase();
-    if lower.contains("complet") {
-        ("Complete", PillVariant::Success)
-    } else if lower.contains("block") {
-        ("Blocked", PillVariant::Warning)
-    } else if lower.contains("limit") {
-        ("Limited", PillVariant::Warning)
-    } else if lower.contains("paus") {
-        ("Paused", PillVariant::Warning)
-    } else {
-        ("Active", PillVariant::Accent)
+    let token: String =
+        status.trim().to_lowercase().chars().filter(|c| *c != '_' && *c != '-' && *c != ' ').collect();
+    match token.as_str() {
+        "complete" | "completed" | "achieved" | "done" => ("Complete", PillVariant::Success),
+        "blocked" => ("Blocked", PillVariant::Warning),
+        "usagelimited" | "budgetlimited" | "limited" => ("Limited", PillVariant::Warning),
+        "paused" => ("Paused", PillVariant::Warning),
+        "reopened" => ("Reopened", PillVariant::Warning),
+        _ => ("Active", PillVariant::Accent),
     }
 }
 
@@ -124,8 +127,10 @@ fn short_tokens(n: u64) -> String {
     }
 }
 
-/// `40.0` as `40%`, `8.4` as `8.4%`: the provider's number, verbatim.
+/// `40.0` as `40%`, `8.4` as `8.4%`: the provider's number, displayed
+/// clamped to 100% (the protocol keeps the raw value).
 fn short_percent(percent: f32) -> String {
+    let percent = percent.min(100.0);
     if percent.fract() == 0.0 {
         format!("{percent:.0}%")
     } else {
@@ -146,6 +151,7 @@ impl RenderOnce for GoalLine {
         let mut row = h_flex()
             .id(self.id)
             .w_full()
+            .min_w(px(0.0))
             .h(px(ROW_H))
             .items_center()
             .gap(px(ROW_GAP))
@@ -153,6 +159,7 @@ impl RenderOnce for GoalLine {
             .border_t_1()
             .border_color(p.line)
             .bg(p.surface_2)
+            .overflow_hidden()
             .child(div().flex_none().ui(scale::FS_12).medium().text_color(p.ink_2).child("Goal"))
             .child(pill(pill_word).variant(pill_variant));
         if let Some(provider) = provider_mark_for(self.provider) {
@@ -161,8 +168,10 @@ impl RenderOnce for GoalLine {
         row = row.child(
             div().min_w(px(0.0)).flex_1().truncate().ui(scale::FS_12).text_color(p.ink).child(self.objective),
         );
-        // A set budget draws the 80x4 meter and `used / budget tokens`;
-        // otherwise a bare percent stands on its own.
+        // A set budget draws the 80x4 meter and `used / budget tokens`,
+        // plus `· pct` when the provider reported one; without a budget the
+        // row shows what is present: `used tokens`, the bare percent, or
+        // both.
         if let Some(budget) = self.token_budget {
             let used = self.tokens_used.unwrap_or(0);
             let fraction = if budget == 0 { 0.0 } else { (used as f32 / budget as f32).clamp(0.0, 1.0) };
@@ -191,15 +200,37 @@ impl RenderOnce for GoalLine {
                         .text_color(p.ink_3)
                         .child(format!("{} / {} tokens", short_tokens(used), short_tokens(budget))),
                 );
-        } else if let Some(percent) = self.percent_complete {
-            row = row.child(
-                div()
-                    .flex_none()
-                    .whitespace_nowrap()
-                    .text_role(TextRole::MonoSmall)
-                    .text_color(p.ink_3)
-                    .child(short_percent(percent)),
-            );
+            if let Some(percent) = self.percent_complete {
+                row = row.child(
+                    div()
+                        .flex_none()
+                        .whitespace_nowrap()
+                        .text_role(TextRole::MonoSmall)
+                        .text_color(p.ink_3)
+                        .child(format!("· {}", short_percent(percent))),
+                );
+            }
+        } else {
+            if let Some(used) = self.tokens_used {
+                row = row.child(
+                    div()
+                        .flex_none()
+                        .whitespace_nowrap()
+                        .text_role(TextRole::MonoSmall)
+                        .text_color(p.ink_3)
+                        .child(format!("{} tokens", short_tokens(used))),
+                );
+            }
+            if let Some(percent) = self.percent_complete {
+                row = row.child(
+                    div()
+                        .flex_none()
+                        .whitespace_nowrap()
+                        .text_role(TextRole::MonoSmall)
+                        .text_color(p.ink_3)
+                        .child(short_percent(percent)),
+                );
+            }
         }
         if let Some(elapsed) = self.elapsed {
             row = row.child(
@@ -235,5 +266,52 @@ impl RenderOnce for GoalLine {
             );
         }
         row
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn substring_lookalikes_stay_active() {
+        assert_eq!(status_pill("incomplete", false), ("Active", PillVariant::Accent));
+        assert_eq!(status_pill("unblocked", false), ("Active", PillVariant::Accent));
+    }
+
+    #[test]
+    fn done_words_read_complete() {
+        assert_eq!(status_pill("achieved", false), ("Complete", PillVariant::Success));
+        assert_eq!(status_pill("Complete", false), ("Complete", PillVariant::Success));
+        assert_eq!(status_pill("done", false), ("Complete", PillVariant::Success));
+    }
+
+    #[test]
+    fn limited_variants_read_limited() {
+        assert_eq!(status_pill("budgetLimited", false), ("Limited", PillVariant::Warning));
+        assert_eq!(status_pill("budget-limited", false), ("Limited", PillVariant::Warning));
+        assert_eq!(status_pill("usage_limited", false), ("Limited", PillVariant::Warning));
+    }
+
+    #[test]
+    fn blocked_paused_and_reopened() {
+        assert_eq!(status_pill("blocked", false), ("Blocked", PillVariant::Warning));
+        assert_eq!(status_pill("paused", false), ("Paused", PillVariant::Warning));
+        assert_eq!(status_pill("reopened", false), ("Reopened", PillVariant::Warning));
+        assert_eq!(status_pill("active", true), ("Reopened", PillVariant::Warning));
+    }
+
+    #[test]
+    fn everything_else_reads_active() {
+        for status in ["pursuing", "active", "in_progress", ""] {
+            assert_eq!(status_pill(status, false), ("Active", PillVariant::Accent), "{status:?}");
+        }
+    }
+
+    #[test]
+    fn percent_clamps_at_100_for_display() {
+        assert_eq!(short_percent(62.0), "62%");
+        assert_eq!(short_percent(100.0), "100%");
+        assert_eq!(short_percent(140.0), "100%");
     }
 }

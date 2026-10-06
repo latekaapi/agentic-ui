@@ -438,6 +438,9 @@ fn every_transcript_control_has_an_accessibility_label(cx: &mut TestAppContext) 
         "Open the \"Browser audit\" session",
         "Retry Implement · form and validation",
         "Skip Implement · form and validation",
+        "Run summary: Login screen",
+        "Workflow: Login screen fixes",
+        "Workflow: Checkout validation",
     ] {
         assert!(labels.iter().any(|l| l == want), "missing label {want:?}; got {labels:?}");
     }

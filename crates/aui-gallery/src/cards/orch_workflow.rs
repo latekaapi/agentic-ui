@@ -19,12 +19,16 @@ fn caption(text: &str, p: &aui_tokens::Palette) -> impl IntoElement {
 /// Builds the card content.
 pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
-    let Block::NativeWorkflow(muse) = sample::workflow_muse_with_failed_child() else {
+    let Block::NativeWorkflow(mut muse) = sample::workflow_muse_with_failed_child() else {
         unreachable!("sample::workflow_muse_with_failed_child is a workflow")
     };
-    let Block::NativeWorkflow(claude) = sample::workflow_claude_phases() else {
+    // Muse workflows can't launch from an MSP client, so the tree may still
+    // be reshaped: the provisional pill belongs here, not on the Claude card.
+    muse.provisional = true;
+    let Block::NativeWorkflow(mut claude) = sample::workflow_claude_phases() else {
         unreachable!("sample::workflow_claude_phases is a workflow")
     };
+    claude.provisional = false;
     v_flex()
         .w_full()
         .gap(px(SECTION_GAP))

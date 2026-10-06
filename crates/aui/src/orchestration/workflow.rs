@@ -10,7 +10,7 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{button, pill, status_dot, PillVariant};
+use crate::data::{button, pill, record_ax_label, status_dot, PillVariant};
 
 use super::common::{dot_state, mark, state_word};
 
@@ -49,6 +49,7 @@ pub enum WorkflowIntent {
 pub struct NativeWorkflowCard {
     id: ElementId,
     workflow: NativeWorkflow,
+    frozen: bool,
     on_intent: Option<IntentHandler>,
 }
 
@@ -56,13 +57,20 @@ pub struct NativeWorkflowCard {
 ///
 /// The card clones the value; it owns no orchestration logic.
 pub fn native_workflow(id: impl Into<ElementId>, workflow: &NativeWorkflow) -> NativeWorkflowCard {
-    NativeWorkflowCard { id: id.into(), workflow: workflow.clone(), on_intent: None }
+    NativeWorkflowCard { id: id.into(), workflow: workflow.clone(), frozen: false, on_intent: None }
 }
 
 impl NativeWorkflowCard {
     /// Retry or Skip was picked on a failed child.
     pub fn on_intent(mut self, f: impl Fn(WorkflowIntent, &mut Window, &mut App) + 'static) -> Self {
         self.on_intent = Some(Rc::new(f));
+        self
+    }
+
+    /// Freezes the tree's dots: a paused tree draws static dots and requests
+    /// no frames once settled. Defaults to `false`.
+    pub fn frozen(mut self, frozen: bool) -> Self {
+        self.frozen = frozen;
         self
     }
 }
@@ -116,9 +124,12 @@ impl RenderOnce for NativeWorkflowCard {
 
         let mut rows = v_flex().w_full().gap(px(LIST_GAP));
         for child in &self.workflow.children {
-            let row_id: ElementId =
-                (id.clone(), SharedString::from(format!("child-{}", child.child_id))).into();
-            let (agent, pulse) = dot_state(child.status);
+            let row_id: ElementId = (
+                id.clone(),
+                SharedString::from(format!("child-{}-{}", child.child_id, child.attempt)),
+            )
+                .into();
+            let (agent, pulse) = dot_state(child.status, self.frozen);
             let mut row = h_flex()
                 .id(row_id)
                 .w_full()
@@ -128,7 +139,13 @@ impl RenderOnce for NativeWorkflowCard {
                 .px(px(PAD_X))
                 .overflow_hidden()
                 .ui(scale::FS_12)
-                .child(status_dot((id.clone(), SharedString::from(format!("dot-{}", child.child_id))), agent).pulse(pulse))
+                .child(
+                    status_dot(
+                        (id.clone(), SharedString::from(format!("dot-{}-{}", child.child_id, child.attempt))),
+                        agent,
+                    )
+                    .pulse(pulse),
+                )
                 .child(
                     div()
                         .min_w(px(0.0))
@@ -149,7 +166,10 @@ impl RenderOnce for NativeWorkflowCard {
             if child.status == TaskState::Failed {
                 if self.workflow.can_retry {
                     let mut retry = button(
-                        (id.clone(), SharedString::from(format!("retry-{}", child.child_id))),
+                        (
+                            id.clone(),
+                            SharedString::from(format!("retry-{}-{}", child.child_id, child.attempt)),
+                        ),
                         "Retry",
                     )
                     .sm()
@@ -165,7 +185,10 @@ impl RenderOnce for NativeWorkflowCard {
                 }
                 if self.workflow.can_skip {
                     let mut skip = button(
-                        (id.clone(), SharedString::from(format!("skip-{}", child.child_id))),
+                        (
+                            id.clone(),
+                            SharedString::from(format!("skip-{}-{}", child.child_id, child.attempt)),
+                        ),
                         "Skip",
                     )
                     .sm()
@@ -183,6 +206,9 @@ impl RenderOnce for NativeWorkflowCard {
             rows = rows.child(row);
         }
 
+        let group_label = format!("Workflow: {}", self.workflow.name);
+        record_ax_label(&group_label);
+
         v_flex()
             .id(id)
             .w_full()
@@ -191,6 +217,8 @@ impl RenderOnce for NativeWorkflowCard {
             .border_color(p.line)
             .bg(p.surface_1)
             .overflow_hidden()
+            .role(gpui::Role::Group)
+            .aria_label(group_label)
             .child(header)
             .child(div().w_full().border_t_1().border_color(p.line).child(rows.into_any_element()))
     }

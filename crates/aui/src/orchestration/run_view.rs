@@ -42,6 +42,7 @@ pub enum RunViewIntent {
 pub struct RunView {
     id: ElementId,
     view: RunViewModel,
+    frozen: bool,
     on_intent: Option<IntentHandler>,
 }
 
@@ -49,13 +50,20 @@ pub struct RunView {
 ///
 /// The view clones the value; it owns no orchestration logic.
 pub fn run_view(id: impl Into<ElementId>, view: &RunViewModel) -> RunView {
-    RunView { id: id.into(), view: view.clone(), on_intent: None }
+    RunView { id: id.into(), view: view.clone(), frozen: false, on_intent: None }
 }
 
 impl RunView {
     /// A tree node was picked; the task id is echoed back.
     pub fn on_intent(mut self, f: impl Fn(RunViewIntent, &mut Window, &mut App) + 'static) -> Self {
         self.on_intent = Some(Rc::new(f));
+        self
+    }
+
+    /// Freezes the tree's dots: a paused tree draws static dots and requests
+    /// no frames once settled. Defaults to `false`.
+    pub fn frozen(mut self, frozen: bool) -> Self {
+        self.frozen = frozen;
         self
     }
 }
@@ -86,7 +94,7 @@ impl RenderOnce for RunView {
             let label = node_label(node);
             let node_id: ElementId =
                 (id.clone(), SharedString::from(format!("node-{}", node.task_id))).into();
-            let (agent, pulse) = dot_state(node.state);
+            let (agent, pulse) = dot_state(node.state, self.frozen);
             // A node is a button only while a handler is set; otherwise it
             // is plain text with no role and no hover tint.
             let mut row = h_flex()
@@ -141,10 +149,15 @@ impl RenderOnce for RunView {
             );
         }
 
+        let group_label = format!("Run view: {}", self.view.title);
+        record_ax_label(&group_label);
+
         v_flex()
             .id(id)
             .w_full()
             .gap(px(SECTION_GAP))
+            .role(gpui::Role::Group)
+            .aria_label(group_label)
             .child(v_flex().w_full().gap(px(ROW_GAP)).child(section_header("Tasks", &p)).child(tree))
             .child(
                 v_flex().w_full().gap(px(ROW_GAP)).child(section_header("Evidence", &p)).child(evidence),

@@ -9,7 +9,7 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{glyph_err, glyph_ok};
+use crate::data::{glyph_err, glyph_ok, record_ax_label};
 
 /// Card rhythm.
 const PAD_X: f32 = 12.0;
@@ -154,8 +154,8 @@ impl RenderOnce for RunSummaryCard {
             .gap(px(ROW_GAP))
             .px(px(PAD_X))
             .mono(scale::FS_12)
-            .child(div().flex_none().text_color(p.diff_add).child(format!("+{}", self.summary.additions)))
-            .child(div().flex_none().text_color(p.diff_del).child(format!("−{}", self.summary.deletions)))
+            .child(div().flex_none().text_color(p.success).child(format!("+{}", self.summary.additions)))
+            .child(div().flex_none().text_color(p.danger).child(format!("−{}", self.summary.deletions)))
             .child(
                 div()
                     .min_w(px(0.0))
@@ -184,22 +184,12 @@ impl RenderOnce for RunSummaryCard {
         }
 
         // The footer carries the next hint and no buttons; a merged run
-        // names its merge commit instead.
-        let footer_text = match &self.summary.merged {
-            Some(sha) => format!("Merged {sha}"),
-            None => self.summary.next_hint.clone(),
-        };
-        let footer = h_flex()
-            .w_full()
-            .gap(px(ROW_GAP))
-            .py(px(PAD_Y))
-            .px(px(PAD_X))
-            .border_t_1()
-            .border_color(p.line)
-            .bg(p.surface_2)
-            .child(div().min_w(px(0.0)).text_role(TextRole::Meta).text_color(p.ink_3).child(footer_text));
+        // names its merge commit instead. An empty hint on an unmerged run
+        // draws no footer at all.
+        let group_label = format!("Run summary: {}", self.summary.title);
+        record_ax_label(&group_label);
 
-        v_flex()
+        let mut card = v_flex()
             .id(self.id)
             .w_full()
             .rounded(px(scale::R_MD))
@@ -207,8 +197,32 @@ impl RenderOnce for RunSummaryCard {
             .border_color(p.line)
             .bg(p.surface_1)
             .overflow_hidden()
-            .child(body)
-            .child(footer)
-            .into_any_element()
+            .role(gpui::Role::Group)
+            .aria_label(group_label)
+            .child(body);
+        if self.summary.merged.is_some() || !self.summary.next_hint.is_empty() {
+            let footer_text = match &self.summary.merged {
+                Some(sha) => format!("Merged {sha}"),
+                None => self.summary.next_hint.clone(),
+            };
+            card = card.child(
+                h_flex()
+                    .w_full()
+                    .gap(px(ROW_GAP))
+                    .py(px(PAD_Y))
+                    .px(px(PAD_X))
+                    .border_t_1()
+                    .border_color(p.line)
+                    .bg(p.surface_2)
+                    .child(
+                        div()
+                            .min_w(px(0.0))
+                            .text_role(TextRole::Meta)
+                            .text_color(p.ink_3)
+                            .child(footer_text),
+                    ),
+            );
+        }
+        card.into_any_element()
     }
 }

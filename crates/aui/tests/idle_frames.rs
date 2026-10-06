@@ -489,6 +489,34 @@ fn settled_orchestration_r3_cards_request_no_frames(cx: &mut TestAppContext) {
     assert_eq!(frames, 0, "a settled run view kept requesting frames");
 }
 
+/// Paused R3 trees settle: a frozen workflow and a frozen run view draw
+/// static dots even while children are still working, so nothing keeps the
+/// frame loop open once the pause has settled.
+#[gpui::test]
+fn frozen_orchestration_r3_trees_request_no_frames(cx: &mut TestAppContext) {
+    let aui::protocol::Block::NativeWorkflow(workflow) =
+        aui::protocol::sample::workflow_muse_with_failed_child()
+    else {
+        unreachable!("sample::workflow_muse_with_failed_child is a workflow")
+    };
+    let frames = frames_at_rest(cx, "orchestration/workflow (frozen)", move |_, _| {
+        aui::orchestration::native_workflow("idle-workflow-frozen", &workflow)
+            .frozen(true)
+            .on_intent(|_, _, _| {})
+            .into_any_element()
+    });
+    assert_eq!(frames, 0, "a frozen native workflow kept requesting frames");
+
+    let view = aui::protocol::sample::run_view_sample();
+    let frames = frames_at_rest(cx, "orchestration/run-view (frozen)", move |_, _| {
+        aui::orchestration::run_view("idle-run-view-frozen", &view)
+            .frozen(true)
+            .on_intent(|_, _, _| {})
+            .into_any_element()
+    });
+    assert_eq!(frames, 0, "a frozen run view kept requesting frames");
+}
+
 /// The R3 animated pieces: a workflow child and a run-view node that are
 /// still working pulse their dots, so a live tree keeps the frames it needs
 /// and only the settled one is silent.

@@ -6,7 +6,7 @@
 //! `RowStatusKind` has no grey waiting kind, so the sender's waiting line is
 //! composed with the existing muted placeholder slot.
 
-use aui::nav::{compact_session_row, RowStatusKind, SessionSummary};
+use aui::nav::{compact_session_row, RowDensity, RowStatusKind, SessionSummary};
 use aui_tokens::{ActiveAui, AgentState, AuiStyled, TextRole};
 use gpui::*;
 use gpui_kit::base::v_flex;
@@ -20,15 +20,18 @@ fn caption(text: &str, p: &aui_tokens::Palette) -> impl IntoElement {
     div().mb(px(CAPTION_GAP)).text_role(TextRole::Meta).text_color(p.ink_3).child(text.to_owned())
 }
 
-/// The lead run with its nested workers and the needs-you status.
+/// The lead run with its nested workers and the open-question status.
 fn lead() -> SessionSummary {
     SessionSummary::new("login", "Login screen", AgentState::Waiting, "31m")
-        .status(RowStatusKind::NeedsApproval, "")
+        .status(RowStatusKind::Asked, "1 question")
         .child(SessionSummary::new("plan", "Plan", AgentState::Done, "6m"))
         .child(
             SessionSummary::new("impl-form", "Implement · form", AgentState::Running, "12m").pulse(),
         )
-        .child(SessionSummary::new("impl-auth", "Implement · auth", AgentState::Waiting, "4m"))
+        .child(
+            SessionSummary::new("impl-auth", "Implement · auth", AgentState::Waiting, "4m")
+                .status(RowStatusKind::Asked, ""),
+        )
         .child(SessionSummary::new("review", "Review", AgentState::Idle, "0m"))
 }
 
@@ -51,25 +54,25 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
             v_flex()
                 .w_full()
                 .child(caption("LEAD · NEEDS-YOU WITH NESTED WORKERS", &p))
-                .child(compact_session_row("orch-nesting-lead", lead())),
+                .child(compact_session_row("orch-nesting-lead", lead()).density(RowDensity::One)),
         )
         .child(
             v_flex()
                 .w_full()
                 .child(caption("PEER · HANDLING AN INCOMING MESSAGE", &p))
-                .child(compact_session_row("orch-nesting-peer-live", peer_live)),
+                .child(compact_session_row("orch-nesting-peer-live", peer_live).density(RowDensity::One)),
         )
         .child(
             v_flex()
                 .w_full()
                 .child(caption("PEER · AFTERWARDS WITH THE UNREAD DOT", &p))
-                .child(compact_session_row("orch-nesting-peer-after", peer_after)),
+                .child(compact_session_row("orch-nesting-peer-after", peer_after).density(RowDensity::One)),
         )
         .child(
             v_flex()
                 .w_full()
                 .child(caption("SENDER · GREY WAITING STATUS", &p))
-                .child(compact_session_row("orch-nesting-sender", sender)),
+                .child(compact_session_row("orch-nesting-sender", sender).density(RowDensity::Two)),
         )
         .into_any_element()
 }

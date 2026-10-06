@@ -36,10 +36,12 @@ pub(crate) fn state_word(state: TaskState) -> &'static str {
 }
 
 /// The dot a task row draws: the agent state and whether it is in motion.
-pub(crate) fn dot_state(state: TaskState) -> (AgentState, bool) {
+/// A frozen tree never pulses: the conductors' paused trees settle to static
+/// dots instead of holding the frame loop open.
+pub(crate) fn dot_state(state: TaskState, frozen: bool) -> (AgentState, bool) {
     match state {
         TaskState::Working | TaskState::Verifying | TaskState::Reconciling => {
-            (AgentState::Running, true)
+            (AgentState::Running, !frozen)
         }
         TaskState::NeedsYou => (AgentState::Waiting, false),
         TaskState::Accepted => (AgentState::Done, false),
