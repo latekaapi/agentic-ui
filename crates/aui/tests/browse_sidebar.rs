@@ -233,6 +233,18 @@ fn split_address_review_cases() {
         secure: bool,
     }
     let cases = [
+        Case { url: "http://h?u=http://x/y", host: "h", path: "/?u=http://x/y", local: false, port: None, secure: false },
+        Case { url: "http://[::1]/", host: "[::1]", path: "/", local: true, port: None, secure: false },
+        Case { url: "example.com:8443", host: "example.com", path: "/", local: false, port: Some(8443), secure: true },
+        Case { url: "http://example.com:80/", host: "example.com", path: "/", local: false, port: None, secure: false },
+        Case { url: "data:text/html,hi", host: "data", path: "/text/html,hi", local: false, port: None, secure: true },
+        Case { url: "", host: "", path: "/", local: false, port: None, secure: true },
+        Case { url: "https://", host: "", path: "/", local: false, port: None, secure: true },
+        Case { url: "http://localhost:", host: "localhost", path: "/", local: true, port: None, secure: false },
+        Case { url: "http://localhost:99999", host: "localhost", path: "/", local: true, port: None, secure: false },
+        Case { url: "javascript:alert(1)", host: "javascript:", path: "/", local: false, port: None, secure: false },
+        Case { url: "mailto:a@b.example", host: "mailto:", path: "/", local: false, port: None, secure: false },
+        Case { url: "localhost:5173", host: "localhost", path: "/", local: true, port: Some(5173), secure: true },
         Case {
             url: "https://example.com?x=1",
             host: "example.com",
@@ -391,4 +403,11 @@ fn task_face_status_words() {
     assert_eq!(TaskFace::NeedsYou.status_word(), "needs you");
     assert_eq!(TaskFace::Paused.status_word(), "paused");
     assert_eq!(TaskFace::Done.status_word(), "done");
+}
+
+#[test]
+fn split_address_never_panics_on_malformed_input() {
+    for url in ["", ":", "://", "http://", "http://[", "http://[::1", "a:b:c", "http://host:", "http://host:99999", "\\", "http://h?#", "about:", "file:", "chrome:", "data:", "http://user@", "http://@host/", "[", "]", "http://[]:1/"] {
+        let _ = split_address(url);
+    }
 }

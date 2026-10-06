@@ -197,8 +197,22 @@ fn split_internal(url: &str) -> Option<Address> {
             Some(internal(host, &path))
         }
         "data" => Some(internal("data", &format!("/{rest}"))),
+        // Any other `scheme:` form with no `//` (`javascript:`, `mailto:`,
+        // `blob:`, `view-source:`, `tel:`) is a scheme, not a host, and is
+        // never secure. `host:port` is told apart by its all-digit rest.
+        _ if is_scheme_like(&scheme) && !rest.starts_with("//") && !rest.bytes().all(|b| b.is_ascii_digit()) => {
+            Some(Address::new(&format!("{scheme}:"), "/", false, None, false, Some(scheme.clone())))
+        }
         _ => None,
     }
+}
+
+/// A scheme is ASCII letters, digits, `+`, `-` or `.`, starting with a
+/// letter, and never contains a dot run that reads as a host (`a.b`).
+fn is_scheme_like(scheme: &str) -> bool {
+    let mut chars = scheme.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-')
 }
 
 /// Splits `rest` (no scheme) at the first `/`, `?` or `#`; the second half
@@ -234,6 +248,10 @@ fn split_host_port(authority: &str) -> (&str, Option<u16>) {
     match authority.rsplit_once(':') {
         Some((head, tail)) if !head.is_empty() => match tail.parse::<u16>() {
             Ok(port) => (head, Some(port)),
+            // An empty or out-of-range numeric port is still a port
+            // separator: drop it so `localhost:99999` keeps host
+            // `localhost`. A non-numeric tail is not a port at all.
+            Err(_) if tail.bytes().all(|b| b.is_ascii_digit()) => (head, None),
             Err(_) => (authority, None),
         },
         _ => (authority, None),
