@@ -293,6 +293,52 @@ fn a_settled_code_block_requests_no_frames(cx: &mut TestAppContext) {
     assert_eq!(frames, 0, "a settled code block kept requesting frames");
 }
 
+/// Settled orchestration cards request no frames: the proposed plan, the
+/// paused progress block, the answered question, the run note and an
+/// incoming peer message carry no live animation.
+#[gpui::test]
+fn settled_orchestration_cards_request_no_frames(cx: &mut TestAppContext) {
+    let aui::protocol::Block::RunPlan(plan) = aui::protocol::sample::run_plan_proposed() else {
+        unreachable!("sample::run_plan_proposed is a plan")
+    };
+    let frames = frames_at_rest(cx, "orchestration/plan", move |_, _| {
+        aui::orchestration::plan_message("idle-plan", &plan).into_any_element()
+    });
+    assert_eq!(frames, 0, "a settled plan message kept requesting frames");
+
+    let aui::protocol::Block::RunProgress(progress) = aui::protocol::sample::run_progress_paused() else {
+        unreachable!("sample::run_progress_paused is progress")
+    };
+    let frames = frames_at_rest(cx, "orchestration/progress", move |_, _| {
+        aui::orchestration::progress_block("idle-progress", &progress).into_any_element()
+    });
+    assert_eq!(frames, 0, "a paused progress block kept requesting frames");
+
+    let aui::protocol::Block::RunQuestion(question) = aui::protocol::sample::run_question_answered() else {
+        unreachable!("sample::run_question_answered is a question")
+    };
+    let frames = frames_at_rest(cx, "orchestration/question", move |_, _| {
+        aui::orchestration::run_question("idle-question", &question).into_any_element()
+    });
+    assert_eq!(frames, 0, "an answered run question kept requesting frames");
+
+    let aui::protocol::Block::RunNote(note) = aui::protocol::sample::run_note_preference() else {
+        unreachable!("sample::run_note_preference is a note")
+    };
+    let frames = frames_at_rest(cx, "orchestration/note", move |_, _| {
+        aui::orchestration::run_note("idle-note", &note).into_any_element()
+    });
+    assert_eq!(frames, 0, "a run note kept requesting frames");
+
+    let aui::protocol::Block::PeerMessage(message) = aui::protocol::sample::peer_incoming() else {
+        unreachable!("sample::peer_incoming is a peer message")
+    };
+    let frames = frames_at_rest(cx, "orchestration/peer", move |_, _| {
+        aui::orchestration::peer_message("idle-peer", &message).into_any_element()
+    });
+    assert_eq!(frames, 0, "an incoming peer message kept requesting frames");
+}
+
 /// A working activity group with one running step.
 fn activity(state: ActivityState, step: StepState) -> impl IntoElement {
     activity_group(

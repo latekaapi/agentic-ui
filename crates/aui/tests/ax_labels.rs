@@ -208,20 +208,30 @@ fn block_element(block: &Block, n: usize) -> AnyElement {
             .link("details", |_, _, _| {})
             .into_any_element(),
         Block::Handoff { .. } => handoff_entries(),
-        // R2/R3 replace this with the orchestration component
-        Block::RunPlan(..) => gpui::div().into_any_element(),
-        // R2/R3 replace this with the orchestration component
-        Block::RunProgress(..) => gpui::div().into_any_element(),
-        // R2/R3 replace this with the orchestration component
-        Block::RunQuestion(..) => gpui::div().into_any_element(),
-        // R2/R3 replace this with the orchestration component
+        Block::RunPlan(plan) => {
+            aui::orchestration::plan_message(id("run-plan"), plan).into_any_element()
+        }
+        Block::RunProgress(progress) => {
+            aui::orchestration::progress_block(id("run-progress"), progress)
+                .on_intent(|_, _, _| {})
+                .into_any_element()
+        }
+        Block::RunQuestion(question) => {
+            aui::orchestration::run_question(id("run-question"), question)
+                .on_intent(|_, _, _| {})
+                .into_any_element()
+        }
+        // R3 replaces this with the orchestration component
         Block::RunSummary(..) => gpui::div().into_any_element(),
-        // R2/R3 replace this with the orchestration component
-        Block::RunNote(..) => gpui::div().into_any_element(),
-        // R2/R3 replace this with the orchestration component
+        Block::RunNote(note) => aui::orchestration::run_note(id("run-note"), note).into_any_element(),
+        // R3 replaces this with the orchestration component
         Block::NativeWorkflow(..) => gpui::div().into_any_element(),
-        // R2/R3 replace this with the orchestration component
-        Block::PeerMessage(..) => gpui::div().into_any_element(),
+        Block::PeerMessage(message) => {
+            aui::orchestration::peer_message(id("peer"), message)
+                .expanded(n % 2 == 0)
+                .on_intent(|_, _, _| {})
+                .into_any_element()
+        }
     }
 }
 
@@ -256,6 +266,22 @@ fn entries(window: &mut Window, cx: &mut gpui::App) -> AnyElement {
     blocks.push(sample::muse_plan());
     blocks.extend(sample::muse_goals());
     blocks.push(sample::muse_generic_item());
+    blocks.push(sample::run_plan_proposed());
+    blocks.push(sample::run_plan_started());
+    blocks.push(sample::run_progress_running());
+    blocks.push(sample::run_progress_needs_you());
+    blocks.push(sample::run_progress_paused());
+    blocks.push(sample::run_progress_quota_wait());
+    blocks.push(sample::run_progress_reconciling());
+    blocks.push(sample::run_question_open());
+    blocks.push(sample::run_question_answered());
+    blocks.push(sample::run_note_preference());
+    blocks.push(sample::peer_outgoing_waiting());
+    blocks.push(sample::peer_outgoing_replied());
+    blocks.push(sample::peer_outgoing_replied());
+    blocks.push(sample::peer_outgoing_queued());
+    blocks.push(sample::peer_outgoing_unreachable());
+    blocks.push(sample::peer_incoming());
 
     let mut col: Vec<AnyElement> = Vec::new();
     col.push(
@@ -362,6 +388,13 @@ fn every_transcript_control_has_an_accessibility_label(cx: &mut TestAppContext) 
         "Show preview for notes.txt",
         "Open the new session on Codex",
         "Jump to latest",
+        "Add it",
+        "Leave it out",
+        "Open run view",
+        "Implement · auth call, needs you, open worker session",
+        "Show more",
+        "Show less",
+        "Open the \"Browser audit\" session",
     ] {
         assert!(labels.iter().any(|l| l == want), "missing label {want:?}; got {labels:?}");
     }

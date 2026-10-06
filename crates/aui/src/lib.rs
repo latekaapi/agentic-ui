@@ -46,6 +46,7 @@ pub mod skills;
 pub mod transcript;
 pub mod util;
 pub mod workbench;
+pub mod orchestration;
 
 pub use aui_icons as icons;
 pub use aui_motion as motion;
