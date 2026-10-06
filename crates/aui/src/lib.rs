@@ -34,6 +34,7 @@
 
 pub mod a11y_text;
 pub mod assets;
+pub mod browse;
 pub mod composer;
 pub mod data;
 pub mod feedback;
@@ -52,6 +53,7 @@ pub use aui_motion as motion;
 pub use aui_protocol as protocol;
 pub use aui_tokens as tokens;
 
+pub use browse::{Address, Pin, TabRowData, TaskFace};
 pub use nav::{account_menu, AccountMenu, AccountMenuItem};
 
 use gpui::App;
