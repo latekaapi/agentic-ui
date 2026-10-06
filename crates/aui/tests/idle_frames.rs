@@ -354,6 +354,167 @@ fn a_paused_reconciling_progress_block_requests_no_frames(cx: &mut TestAppContex
     assert_eq!(frames, 0, "a paused reconciling progress block kept requesting frames");
 }
 
+/// Settled R3 orchestration cards request no frames: the finished summary,
+/// the goal line, a workflow with no live children, the subagent controls,
+/// the worker header and a run view whose tree has settled carry no live
+/// animation.
+#[gpui::test]
+fn settled_orchestration_r3_cards_request_no_frames(cx: &mut TestAppContext) {
+    let aui::protocol::Block::RunSummary(summary) = aui::protocol::sample::run_summary_finished() else {
+        unreachable!("sample::run_summary_finished is a summary")
+    };
+    let frames = frames_at_rest(cx, "orchestration/summary", move |_, _| {
+        aui::orchestration::run_summary("idle-summary", &summary).into_any_element()
+    });
+    assert_eq!(frames, 0, "a finished run summary kept requesting frames");
+
+    let aui::protocol::Block::Goal {
+        objective,
+        status,
+        percent_complete,
+        provider,
+        tokens_used,
+        token_budget,
+        elapsed,
+        last_reason,
+        gated_by_baaz,
+        reopened,
+        ..
+    } = aui::protocol::sample::goal_reopened()
+    else {
+        unreachable!("sample::goal_reopened is a goal")
+    };
+    let frames = frames_at_rest(cx, "orchestration/goal", move |_, _| {
+        let fields = aui::orchestration::GoalLineFields {
+            objective: &objective,
+            status: &status,
+            percent_complete,
+            provider,
+            tokens_used,
+            token_budget,
+            elapsed: elapsed.as_deref(),
+            last_reason: last_reason.as_deref(),
+            gated_by_baaz,
+            reopened,
+        };
+        aui::orchestration::goal_line("idle-goal", &fields).into_any_element()
+    });
+    assert_eq!(frames, 0, "a goal line kept requesting frames");
+
+    // Failed and accepted children draw static dots; the Retry / Skip
+    // buttons are plain buttons with no loop.
+    let settled_workflow = aui::protocol::NativeWorkflow {
+        provider: aui::protocol::Provider::Muse,
+        name: "Login screen fixes".into(),
+        children: vec![
+            aui::protocol::WorkflowChild {
+                child_id: "w-1".into(),
+                attempt: 1,
+                label: "Implement · form and validation".into(),
+                phase: None,
+                status: aui::protocol::TaskState::Failed,
+            },
+            aui::protocol::WorkflowChild {
+                child_id: "w-2".into(),
+                attempt: 1,
+                label: "Implement · auth call".into(),
+                phase: None,
+                status: aui::protocol::TaskState::Accepted,
+            },
+        ],
+        can_retry: true,
+        can_skip: true,
+        provisional: false,
+    };
+    let frames = frames_at_rest(cx, "orchestration/workflow (settled)", move |_, _| {
+        aui::orchestration::native_workflow("idle-workflow", &settled_workflow)
+            .on_intent(|_, _, _| {})
+            .into_any_element()
+    });
+    assert_eq!(frames, 0, "a settled native workflow kept requesting frames");
+
+    let controls = aui::protocol::SubagentControls {
+        message: true,
+        follow_up: true,
+        interrupt: true,
+        stop: true,
+    };
+    let frames = frames_at_rest(cx, "orchestration/subagent-controls", move |_, _| {
+        aui::orchestration::subagent_controls("idle-subagent", &controls)
+            .on_intent(|_, _, _| {})
+            .into_any_element()
+    });
+    assert_eq!(frames, 0, "subagent controls kept requesting frames");
+
+    let header = aui::protocol::sample::worker_header_sample();
+    let frames = frames_at_rest(cx, "orchestration/worker-header", move |_, _| {
+        aui::orchestration::worker_header("idle-worker", &header)
+            .on_intent(|_, _, _| {})
+            .into_any_element()
+    });
+    assert_eq!(frames, 0, "a worker header kept requesting frames");
+
+    let settled_view = aui::protocol::RunViewModel {
+        run_id: "run-login-screen".into(),
+        title: "Login screen".into(),
+        tree: vec![
+            aui::protocol::RunViewNode {
+                task_id: "t-impl-form".into(),
+                depth: 0,
+                label: "Implement · form and validation".into(),
+                provider: aui::protocol::Provider::Muse,
+                state: aui::protocol::TaskState::Accepted,
+                note: None,
+            },
+            aui::protocol::RunViewNode {
+                task_id: "t-auth-call".into(),
+                depth: 1,
+                label: "Implement · auth call".into(),
+                provider: aui::protocol::Provider::Muse,
+                state: aui::protocol::TaskState::Accepted,
+                note: Some("editing src/auth/login.ts".into()),
+            },
+        ],
+        evidence: vec![aui::protocol::EvidenceRow {
+            task_id: "t-impl-form".into(),
+            text: "npm test exited 0 · 12 passed".into(),
+            evidence_kind: aui::protocol::EvidenceKind::Test,
+        }],
+    };
+    let frames = frames_at_rest(cx, "orchestration/run-view (settled)", move |_, _| {
+        aui::orchestration::run_view("idle-run-view", &settled_view)
+            .on_intent(|_, _, _| {})
+            .into_any_element()
+    });
+    assert_eq!(frames, 0, "a settled run view kept requesting frames");
+}
+
+/// The R3 animated pieces: a workflow child and a run-view node that are
+/// still working pulse their dots, so a live tree keeps the frames it needs
+/// and only the settled one is silent.
+#[gpui::test]
+fn live_orchestration_r3_cards_keep_their_frames(cx: &mut TestAppContext) {
+    let aui::protocol::Block::NativeWorkflow(workflow) =
+        aui::protocol::sample::workflow_muse_with_failed_child()
+    else {
+        unreachable!("sample::workflow_muse_with_failed_child is a workflow")
+    };
+    let frames = frames_at_rest(cx, "orchestration/workflow (live)", move |_, _| {
+        aui::orchestration::native_workflow("live-workflow", &workflow)
+            .on_intent(|_, _, _| {})
+            .into_any_element()
+    });
+    assert!(frames > 0, "a workflow with a working child should animate");
+
+    let view = aui::protocol::sample::run_view_sample();
+    let frames = frames_at_rest(cx, "orchestration/run-view (live)", move |_, _| {
+        aui::orchestration::run_view("live-run-view", &view)
+            .on_intent(|_, _, _| {})
+            .into_any_element()
+    });
+    assert!(frames > 0, "a run view with a working node should animate");
+}
+
 /// A working activity group with one running step.
 fn activity(state: ActivityState, step: StepState) -> impl IntoElement {
     activity_group(

@@ -221,11 +221,15 @@ fn block_element(block: &Block, n: usize) -> AnyElement {
                 .on_intent(|_, _, _| {})
                 .into_any_element()
         }
-        // R3 replaces this with the orchestration component
-        Block::RunSummary(..) => gpui::div().into_any_element(),
+        Block::RunSummary(summary) => {
+            aui::orchestration::run_summary(id("run-summary"), summary).into_any_element()
+        }
         Block::RunNote(note) => aui::orchestration::run_note(id("run-note"), note).into_any_element(),
-        // R3 replaces this with the orchestration component
-        Block::NativeWorkflow(..) => gpui::div().into_any_element(),
+        Block::NativeWorkflow(workflow) => {
+            aui::orchestration::native_workflow(id("native-workflow"), workflow)
+                .on_intent(|_, _, _| {})
+                .into_any_element()
+        }
         Block::PeerMessage(message) => {
             aui::orchestration::peer_message(id("peer"), message)
                 .expanded(n.is_multiple_of(2))
@@ -233,6 +237,20 @@ fn block_element(block: &Block, n: usize) -> AnyElement {
                 .into_any_element()
         }
     }
+}
+
+/// A failed login-screen summary with one unmet criterion, so the error
+/// glyph path renders: no failed sample exists, so it reuses the finished
+/// value with a failed outcome.
+fn failed_summary() -> Block {
+    let Block::RunSummary(mut summary) = sample::run_summary_finished() else {
+        unreachable!("sample::run_summary_finished is a summary")
+    };
+    summary.outcome = aui::protocol::RunOutcome::Failed;
+    if let Some(first) = summary.criteria.first_mut() {
+        first.met = false;
+    }
+    Block::RunSummary(summary)
 }
 
 /// A replied peer message with a reply long enough to draw the fold
@@ -288,6 +306,12 @@ fn entries(window: &mut Window, cx: &mut gpui::App) -> AnyElement {
     blocks.push(sample::run_progress_reconciling());
     blocks.push(sample::run_question_open());
     blocks.push(sample::run_question_answered());
+    blocks.push(sample::run_summary_finished());
+    blocks.push(sample::run_summary_stopped());
+    blocks.push(sample::run_summary_merged());
+    blocks.push(failed_summary());
+    blocks.push(sample::workflow_muse_with_failed_child());
+    blocks.push(sample::workflow_claude_phases());
     blocks.push(sample::run_note_preference());
     blocks.push(sample::peer_outgoing_waiting());
     blocks.push(sample::peer_outgoing_replied());
@@ -412,6 +436,8 @@ fn every_transcript_control_has_an_accessibility_label(cx: &mut TestAppContext) 
         "Show the whole reply from \"Browser audit\"",
         "Collapse the reply from \"Browser audit\"",
         "Open the \"Browser audit\" session",
+        "Retry Implement · form and validation",
+        "Skip Implement · form and validation",
     ] {
         assert!(labels.iter().any(|l| l == want), "missing label {want:?}; got {labels:?}");
     }
