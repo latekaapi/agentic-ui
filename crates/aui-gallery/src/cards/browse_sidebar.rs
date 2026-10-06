@@ -196,7 +196,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                 "Fix ledger chart",
                 TaskFace::Done,
                 SharedString::from(format!("{} · 1 tab", TaskFace::Done.status_word())),
-                false,
+                true,
             )
             .on_toggle(|_, _, _| {})
             .on_open_chat(|_, _, _| {}),
