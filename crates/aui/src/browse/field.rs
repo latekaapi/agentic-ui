@@ -20,12 +20,13 @@
 //! The grey completion is also clickable, which reports through
 //! [`Field::on_query_change`].
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
-use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, App, ElementId, IntoElement, ScrollHandle, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::base::input::TextareaState;
 
@@ -39,8 +40,18 @@ use crate::util::{indexed_child, interaction_flags};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldRowKind {
     /// Open the typed address. The first row while the query looks like a
-    /// URL or host; Ask moves second.
-    Open,
+    /// URL or host; Ask moves second. Carries the address so the host never
+    /// re-derives it from the title.
+    Open {
+        /// The address confirming the row opens.
+        url: String,
+    },
+    /// Reopen the copied link. An empty query shows it when the clipboard
+    /// holds a link; a row of its own so it never reads as a typed address.
+    Clipboard {
+        /// The copied address confirming the row opens.
+        url: String,
+    },
     /// Ask the provider; the answer lands here.
     Ask,
     /// Run the query as an exact search in the configured engine.
@@ -184,36 +195,79 @@ const MAX_COMMANDS: usize = 4;
 /// How many recent tabs and frequent sites an empty query shows of each.
 const EMPTY_EACH: usize = 3;
 
-/// Whether the query looks like a URL or bare host: no spaces, and either an
-/// `http(s)` scheme or a dotted host (`udiseplus.gov.in/…`). While it does,
-/// the first row opens it and Ask moves second.
+/// Whether the query looks like a URL or bare host: no spaces, and either a
+/// `scheme://` form (`https://x.y`), an `about:`/`file:` form, `localhost`
+/// with an optional numeric port, or a dotted host whose last label is at
+/// least two letters (`ncert.nic.in`). A single dot is not enough on its
+/// own — `report.pdf` reads as a filename, and `3.14` as a number — unless
+/// the last label is a familiar top-level domain (`example.com`). While the
+/// query looks like a URL, the first row opens it and Ask moves second.
 pub fn looks_like_url(query: &str) -> bool {
     let query = query.trim();
     if query.is_empty() || query.contains(char::is_whitespace) {
         return false;
     }
     let lower = query.to_lowercase();
-    if lower.starts_with("http://") || lower.starts_with("https://") {
+    if lower.starts_with("about:") || lower.starts_with("file:") {
         return true;
     }
+    if let Some(scheme_end) = lower.find("://") {
+        let scheme = &lower[..scheme_end];
+        if !scheme.is_empty() && scheme.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.') {
+            return true;
+        }
+    }
+    // The host is whatever precedes any path, without any `:port`.
     let host = query.split('/').next().unwrap_or("");
-    host.contains('.') && !host.starts_with('.') && !host.ends_with('.') && host.len() > 3
+    let bare = host.split(':').next().unwrap_or("");
+    if bare.eq_ignore_ascii_case("localhost") {
+        let port_ok = match host.split_once(':') {
+            None => true,
+            Some((_, port)) => !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()),
+        };
+        if port_ok {
+            return true;
+        }
+    }
+    let labels: Vec<&str> = bare.split('.').collect();
+    if labels.len() >= 2 && labels.iter().all(|label| !label.is_empty()) {
+        let tld = labels[labels.len() - 1].to_lowercase();
+        if tld.len() >= 2 && tld.chars().all(|c| c.is_ascii_alphabetic()) {
+            // Several dots read as a host on their own; a single dot needs a
+            // familiar top-level domain, or the token is a filename.
+            if labels.len() >= 3 || KNOWN_TLDS.contains(&tld.as_str()) {
+                return true;
+            }
+        }
+    }
+    false
 }
+
+/// Top-level domains a lone `name.tld` token may end in and still read as a
+/// host. Anything else with a single dot reads as a filename (`report.pdf`).
+const KNOWN_TLDS: &[&str] = &[
+    "com", "org", "net", "io", "dev", "app", "gov", "edu", "mil", "int", "biz", "info", "name", "me", "tv", "cc", "co", "uk", "us",
+    "ca", "au", "de", "fr", "jp", "cn", "in", "br", "kr", "it", "es", "nl", "se", "ch", "nz", "ie", "za", "sg", "hk", "tw", "mx",
+    "pl", "be", "at", "dk", "fi", "no", "pt", "gr", "cz", "hu", "ro", "tr", "il", "ae", "sa", "ph", "id", "my", "th", "vn", "pk",
+    "bd", "lk", "np", "ru",
+];
 
 /// Builds the rows for `query`, in display order: the agent rows (no
 /// caption), then matching tabs, history and commands. Matching is a
 /// case-insensitive substring with prefix matches first; tabs sort before
-/// history regardless of score. An empty query shows nothing but the recent
-/// tabs, the frequent sites and the Clipboard row.
+/// history regardless of score. A history entry never duplicates an open tab
+/// — when its URL's host is already open the tab row says it — and never
+/// duplicates the Open row either. An empty query shows nothing but the
+/// recent tabs, the frequent sites and the Clipboard row.
 pub fn rank(query: &str, sources: &FieldSources) -> Vec<FieldRow> {
     let query = query.trim();
     if query.is_empty() {
         let mut rows = Vec::new();
         rows.extend(sources.tabs.iter().take(EMPTY_EACH).map(tab_row));
-        rows.extend(sources.history.iter().take(EMPTY_EACH).map(history_row));
+        rows.extend(sources.history.iter().filter(|entry| !host_open(&entry.url, sources)).take(EMPTY_EACH).map(history_row));
         if let Some(url) = &sources.clipboard {
             rows.push(FieldRow {
-                kind: FieldRowKind::Open,
+                kind: FieldRowKind::Clipboard { url: url.to_string() },
                 title: SharedString::from(format!("Clipboard — {url}")),
                 detail: None,
                 hint: SharedString::from("↩"),
@@ -221,10 +275,11 @@ pub fn rank(query: &str, sources: &FieldSources) -> Vec<FieldRow> {
         }
         return rows;
     }
+    let open = looks_like_url(query);
     let mut rows = Vec::with_capacity(3 + MAX_TABS + MAX_HISTORY + MAX_COMMANDS);
-    if looks_like_url(query) {
+    if open {
         rows.push(FieldRow {
-            kind: FieldRowKind::Open,
+            kind: FieldRowKind::Open { url: query.to_string() },
             title: SharedString::from(format!("Open {query}")),
             detail: None,
             hint: SharedString::from("↩"),
@@ -250,22 +305,63 @@ pub fn rank(query: &str, sources: &FieldSources) -> Vec<FieldRow> {
     });
     rows.extend(ranked(sources.tabs.iter().map(|tab| (score(&[&tab.title, &tab.host], query), tab_row(tab))), MAX_TABS));
     rows.extend(ranked(
-        sources.history.iter().map(|entry| (score(&[&entry.title, &entry.url], query), history_row(entry))),
+        sources
+            .history
+            .iter()
+            .filter(|entry| !host_open(&entry.url, sources) && (!open || !same_url(&entry.url, query)))
+            .map(|entry| (score(&[&entry.title, &entry.url], query), history_row(entry))),
         MAX_HISTORY,
     ));
     rows.extend(ranked(sources.commands.iter().map(|command| (score(&[&command.name], query), command_row(command))), MAX_COMMANDS));
     rows
 }
 
+/// Whether an open tab already covers `url`: the URL's host, case-folded,
+/// equals some tab's host. Such a history entry is suppressed — the tab row
+/// says it already.
+fn host_open(url: &str, sources: &FieldSources) -> bool {
+    let host = url_host(url);
+    sources.tabs.iter().any(|tab| tab.host.to_lowercase() == host)
+}
+
+/// The host of `url`, case-folded: without any scheme, path or query.
+fn url_host(url: &str) -> String {
+    let url = url.trim().to_lowercase();
+    let bare = match url.split_once("://") {
+        Some((_, rest)) => rest,
+        None => url.as_str(),
+    };
+    bare.split('/').next().unwrap_or("").to_string()
+}
+
+/// Whether two addresses name the same page: case-folded, without any
+/// scheme, and ignoring one trailing slash.
+fn same_url(left: &str, right: &str) -> bool {
+    fn norm(url: &str) -> String {
+        let url = url.trim().to_lowercase();
+        let bare = match url.split_once("://") {
+            Some((_, rest)) => rest.to_string(),
+            None => url,
+        };
+        bare.strip_suffix('/').unwrap_or(&bare).to_string()
+    }
+    norm(left) == norm(right)
+}
+
 /// The grey inline completion: the first tab host or history URL that starts
 /// with the query. The element draws the untyped tail grey after the caret;
-/// `⇥` (or a click on it) accepts it. `None` for an empty query or when
-/// nothing completes it.
+/// `⇥` (or a click on it) accepts it. `None` for an empty query, for a query
+/// with surrounding whitespace (the tail would slice at the wrong length),
+/// or when nothing completes it. Matching case-folds with [`to_lowercase`],
+/// like [`rank`].
 pub fn completion(query: &str, rows: &[FieldRow]) -> Option<String> {
-    let query = query.trim();
+    if query != query.trim() {
+        return None;
+    }
     if query.is_empty() {
         return None;
     }
+    let folded = query.to_lowercase();
     for row in rows {
         let candidate: &str = match &row.kind {
             FieldRowKind::Tab { .. } => match &row.detail {
@@ -275,9 +371,8 @@ pub fn completion(query: &str, rows: &[FieldRow]) -> Option<String> {
             FieldRowKind::History { url } => url,
             _ => continue,
         };
-        if candidate.len() > query.len()
-            && candidate.get(..query.len()).is_some_and(|prefix| prefix.eq_ignore_ascii_case(query))
-        {
+        let candidate_folded = candidate.to_lowercase();
+        if candidate_folded.len() > folded.len() && candidate_folded.starts_with(folded.as_str()) {
             return Some(candidate.to_string());
         }
     }
@@ -305,6 +400,58 @@ pub fn select_prev(selected: usize, len: usize) -> usize {
         return len - 1;
     }
     selected - 1
+}
+
+// ------------------------------------------------------------------ intents
+
+/// The keys the Field host turns into [`FieldIntent`]s through
+/// [`intent_for`]. The element itself owns no keys — the host wires
+/// [`MENU_CONTEXT`] the way the palette hosts do — so keys arrive here
+/// already interpreted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldKey {
+    /// `↩`: confirm the selected row.
+    Enter,
+    /// `⌘↩`: confirm the selected row as background work.
+    CmdEnter,
+    /// `⌥↩`: run the query as an exact search.
+    AltEnter,
+    /// `⇥`: accept the grey [`completion`] into the query.
+    Tab,
+    /// `esc`: close the Field.
+    Escape,
+}
+
+/// What the host should do next: the Field's answer to one [`FieldKey`], or
+/// to a click on a row, the completion tail, or the `esc` keycap.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldIntent {
+    /// Confirm `row` in this window.
+    Open(FieldRow),
+    /// Confirm `row` as background work, in its own tabs.
+    Background(FieldRow),
+    /// Run the query as an exact search in the configured engine.
+    SearchExact(String),
+    /// Accept the grey [`completion`] into the query.
+    Complete,
+    /// Close the Field.
+    Close,
+}
+
+/// The intent one [`FieldKey`] means over `model`, or `None` when the key
+/// has nothing to act on: `↩`/`⌘↩` past the last row, `⌥↩` on an empty
+/// query, `⇥` with no [`completion`].
+pub fn intent_for(key: &FieldKey, model: &FieldModel) -> Option<FieldIntent> {
+    match key {
+        FieldKey::Enter => model.selected_row().cloned().map(FieldIntent::Open),
+        FieldKey::CmdEnter => model.selected_row().cloned().map(FieldIntent::Background),
+        FieldKey::AltEnter => {
+            let query = model.query.trim();
+            if query.is_empty() { None } else { Some(FieldIntent::SearchExact(query.to_string())) }
+        }
+        FieldKey::Tab => completion(&model.query, &model.rows).map(|_| FieldIntent::Complete),
+        FieldKey::Escape => Some(FieldIntent::Close),
+    }
 }
 
 /// Prefix (2) beats substring (1); no match is `None`.
@@ -383,8 +530,11 @@ const Q_ICON: f32 = 16.0;
 /// The caret after the query: a 1 px bar at the text height.
 const CARET_W: f32 = 1.0;
 const CARET_H: f32 = 18.0;
-/// How tall the grouped list may grow before it scrolls.
-const BODY_MAX_H: f32 = 320.0;
+/// How tall the grouped list may grow before it scrolls: a full three-group
+/// result fits without scrolling. Twelve 34 px rows plus three captions (8 px
+/// top, an 11 px caps line at 1.5 line-height, 6 px bottom) plus the 4 px
+/// body bottom: 408 + 91.5 + 4 = 503.5.
+const BODY_MAX_H: f32 = 512.0;
 /// `.sec{padding:8px 6px 4px}` and `.sec .caps{padding:0 10px 6px}`, like the
 /// command palette's sections.
 const SEC_PAD_TOP: f32 = 8.0;
@@ -411,6 +561,8 @@ const FT_KEY_GAP: f32 = 4.0;
 type ChooseHandler = Rc<dyn Fn(FieldRow, &mut Window, &mut App)>;
 type CloseHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 type QueryHandler = Rc<dyn Fn(String, &mut Window, &mut App)>;
+type HoverHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
+type IntentHandler = Rc<dyn Fn(FieldIntent, &mut Window, &mut App)>;
 
 /// Creates the single-line text state a live Field edits; keep it in the
 /// view (or in window state) and hand its value to [`FieldModel`] every
@@ -439,6 +591,8 @@ pub struct Field {
     on_choose: Option<ChooseHandler>,
     on_close: Option<CloseHandler>,
     on_query_change: Option<QueryHandler>,
+    on_hover: Option<HoverHandler>,
+    on_intent: Option<IntentHandler>,
 }
 
 /// The 640 px Field over `model`: the input row, then the grouped rows. The
@@ -459,6 +613,8 @@ pub fn field(id: impl Into<ElementId>, model: &FieldModel) -> Field {
         on_choose: None,
         on_close: None,
         on_query_change: None,
+        on_hover: None,
+        on_intent: None,
     }
 }
 
@@ -479,23 +635,47 @@ impl Field {
 
     /// A row was clicked. The argument is the row itself; the host's `↩`
     /// ([`crate::keys::Confirm`]) handler calls back with the selected row
-    /// through this same handler.
+    /// through this same handler. A thin wrapper over [`Field::on_intent`]'s
+    /// [`FieldIntent::Open`]: when both are set, `on_intent` wins.
     pub fn on_choose(mut self, f: impl Fn(FieldRow, &mut Window, &mut App) + 'static) -> Self {
         self.on_choose = Some(Rc::new(f));
         self
     }
 
     /// The `esc` keycap was clicked. The keyboard `esc`
-    /// ([`crate::keys::Cancel`]) is the host's to route here.
+    /// ([`crate::keys::Cancel`]) is the host's to route here. A thin wrapper
+    /// over [`Field::on_intent`]'s [`FieldIntent::Close`]: when both are set,
+    /// `on_intent` wins.
     pub fn on_close(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_close = Some(Rc::new(f));
+        self
+    }
+
+    /// The pointer entered a row; the argument is its index, so the host can
+    /// move the selection to it. The highlight follows the selection only —
+    /// hovering never steals it — so a host that ignores this stays correct,
+    /// and one that tracks it confirms whatever is lit.
+    pub fn on_hover(mut self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
+        self.on_hover = Some(Rc::new(f));
+        self
+    }
+
+    /// Every click as its [`FieldIntent`]: a row click is
+    /// [`FieldIntent::Open`], the completion tail is [`FieldIntent::Complete`],
+    /// the `esc` keycap is [`FieldIntent::Close`]. The host maps its keys to
+    /// intents itself with [`intent_for`]. When set, this wins over
+    /// [`Field::on_choose`], [`Field::on_close`] and
+    /// [`Field::on_query_change`].
+    pub fn on_intent(mut self, f: impl Fn(FieldIntent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_intent = Some(Rc::new(f));
         self
     }
 
     /// The grey inline completion was clicked: the argument is the full
     /// completion text to put in the query. The `⇥` key itself is the host's
     /// (there is no `⇥` action in [`MENU_CONTEXT`]); it reports through this
-    /// same handler via [`completion`].
+    /// same handler via [`completion`]. When [`Field::on_intent`] is set, the
+    /// click reports [`FieldIntent::Complete`] there instead.
     pub fn on_query_change(mut self, f: impl Fn(String, &mut Window, &mut App) + 'static) -> Self {
         self.on_query_change = Some(Rc::new(f));
         self
@@ -505,7 +685,7 @@ impl Field {
 /// The caption a row group draws, if any: agent rows draw none.
 fn group_caption(kind: &FieldRowKind) -> Option<&'static str> {
     match kind {
-        FieldRowKind::Open | FieldRowKind::Ask | FieldRowKind::Search | FieldRowKind::Task => None,
+        FieldRowKind::Open { .. } | FieldRowKind::Clipboard { .. } | FieldRowKind::Ask | FieldRowKind::Search | FieldRowKind::Task => None,
         FieldRowKind::Tab { .. } => Some("TABS"),
         FieldRowKind::History { .. } => Some("HISTORY"),
         FieldRowKind::Command { .. } => Some("COMMANDS"),
@@ -515,7 +695,8 @@ fn group_caption(kind: &FieldRowKind) -> Option<&'static str> {
 /// The leading glyph of a row.
 fn row_icon(kind: &FieldRowKind) -> IconName {
     match kind {
-        FieldRowKind::Open => IconName::Globe,
+        FieldRowKind::Open { .. } => IconName::Globe,
+        FieldRowKind::Clipboard { .. } => IconName::Copy,
         FieldRowKind::Ask => IconName::Sparkle,
         FieldRowKind::Search => IconName::Search,
         FieldRowKind::Task => IconName::Zap,
@@ -525,6 +706,54 @@ fn row_icon(kind: &FieldRowKind) -> IconName {
     }
 }
 
+/// What the list asked its scroll container for: the selection it scrolled
+/// and whether that row has been seen in view since. Ported from the command
+/// palette's scroll logic: the handle only learns the overflow from paint, so
+/// a first-frame `scroll_to_item` lands before it knows it scrolls and is
+/// dropped; the flag re-fires until the row arrives instead of trusting the
+/// first request.
+#[derive(Clone, Copy)]
+struct FieldScroll {
+    selected: usize,
+    settled: bool,
+}
+
+/// The direct-child index of the `selected`th row inside the scrolling body:
+/// agent rows draw no caption, every other group draws one caption div before
+/// its first row, so the child index leads the row index by the captions
+/// before it. `None` when `selected` is past the last row.
+pub fn field_selected_child_index(rows: &[FieldRow], selected: usize) -> Option<usize> {
+    if selected >= rows.len() {
+        return None;
+    }
+    let mut child = 0usize;
+    let mut open_group: Option<&str> = None;
+    for (index, row) in rows.iter().enumerate() {
+        let caption = group_caption(&row.kind);
+        if caption != open_group {
+            open_group = caption;
+            if caption.is_some() {
+                child += 1;
+            }
+        }
+        if index == selected {
+            return Some(child);
+        }
+        child += 1;
+    }
+    None
+}
+
+/// Whether the `target`th direct child is inside the scrolled viewport.
+/// `false` while the container never painted (no bounds, no children yet),
+/// which is exactly when the request needs (re-)firing.
+pub fn field_row_visible(scroll: &ScrollHandle, target: usize) -> bool {
+    if scroll.bounds_for_item(target).is_none() {
+        return false;
+    }
+    target >= scroll.top_item() && target <= scroll.bottom_item()
+}
+
 impl RenderOnce for Field {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
@@ -532,24 +761,20 @@ impl RenderOnce for Field {
         let len = self.rows.len();
         let selected = if len == 0 { 0 } else { self.selected.min(len - 1) };
 
-        // One highlight, not one per row: while the pointer is over a row it
-        // owns the highlight, and the keyboard's `selected` takes it back the
-        // moment the pointer leaves — the command palette's rule.
-        let mut hovered_row = None;
+        // One highlight: the selection. Hovering reports through `on_hover`
+        // so the host can move the selection, but never lights the row
+        // itself — what `↩` confirms is always what is lit.
         let mut states = Vec::with_capacity(len);
         for index in 0..len {
-            let (state, flags) = interaction_flags(indexed_child(&id, "row-", index), window, cx);
-            if flags.hovered {
-                hovered_row = Some(index);
-            }
+            let (state, _) = interaction_flags(indexed_child(&id, "row-", index), window, cx);
             states.push(state);
         }
-        let active = hovered_row.unwrap_or(selected);
 
         let mut card = v_flex()
             .flex_none()
             .relative()
             .w(px(FIELD_W))
+            .max_w(gpui::relative(1.0))
             .rounded(px(scale::R_XL))
             .border_1()
             .border_color(p.line)
@@ -559,8 +784,24 @@ impl RenderOnce for Field {
             .text_color(p.ink)
             .occlude()
             .key_context(MENU_CONTEXT)
-            .child(input_row(&id, &p, &self.query, &self.placeholder, &self.complete_to, self.query_slot, &self.on_close, &self.on_query_change));
+            .child(input_row(
+                &id,
+                &p,
+                &self.query,
+                &self.placeholder,
+                &self.complete_to,
+                self.query_slot,
+                &self.on_close,
+                &self.on_query_change,
+                &self.on_intent,
+            ));
 
+        let scroll: ScrollHandle =
+            window.use_keyed_state((id.clone(), "scroll"), cx, |_, _| ScrollHandle::new()).read(cx).clone();
+        let scrolled: Rc<RefCell<FieldScroll>> = window
+            .use_keyed_state((id.clone(), "scrolled"), cx, |_, _| Rc::new(RefCell::new(FieldScroll { selected: usize::MAX, settled: false })))
+            .read(cx)
+            .clone();
         let mut body = v_flex()
             .id((id.clone(), "body"))
             .flex_none()
@@ -568,7 +809,30 @@ impl RenderOnce for Field {
             .px(px(SEC_PAD_X))
             .pb(px(SEC_PAD_BOTTOM))
             .max_h(px(BODY_MAX_H))
-            .overflow_y_scroll();
+            .overflow_y_scroll()
+            .track_scroll(&scroll);
+
+        // The arrow keys' `selected` scrolls into view and stays there: until
+        // the row has been seen in view, every render re-fires the request.
+        if len > 0 {
+            let mut kept = scrolled.borrow_mut();
+            if kept.selected != selected {
+                kept.selected = selected;
+                kept.settled = false;
+            }
+            if !kept.settled {
+                match field_selected_child_index(&self.rows, selected) {
+                    Some(target) if !field_row_visible(&scroll, target) => {
+                        scroll.scroll_to_item(target);
+                        // The re-fire above may itself be dropped (see
+                        // [`FieldScroll`]); ask for the frame that retries it.
+                        window.request_animation_frame();
+                    }
+                    _ => kept.settled = true,
+                }
+            }
+        }
+
         let mut open_group: Option<&str> = None;
         for (index, row) in self.rows.iter().enumerate() {
             let caption = group_caption(&row.kind);
@@ -593,8 +857,11 @@ impl RenderOnce for Field {
                 states[index].clone(),
                 &p,
                 row,
-                index == active,
+                index,
+                index == selected,
                 &self.on_choose,
+                &self.on_hover,
+                &self.on_intent,
                 window,
                 cx,
             ));
@@ -616,9 +883,17 @@ fn input_row(
     slot: Option<gpui::AnyElement>,
     on_close: &Option<CloseHandler>,
     on_query_change: &Option<QueryHandler>,
+    on_intent: &Option<IntentHandler>,
 ) -> impl IntoElement {
     let mut esc = div().id((id.clone(), "esc")).flex_none().ml_auto().child(kbd("esc"));
-    if let Some(handler) = on_close.clone() {
+    if let Some(handler) = on_intent.clone() {
+        esc = esc
+            .cursor_pointer()
+            .role(gpui::Role::Button)
+            .aria_label(SharedString::from("Close the field"))
+            .on_click(move |_, w, cx| handler(FieldIntent::Close, w, cx));
+        record_ax_label("Close the field");
+    } else if let Some(handler) = on_close.clone() {
         esc = esc
             .cursor_pointer()
             .role(gpui::Role::Button)
@@ -628,7 +903,7 @@ fn input_row(
     }
     let text: gpui::AnyElement = match slot {
         Some(editor) => div().flex_1().min_w(px(0.0)).child(editor).into_any_element(),
-        None => query_text(id, p, query, placeholder, complete_to, on_query_change).into_any_element(),
+        None => query_text(id, p, query, placeholder, complete_to, on_query_change, on_intent).into_any_element(),
     };
     h_flex()
         .flex_none()
@@ -654,26 +929,30 @@ fn query_text(
     placeholder: &SharedString,
     complete_to: &Option<String>,
     on_query_change: &Option<QueryHandler>,
+    on_intent: &Option<IntentHandler>,
 ) -> impl IntoElement {
     let mut row = h_flex().flex_1().min_w(px(0.0)).overflow_hidden().items_center();
     if query.is_empty() {
         row = row.child(div().flex_none().truncate().text_color(p.ink_4).child(placeholder.clone()));
     } else {
-        row = row.child(div().flex_none().child(query.clone()));
+        // The query yields and truncates: a long address never pushes the
+        // completion tail or the caret off the row.
+        row = row.child(div().flex_1().min_w(px(0.0)).truncate().child(query.clone()));
         if let Some(full) = complete_to {
             // The candidate starts with the query (see [`completion`]), so
             // the tail is the untyped rest; an empty tail draws nothing.
             let tail = full.get(query.len()..).unwrap_or("");
             if !tail.is_empty() {
                 let mut tail_el = div().id((id.clone(), "accept")).flex_none().truncate().text_color(p.ink_4).child(tail.to_string());
-                if let Some(handler) = on_query_change.clone() {
-                    let full = full.clone();
+                if on_intent.is_some() || on_query_change.is_some() {
                     let label = SharedString::from(format!("Accept completion {full}"));
-                    tail_el = tail_el
-                        .cursor_pointer()
-                        .role(gpui::Role::Button)
-                        .aria_label(label.clone())
-                        .on_click(move |_, w, cx| handler(full.clone(), w, cx));
+                    tail_el = tail_el.cursor_pointer().role(gpui::Role::Button).aria_label(label.clone());
+                    if let Some(handler) = on_intent.clone() {
+                        tail_el = tail_el.on_click(move |_, w, cx| handler(FieldIntent::Complete, w, cx));
+                    } else if let Some(handler) = on_query_change.clone() {
+                        let full = full.clone();
+                        tail_el = tail_el.on_click(move |_, w, cx| handler(full.clone(), w, cx));
+                    }
                     record_ax_label(&label);
                 }
                 row = row.child(tail_el);
@@ -693,8 +972,11 @@ fn field_row(
     state: gpui::Entity<crate::util::Interaction>,
     p: &aui_tokens::Palette,
     row: &FieldRow,
+    index: usize,
     on: bool,
     on_choose: &Option<ChooseHandler>,
+    on_hover: &Option<HoverHandler>,
+    on_intent: &Option<IntentHandler>,
     window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement {
@@ -726,23 +1008,39 @@ fn field_row(
         el = el.child(div().flex_none().ml_auto().child(kbd(row.hint.clone())));
     }
 
+    // One `on_hover` per element is all gpui allows, so the row's own hover
+    // tint and the host's hover report share a single handler — the palette's
+    // arrangement. The report fires on enter only, with the row index, so the
+    // host can move the selection to it.
     {
         let hovered_state = state.clone();
-        el = el.on_hover(move |hovered, _, cx| {
+        let handler = on_hover.clone();
+        el = el.on_hover(move |hovered, w, cx| {
             hovered_state.update(cx, |s, cx| {
                 if s.hovered != *hovered {
                     s.hovered = *hovered;
                     cx.notify();
                 }
-            })
+            });
+            if *hovered {
+                if let Some(handler) = &handler {
+                    handler(index, w, cx);
+                }
+            }
         });
     }
 
-    if let Some(handler) = on_choose.clone() {
+    if on_intent.is_some() || on_choose.is_some() {
         let label = row.label();
-        let picked = row.clone();
         record_ax_label(&label);
-        el = el.cursor_pointer().role(gpui::Role::Button).aria_label(label).on_click(move |_, w, cx| handler(picked.clone(), w, cx));
+        el = el.cursor_pointer().role(gpui::Role::Button).aria_label(label);
+        if let Some(handler) = on_intent.clone() {
+            let picked = row.clone();
+            el = el.on_click(move |_, w, cx| handler(FieldIntent::Open(picked.clone()), w, cx));
+        } else if let Some(handler) = on_choose.clone() {
+            let picked = row.clone();
+            el = el.on_click(move |_, w, cx| handler(picked.clone(), w, cx));
+        }
     }
     el
 }
@@ -760,14 +1058,98 @@ fn footer(p: &aui_tokens::Palette) -> impl IntoElement {
         .ui(FT_TEXT)
         .text_color(p.ink_3)
         .child(footer_hint("↑↓", "navigate"))
-        .child(footer_hint("↩", "open"))
-        .child(footer_hint("⌘↩", "task"))
+        .child(open_hint())
         .child(footer_hint("⇥", "complete"))
         .child(div().flex_1())
         .child(footer_hint("esc", "close"))
 }
 
+/// The open hint: plain `↩` confirms here, `⌘↩` as background work, `⌥↩`
+/// as an exact search.
+fn open_hint() -> impl IntoElement {
+    h_flex()
+        .flex_none()
+        .gap(px(FT_KEY_GAP))
+        .child(kbd("↩"))
+        .child("open ·")
+        .child(kbd("⌘↩"))
+        .child("background ·")
+        .child(kbd("⌥↩"))
+        .child("search")
+}
+
 /// One `<span class="kbd">…</span> word` footer hint.
 fn footer_hint(key: &'static str, word: &'static str) -> impl IntoElement {
     h_flex().flex_none().gap(px(FT_KEY_GAP)).child(kbd(key)).child(word)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn agent_row(kind: FieldRowKind) -> FieldRow {
+        FieldRow { kind, title: SharedString::from("agent"), detail: None, hint: SharedString::from("↩") }
+    }
+
+    fn tab_row_at(id: usize) -> FieldRow {
+        FieldRow {
+            kind: FieldRowKind::Tab { id: SharedString::from(format!("tab-{id}")) },
+            title: SharedString::from(format!("tab {id}")),
+            detail: None,
+            hint: SharedString::from("↩"),
+        }
+    }
+
+    /// Three agent rows, then two tabs under their caption: children are the
+    /// three rows, the caption, then the two tab rows.
+    #[test]
+    fn selected_child_index_counts_captions_but_not_agent_rows() {
+        let rows = vec![
+            agent_row(FieldRowKind::Ask),
+            agent_row(FieldRowKind::Search),
+            agent_row(FieldRowKind::Task),
+            tab_row_at(0),
+            tab_row_at(1),
+        ];
+        assert_eq!(field_selected_child_index(&rows, 0), Some(0));
+        assert_eq!(field_selected_child_index(&rows, 2), Some(2));
+        assert_eq!(field_selected_child_index(&rows, 3), Some(4));
+        assert_eq!(field_selected_child_index(&rows, 4), Some(5));
+        assert_eq!(field_selected_child_index(&rows, 5), None);
+    }
+
+    /// A full three-group result: agent rows draw no caption, each of tabs,
+    /// history and commands draws one.
+    #[test]
+    fn selected_child_index_counts_one_caption_per_group() {
+        let rows = vec![
+            agent_row(FieldRowKind::Ask),
+            agent_row(FieldRowKind::Search),
+            agent_row(FieldRowKind::Task),
+            tab_row_at(0),
+            FieldRow {
+                kind: FieldRowKind::History { url: SharedString::from("example.com/a") },
+                title: SharedString::from("a"),
+                detail: None,
+                hint: SharedString::from("read today"),
+            },
+            FieldRow {
+                kind: FieldRowKind::Command { id: SharedString::from("split") },
+                title: SharedString::from("Split View"),
+                detail: None,
+                hint: SharedString::from("↩"),
+            },
+        ];
+        // Children: 3 agent rows, TABS caption, tab, HISTORY caption, history,
+        // COMMANDS caption, command.
+        assert_eq!(field_selected_child_index(&rows, 3), Some(4));
+        assert_eq!(field_selected_child_index(&rows, 4), Some(6));
+        assert_eq!(field_selected_child_index(&rows, 5), Some(8));
+    }
+
+    #[test]
+    fn selected_child_index_without_rows_is_none() {
+        let rows: Vec<FieldRow> = Vec::new();
+        assert_eq!(field_selected_child_index(&rows, 0), None);
+    }
 }

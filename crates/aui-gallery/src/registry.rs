@@ -496,7 +496,7 @@ pub static ENTRIES: &[Entry] = &[
         title: "The Field",
         subtitle: "One input for addresses, tabs, history, commands, Ask and Task",
         width: 760.0,
-        height: 520.0,
+        height: 640.0,
         theme: CardTheme::Both,
         build: crate::cards::browse_field::build,
     },
