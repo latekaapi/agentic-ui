@@ -32,7 +32,7 @@ fn check(label: &str) -> Check {
 
 /// One sample [`Block::Goal`] as a card.
 fn goal(id: &'static str, block: &Block) -> impl IntoElement {
-    let Block::Goal { objective, status, percent_complete, current_work, next_work } = block else {
+    let Block::Goal { objective, status, percent_complete, current_work, next_work, .. } = block else {
         unreachable!("sample::muse_goals yields goal blocks only")
     };
     let mut card = goal_card(id, objective.clone(), status.clone()).percent(*percent_complete);
