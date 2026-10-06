@@ -201,7 +201,7 @@ fn split_internal(url: &str) -> Option<Address> {
         // `blob:`, `view-source:`, `tel:`) is a scheme, not a host, and is
         // never secure. `host:port` is told apart by its all-digit rest.
         _ if is_scheme_like(&scheme) && !rest.starts_with("//") && !rest.bytes().all(|b| b.is_ascii_digit()) => {
-            Some(Address::new(&format!("{scheme}:"), "/", false, None, false, Some(scheme.clone())))
+            Some(Address::new(format!("{scheme}:"), "/", false, None, false, Some(scheme.clone())))
         }
         _ => None,
     }
