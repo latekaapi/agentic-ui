@@ -7,6 +7,7 @@ pub mod app_shell;
 pub mod app_shell_native;
 pub mod approval;
 pub mod attachments;
+pub mod browse_field;
 pub mod browser;
 pub mod citations;
 pub mod assistant;

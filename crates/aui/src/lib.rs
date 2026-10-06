@@ -34,6 +34,7 @@
 
 pub mod a11y_text;
 pub mod assets;
+pub mod browse;
 pub mod composer;
 pub mod data;
 pub mod feedback;

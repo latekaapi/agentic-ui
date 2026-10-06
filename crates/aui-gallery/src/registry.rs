@@ -491,6 +491,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::attachments::build,
     },
     Entry {
+        id: "browse/field",
+        group: "Browse",
+        title: "The Field",
+        subtitle: "One input for addresses, tabs, history, commands, Ask and Task",
+        width: 760.0,
+        height: 520.0,
+        theme: CardTheme::Both,
+        build: crate::cards::browse_field::build,
+    },
+    Entry {
         id: "workbench/terminal",
         group: "Workbench",
         title: "Terminal",
