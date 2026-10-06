@@ -339,6 +339,21 @@ fn settled_orchestration_cards_request_no_frames(cx: &mut TestAppContext) {
     assert_eq!(frames, 0, "an incoming peer message kept requesting frames");
 }
 
+/// A run paused while reconciling settles: the reconciling row draws a
+/// static idle dot instead of the spinner, so nothing keeps the frame loop
+/// open once the pause has settled.
+#[gpui::test]
+fn a_paused_reconciling_progress_block_requests_no_frames(cx: &mut TestAppContext) {
+    let aui::protocol::Block::RunProgress(mut progress) = aui::protocol::sample::run_progress_reconciling() else {
+        unreachable!("sample::run_progress_reconciling is progress")
+    };
+    progress.paused = true;
+    let frames = frames_at_rest(cx, "orchestration/progress (paused reconciling)", move |_, _| {
+        aui::orchestration::progress_block("idle-progress-reconciling", &progress).into_any_element()
+    });
+    assert_eq!(frames, 0, "a paused reconciling progress block kept requesting frames");
+}
+
 /// A working activity group with one running step.
 fn activity(state: ActivityState, step: StepState) -> impl IntoElement {
     activity_group(

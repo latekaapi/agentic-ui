@@ -235,6 +235,19 @@ fn block_element(block: &Block, n: usize) -> AnyElement {
     }
 }
 
+/// A replied peer message with a reply long enough to draw the fold
+/// control, so the fold's accessible names exist in the label set.
+fn long_peer_reply() -> Block {
+    let Block::PeerMessage(mut message) = sample::peer_outgoing_replied() else {
+        unreachable!("sample::peer_outgoing_replied is a peer message")
+    };
+    message.reply = Some(aui::protocol::PeerReply {
+        text: "No clash on my side either: I only append a Browse group at the end of registry.rs, add the browse cards to cards/mod.rs, and keep the new tests beside the existing ones. Keep yours at the end too and we will stay out of each other's way.".into(),
+        at: "14:26".into(),
+    });
+    Block::PeerMessage(message)
+}
+
 /// The handoff card in its cancellable state (Cancel) and, once the fresh
 /// session exists, with `Open the new session` — both buttons carry labels.
 fn handoff_entries() -> AnyElement {
@@ -279,6 +292,10 @@ fn entries(window: &mut Window, cx: &mut gpui::App) -> AnyElement {
     blocks.push(sample::peer_outgoing_waiting());
     blocks.push(sample::peer_outgoing_replied());
     blocks.push(sample::peer_outgoing_replied());
+    // Long replies draw the fold control; the pair covers its expanded and
+    // collapsed accessible names.
+    blocks.push(long_peer_reply());
+    blocks.push(long_peer_reply());
     blocks.push(sample::peer_outgoing_queued());
     blocks.push(sample::peer_outgoing_unreachable());
     blocks.push(sample::peer_incoming());
@@ -392,8 +409,8 @@ fn every_transcript_control_has_an_accessibility_label(cx: &mut TestAppContext) 
         "Leave it out",
         "Open run view",
         "Implement · auth call, needs you, open worker session",
-        "Show more",
-        "Show less",
+        "Show the whole reply from \"Browser audit\"",
+        "Collapse the reply from \"Browser audit\"",
         "Open the \"Browser audit\" session",
     ] {
         assert!(labels.iter().any(|l| l == want), "missing label {want:?}; got {labels:?}");

@@ -180,10 +180,9 @@ impl RenderOnce for ProgressBlock {
             dots = dots.child(div().w(px(DOT_W)).h(px(DOT_H)).rounded_full().bg(colour));
         }
 
+        // The header is a button only while a handler is set; otherwise it
+        // is plain text with no role and no hover tint.
         let header_id: ElementId = (id.clone(), "header").into();
-        let (header_state, header_flags) = interaction_flags(header_id.clone(), window, cx);
-        let header_bg = tint_fade((header_id.clone(), "bg"), header_flags.hovered, p.surface_3, Tween::FAST, window, cx);
-        record_ax_label("Open run view");
         let mut header = h_flex()
             .id(header_id.clone())
             .w_full()
@@ -191,11 +190,6 @@ impl RenderOnce for ProgressBlock {
             .gap(px(ROW_GAP))
             .py(px(HEADER_PAD_Y))
             .px(px(PAD_X))
-            .bg(header_bg)
-            .cursor_pointer()
-            .track_interaction(&header_state)
-            .role(gpui::Role::Button)
-            .aria_label("Open run view")
             .child(dots)
             .child(
                 div()
@@ -206,6 +200,17 @@ impl RenderOnce for ProgressBlock {
                     .child(SharedString::from(header_text)),
             )
             .child(div().flex_none().ui(scale::FS_12).text_color(p.ink_3).child("›"));
+        if self.on_intent.is_some() {
+            let (header_state, header_flags) = interaction_flags(header_id.clone(), window, cx);
+            let header_bg = tint_fade((header_id.clone(), "bg"), header_flags.hovered, p.surface_3, Tween::FAST, window, cx);
+            record_ax_label("Open run view");
+            header = header
+                .bg(header_bg)
+                .cursor_pointer()
+                .track_interaction(&header_state)
+                .role(gpui::Role::Button)
+                .aria_label("Open run view");
+        }
         if let Some(on_intent) = self.on_intent.clone() {
             header = header.on_click(move |_, window, cx| on_intent(ProgressIntent::OpenRunView, window, cx));
         }
@@ -217,15 +222,18 @@ impl RenderOnce for ProgressBlock {
         let mut rows = v_flex().w_full().gap(px(LIST_GAP));
         for line in &lines {
             let label = row_label(line);
-            record_ax_label(&label);
             let row_id: ElementId =
                 (id.clone(), SharedString::from(format!("task-{}", line.task_id))).into();
-            let (row_state, row_flags) = interaction_flags(row_id.clone(), window, cx);
-            let row_bg = tint_fade((row_id.clone(), "bg"), row_flags.hovered, p.surface_3, Tween::FAST, window, cx);
-            let (agent, pulse) = dot_state(line, frozen);
+            // A frozen reconciling row settles to a static idle dot instead
+            // of the spinner, so a paused run requests no frames.
+            let reconciling = line.state == TaskState::Reconciling;
+            let (agent, pulse) =
+                if reconciling && frozen { (AgentState::Idle, false) } else { dot_state(line, frozen) };
             let needs_you = line.state == TaskState::NeedsYou;
             let title_ink = if needs_you { p.warning } else { p.ink_2 };
 
+            // A row is a button only while a handler is set; otherwise it
+            // is plain text with no role and no hover tint.
             let mut row = h_flex()
                 .id(row_id.clone())
                 .w_full()
@@ -233,14 +241,20 @@ impl RenderOnce for ProgressBlock {
                 .items_center()
                 .gap(px(ROW_GAP))
                 .px(px(PAD_X))
-                .bg(row_bg)
                 .overflow_hidden()
-                .ui(scale::FS_12)
-                .cursor_pointer()
-                .track_interaction(&row_state)
-                .role(gpui::Role::Button)
-                .aria_label(label);
-            if line.state == TaskState::Reconciling {
+                .ui(scale::FS_12);
+            if self.on_intent.is_some() {
+                let (row_state, row_flags) = interaction_flags(row_id.clone(), window, cx);
+                let row_bg = tint_fade((row_id.clone(), "bg"), row_flags.hovered, p.surface_3, Tween::FAST, window, cx);
+                record_ax_label(&label);
+                row = row
+                    .bg(row_bg)
+                    .cursor_pointer()
+                    .track_interaction(&row_state)
+                    .role(gpui::Role::Button)
+                    .aria_label(label);
+            }
+            if reconciling && !frozen {
                 row = row.child(spinner((row_id.clone(), "spin")));
             } else {
                 row = row.child(status_dot((row_id.clone(), "dot"), agent).pulse(pulse));

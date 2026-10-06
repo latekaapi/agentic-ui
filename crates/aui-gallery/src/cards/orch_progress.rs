@@ -7,7 +7,7 @@ use aui_tokens::{ActiveAui, AuiStyled, TextRole};
 use gpui::*;
 use gpui_kit::base::v_flex;
 
-/// The gap between a caption and its card, and between the five states.
+/// The gap between a caption and its card, and between the six states.
 const SECTION_GAP: f32 = 14.0;
 const CAPTION_GAP: f32 = 6.0;
 
@@ -30,6 +30,10 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
     let paused = sample::run_progress_paused();
     let quota = sample::run_progress_quota_wait();
     let reconciling = sample::run_progress_reconciling();
+    let mut paused_reconciling = sample::run_progress_reconciling();
+    if let Block::RunProgress(progress) = &mut paused_reconciling {
+        progress.paused = true;
+    }
     v_flex()
         .w_full()
         .gap(px(SECTION_GAP))
@@ -38,5 +42,6 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         .child(state("orch-progress-paused", "PAUSED · NOTHING PULSES", &paused, &p))
         .child(state("orch-progress-quota", "WAITING FOR QUOTA · WARNING HEADER", &quota, &p))
         .child(state("orch-progress-reconciling", "RECONCILING · SPINNER ON THE ROW", &reconciling, &p))
+        .child(state("orch-progress-paused-reconciling", "PAUSED WHILE RECONCILING · STATIC DOT, NO SPINNER", &paused_reconciling, &p))
         .into_any_element()
 }

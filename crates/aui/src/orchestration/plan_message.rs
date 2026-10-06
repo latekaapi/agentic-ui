@@ -64,7 +64,7 @@ impl RenderOnce for PlanMessageCard {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
 
-        let mut stages = h_flex().w_full().items_center().gap(px(CHIP_GAP));
+        let mut stages = h_flex().w_full().items_center().flex_wrap().gap(px(CHIP_GAP));
         for (i, stage) in self.plan.stages.iter().enumerate() {
             if i > 0 {
                 stages = stages.child(icon(IconName::ArrowRight).size(px(ARROW)).color(p.ink_4));
@@ -88,46 +88,50 @@ impl RenderOnce for PlanMessageCard {
             stages = stages.child(chip);
         }
 
-        let mut criteria = v_flex().w_full().gap(px(2.0)).child(
-            div().text_role(TextRole::Caps).text_color(p.ink_3).child("Criteria"),
-        );
-        for criterion in &self.plan.criteria {
-            criteria = criteria.child(
-                h_flex()
-                    .w_full()
-                    .gap(px(CHIP_GAP))
-                    .ui(scale::FS_12)
-                    .child(div().flex_none().text_color(p.ink_4).child("·"))
-                    .child(div().min_w(px(0.0)).truncate().text_color(p.ink_2).child(criterion.text.clone()))
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_color(p.ink_3)
-                            .child(format!("· {}", method_word(criterion.method))),
-                    ),
+        let mut card = v_flex()
+            .id(self.id.clone())
+            .w_full()
+            .px(px(PAD_X))
+            .gap(px(SECTION_GAP))
+            .child(div().w_full().text_role(TextRole::Body).text_color(p.ink).child(self.plan.intro.clone()))
+            .child(stages);
+
+        if !self.plan.criteria.is_empty() {
+            let mut criteria = v_flex().w_full().gap(px(scale::SP_1)).child(
+                div().text_role(TextRole::Caps).text_color(p.ink_3).child("Criteria"),
             );
+            for criterion in &self.plan.criteria {
+                criteria = criteria.child(
+                    h_flex()
+                        .w_full()
+                        .gap(px(CHIP_GAP))
+                        .ui(scale::FS_12)
+                        .child(div().flex_none().text_color(p.ink_4).child("·"))
+                        .child(div().min_w(px(0.0)).truncate().text_color(p.ink_2).child(criterion.text.clone()))
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_color(p.ink_3)
+                                .child(format!("· {}", method_word(criterion.method))),
+                        ),
+                );
+            }
+            card = card.child(criteria);
         }
 
-        let assumptions =
-            div().w_full().ui(scale::FS_12).text_color(p.ink_3).child(format!(
-                "Assumptions: {}",
-                self.plan.assumptions.join("; ")
-            ));
+        if !self.plan.assumptions.is_empty() {
+            card = card.child(
+                div().w_full().ui(scale::FS_12).text_color(p.ink_3).child(format!(
+                    "Assumptions: {}",
+                    self.plan.assumptions.join("; ")
+                )),
+            );
+        }
 
         let footer: String = match &self.plan.started_at {
             None => "Reply \"go\" to start, or tell me what to change.".into(),
             Some(at) => format!("Started {at}"),
         };
-
-        v_flex()
-            .id(self.id)
-            .w_full()
-            .px(px(PAD_X))
-            .gap(px(SECTION_GAP))
-            .child(div().w_full().text_role(TextRole::Body).text_color(p.ink).child(self.plan.intro.clone()))
-            .child(stages)
-            .child(criteria)
-            .child(assumptions)
-            .child(div().w_full().text_role(TextRole::Meta).text_color(p.ink_3).child(footer))
+        card.child(div().w_full().text_role(TextRole::Meta).text_color(p.ink_3).child(footer))
     }
 }
