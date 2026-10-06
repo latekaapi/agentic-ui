@@ -11,6 +11,8 @@
 //! for the active row); colours come from [`aui_tokens`] only.
 
 mod address;
+/// The agent surface over a web page: the line, the card, the column.
+pub mod agent_window;
 mod face;
 /// The browser's Field: one input for addresses, tabs, history, commands, Ask and Task.
 pub mod field;
