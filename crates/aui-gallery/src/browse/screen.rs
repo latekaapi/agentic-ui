@@ -56,8 +56,12 @@ actions!(
     ]
 );
 
-/// How long the steps harness waits for the first frame.
-const STEPS_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+/// How long the steps harness waits for the first frame: long enough for
+/// the window to mount, short enough that the 120 ms row fades the steps
+/// trip have settled before the screenshot delay (350 ms) captures. At
+/// 250 ms the steps landed ~50 ms before the capture, so the previous
+/// highlight's fade was still mid-flight and two rows read as active.
+const STEPS_DELAY: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// Which space the sidebar shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,6 +331,9 @@ pub struct BrowseView {
     card_input: Entity<TextareaState>,
     field_editor: Entity<TextareaState>,
     steps: Vec<String>,
+    /// Whether the screen is driven by `AUI_GALLERY_STEPS`: captures must
+    /// show the settled layout, so the shell skips its width springs.
+    scripted: bool,
     started: bool,
     /// The timer generation: spawns and stops bump it, and a loop exits
     /// once its generation is stale, so exactly one loop ever acts.
@@ -379,12 +386,15 @@ impl BrowseView {
             KeyBinding::new("space", AdvanceStep, Some(BROWSE_CONTEXT)),
             KeyBinding::new("escape", CloseTop, Some(BROWSE_CONTEXT)),
         ]);
-        let steps = std::env::var("AUI_GALLERY_STEPS")
+        let steps: Vec<String> = std::env::var("AUI_GALLERY_STEPS")
             .unwrap_or_default()
             .split(';')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
+        // Scripted runs capture the settled layout: the shell below skips
+        // its width springs. Live runs keep the spring.
+        let scripted = !steps.is_empty();
         let mut this = Self {
             story: BrowseStory::new(),
             space: Space::Education,
@@ -422,6 +432,7 @@ impl BrowseView {
             card_input,
             field_editor,
             steps,
+            scripted,
             started: false,
             timer_gen: 0,
             timer_live: false,
@@ -1262,10 +1273,15 @@ impl BrowseView {
                 let title = tab.title.clone();
                 let letter = SharedString::from(task_letter(&page));
                 let active = highlight == Highlight::Task(i);
-                let data = TabRowData::new(title, letter).depth(1).position(position);
+                let data = TabRowData::new(title.clone(), letter).depth(1).position(position);
                 let data = if active { data.active() } else { data };
+                // The row id follows the tab, not its index: index ids let
+                // one tab inherit another's keyed hover state and tint fade
+                // when tabs land or close (after `done` the Answer row would
+                // wear tab 0's id), so two rows could read as highlighted.
+                let row_id = SharedString::from(format!("browse-task-tab-{}", slugify(&title)));
                 col = col.child(
-                    tab_row(SharedString::from(format!("browse-task-tab-{i}")), data).on_select(cx.listener(
+                    tab_row(row_id, data).on_select(cx.listener(
                         move |this, _: &SharedString, _, cx| {
                             this.set_shown(Shown::Task(i));
                             cx.notify();
@@ -2117,6 +2133,7 @@ impl Render for BrowseView {
             );
         let shell = app_shell("browse-shell")
             .sidebar_width(px(BROWSE_SIDEBAR_WIDTH))
+            .resizing(self.scripted)
             .sidebar_open(self.sidebar_open)
             .hide_rail(true)
             .traffic_lights(true)
@@ -2830,6 +2847,81 @@ mod tests {
                 assert_eq!(v.shown, shown, "background never moves shown");
             });
         });
+    }
+
+    /// P4e: scripted runs settle the shell widths. The `hide-sidebar`
+    /// step closes the sidebar on a scripted shell, so the rendered page
+    /// element's bounds start at x = 0 on the very next frame: the shell
+    /// skips its width spring when scripted, and the capture never shows
+    /// a mid-collapse sidebar. Probed through the painted quads — the
+    /// page paints a full-bleed white ground, so the widest white quad is
+    /// the page itself. Drives the same state the step produces directly:
+    /// `AUI_GALLERY_STEPS` is process-global, so reading it here would
+    /// race the other scripted tests running in parallel.
+    #[gpui::test]
+    fn scripted_hide_sidebar_settles_page_at_zero(cx: &mut TestAppContext) {
+        let (view, cx) = bare_view(cx);
+        cx.update(|window, app| {
+            view.update(app, |v, cx| {
+                v.scripted = true;
+                v.sidebar_open = false;
+                cx.notify();
+            });
+            window.simulate_next_frame(app);
+        });
+        let (quads, scale) = cx.update(|window, _| (window.painted_quads(), window.scale_factor()));
+        let white: gpui::Background = gpui::white().into();
+        let whites: Vec<(f32, f32)> =
+            quads.iter().filter(|q| q.background == white).map(|q| (q.bounds.origin.x.0, q.bounds.size.width.0)).collect();
+        let page = whites.iter().max_by_key(|(_, w)| w.to_bits()).expect("the page paints its white ground");
+        // Device px back to logical: the collapsed shell keeps its 1 px
+        // right divider, so the settled page starts 1 px in, not at 0 —
+        // the sidebar column itself is gone (a mid-spring sidebar would
+        // sit ~240 px out).
+        let x_logical = page.0 / scale;
+        assert!(x_logical <= 1.5, "the collapsed page starts at the shell divider (≤1 px), got {x_logical}, whites: {whites:?}");
+    }
+
+    /// P4e: after `ask;send;run:3` exactly one task tab row carries the
+    /// highlight. The shown dropout tab is `, selected` and no other row
+    /// is. Close-button opacity is not probe-able — the × stays in the
+    /// tree with its role and name and only its opacity changes — so
+    /// visibility follows from the row data: exactly one `active` row
+    /// means exactly one × at opacity 1. Drives the steps' handlers directly (same
+    /// reason as above: the env var would race parallel tests); the AX
+    /// probe drains before the final frame, so only that frame's labels
+    /// count — the probe accumulates every render, including the
+    /// intermediate `send` frame that first highlights tab 0.
+    #[gpui::test]
+    fn scripted_run_three_leaves_one_highlighted_task_row(cx: &mut TestAppContext) {
+        let (view, cx) = bare_view(cx);
+        arm_ax_probe(true);
+        take_ax_labels();
+        cx.update(|window, app| {
+            view.update(app, |v, cx| {
+                v.do_send(window, cx);
+                v.story.advance_to(3);
+                v.story_advanced();
+                v.stop_timer();
+                cx.notify();
+            });
+        });
+        take_ax_labels();
+        cx.update(|window, app| {
+            window.simulate_next_frame(app);
+        });
+        let labels = take_ax_labels();
+        arm_ax_probe(false);
+        let selected: Vec<_> = labels.iter().filter(|l| l.contains(", selected")).collect();
+        assert_eq!(selected.len(), 1, "exactly one row is highlighted, got {labels:?}");
+        assert!(selected[0].contains("dropout"), "the shown dropout tab keeps the highlight, got {selected:?}");
+        // The row data behind the label: the highlight sits on task tab 2
+        // and nothing else. (The keyed hover flags are not probe-able from
+        // a test — `use_keyed_state` only runs during render — and close
+        // opacity is not probe-able either, so with exactly one `active`
+        // row exactly one × shows.)
+        let highlight = cx.update(|_, app| view.update(app, |v, _| v.highlighted()));
+        assert_eq!(highlight, Highlight::Task(2), "the dropout row keeps the highlight");
     }
 }
 
