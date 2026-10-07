@@ -2,7 +2,7 @@
 //! dimmed grey stand-in page, frozen on a "nas" question: Ask selected, then
 //! Search and Task, the matching NAS tab, and the matching sampling note
 //! under their captions. A static composition — the rows come from
-//! [`rank`](aui::browse::field::rank) over real [`FieldSources`](aui::browse::field::FieldSources),
+//! `rank` over real `FieldSources`,
 //! so the card shows exactly what the Field shows for this query.
 
 use aui::browse::field::{field, rank, FieldCommand, FieldHistory, FieldModel, FieldSources, FieldTab};

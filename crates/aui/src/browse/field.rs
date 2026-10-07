@@ -352,7 +352,7 @@ fn same_url(left: &str, right: &str) -> bool {
 /// with the query. The element draws the untyped tail grey after the caret;
 /// `⇥` (or a click on it) accepts it. `None` for an empty query, for a query
 /// with surrounding whitespace (the tail would slice at the wrong length),
-/// or when nothing completes it. Matching case-folds with [`to_lowercase`],
+/// or when nothing completes it. Matching case-folds with `str::to_lowercase`,
 /// like [`rank`].
 pub fn completion(query: &str, rows: &[FieldRow]) -> Option<String> {
     if query != query.trim() {
