@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use aui::composer::{composer, composer_state_rows};
-use aui::nav::compact_session_row;
+use aui::nav::{compact_session_row, RowDensity};
 use aui::orchestration::{
     goal_line, native_workflow, peer_message, plan_message, progress_block, run_note,
     run_question, run_summary, run_view, subagent_controls, worker_header, GoalLineFields,
@@ -14,12 +14,15 @@ use aui::protocol::{Block, RunQuestion};
 use aui::shell::{app_shell, centre_header, right_header, sidebar_header, tab_strip, TabItem, TabStrip};
 use aui::transcript::{prose, tool_card, user_turn, ProseStyle};
 use aui_icons::{IconName, Provider};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::base::input::TextareaState;
 
-use super::model::{scenarios, browser_url_string, CentreItem, RightPane, Scenario, Step};
+use super::model::{
+    scenarios, browser_url_string, run_view_matching, AgentRow, CentreItem, RightPane, Scenario,
+    Step,
+};
 
 /// Centre transcript body text, matching the assistant mock.
 pub const BODY_TEXT: f32 = 13.5;
@@ -30,7 +33,7 @@ pub const STEPS_DELAY: Duration = Duration::from_millis(250);
 /// Chrome strip padding and the transcript's padding, mirroring the mock.
 const CHROME_PAD_X: f32 = 12.0;
 const CHROME_PAD_Y: f32 = 8.0;
-const TRANSCRIPT_PAD_TOP: f32 = 18.0;
+const TRANSCRIPT_PAD_TOP: f32 = 8.0;
 const TRANSCRIPT_PAD_X: f32 = 32.0;
 const BLOCK_GAP: f32 = 16.0;
 
@@ -259,7 +262,13 @@ impl OrchestrationMock {
     fn render_item(&self, step_no: usize, item_no: usize, item: &CentreItem, cx: &mut Context<Self>) -> AnyElement {
         let id = SharedString::from(format!("orch-s{step_no}-i{item_no}"));
         match item {
-            CentreItem::User(text) => div().w_full().flex().justify_end().child(user_turn(id, text.clone())).into_any_element(),
+            CentreItem::User(text) => div()
+                .w_full()
+                .flex()
+                .justify_end()
+                .child(user_turn(id, text.clone()).max_width_fraction(0.7))
+                .into_any_element(),
+            CentreItem::Agent(row) => self.render_agent_row(id, row, cx),
             CentreItem::Lead(text) => prose(id, text.as_str(), Self::prose_style(cx)).into_any_element(),
             CentreItem::Muted(text) => div()
                 .w_full()
@@ -318,7 +327,11 @@ impl OrchestrationMock {
                 let intent = cx.listener(|this, intent: &ProgressIntent, _, cx| match intent {
                     ProgressIntent::OpenWorker(task_id) => this.open_worker(task_id.clone(), cx),
                     ProgressIntent::OpenRunView => {
-                        this.right_override = Some(RightPane::Run(sample_run_view()));
+                        // The progress header opens the Run tab with this
+                        // step's own tasks.
+                        let view = run_view_matching(&this.current().items);
+                        this.right_override = Some(RightPane::Run(view));
+                        this.right_tab = Some(RightTab::Run);
                         cx.notify();
                     }
                 });
@@ -395,10 +408,62 @@ impl OrchestrationMock {
         }
     }
 
+    /// The composed delegation row: a status dot, `Agent · <tool>`, muted state.
+    fn render_agent_row(&self, id: SharedString, row: &AgentRow, cx: &mut Context<Self>) -> AnyElement {
+        let p = cx.aui().colors;
+        h_flex()
+            .id(id)
+            .w_full()
+            .items_center()
+            .gap(px(8.0))
+            .px(px(2.0))
+            .py(px(6.0))
+            .child(div().size(px(8.0)).rounded(px(4.0)).bg(if row.running { p.accent } else { p.ink_3 }))
+            .child(
+                div()
+                    .ui(scale::FS_13)
+                    .text_color(p.ink)
+                    .child(format!("Agent · {}", row.tool)),
+            )
+            .child(div().ui(scale::FS_12).text_color(p.ink_3).child(row.state.to_string()))
+            .into_any_element()
+    }
+
+    /// Unrelated idle rows below the scenario's rows, for realism.
+    fn idle_rows() -> Vec<aui::nav::SessionSummary> {
+        vec![
+            aui::nav::SessionSummary::new("idle-terminal", "Terminal grid follow-ups", AgentState::Idle, "3h")
+                .density(RowDensity::One),
+            aui::nav::SessionSummary::new("idle-browser", "Browser B2b polish", AgentState::Idle, "1d")
+                .density(RowDensity::One),
+        ]
+    }
+
+    /// Rows stack from the top at their natural height: no `flex_1`, no
+    /// `size_full`, on any row or wrapper.
     fn render_sidebar(&self, step: &Step, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut col = v_flex().size_full().gap(px(2.0)).p(px(8.0));
+        let p = cx.aui().colors;
+        let mut col = v_flex().w_full().gap(px(2.0)).p(px(8.0));
+        col = col.child(
+            div()
+                .w_full()
+                .px(px(4.0))
+                .pb(px(4.0))
+                .ui(scale::FS_12)
+                .text_color(p.ink_3)
+                .child("HARNESS".to_string()),
+        );
         for row in &step.sidebar {
             col = col.child(self.render_row(row, step, 0, cx));
+        }
+        for (index, idle) in Self::idle_rows().iter().enumerate() {
+            let row_id = SharedString::from(format!("orch-idle-{index}"));
+            col = col.child(
+                compact_session_row(row_id, idle.clone())
+                    .density(idle.density.unwrap_or(RowDensity::One))
+                    .selected(false)
+                    .into_any_element(),
+            );
         }
         col
     }
@@ -418,7 +483,10 @@ impl OrchestrationMock {
             }
             cx.notify();
         });
-        let el = compact_session_row(row_id, row.clone()).selected(selected).on_select(move |id, w, cx| select(id, w, cx));
+        let el = compact_session_row(row_id, row.clone())
+            .density(row.density.unwrap_or(RowDensity::One))
+            .selected(selected)
+            .on_select(move |id, w, cx| select(id, w, cx));
         let _ = depth;
         el.into_any_element()
     }
@@ -431,6 +499,25 @@ impl OrchestrationMock {
                 div().w_full().h(px(32.0)).rounded(px(6.0)).border_1().border_color(p.line).bg(p.surface_2),
             )
         };
+        let email_field = v_flex()
+            .w_full()
+            .gap(px(4.0))
+            .child(div().ui(scale::FS_12).text_color(p.ink_2).child("Email".to_string()))
+            .child(
+                div()
+                    .w_full()
+                    .h(px(32.0))
+                    .rounded(px(6.0))
+                    .border_1()
+                    .border_color(p.danger)
+                    .bg(p.surface_2),
+            )
+            .child(
+                div()
+                    .ui(scale::FS_12)
+                    .text_color(p.danger)
+                    .child("Enter a valid email".to_string()),
+            );
         v_flex()
             .size_full()
             .bg(p.surface_1)
@@ -464,7 +551,7 @@ impl OrchestrationMock {
                             .border_color(p.line)
                             .bg(p.surface_2)
                             .child(div().ui(scale::FS_13).semibold().text_color(p.ink).child("Log in"))
-                            .child(field("Email"))
+                            .child(email_field)
                             .child(field("Password"))
                             .child(
                                 div()
@@ -520,13 +607,14 @@ impl OrchestrationMock {
     }
 
     /// The right body: `run_view` on the Run tab, the placeholder on Browser.
+    /// The Run tab always matches the step's own progress lines.
     fn render_right_body(&self, step: &Step, cx: &mut Context<Self>) -> AnyElement {
         match self.active_tab(step) {
             RightTab::Browser => self.render_browser(cx),
             RightTab::Run => {
                 let view = match self.right_pane(step) {
                     RightPane::Run(view) => view,
-                    _ => sample_run_view(),
+                    _ => run_view_matching(&step.items),
                 };
                 let open = cx.listener(|this, intent: &RunViewIntent, _, cx| match intent {
                     RunViewIntent::OpenWorker(task_id) => this.open_worker(task_id.clone(), cx),
@@ -718,7 +806,7 @@ impl OrchestrationMock {
         let state = if steer { &self.composer_steer } else { &self.composer_msg };
         let provider = step.centre_provider;
         let model_label = match provider {
-            Provider::Claude => "Opus 4.6",
+            Provider::Claude => "Opus 5.5",
             Provider::Codex => "codex-5.2",
             Provider::Muse => "muse-spark-1.3",
             _ => "default",

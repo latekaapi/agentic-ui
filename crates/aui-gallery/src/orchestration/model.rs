@@ -6,20 +6,37 @@
 //! current step's copy (answer a question, expand a reply, retry a child)
 //! and usually advance one step.
 
-use aui::nav::SessionSummary;
+use aui::nav::{RowDensity, RowStatusKind, SessionSummary};
 use aui_icons::Provider as IconProvider;
 use aui::protocol::{
     sample, Block, EvidenceKind, EvidenceRow, NativeWorkflow, PeerDirection, PeerMessage,
     PeerReply, PeerState, Provider, Rung, RungState, RunProgress, RunQuestion,
-    RunQuestionOption, RunSummary, RunViewModel, TaskLine, TaskState, WorkerHeader, WorkflowChild,
+    RunQuestionOption, RunSummary, RunViewModel, RunViewNode, SearchHit, TaskLine, TaskState,
+    ToolBody, ToolKind, ToolStatus, Turn, TurnMeta, WorkerHeader, WorkflowChild,
 };
 use aui_tokens::AgentState;
+
+/// A gallery-composed agent row (Codex-style delegation): a status dot, the
+/// `Agent · <tool>` name and a muted provider state. Used where the stub
+/// `SubAgent` tool card would otherwise print "0 turns in the delegated
+/// transcript".
+#[derive(Debug, Clone)]
+pub struct AgentRow {
+    /// The delegated tool, e.g. `list_repo_files`.
+    pub tool: &'static str,
+    /// The provider-side state, e.g. `started` or `interacted`.
+    pub state: &'static str,
+    /// `true` draws the running spinner dot.
+    pub running: bool,
+}
 
 /// The centre transcript as a list of items.
 #[derive(Debug, Clone)]
 pub enum CentreItem {
     /// A user bubble.
     User(String),
+    /// A composed agent delegation row.
+    Agent(AgentRow),
     /// Lead prose.
     Lead(String),
     /// Muted meta line (timestamps, link-backs rendered by the view).
@@ -84,16 +101,54 @@ pub struct Scenario {
 
 // ---- shared builders -----------------------------------------------------
 
+/// The scenario A lead: Claude Code's `Login screen`, one line, no preview.
 fn lead_row() -> SessionSummary {
-    SessionSummary::new("lead", "Login screen run", AgentState::Running, "6m")
-        .provider(aui_icons::Provider::Muse)
-        .preview("Implement · form and validation")
+    SessionSummary::new("lead", "Login screen", AgentState::Running, "6m")
+        .provider(aui_icons::Provider::Claude)
+        .density(RowDensity::One)
+}
+
+/// A nested worker child under the lead, one line.
+fn worker_child(id: &'static str, name: &'static str, state: AgentState, running: bool) -> SessionSummary {
+    let mut row = SessionSummary::new(id, name, state, "4m").density(RowDensity::One);
+    if running {
+        row = row.pulse();
+    }
+    row
 }
 
 fn plan_worker() -> SessionSummary {
-    SessionSummary::new("worker-plan", "Plan", AgentState::Running, "1m")
+    worker_child("worker-plan", "Plan", AgentState::Running, true)
         .provider(aui_icons::Provider::Claude)
-        .preview("reading src/ui/")
+}
+
+/// Builds the `run_view` whose tree matches one progress block's lines, so
+/// the Run tab opened from a progress header shows that step's tasks.
+pub fn run_view_matching(items: &[CentreItem]) -> RunViewModel {
+    let progress = items.iter().rev().find_map(|item| match item {
+        CentreItem::Block(Block::RunProgress(p)) => Some(p),
+        _ => None,
+    });
+    match progress {
+        Some(p) => RunViewModel {
+            run_id: p.run_id.clone(),
+            title: p.title.clone(),
+            tree: p
+                .lines
+                .iter()
+                .map(|line| RunViewNode {
+                    task_id: line.task_id.clone(),
+                    depth: 0,
+                    label: line.title.clone(),
+                    provider: line.provider,
+                    state: line.state,
+                    note: Some(line.activity.clone()),
+                })
+                .collect(),
+            evidence: Vec::new(),
+        },
+        None => sample::run_view_sample(),
+    }
 }
 
 fn browser_url() -> String {
@@ -351,7 +406,17 @@ fn sample_subagent_card() -> Block {
 
 fn scenario_a() -> Scenario {
     let user_prompt = "build the login screen for this, plan with opus, implement with muse and then have codex do a code review then finally do all the fixes with muse and give me the preview here in the browser".to_string();
-    let base_sidebar = || vec![lead_row()];
+    let steer_user = "tell the implementer to use our existing Button component".to_string();
+    let steer_lead = "Sent to the Muse worker on \"form and validation\" (mid-turn).".to_string();
+    // The shared chat prefix at a late step: prompt, plan, go, steer, answer.
+    let chat = || vec![
+        CentreItem::User(user_prompt.clone()),
+        CentreItem::Block(block_plan_started()),
+        CentreItem::User("go".into()),
+        CentreItem::User(steer_user.clone()),
+        CentreItem::Lead(steer_lead.clone()),
+        CentreItem::Block(question_answered_leave_out()),
+    ];
     let mk = |narration: &'static str,
               sidebar: Vec<SessionSummary>,
               items: Vec<CentreItem>,
@@ -361,8 +426,8 @@ fn scenario_a() -> Scenario {
             narration,
             sidebar,
             active_row: "lead",
-            centre_title: "Login screen run",
-            centre_provider: aui_icons::Provider::Muse,
+            centre_title: "Login screen",
+            centre_provider: aui_icons::Provider::Claude,
             items,
             steer: false,
             goal_pin: None,
@@ -371,10 +436,107 @@ fn scenario_a() -> Scenario {
         }
     };
     let running = || sample::run_progress_running();
+    // Nested workers per step; accepted work recedes to done.
+    let implement_children = || {
+        vec![
+            worker_child("worker-plan", "Plan", AgentState::Done, false)
+                .provider(aui_icons::Provider::Claude),
+            worker_child("worker-form", "Implement · form", AgentState::Running, true)
+                .provider(aui_icons::Provider::Muse),
+            worker_child("worker-auth", "Implement · auth", AgentState::Running, true)
+                .provider(aui_icons::Provider::Muse),
+        ]
+    };
+    let implement_done_children = || {
+        vec![
+            worker_child("worker-plan", "Plan", AgentState::Done, false)
+                .provider(aui_icons::Provider::Claude),
+            worker_child("worker-form", "Implement · form", AgentState::Done, false)
+                .provider(aui_icons::Provider::Muse),
+            worker_child("worker-auth", "Implement · auth", AgentState::Done, false)
+                .provider(aui_icons::Provider::Muse),
+        ]
+    };
+    let with_children = |lead: SessionSummary, children: Vec<SessionSummary>| {
+        let mut lead = lead;
+        for child in children {
+            lead = lead.child(child);
+        }
+        vec![lead]
+    };
+    let review_children = || {
+        let mut children = implement_done_children();
+        children.push(
+            worker_child("worker-review", "Review", AgentState::Running, true)
+                .provider(aui_icons::Provider::Codex),
+        );
+        children
+    };
+    let fix_children = || {
+        let mut children = implement_done_children();
+        children.push(
+            worker_child("worker-review", "Review", AgentState::Done, false)
+                .provider(aui_icons::Provider::Codex),
+        );
+        children.push(
+            worker_child("worker-fix", "Fix", AgentState::Running, true)
+                .provider(aui_icons::Provider::Muse),
+        );
+        children
+    };
+    let verify_children = || {
+        let mut children = implement_done_children();
+        children.push(
+            worker_child("worker-review", "Review", AgentState::Done, false)
+                .provider(aui_icons::Provider::Codex),
+        );
+        children.push(
+            worker_child("worker-fix", "Fix", AgentState::Done, false)
+                .provider(aui_icons::Provider::Muse),
+        );
+        children.push(
+            worker_child("worker-eval", "Evaluator", AgentState::Running, true)
+                .provider(aui_icons::Provider::Codex),
+        );
+        children
+    };
+    let done_children = || {
+        let mut children = implement_done_children();
+        children.push(
+            worker_child("worker-review", "Review", AgentState::Done, false)
+                .provider(aui_icons::Provider::Codex),
+        );
+        children.push(
+            worker_child("worker-fix", "Fix", AgentState::Done, false)
+                .provider(aui_icons::Provider::Muse),
+        );
+        children.push(
+            worker_child("worker-eval", "Evaluator", AgentState::Done, false)
+                .provider(aui_icons::Provider::Codex),
+        );
+        children
+    };
+    let asked_sidebar = || {
+        let lead = lead_row().status(RowStatusKind::Asked, "\"Remember me\"?");
+        let mut children = vec![
+            worker_child("worker-plan", "Plan", AgentState::Done, false)
+                .provider(aui_icons::Provider::Claude),
+            worker_child("worker-form", "Implement · form", AgentState::Running, true)
+                .provider(aui_icons::Provider::Muse),
+            worker_child("worker-auth", "Implement · auth", AgentState::Waiting, false)
+                .provider(aui_icons::Provider::Muse)
+                .status(RowStatusKind::Asked, ""),
+        ];
+        let mut out = lead;
+        for child in children.drain(..) {
+            out = out.child(child);
+        }
+        vec![out]
+    };
     let steps = vec![
         mk(
             "The run plan, proposed: five stages with the models you named.",
-            base_sidebar(),
+            vec![lead_row()],
             vec![
                 CentreItem::User(user_prompt.clone()),
                 CentreItem::Block(sample::run_plan_proposed()),
@@ -383,48 +545,48 @@ fn scenario_a() -> Scenario {
         ),
         mk(
             "You said “go”: the plan started at 14:02 and the Plan worker is reading.",
-            vec![lead_row().child(plan_worker())],
+            with_children(lead_row(), vec![plan_worker()]),
             vec![
                 CentreItem::User(user_prompt.clone()),
-                CentreItem::User("go".into()),
                 CentreItem::Block(block_plan_started()),
+                CentreItem::User("go".into()),
                 CentreItem::Block(plan_stage_progress()),
             ],
             RightPane::Closed,
         ),
         mk(
             "Implement: two Muse workers, one verifying, one still editing.",
-            vec![lead_row()
-                .child(plan_worker())
-                .child(SessionSummary::new("worker-form", "Implement · form", AgentState::Running, "6m").pulse())
-                .child(SessionSummary::new("worker-auth", "Implement · auth call", AgentState::Running, "4m").pulse())],
+            with_children(lead_row(), implement_children()),
             vec![
                 CentreItem::User(user_prompt.clone()),
                 CentreItem::Block(block_plan_started()),
+                CentreItem::User("go".into()),
                 CentreItem::Block(running()),
             ],
             RightPane::Closed,
         ),
         mk(
             "A mid-turn steer goes straight to the Muse worker on form and validation.",
-            base_sidebar(),
+            with_children(lead_row(), implement_children()),
             vec![
                 CentreItem::User(user_prompt.clone()),
                 CentreItem::Block(block_plan_started()),
+                CentreItem::User("go".into()),
+                CentreItem::User(steer_user.clone()),
+                CentreItem::Lead(steer_lead.clone()),
                 CentreItem::Block(running()),
-                CentreItem::User("tell the implementer to use our existing Button component".into()),
-                CentreItem::Lead("Sent to the Muse worker on \"form and validation\" (mid-turn).".into()),
             ],
             RightPane::Closed,
         ),
         mk(
             "A contract change needs you: Remember me — add it, or leave it out?",
-            vec![lead_row()
-                .status(aui::nav::RowStatusKind::Asked, "\"Remember me\"?")
-                .child(plan_worker())],
+            asked_sidebar(),
             vec![
                 CentreItem::User(user_prompt.clone()),
                 CentreItem::Block(block_plan_started()),
+                CentreItem::User("go".into()),
+                CentreItem::User(steer_user.clone()),
+                CentreItem::Lead(steer_lead.clone()),
                 CentreItem::Block(sample::run_progress_needs_you()),
                 CentreItem::Block(sample::run_question_open()),
             ],
@@ -432,99 +594,77 @@ fn scenario_a() -> Scenario {
         ),
         mk(
             "Answered “Leave it out”: Review reads the diff with Codex.",
-            base_sidebar(),
-            vec![
-                CentreItem::User(user_prompt.clone()),
-                CentreItem::Block(block_plan_started()),
-                CentreItem::Block(running()),
-                CentreItem::Block(question_answered_leave_out()),
-                CentreItem::Block(review_progress()),
-            ],
+            with_children(lead_row(), review_children()),
+            {
+                let mut items = chat();
+                items.push(CentreItem::Block(review_progress()));
+                items
+            },
             RightPane::Closed,
         ),
         mk(
             "Fix: the high finding first — the password must never reach the debug log.",
-            base_sidebar(),
-            vec![
-                CentreItem::User(user_prompt.clone()),
-                CentreItem::Block(block_plan_started()),
-                CentreItem::Block(running()),
-                CentreItem::Block(question_answered_leave_out()),
-                CentreItem::Block(review_progress()),
-                CentreItem::Block(fix_progress()),
-            ],
+            with_children(lead_row(), fix_children()),
+            {
+                let mut items = chat();
+                items.push(CentreItem::Block(fix_progress()));
+                items
+            },
             RightPane::Closed,
         ),
         mk(
             "Verify: the evaluator drives the real page in the browser pane.",
-            base_sidebar(),
-            vec![
-                CentreItem::User(user_prompt.clone()),
-                CentreItem::Block(block_plan_started()),
-                CentreItem::Block(running()),
-                CentreItem::Block(question_answered_leave_out()),
-                CentreItem::Block(review_progress()),
-                CentreItem::Block(fix_progress()),
-                CentreItem::Block(verify_progress()),
-            ],
+            with_children(lead_row(), verify_children()),
+            {
+                let mut items = chat();
+                items.push(CentreItem::Block(verify_progress()));
+                items
+            },
             RightPane::Browser,
         ),
         mk(
             "Finished: every criterion carries its evidence, and the gaps are named.",
-            base_sidebar(),
-            vec![
-                CentreItem::User(user_prompt.clone()),
-                CentreItem::Block(block_plan_started()),
-                CentreItem::Block(running()),
-                CentreItem::Block(question_answered_leave_out()),
-                CentreItem::Block(review_progress()),
-                CentreItem::Block(fix_progress()),
-                CentreItem::Block(verify_progress()),
-                CentreItem::Block(sample::run_summary_finished()),
-            ],
+            with_children(lead_row(), done_children()),
+            {
+                let mut items = chat();
+                items.push(CentreItem::Block(sample::run_summary_finished()));
+                items
+            },
             RightPane::Browser,
         ),
         mk(
             "A preference, remembered: Codex always reviews from here on.",
-            base_sidebar(),
-            vec![
-                CentreItem::User(user_prompt.clone()),
-                CentreItem::Block(block_plan_started()),
-                CentreItem::Block(running()),
-                CentreItem::Block(question_answered_leave_out()),
-                CentreItem::Block(review_progress()),
-                CentreItem::Block(fix_progress()),
-                CentreItem::Block(verify_progress()),
-                CentreItem::Block(sample::run_summary_finished()),
-                CentreItem::User("nice. from now on always review with codex".into()),
-                CentreItem::Block(sample::run_note_preference()),
-            ],
-            RightPane::Closed,
+            with_children(lead_row(), done_children()),
+            {
+                let mut items = chat();
+                items.push(CentreItem::Block(sample::run_summary_finished()));
+                items.push(CentreItem::User("nice. from now on always review with codex".into()));
+                items.push(CentreItem::Block(sample::run_note_preference()));
+                items
+            },
+            RightPane::Browser,
         ),
         mk(
             "Merged: a91f04c lands on main.",
-            base_sidebar(),
-            vec![
-                CentreItem::User(user_prompt.clone()),
-                CentreItem::Block(block_plan_started()),
-                CentreItem::Block(running()),
-                CentreItem::Block(question_answered_leave_out()),
-                CentreItem::Block(review_progress()),
-                CentreItem::Block(fix_progress()),
-                CentreItem::Block(verify_progress()),
-                CentreItem::User("merge".into()),
-                CentreItem::Block(sample::run_summary_merged()),
-            ],
-            RightPane::Closed,
+            with_children(lead_row(), done_children()),
+            {
+                let mut items = chat();
+                items.push(CentreItem::User("merge".into()));
+                items.push(CentreItem::Block(sample::run_summary_merged()));
+                items
+            },
+            RightPane::Browser,
         ),
         Step {
             narration: "Inside the worker: its own transcript, its own composer.",
-            sidebar: vec![lead_row().child(
-                SessionSummary::new("worker-auth", "Implement · auth call", AgentState::Running, "4m")
-                    .provider(aui_icons::Provider::Muse)
-                    .pulse()
-                    .preview("editing src/auth/login.ts"),
-            )],
+            sidebar: vec![{
+                let mut lead = lead_row();
+                lead = lead.child(
+                    worker_child("worker-auth", "Implement · auth call", AgentState::Running, true)
+                        .provider(aui_icons::Provider::Muse),
+                );
+                lead
+            }],
             active_row: "worker-auth",
             centre_title: "Implement · auth call",
             centre_provider: aui_icons::Provider::Muse,
@@ -540,41 +680,89 @@ fn scenario_a() -> Scenario {
 
 // ---- scenario B ----------------------------------------------------------
 
-fn explore_card() -> Block {
-    Block::ToolCall {
-        id: "tc-explore-sessions".into(),
-        kind: aui::protocol::ToolKind::SubAgent,
-        verb: "Explore".into(),
-        target: "where sessions are persisted".into(),
-        status: aui::protocol::ToolStatus::Success,
-        duration_ms: Some(48_000),
-        body: aui::protocol::ToolBody::Search {
-            hits: vec![
-                aui::protocol::SearchHit {
-                    path: "crates/store/src/store.rs".into(),
-                    line: 41,
-                    snippet: "save_session".into(),
-                },
-                aui::protocol::SearchHit {
-                    path: "crates/store/src/store.rs".into(),
-                    line: 88,
-                    snippet: "restore_session".into(),
-                },
-            ],
-        },
-        diff_stat: None,
+/// One assistant turn inside a delegated subagent transcript.
+fn delegated_turn(id: &str, block: Block) -> Turn {
+    Turn::Assistant {
+        id: id.into(),
+        blocks: vec![block],
+        meta: TurnMeta::default(),
+        timestamp: None,
     }
 }
 
-fn list_files_card() -> Block {
+fn grep_save_session_turn() -> Turn {
+    delegated_turn(
+        "dt-grep",
+        Block::ToolCall {
+            id: "tc-grep-save".into(),
+            kind: ToolKind::Search,
+            verb: "Grep".into(),
+            target: "\"save_session\"".into(),
+            status: ToolStatus::Success,
+            duration_ms: Some(3_100),
+            body: ToolBody::Search {
+                hits: vec![
+                    SearchHit {
+                        path: "crates/store/src/store.rs".into(),
+                        line: 41,
+                        snippet: "save_session".into(),
+                    },
+                    SearchHit {
+                        path: "crates/store/src/store.rs".into(),
+                        line: 88,
+                        snippet: "restore_session".into(),
+                    },
+                ],
+            },
+            diff_stat: None,
+        },
+    )
+}
+
+fn read_store_turn() -> Turn {
+    delegated_turn(
+        "dt-read-store",
+        Block::ToolCall {
+            id: "tc-read-store".into(),
+            kind: ToolKind::Read,
+            verb: "Read".into(),
+            target: "crates/store/src/store.rs".into(),
+            status: ToolStatus::Success,
+            duration_ms: Some(900),
+            body: ToolBody::Read { lines: 132 },
+            diff_stat: None,
+        },
+    )
+}
+
+fn read_projects_turn() -> Turn {
+    delegated_turn(
+        "dt-read-projects",
+        Block::ToolCall {
+            id: "tc-read-projects".into(),
+            kind: ToolKind::Read,
+            verb: "Read".into(),
+            target: "crates/store/src/projects.rs".into(),
+            status: ToolStatus::Success,
+            duration_ms: Some(700),
+            body: ToolBody::Read { lines: 86 },
+            diff_stat: None,
+        },
+    )
+}
+
+/// Claude's native Agent subagent with a real delegated transcript.
+fn explore_card() -> Block {
     Block::ToolCall {
-        id: "tc-list-repo".into(),
-        kind: aui::protocol::ToolKind::SubAgent,
-        verb: "Agent".into(),
-        target: "list_repo_files".into(),
-        status: aui::protocol::ToolStatus::Running,
-        duration_ms: None,
-        body: aui::protocol::ToolBody::SubAgent { turns: Vec::new() },
+        id: "tc-explore-sessions".into(),
+        kind: ToolKind::SubAgent,
+        verb: "Explore".into(),
+        target: "where sessions are persisted".into(),
+        status: ToolStatus::Success,
+        duration_ms: Some(48_000),
+        body: ToolBody::SubAgent {
+            turns: vec![grep_save_session_turn(), read_store_turn(), read_projects_turn()],
+        },
         diff_stat: None,
     }
 }
@@ -643,40 +831,69 @@ fn one_line_review_progress() -> Block {
     })
 }
 
-fn muse_subagent_row(status: aui::protocol::ToolStatus, verb: &'static str, target: &'static str) -> Block {
+/// A native Muse subagent item with a real delegated transcript.
+fn muse_subagent_row(status: ToolStatus, verb: &'static str, target: &'static str) -> Block {
+    let id = format!("tc-muse-{target}");
+    let (turns, duration_ms) = match status {
+        ToolStatus::Success => (
+            vec![grep_save_session_turn(), read_store_turn(), read_projects_turn()],
+            Some(30_000),
+        ),
+        ToolStatus::Running => (vec![grep_save_session_turn()], None),
+        _ => (vec![delegated_turn(
+            &format!("{id}-queued"),
+            Block::ToolCall {
+                id: format!("{id}-queue"),
+                kind: ToolKind::Search,
+                verb: "Grep".into(),
+                target: "\"save_session\"".into(),
+                status: ToolStatus::Pending,
+                duration_ms: None,
+                body: ToolBody::Search { hits: Vec::new() },
+                diff_stat: None,
+            },
+        )], None),
+    };
     Block::ToolCall {
-        id: format!("tc-muse-{target}"),
-        kind: aui::protocol::ToolKind::SubAgent,
+        id,
+        kind: ToolKind::SubAgent,
         verb: verb.into(),
         target: target.into(),
         status,
-        duration_ms: if status == aui::protocol::ToolStatus::Success { Some(30_000) } else { None },
-        body: aui::protocol::ToolBody::SubAgent { turns: Vec::new() },
+        duration_ms,
+        body: ToolBody::SubAgent { turns },
         diff_stat: None,
     }
 }
 
 fn scenario_b() -> Scenario {
     let ask = "why is session restore slow? have codex double-check whatever you find".to_string();
-    let sidebar = || {
+    // Each variant is its own session: header, sidebar row and composer agree.
+    let sidebar_for = |provider: aui_icons::Provider| {
         vec![SessionSummary::new("restore", "Session restore", AgentState::Running, "3m")
-            .provider(aui_icons::Provider::Claude)
-            .preview("why is session restore slow?")]
+            .provider(provider)
+            .density(RowDensity::One)]
     };
-    let mk = |narration: &'static str, items: Vec<CentreItem>| Step {
-        narration,
-        sidebar: sidebar(),
-        active_row: "restore",
-        centre_title: "Session restore",
-        centre_provider: aui_icons::Provider::Claude,
-        items,
-        steer: false,
-        goal_pin: None,
-        right: RightPane::Closed,
-        peer_goto: None,
+    let mk = |narration: &'static str,
+              provider: aui_icons::Provider,
+              items: Vec<CentreItem>|
+     -> Step {
+        Step {
+            narration,
+            sidebar: sidebar_for(provider),
+            active_row: "restore",
+            centre_title: "Session restore",
+            centre_provider: provider,
+            items,
+            steer: false,
+            goal_pin: None,
+            right: RightPane::Closed,
+            peer_goto: None,
+        }
     };
     let steps = vec![
         mk("An ordinary Claude session: the Explore subagent reports back in 48 s.",
+            aui_icons::Provider::Claude,
             vec![
                 CentreItem::User(ask.clone()),
                 CentreItem::Block(explore_card()),
@@ -685,6 +902,7 @@ fn scenario_b() -> Scenario {
         ),
         mk(
             "Baaz hands the finding to Codex: a one-task run, then a compact summary.",
+            aui_icons::Provider::Claude,
             vec![
                 CentreItem::User(ask.clone()),
                 CentreItem::Block(explore_card()),
@@ -694,10 +912,11 @@ fn scenario_b() -> Scenario {
         ),
         mk(
             "A Muse session instead: two native subagents, accepted, then running.",
+            aui_icons::Provider::Muse,
             vec![
                 CentreItem::User(ask.clone()),
-                CentreItem::Block(muse_subagent_row(aui::protocol::ToolStatus::Pending, "Delegated", "explorer")),
-                CentreItem::Block(muse_subagent_row(aui::protocol::ToolStatus::Running, "Delegated", "code-reviewer")),
+                CentreItem::Block(muse_subagent_row(ToolStatus::Pending, "Delegated", "explorer")),
+                CentreItem::Block(muse_subagent_row(ToolStatus::Running, "Delegated", "code-reviewer")),
                 CentreItem::Block(Block::RunNote(aui::protocol::RunNote {
                     text: "explorer accepted · code-reviewer running".into(),
                     note_kind: aui::protocol::NoteKind::Info,
@@ -712,10 +931,11 @@ fn scenario_b() -> Scenario {
         ),
         mk(
             "Both Muse subagents land: explorer first, then the code review.",
+            aui_icons::Provider::Muse,
             vec![
                 CentreItem::User(ask.clone()),
-                CentreItem::Block(muse_subagent_row(aui::protocol::ToolStatus::Success, "Delegated", "explorer")),
-                CentreItem::Block(muse_subagent_row(aui::protocol::ToolStatus::Success, "Delegated", "code-reviewer")),
+                CentreItem::Block(muse_subagent_row(ToolStatus::Success, "Delegated", "explorer")),
+                CentreItem::Block(muse_subagent_row(ToolStatus::Success, "Delegated", "code-reviewer")),
                 CentreItem::Controls(aui::protocol::SubagentControls {
                     message: false,
                     follow_up: true,
@@ -725,10 +945,15 @@ fn scenario_b() -> Scenario {
             ],
         ),
         mk(
-            "A Codex session instead: activity cards named from the agent path.",
+            "A Codex session instead: one compact agent row, then it waits.",
+            aui_icons::Provider::Codex,
             vec![
                 CentreItem::User(ask.clone()),
-                CentreItem::Block(list_files_card()),
+                CentreItem::Agent(AgentRow {
+                    tool: "list_repo_files",
+                    state: "interacted",
+                    running: true,
+                }),
                 CentreItem::Muted("Waiting on 1 agent".into()),
             ],
         ),
@@ -843,79 +1068,74 @@ fn scenario_c() -> Scenario {
     let sidebar = || {
         vec![SessionSummary::new("calc", "Calc goals", AgentState::Running, "4m")
             .provider(aui_icons::Provider::Codex)
-            .preview("Make unittest exit 0")]
+            .density(RowDensity::One)]
     };
-    let mk = |narration: &'static str, items: Vec<CentreItem>| Step {
-        narration,
-        sidebar: sidebar(),
-        active_row: "calc",
-        centre_title: "Calc goals",
-        centre_provider: aui_icons::Provider::Codex,
-        items,
-        steer: false,
-        goal_pin: None,
-        right: RightPane::Closed,
-        peer_goto: None,
+    // Goals render as the `goal_line` pinned above the composer; the
+    // transcript holds the session's chat plus the workflow cards.
+    let mk = |narration: &'static str,
+              items: Vec<CentreItem>,
+              goal_pin: Option<Block>|
+     -> Step {
+        Step {
+            narration,
+            sidebar: sidebar(),
+            active_row: "calc",
+            centre_title: "Calc goals",
+            centre_provider: aui_icons::Provider::Codex,
+            items,
+            steer: false,
+            goal_pin,
+            right: RightPane::Closed,
+            peer_goto: None,
+        }
     };
     let steps = vec![
-        mk("Codex starts the calc goal: 6.7k of 80k tokens, 7 s in.", vec![
-            CentreItem::User("make unittest pass".into()),
-            CentreItem::Block(sample::goal_codex_active()),
-        ]),
-        mk("…and lands it: complete at 9.6k of 80k, 19 s.", vec![
-            CentreItem::User("make unittest pass".into()),
-            CentreItem::Block(sample::goal_codex_active()),
-            CentreItem::Block(sample::goal_codex_complete()),
-        ]),
+        mk("Codex starts the calc goal: 6.7k of 80k tokens, 7 s in.",
+            vec![CentreItem::User("make unittest pass".into())],
+            Some(sample::goal_codex_active())),
+        mk("…and lands it: complete at 9.6k of 80k, 19 s.",
+            vec![CentreItem::User("make unittest pass".into())],
+            Some(sample::goal_codex_complete())),
         mk(
             "Claude's goal on turn 3 (provisional: verdict frames not yet probed).",
-            vec![
-                CentreItem::User("make unittest pass".into()),
-                CentreItem::Block(sample::goal_claude_active()),
-                CentreItem::Muted("(provisional: verdict frames not yet probed)".into()),
-            ],
+            vec![CentreItem::User("make unittest pass".into())],
+            Some(sample::goal_claude_active()),
         ),
-        mk("Muse starts at 0%.", vec![
-            CentreItem::User("build the login screen".into()),
-            CentreItem::Block(muse_goal(true)),
-        ]),
-        mk("…and finishes at 100% (only start and end frames exist).", vec![
-            CentreItem::User("build the login screen".into()),
-            CentreItem::Block(muse_goal(true)),
-            CentreItem::Block(muse_goal(false)),
-        ]),
-        mk("Baaz-gated: Codex says complete, and the gate believes it — for now.", vec![
-            CentreItem::User("make unittest pass".into()),
-            CentreItem::Block(codex_gated_complete()),
-        ]),
-        mk("The gate disagrees: Reopened — provider said done; tests still fail: 2 of 14.", vec![
-            CentreItem::User("make unittest pass".into()),
-            CentreItem::Block(codex_gated_complete()),
-            CentreItem::Block(sample::goal_reopened()),
-        ]),
-        mk("…and the goal moves again.", vec![
-            CentreItem::User("make unittest pass".into()),
-            CentreItem::Block(codex_gated_complete()),
-            CentreItem::Block(sample::goal_reopened()),
-            CentreItem::Block(codex_gated_active()),
-        ]),
+        mk("Muse starts at 0%.",
+            vec![CentreItem::User("build the login screen".into())],
+            Some(muse_goal(true))),
+        mk("…and finishes at 100% (only start and end frames exist).",
+            vec![CentreItem::User("build the login screen".into())],
+            Some(muse_goal(false))),
+        mk("Baaz-gated: Codex says complete, and the gate believes it — for now.",
+            vec![CentreItem::User("make unittest pass".into())],
+            Some(codex_gated_complete())),
+        mk("The gate disagrees: Reopened — provider said done; tests still fail: 2 of 14.",
+            vec![CentreItem::User("make unittest pass".into())],
+            Some(sample::goal_reopened())),
+        mk("…and the goal moves again.",
+            vec![CentreItem::User("make unittest pass".into())],
+            Some(codex_gated_active())),
         mk(
             "A Muse workflow (provisional on 1.4.3): one port child failed — Retry or Skip it.",
             vec![
                 CentreItem::User("port the login screen".into()),
                 CentreItem::Block(muse_workflow_failed()),
-                CentreItem::Muted("(provisional: unavailable to MSP clients on 1.4.3)".into()),
             ],
+            None,
         ),
-        mk("Retried: the failed child runs again.", vec![
-            CentreItem::User("port the login screen".into()),
-            CentreItem::Block(muse_workflow_retrying()),
-        ]),
-        mk("A Claude workflow instead: Review → Verify, agents per phase (provisional).", vec![
-            CentreItem::User("validate the checkout".into()),
-            CentreItem::Block(sample::workflow_claude_phases()),
-            CentreItem::Muted("(provisional)".into()),
-        ]),
+        mk("Retried: the failed child runs again.",
+            vec![
+                CentreItem::User("port the login screen".into()),
+                CentreItem::Block(muse_workflow_retrying()),
+            ],
+            None),
+        mk("A Claude workflow instead: Review → Verify, agents per phase (provisional).",
+            vec![
+                CentreItem::User("validate the checkout".into()),
+                CentreItem::Block(sample::workflow_claude_phases()),
+            ],
+            None),
     ];
     Scenario { id: 'C', name: "C Goals & workflows", steps }
 }
@@ -925,7 +1145,7 @@ fn scenario_c() -> Scenario {
 fn approval_question() -> Block {
     Block::RunQuestion(RunQuestion {
         question_id: "q-rm-node-modules".into(),
-        run_id: "run-auth-worker".into(),
+        run_id: "run-login-screen".into(),
         source_label: "QUESTION FROM THE RUN · IMPLEMENT · AUTH WORKER".into(),
         text: "Muse wants to run `rm -rf node_modules && npm ci` in the auth worker. Allow?".into(),
         hint: "the worker is paused".into(),
@@ -965,17 +1185,19 @@ fn quota_question() -> Block {
 }
 
 fn scenario_d() -> Scenario {
+    // Questions, approvals and quota live in the lead `Login screen`
+    // session (Claude Code); the single progress block pins the transcript.
     let sidebar = || {
-        vec![SessionSummary::new("auth", "Auth worker run", AgentState::Waiting, "9m")
-            .provider(aui_icons::Provider::Muse)
-            .preview("Implement · auth call")]
+        vec![SessionSummary::new("lead", "Login screen", AgentState::Running, "6m")
+            .provider(aui_icons::Provider::Claude)
+            .density(RowDensity::One)]
     };
     let mk = |narration: &'static str, items: Vec<CentreItem>| Step {
         narration,
         sidebar: sidebar(),
-        active_row: "auth",
-        centre_title: "Auth worker run",
-        centre_provider: aui_icons::Provider::Muse,
+        active_row: "lead",
+        centre_title: "Login screen",
+        centre_provider: aui_icons::Provider::Claude,
         items,
         steer: false,
         goal_pin: None,
@@ -986,28 +1208,27 @@ fn scenario_d() -> Scenario {
         mk(
             "A provider approval, surfaced in the lead chat as a run question.",
             vec![
-                CentreItem::Block(sample::run_progress_needs_you()),
                 CentreItem::Block(approval_question()),
+                CentreItem::Block(sample::run_progress_needs_you()),
             ],
         ),
         mk(
             "A blocker the lead settles itself: contract unchanged, back to work.",
             vec![
-                CentreItem::Block(sample::run_progress_needs_you()),
                 CentreItem::Block(approval_question()),
                 CentreItem::Lead("Ruled on a worker question: keep the existing API shape (contract unchanged).".into()),
                 CentreItem::Block(sample::run_progress_running()),
             ],
         ),
         mk("Quota: Muse's window resets at 16:00 — wait it out, or move to Codex?", vec![
-            CentreItem::Block(quota_progress()),
             CentreItem::Block(quota_question()),
+            CentreItem::Block(quota_progress()),
         ]),
         mk("“what's happening?” — the lead answers from the progress state.", vec![
-            CentreItem::Block(quota_progress()),
             CentreItem::Block(quota_question()),
             CentreItem::User("what's happening?".into()),
             CentreItem::Lead("Waiting on Muse quota until 16:00: one task verifying, one editing src/auth/login.ts. Say “move to Codex” and I'll reassign both.".into()),
+            CentreItem::Block(quota_progress()),
         ]),
         mk("“pause” — the header reads Paused and the lines settle.", vec![
             CentreItem::User("pause".into()),
@@ -1183,7 +1404,7 @@ fn scenario_e() -> Scenario {
     let sidebar = || {
         vec![SessionSummary::new("login", "Login screen run", AgentState::Running, "6m")
             .provider(aui_icons::Provider::Muse)
-            .preview("Implement · auth call")]
+            .density(RowDensity::One)]
     };
     let mk = |narration: &'static str, items: Vec<CentreItem>, right: RightPane| Step {
         narration,
@@ -1224,16 +1445,18 @@ fn scenario_e() -> Scenario {
 
 // ---- scenario F ----------------------------------------------------------
 
+/// The sender while it waits: the grey `waiting` placeholder line.
 fn sender_row_waiting() -> SessionSummary {
     SessionSummary::new("orch", "Orchestration in Baaz", AgentState::Idle, "2m")
         .provider(aui_icons::Provider::Claude)
-        .preview("waiting for reply")
+        .placeholder("waiting")
+        .density(RowDensity::Two)
 }
 
 fn receiver_row(pulsing: bool, unread: bool) -> SessionSummary {
     let mut row = SessionSummary::new("audit", "Browser audit", AgentState::Running, "2m")
         .provider(aui_icons::Provider::Codex)
-        .preview("checking registry.rs");
+        .density(RowDensity::One);
     if pulsing {
         row = row.pulse();
     }
@@ -1325,10 +1548,11 @@ fn scenario_f() -> Scenario {
             SessionSummary::new("audit", "Browser audit", AgentState::Running, "2m")
                 .provider(aui_icons::Provider::Codex)
                 .pulse()
-                .preview("checking registry.rs"),
+                .density(RowDensity::One),
             SessionSummary::new("orch", "Orchestration in Baaz", AgentState::Idle, "2m")
                 .provider(aui_icons::Provider::Claude)
-                .preview("waiting for reply"),
+                .placeholder("waiting")
+                .density(RowDensity::Two),
         ]
     };
     let sender = |narration: &'static str,
