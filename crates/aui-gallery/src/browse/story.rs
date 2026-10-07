@@ -82,6 +82,16 @@ fn story_tabs() -> Vec<TaskTab> {
     ]
 }
 
+/// Why a task stopped: a denied download, or the person stopping it.
+/// The stopped line names the cause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopCause {
+    /// The download was denied on the approval card.
+    Denied,
+    /// The person stopped the task.
+    User,
+}
+
 /// What the task is doing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
@@ -157,7 +167,32 @@ pub struct BrowseStory {
     downloaded: bool,
     answered: bool,
     paused_from: Phase,
+    stopped: Option<StopCause>,
 }
+
+/// The done labels the card's transcript shows for finished steps.
+const DONE_TEXTS: [&str; 7] = [
+    "Opened PGI 2.0 state scores (2023-24)",
+    "Read UDISE+ 2024-25 PTR for 5 states",
+    "Read dropout rates, secondary",
+    "Read enrolment on data.gov.in",
+    "Approved the spreadsheet download",
+    "Downloaded udise_2024_25_state_indicators.xlsx",
+    "Built the comparison",
+];
+
+/// The running label of each story step, 0-based by step index. The line
+/// status and the card's running row both derive from this one table, so
+/// the two can never disagree about what the agent is doing.
+const RUN_TEXTS: [&str; 7] = [
+    "Reading PGI 2.0 · state scores",
+    "Reading UDISE+ · PTR",
+    "Reading UDISE+ · dropout",
+    "Reading enrolment on data.gov.in",
+    "Asking to download the spreadsheet",
+    "Downloading the indicators spreadsheet",
+    "Building the comparison",
+];
 
 impl BrowseStory {
     /// A fresh story: the task folder closed, face Reading, no tabs.
@@ -175,6 +210,7 @@ impl BrowseStory {
             downloaded: false,
             answered: false,
             paused_from: Phase::Idle,
+            stopped: None,
         }
     }
 
@@ -184,6 +220,8 @@ impl BrowseStory {
     }
 
     /// Completed story steps, 0–7.
+    /// (Read by the state-machine tests; the screen branches on `phase`.)
+    #[allow(dead_code)]
     pub fn completed(&self) -> usize {
         self.completed
     }
@@ -208,7 +246,9 @@ impl BrowseStory {
         self.status.clone()
     }
 
-    /// The page the centre shows.
+    /// The page the story last opened.
+    /// (Read by the state-machine tests; the screen shows `shown`.)
+    #[allow(dead_code)]
     pub fn centre(&self) -> &StoryPage {
         &self.centre
     }
@@ -242,6 +282,40 @@ impl BrowseStory {
         self.phase == Phase::Running
     }
 
+    /// Why the task stopped, when it did.
+    /// (Read by the state-machine tests; the stopped line names it.)
+    #[allow(dead_code)]
+    pub fn stop_cause(&self) -> Option<StopCause> {
+        self.stopped
+    }
+
+    /// The 0-based index of the step currently running, if any. While
+    /// NeedsYou or Approval the current step stays Running (it is not
+    /// marked Done until the person answers), so the card and the line
+    /// agree on what is still open.
+    pub fn current_index(&self) -> Option<usize> {
+        match self.phase {
+            Phase::Running if self.completed < 7 => Some(self.completed),
+            Phase::NeedsYou if self.completed >= 4 => Some(3),
+            Phase::Approval => Some(4),
+            _ => None,
+        }
+    }
+
+    /// The single source of truth for the current step's running label.
+    /// Both the ⌘J line status and the card transcript's running row
+    /// derive from this.
+    pub fn current_step(&self) -> Option<SharedString> {
+        self.current_index().map(|i| SharedString::from(RUN_TEXTS[i]))
+    }
+
+    /// The done labels the transcript shows, oldest first: every finished
+    /// step except the one still running.
+    pub fn done_steps(&self) -> Vec<SharedString> {
+        let end = self.current_index().unwrap_or(self.completed.min(7));
+        DONE_TEXTS.iter().take(end).map(|s| SharedString::from(*s)).collect()
+    }
+
     /// Send the ask: the folder opens, face Typing, first tab lands.
     pub fn send(&mut self) {
         self.task_open = true;
@@ -249,8 +323,12 @@ impl BrowseStory {
     }
 
     /// Advance to step `n` (clamped to 0–7), forward only. The harness's
-    /// `run:N`, the timers and the Space key all come through here.
+    /// `run:N`, the timers and the Space key all come through here. A
+    /// no-op while Paused or Stopped: the held task waits for Hand back.
     pub fn advance_to(&mut self, n: usize) {
+        if matches!(self.phase, Phase::Paused | Phase::Stopped) {
+            return;
+        }
         let target = n.min(7);
         while self.completed < target {
             self.apply(self.completed + 1);
@@ -306,6 +384,7 @@ impl BrowseStory {
                 self.face = TaskFace::Done;
                 self.status = "done · 5 tabs".into();
                 self.centre = StoryPage::Answer;
+                self.queued = None;
             }
             _ => return,
         }
@@ -346,11 +425,17 @@ impl BrowseStory {
             self.phase = Phase::Stopped;
             self.face = TaskFace::Paused;
             self.status = "stopped".into();
+            self.stopped = Some(StopCause::Denied);
+            self.queued = None;
         }
     }
 
-    /// Build the comparison (harness shortcut for the tail).
+    /// Build the comparison (harness shortcut for the tail). A no-op
+    /// while Paused or Stopped, like every other advance.
     pub fn answer(&mut self) {
+        if matches!(self.phase, Phase::Paused | Phase::Stopped) {
+            return;
+        }
         if self.completed < 6 {
             self.approval_open = false;
             self.downloaded = true;
@@ -384,6 +469,8 @@ impl BrowseStory {
             self.phase = Phase::Stopped;
             self.face = TaskFace::Paused;
             self.status = "stopped".into();
+            self.stopped = Some(StopCause::User);
+            self.queued = None;
         }
     }
 
@@ -419,7 +506,8 @@ impl BrowseStory {
         self.queued = Some(text.into());
     }
 
-    /// What the ⌘J line shows for this state.
+    /// What the ⌘J line shows for this state. The stopped line names its
+    /// cause; the screen renders Done/Stopped without Take over.
     pub fn line(&self) -> StoryLine {
         match self.phase {
             Phase::Idle => StoryLine::Ask,
@@ -427,19 +515,33 @@ impl BrowseStory {
             Phase::Paused => StoryLine::YouDrive,
             Phase::NeedsYou => StoryLine::NeedsYou { text: "data.gov.in asks you to sign in".into() },
             Phase::Approval => StoryLine::Approval,
-            Phase::Stopped => StoryLine::Driving { status: "Stopped — the download was denied".into(), face: TaskFace::Paused },
+            Phase::Stopped => StoryLine::Driving { status: self.stopped_status(), face: TaskFace::Paused },
             Phase::Done => StoryLine::Driving { status: "Done — the comparison is ready".into(), face: TaskFace::Done },
         }
     }
 
-    /// The driving line for the current step.
+    /// The stopped line for the stop cause.
+    fn stopped_status(&self) -> SharedString {
+        match self.stopped {
+            Some(StopCause::User) => "Stopped — you stopped it".into(),
+            _ => "Stopped — the download was denied".into(),
+        }
+    }
+
+    /// The driving line for the current step, derived from the same
+    /// [`current_step`](Self::current_step) the transcript's running row
+    /// uses, so the two always name the same step.
     fn driving_status(&self) -> SharedString {
-        match self.completed {
-            1 => "Claude is reading PGI 2.0 · state scores".into(),
-            2 => "Claude is reading UDISE+ · PTR".into(),
-            3 => "Claude is reading UDISE+ · dropout".into(),
-            6 => "Claude is downloading the indicators spreadsheet".into(),
-            _ => "Claude is working".into(),
+        match self.current_step() {
+            Some(step) => {
+                let mut text = step.to_string();
+                // "Reading …" reads as "Claude is reading …".
+                if let Some(first) = text.get_mut(..1) {
+                    first.make_ascii_lowercase();
+                }
+                SharedString::from(format!("Claude is {text}"))
+            }
+            None => "Claude is working".into(),
         }
     }
 }
@@ -540,5 +642,95 @@ mod tests {
         story.finish_task();
         assert_eq!(story.tabs().len(), 1);
         assert_eq!(story.status().as_ref(), "done · 1 tab");
+    }
+
+    #[test]
+    fn line_and_current_step_agree_at_every_step() {
+        for n in 1..=7 {
+            let mut story = BrowseStory::new();
+            story.send();
+            story.advance_to(n);
+            if let Some(current) = story.current_step() {
+                match story.line() {
+                    StoryLine::Driving { status, .. } => assert!(
+                        status.to_lowercase().contains(&current.to_lowercase()),
+                        "step {n}: line `{status}` names the current step `{current}`"
+                    ),
+                    StoryLine::NeedsYou { .. } => assert_eq!(
+                        current.as_ref(),
+                        "Reading enrolment on data.gov.in",
+                        "step {n}: the enrolment step waits, it is not done"
+                    ),
+                    StoryLine::Approval => assert_eq!(
+                        current.as_ref(),
+                        "Asking to download the spreadsheet",
+                        "step {n}: the approval step waits, it is not done"
+                    ),
+                    other => panic!("step {n} should drive, need or approve, got {other:?}"),
+                }
+            } else {
+                assert_eq!(n, 7, "only the built comparison has no current step");
+                assert!(matches!(story.line(), StoryLine::Driving { .. }));
+            }
+        }
+    }
+
+    #[test]
+    fn needs_you_and_approval_keep_the_current_step_running() {
+        let mut story = BrowseStory::new();
+        story.send();
+        story.needs_you();
+        assert_eq!(story.current_step().as_deref(), Some("Reading enrolment on data.gov.in"));
+        assert_eq!(story.done_steps().len(), 3, "the enrolment step is not done while it needs you");
+        story.resolve_needs();
+        assert_eq!(story.current_step().as_deref(), Some("Asking to download the spreadsheet"));
+        assert_eq!(story.done_steps().len(), 4, "the approval step is not done while it waits");
+    }
+
+    #[test]
+    fn paused_and_stopped_hold_every_advance() {
+        let mut story = BrowseStory::new();
+        story.send();
+        story.advance_to(2);
+        story.takeover();
+        story.advance_to(5);
+        story.answer();
+        assert_eq!(story.completed(), 2, "paused steps do not advance");
+        story.handback();
+        story.advance_to(3);
+        assert_eq!(story.completed(), 3);
+        story.stop();
+        story.advance_to(7);
+        story.answer();
+        assert_eq!(story.completed(), 3, "stopped steps do not advance");
+        assert_eq!(story.phase(), Phase::Stopped);
+    }
+
+    #[test]
+    fn done_and_stopped_clear_the_queued_chip() {
+        let mut story = BrowseStory::new();
+        story.send();
+        story.queue_steer("also add girls' GER · queued");
+        story.answer();
+        assert!(story.queued().is_none(), "done clears the queued chip");
+        let mut story = BrowseStory::new();
+        story.send();
+        story.queue_steer("also add girls' GER · queued");
+        story.show_approval();
+        story.deny();
+        assert!(story.queued().is_none(), "a denied stop clears the queued chip");
+    }
+
+    #[test]
+    fn stopped_names_its_cause() {
+        let mut denied = BrowseStory::new();
+        denied.send();
+        denied.show_approval();
+        denied.deny();
+        assert!(matches!(denied.line(), StoryLine::Driving { status, .. } if status.as_ref() == "Stopped — the download was denied"));
+        let mut user = BrowseStory::new();
+        user.send();
+        user.stop();
+        assert!(matches!(user.line(), StoryLine::Driving { status, .. } if status.as_ref() == "Stopped — you stopped it"));
     }
 }

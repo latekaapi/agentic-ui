@@ -3,7 +3,7 @@
 //! itself is white with `#0E1116` ink in both themes, like the workbench's
 //! document paper.
 
-use aui::data::button;
+use aui::data::{button, record_ax_label};
 use aui_tokens::{scale, AuiStyled};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
@@ -51,9 +51,44 @@ const PGI_ROWS: [(&str, &str, &str); 6] = [
     ("Punjab", "647", "Uttam"),
 ];
 
+/// A plain page link row: left-aligned link-coloured text with a ↗, no
+/// fill. Every drawn page carries at least one, all wired the same way:
+/// a plain click navigates there, ⇧ peeks, ⌥ splits beside the current
+/// page. The screen owns what each gesture does.
+pub fn link_row(
+    label: &str,
+    target: StoryPage,
+    link: Hsla,
+    on_link: impl Fn(&StoryPage, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    record_ax_label(label);
+    let id = SharedString::from(format!("page-link-{label}"));
+    let label_text = format!("{label} ↗");
+    let aria = label_text.clone();
+    div()
+        .w_full()
+        .pt(px(4.0))
+        .child(
+            div()
+                .id(id)
+                .ui(scale::FS_13)
+                .text_color(link)
+                .cursor_pointer()
+                .role(Role::Button)
+                .aria_label(aria)
+                .child(label_text)
+                .on_click(move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut App| {
+                    on_link(&target, window, cx);
+                }),
+        )
+        .into_any_element()
+}
+
 /// `pgi_page`: the PGI 2.0 grades table with the methodology link.
-/// Shift-click peeks, alt-click splits, a plain click navigates there.
-pub fn pgi_page(on_method: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> AnyElement {
+pub fn pgi_page(
+    link: Hsla,
+    on_link: impl Fn(&StoryPage, &mut Window, &mut App) + 'static,
+) -> AnyElement {
     let mut table = v_flex().w_full().child(row(vec![("State", 140.0), ("Score", 80.0), ("Grade", 120.0)]));
     for (state, score, grade) in PGI_ROWS {
         table = table.child(row(vec![(state, 140.0), (score, 80.0), (grade, 120.0)]));
@@ -61,15 +96,15 @@ pub fn pgi_page(on_method: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + '
     shell(vec![
         heading("PGI 2.0 · Performance Grading Index · 2023-24", "State scores, all grades"),
         table.into_any_element(),
-        div()
-            .pt(px(4.0))
-            .child(button("pgi-method", "Methodology note ↗").on_click(on_method))
-            .into_any_element(),
+        link_row("Methodology note", StoryPage::Peek, link, on_link),
     ])
 }
 
 /// `udise_page`: PTR bars for five states.
-pub fn udise_page() -> AnyElement {
+pub fn udise_page(
+    link: Hsla,
+    on_link: impl Fn(&StoryPage, &mut Window, &mut App) + 'static,
+) -> AnyElement {
     const BARS: [(&str, u32); 5] = [("Karnataka", 22), ("Tamil Nadu", 20), ("Kerala", 18), ("Maharashtra", 24), ("Gujarat", 27)];
     let mut list = v_flex().w_full().gap(px(8.0));
     for (state, value) in BARS {
@@ -83,11 +118,18 @@ pub fn udise_page() -> AnyElement {
                 .child(div().ui(scale::FS_12).text_color(gpui::rgb(INK)).child(value.to_string())),
         );
     }
-    shell(vec![heading("UDISE+ 2024-25 · PTR by state", "Pupil–teacher ratio, lower is better"), list.into_any_element()])
+    shell(vec![
+        heading("UDISE+ 2024-25 · PTR by state", "Pupil–teacher ratio, lower is better"),
+        list.into_any_element(),
+        link_row("Secondary dropout rates", StoryPage::Dropout, link, on_link),
+    ])
 }
 
 /// `datagov_page`: the enrolment dataset behind a sign-in box (inert).
-pub fn datagov_page() -> AnyElement {
+pub fn datagov_page(
+    link: Hsla,
+    on_link: impl Fn(&StoryPage, &mut Window, &mut App) + 'static,
+) -> AnyElement {
     shell(vec![
         heading("data.gov.in · School education indicators 2024-25", "State indicators spreadsheet · 14 MB"),
         div()
@@ -105,6 +147,7 @@ pub fn datagov_page() -> AnyElement {
                     .child("The file stays on data.gov.in until you sign in.".to_string()),
             )
             .into_any_element(),
+        link_row("Enrolment data dictionary", StoryPage::Generic("Enrolment data dictionary".into()), link, on_link),
     ])
 }
 
@@ -119,6 +162,8 @@ const ANSWER_ROWS: [(&str, &str, &str, &str, &str); 5] = [
 
 /// `answer_page`: the built comparison with the action row.
 pub fn answer_page(
+    link: Hsla,
+    on_link: impl Fn(&StoryPage, &mut Window, &mut App) + 'static,
     on_ask_more: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
     on_done: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
@@ -130,6 +175,7 @@ pub fn answer_page(
     shell(vec![
         heading("PGI 2.0 vs school indicators, 2023-24 / 2024-25", "5 states · 4 sources · 2 skipped"),
         table.into_any_element(),
+        link_row("Methodology note", StoryPage::Peek, link, on_link),
         h_flex()
             .w_full()
             .items_center()
@@ -144,7 +190,10 @@ pub fn answer_page(
 }
 
 /// `peek_page`: how the grades are computed, three short paragraphs.
-pub fn peek_page() -> AnyElement {
+pub fn peek_page(
+    link: Hsla,
+    on_link: impl Fn(&StoryPage, &mut Window, &mut App) + 'static,
+) -> AnyElement {
     const PARAS: [&str; 3] = [
         "PGI 2.0 grades states across outcomes, governance and infrastructure, then bands the total into Daksh, Ati-Uttam and Uttam.",
         "Each domain contributes a fixed weight, so a state can lead on access while trailing on learning outcomes.",
@@ -154,57 +203,84 @@ pub fn peek_page() -> AnyElement {
     for para in PARAS {
         body = body.child(div().w_full().ui(scale::FS_13).text_color(gpui::rgb(INK)).child(para.to_string()));
     }
-    shell(vec![heading("PGI 2.0: how the grades are computed", "Methodology note"), body.into_any_element()])
+    shell(vec![
+        heading("PGI 2.0: how the grades are computed", "Methodology note"),
+        body.into_any_element(),
+        link_row("PGI 2.0 state scores", StoryPage::Pgi, link, on_link),
+    ])
 }
 
-/// A small drawn page: title plus one or two quiet lines.
-fn simple_page(title: &str, lines: &[&str]) -> AnyElement {
+/// A small drawn page: title plus one or two quiet lines and its link.
+fn simple_page(title: &str, lines: &[&str], link: Hsla, on_link: impl Fn(&StoryPage, &mut Window, &mut App) + 'static) -> AnyElement {
     let mut body = v_flex().w_full().gap(px(6.0));
     for line in lines {
         body = body.child(div().w_full().ui(scale::FS_13).text_color(gpui::rgb(INK)).child(line.to_string()));
     }
-    shell(vec![heading(title, "A saved page from the story"), body.into_any_element()])
+    shell(vec![
+        heading(title, "A saved page from the story"),
+        body.into_any_element(),
+        link_row("Methodology note", StoryPage::Peek, link, on_link),
+    ])
 }
 
 /// `nas_page`: state report cards.
-pub fn nas_page() -> AnyElement {
-    simple_page("NAS 2024 · state report cards", &["Five states, one card each.", "Reading and arithmetic trail in the same two states as ever."])
+pub fn nas_page(
+    link: Hsla,
+    on_link: impl Fn(&StoryPage, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    simple_page(
+        "NAS 2024 · state report cards",
+        &["Five states, one card each.", "Reading and arithmetic trail in the same two states as ever."],
+        link,
+        on_link,
+    )
 }
 
 /// `ledger_page`: the local ledger app.
-pub fn ledger_page() -> AnyElement {
-    simple_page("localhost:5173 · Ledger", &["The chart fix renders here.", "Hot-reloads on every save."])
+pub fn ledger_page(
+    link: Hsla,
+    on_link: impl Fn(&StoryPage, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    simple_page("localhost:5173 · Ledger", &["The chart fix renders here.", "Hot-reloads on every save."], link, on_link)
 }
 
 /// `weather_page`: the weekend weather card (Personal space).
-pub fn weather_page() -> AnyElement {
-    simple_page("Weekend weather · Bengaluru", &["Saturday 29° · scattered showers.", "Sunday 27° · clearing by noon."])
+pub fn weather_page(
+    link: Hsla,
+    on_link: impl Fn(&StoryPage, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    simple_page("Weekend weather · Bengaluru", &["Saturday 29° · scattered showers.", "Sunday 27° · clearing by noon."], link, on_link)
 }
 
 /// `generic_page`: any other saved tab, by title.
-pub fn generic_page(title: &str) -> AnyElement {
-    simple_page(title, &["A saved page from the story."])
+pub fn generic_page(
+    title: &str,
+    link: Hsla,
+    on_link: impl Fn(&StoryPage, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    simple_page(title, &["A saved page from the story."], link, on_link)
 }
 
-/// Renders any story page. The methodology link and the answer action row
-/// report through the screen's handlers, so clicks take the same path as
-/// the keyboard.
+/// Renders any story page. Page links and the answer action row report
+/// through the screen's handlers, so clicks take the same path as the
+/// keyboard.
 pub fn render_page(
     page: &StoryPage,
-    on_method: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    link: Hsla,
+    on_link: impl Fn(&StoryPage, &mut Window, &mut App) + 'static,
     on_ask_more: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
     on_done: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     match page {
-        StoryPage::Pgi => pgi_page(on_method),
-        StoryPage::Udise => udise_page(),
-        StoryPage::Dropout => generic_page("UDISE+ · dropout, secondary"),
-        StoryPage::Datagov => datagov_page(),
-        StoryPage::Answer => answer_page(on_ask_more, on_done),
-        StoryPage::Peek => peek_page(),
-        StoryPage::Nas => nas_page(),
-        StoryPage::Ledger => ledger_page(),
-        StoryPage::Weather => weather_page(),
-        StoryPage::Generic(title) => generic_page(title),
+        StoryPage::Pgi => pgi_page(link, on_link),
+        StoryPage::Udise => udise_page(link, on_link),
+        StoryPage::Dropout => generic_page("UDISE+ · dropout, secondary", link, on_link),
+        StoryPage::Datagov => datagov_page(link, on_link),
+        StoryPage::Answer => answer_page(link, on_link, on_ask_more, on_done),
+        StoryPage::Peek => peek_page(link, on_link),
+        StoryPage::Nas => nas_page(link, on_link),
+        StoryPage::Ledger => ledger_page(link, on_link),
+        StoryPage::Weather => weather_page(link, on_link),
+        StoryPage::Generic(title) => generic_page(title, link, on_link),
     }
 }
