@@ -24,6 +24,7 @@ use aui::keys::{Cancel, Confirm, SelectNext, SelectPrev, MENU_CONTEXT};
 use aui_icons::IconName;
 use aui::overlay::popover_layer;
 use aui::shell::{app_shell, sidebar_header};
+use aui::util::{interaction_flags, TrackInteraction};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::input::TextareaState;
@@ -138,6 +139,7 @@ enum FootPop {
 }
 
 /// One sidebar tab: title, tile letter, page and address.
+#[derive(Debug, Clone)]
 struct SpaceTab {
     title: SharedString,
     letter: SharedString,
@@ -225,16 +227,52 @@ fn task_letter(page: &StoryPage) -> &'static str {
     }
 }
 
+/// The docked right pane's resting width: the line and card layers concede
+/// exactly this while the column is open, so centred overlays sit over the
+/// page rather than the window.
+const RIGHT_W: f32 = 420.0;
+
+/// A page's real title, as its drawn heading shows it: the hidden-sidebar
+/// strip, the split panes and the peek caption all read from here, so no
+/// page falls back to "Browse".
+fn page_title(page: &StoryPage) -> SharedString {
+    match page {
+        StoryPage::Pgi => "PGI 2.0 · state scores 2023-24".into(),
+        StoryPage::Udise => "UDISE+ 2024-25 · dashboard".into(),
+        StoryPage::Datagov => "data.gov.in · School education indicators 2024-25".into(),
+        StoryPage::Dropout => "UDISE+ · dropout, secondary".into(),
+        StoryPage::Answer => "Answer · PGI vs indicators".into(),
+        StoryPage::Peek => "Methodology note".into(),
+        StoryPage::Nas => "NAS 2024 · state report cards".into(),
+        StoryPage::Ledger => "localhost:5173 · Ledger".into(),
+        StoryPage::Weather => "Weekend weather · Bengaluru".into(),
+        StoryPage::Generic(title) => title.clone(),
+    }
+}
+
+/// A page's host, from its address: the peek caption and aria label name
+/// the peeked page, never a fixed site.
+fn page_host(page: &StoryPage) -> String {
+    page_url(page).split('/').nth(2).unwrap_or("").to_string()
+}
+
+/// One background-opened tab: a title, tile letter, page and address.
+fn background_tab(url: &str) -> SpaceTab {
+    let host = url.split('/').nth(2).unwrap_or(url).to_string();
+    let letter: SharedString = host.chars().next().map(|c| c.to_ascii_uppercase().to_string()).unwrap_or_default().into();
+    SpaceTab { title: host.clone().into(), letter, page: StoryPage::Generic(host.into()), url: url.to_string() }
+}
+
 /// The page chip the Ask line and the card share.
 fn page_chip() -> ComposerChip {
     ComposerChip { id: "this-page".into(), kind: ComposerChipKind::File, label: "This page".into(), removable: true, thumbnail: None, detail: None }
 }
 
-/// The Ask line state: page chip plus the two site actions.
-fn ask_state() -> LineState {
+/// The Ask line state: the kept page chips plus the two site actions.
+fn ask_chips(chips: &[ComposerChip]) -> LineState {
     LineState::Ask {
         text: "Ask about this page".into(),
-        chips: vec![page_chip()],
+        chips: chips.to_vec(),
         site_actions: SITE_ACTIONS.iter().map(|(id, label)| (SharedString::from(*id), SharedString::from(*label))).collect(),
     }
 }
@@ -254,15 +292,24 @@ pub struct BrowseView {
     sessions: bool,
     sidebar_open: bool,
     line_open: bool,
-    /// After Done, the line re-opens as the Ask prompt.
+    /// After Done (or Stopped), the line re-opens as the Ask prompt.
     ask_after_done: bool,
     card_open: bool,
     docked: bool,
+    /// The shared page chip, minus any the person removed.
+    chips: Vec<ComposerChip>,
+    /// The card header's model; `Model` cycles Sonnet → Haiku → Sonnet.
+    model: SharedString,
+    /// The `+` menu's quiet attach popover.
+    attach_open: bool,
+    /// Answers picked through `Choose(n)`, kept as `User` transcript items.
+    chosen: Vec<SharedString>,
     field_open: bool,
     field_model: FieldModel,
     field_answer: Option<SharedString>,
-    /// Rows Background-opened without showing, oldest first.
-    background_opened: Vec<String>,
+    /// Rows Background-opened without showing, oldest first, as
+    /// `(space tag, tab)`: they join the own-tabs list, never `shown`.
+    background_tabs: Vec<(u8, SpaceTab)>,
     peek_open: bool,
     /// The page peek shows (a clicked link's page, else the note).
     peek_page: StoryPage,
@@ -291,6 +338,11 @@ pub struct BrowseView {
     /// A parked focus request the next render performs.
     want_focus: Option<FocusKind>,
     focus_root: FocusHandle,
+    /// The live timer loop, if any: a restart replaces it, a stop clears
+    /// it, so finished handles never pile up.
+    timer_task: Option<Task<()>>,
+    /// The harness steps task, if still running: it clears itself as its
+    /// last act, so no finished handle lingers either.
     tasks: Vec<Task<()>>,
     _subs: Vec<Subscription>,
 }
@@ -336,7 +388,9 @@ impl BrowseView {
         let mut this = Self {
             story: BrowseStory::new(),
             space: Space::Education,
-            shown: Shown::Own(0),
+            // The PGI page shows with no row highlighted: nothing is
+            // selected until the person picks a tab.
+            shown: Shown::Page(StoryPage::Pgi, page_url(&StoryPage::Pgi)),
             back: Vec::new(),
             forward: Vec::new(),
             ka_open: true,
@@ -348,10 +402,14 @@ impl BrowseView {
             ask_after_done: false,
             card_open: false,
             docked: false,
+            chips: vec![page_chip()],
+            model: "Claude Sonnet".into(),
+            attach_open: false,
+            chosen: Vec::new(),
             field_open: false,
             field_model: FieldModel::new("", Vec::new()),
             field_answer: None,
-            background_opened: Vec::new(),
+            background_tabs: Vec::new(),
             peek_open: false,
             peek_page: StoryPage::Peek,
             split: false,
@@ -370,6 +428,7 @@ impl BrowseView {
             timer_spawns: 0,
             want_focus: None,
             focus_root: cx.focus_handle(),
+            timer_task: None,
             tasks: Vec::new(),
             _subs: vec![sync],
         };
@@ -377,15 +436,26 @@ impl BrowseView {
         this
     }
 
-    /// The tabs of the current space, minus rows closed with their ×.
-    /// The New space starts empty.
+    /// The tabs of the current space, minus rows closed with their ×,
+    /// plus background-opened tabs. The New space starts empty.
     fn space_tabs(&self) -> Vec<SpaceTab> {
-        let all = match self.space {
+        let mut all = match self.space {
             Space::Education => education_tabs(),
             Space::Personal => personal_tabs(),
             Space::New => Vec::new(),
         };
+        for (tag, tab) in &self.background_tabs {
+            if *tag == self.space.tag() {
+                all.push(tab.clone());
+            }
+        }
         all.into_iter().filter(|tab| !self.closed.iter().any(|(tag, title)| *tag == self.space.tag() && title == &tab.title)).collect()
+    }
+
+    /// Whether the shown own tab is gone: an empty space, or every own tab
+    /// closed. The centre then shows the empty page, not a fallback tab.
+    fn own_missing(&self) -> bool {
+        matches!(&self.shown, Shown::Own(i) if self.space_tabs().get(*i).is_none())
     }
 
     /// What the Field ranks over: open tabs, history and commands.
@@ -420,10 +490,11 @@ impl BrowseView {
         }
     }
 
-    /// The address line for the shown page.
+    /// The address line for the shown page; empty when no tab shows, so a
+    /// fresh space never borrows a closed tab's URL.
     fn shown_address(&self) -> String {
         match &self.shown {
-            Shown::Own(i) => self.space_tabs().get(*i).map(|t| t.url.clone()).unwrap_or_else(|| page_url(&StoryPage::Pgi)),
+            Shown::Own(i) => self.space_tabs().get(*i).map(|t| t.url.clone()).unwrap_or_default(),
             Shown::Task(i) => {
                 self.story.tabs().get(*i).map(|t| page_url(&t.page)).unwrap_or_else(|| page_url(&StoryPage::Pgi))
             }
@@ -432,20 +503,13 @@ impl BrowseView {
     }
 
     /// The single highlighted sidebar row: the own tab shown, or the task
-    /// tab shown — never both, never none while a tab shows.
+    /// tab shown — never both. A navigated page highlights nothing, and
+    /// nothing is highlighted until the person picks a tab.
     fn highlighted(&self) -> Highlight {
         match &self.shown {
-            Shown::Own(i) => Highlight::Own(*i),
-            Shown::Task(i) => Highlight::Task(*i),
-            Shown::Page(page, _) => {
-                if let Some(i) = self.space_tabs().iter().position(|t| &t.page == page) {
-                    Highlight::Own(i)
-                } else if let Some(i) = self.story.tabs().iter().position(|t| &t.page == page) {
-                    Highlight::Task(i)
-                } else {
-                    Highlight::None
-                }
-            }
+            Shown::Own(i) if self.space_tabs().get(*i).is_some() => Highlight::Own(*i),
+            Shown::Task(i) if self.story.tabs().get(*i).is_some() => Highlight::Task(*i),
+            _ => Highlight::None,
         }
     }
 
@@ -489,17 +553,20 @@ impl BrowseView {
         if self.story.answered() {
             items.push(AgentItem::Answer(ANSWER_TEXT.into()));
         }
-        AgentTranscript { title: "PGI vs school indicators".into(), model: "Claude Sonnet".into(), chips: vec![page_chip()], items }
+        for note in &self.chosen {
+            items.push(AgentItem::User(note.clone()));
+        }
+        AgentTranscript { title: "PGI vs school indicators".into(), model: self.model.clone(), chips: self.chips.clone(), items }
     }
 
-    /// The library line state for the story's line. After Done, an opened
-    /// line is the Ask prompt again: a fresh story may start.
+    /// The library line state for the story's line. After Done or Stopped,
+    /// an opened line is the Ask prompt again: a fresh story may start.
     fn line_state(&self) -> LineState {
-        if self.story.phase() == Phase::Done && self.ask_after_done {
-            return ask_state();
+        if matches!(self.story.phase(), Phase::Done | Phase::Stopped) && self.ask_after_done {
+            return ask_chips(&self.chips);
         }
         match self.story.line() {
-            StoryLine::Ask => ask_state(),
+            StoryLine::Ask => ask_chips(&self.chips),
             StoryLine::Driving { status, face } => LineState::from_task(face, status),
             StoryLine::YouDrive => LineState::YouDrive,
             StoryLine::NeedsYou { text } => LineState::NeedsYou { text },
@@ -568,7 +635,10 @@ impl BrowseView {
                 }
             }
         });
-        self.tasks.push(task);
+        // The previous loop is dead by construction (a live loop returns
+        // above; anything else was stopped), so replacing keeps exactly
+        // the live task and no finished handles.
+        self.timer_task = Some(task);
     }
 
     /// Stops the timer: the live loop exits on its next tick. The harness
@@ -576,6 +646,7 @@ impl BrowseView {
     fn stop_timer(&mut self) {
         self.timer_gen += 1;
         self.timer_live = false;
+        self.timer_task = None;
     }
 
     /// One step forward from the Space key or the `run` harness: the same
@@ -646,7 +717,7 @@ impl BrowseView {
                 cx.notify();
             }
             LineIntent::Stop => self.stop_task(cx),
-            LineIntent::Allow => {
+            LineIntent::Allow | LineIntent::AllowAlways => {
                 self.story.allow();
                 self.kick_timer(window, cx);
                 cx.notify();
@@ -660,7 +731,14 @@ impl BrowseView {
                 self.want_focus = Some(FocusKind::Card);
                 cx.notify();
             }
-            LineIntent::Plus | LineIntent::ChipRemove(_) | LineIntent::AllowAlways => {}
+            LineIntent::Plus => {
+                self.attach_open = true;
+                cx.notify();
+            }
+            LineIntent::ChipRemove(id) => {
+                self.chips.retain(|chip| chip.id != id);
+                cx.notify();
+            }
         }
         cx.notify();
     }
@@ -684,8 +762,54 @@ impl BrowseView {
                 self.card_open = false;
                 cx.notify();
             }
-            CardIntent::Plus | CardIntent::ChipRemove(_) | CardIntent::Model | CardIntent::Choose(_) => {}
+            CardIntent::Plus => {
+                self.attach_open = true;
+                cx.notify();
+            }
+            CardIntent::ChipRemove(id) => {
+                self.chips.retain(|chip| chip.id != id);
+                cx.notify();
+            }
+            CardIntent::Model => {
+                self.model = if self.model.as_ref() == "Claude Sonnet" { "Claude Haiku".into() } else { "Claude Sonnet".into() };
+                cx.notify();
+            }
+            CardIntent::Choose(n) => {
+                self.chosen.push(SharedString::from(format!("Choice {}", n + 1)));
+                self.story.handback();
+                self.kick_timer(window, cx);
+                cx.notify();
+            }
         }
+    }
+
+    /// ⌘E: the card floats; a docked column comes back with it. The
+    /// harness `card` step runs this same transition, so screenshots see
+    /// what the key path renders.
+    fn show_card(&mut self, cx: &mut Context<Self>) {
+        self.card_open = true;
+        self.docked = false;
+        self.want_focus = Some(FocusKind::Card);
+        cx.notify();
+    }
+
+    /// ⌘⇧E: dock the open card into the right column, or undock it back
+    /// into the floating card. The harness `dock`/`undock` steps land on
+    /// the same flags.
+    fn toggle_dock(&mut self, cx: &mut Context<Self>) {
+        if self.card_open && self.docked {
+            self.toggle_dock_off(cx);
+        } else {
+            self.card_open = true;
+            self.docked = true;
+            cx.notify();
+        }
+    }
+
+    /// Undock back into the floating card, keeping it open.
+    fn toggle_dock_off(&mut self, cx: &mut Context<Self>) {
+        self.docked = false;
+        cx.notify();
     }
 
     /// Navigates to a URL's drawn page: the shown page changes, so the
@@ -757,7 +881,7 @@ impl BrowseView {
                     self.field_editor.update(cx, |state, cx| state.set_value("", window, cx));
                     self.field_open = false;
                     self.line_open = true;
-                    self.ask_after_done = self.story.phase() == Phase::Done;
+                    self.ask_after_done = matches!(self.story.phase(), Phase::Done | Phase::Stopped);
                     self.line_input.update(cx, |state, cx| state.set_value(q.as_str(), window, cx));
                     self.want_focus = Some(FocusKind::Line);
                     cx.notify();
@@ -774,8 +898,8 @@ impl BrowseView {
                 }
             },
             FieldIntent::Background(row) => {
-                // Background opens without showing: the row is remembered,
-                // the shown page never moves.
+                // Background opens without showing: the tab joins the
+                // own-tabs list, the shown page never moves.
                 let url = match &row.kind {
                     FieldRowKind::Tab { id } => {
                         let index = id.as_ref().strip_prefix("tab-").and_then(|n| n.parse::<usize>().ok());
@@ -786,8 +910,9 @@ impl BrowseView {
                     FieldRowKind::Ask | FieldRowKind::Search | FieldRowKind::Task | FieldRowKind::Command { .. } => None,
                 };
                 if let Some(url) = url {
-                    if !self.background_opened.contains(&url) {
-                        self.background_opened.push(url);
+                    let tag = self.space.tag();
+                    if !self.background_tabs.iter().any(|(t, tab)| *t == tag && tab.url == url) {
+                        self.background_tabs.push((tag, background_tab(&url)));
                     }
                 }
                 self.field_open = false;
@@ -819,13 +944,26 @@ impl BrowseView {
     }
 
     /// Closes an own tab row: the tab leaves the sidebar, and closing the
-    /// shown tab shows its neighbour.
+    /// shown tab shows its neighbour (or the empty page past the last one).
+    /// Back/forward drop the closed tab and shift later tabs down, so no
+    /// stack points at a stale index.
     fn close_space_tab(&mut self, index: usize, cx: &mut Context<Self>) {
         let tabs = self.space_tabs();
         let Some(tab) = tabs.get(index) else {
             return;
         };
         self.closed.push((self.space.tag(), tab.title.clone()));
+        for stack in [&mut self.back, &mut self.forward] {
+            let mut kept = Vec::with_capacity(stack.len());
+            for shown in stack.drain(..) {
+                match shown {
+                    Shown::Own(j) if j == index => {}
+                    Shown::Own(j) if j > index => kept.push(Shown::Own(j - 1)),
+                    other => kept.push(other),
+                }
+            }
+            *stack = kept;
+        }
         if self.shown == Shown::Own(index) {
             let rest = tabs.len().saturating_sub(1);
             self.shown = Shown::Own(index.min(rest.saturating_sub(1)));
@@ -833,6 +971,42 @@ impl BrowseView {
             if i > index {
                 self.shown = Shown::Own(i - 1);
             }
+        }
+        cx.notify();
+    }
+
+    /// Done on the answer page: the story's tabs collapse to the Answer
+    /// tab and the shown page follows it, so the centre keeps the answer
+    /// instead of falling back to PGI.
+    fn finish_done_task(&mut self, cx: &mut Context<Self>) {
+        self.story.finish_task();
+        if matches!(self.shown, Shown::Task(_)) {
+            self.shown = Shown::Task(0);
+        }
+        cx.notify();
+    }
+
+    /// Reload re-runs the current page's load through the same path every
+    /// selection takes. The nav cluster owns no progress slot, so this
+    /// just re-sets the shown page and re-renders.
+    fn reload_page(&mut self, cx: &mut Context<Self>) {
+        let shown = self.shown.clone();
+        self.shown = shown;
+        cx.notify();
+    }
+
+    /// ⌘↩: allow the pending download only while its approval line is
+    /// open, hand a held wheel back, or steer the card's text.
+    fn confirm_cmd(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.story.phase() == Phase::Approval && self.line_open {
+            self.story.allow();
+            self.kick_timer(window, cx);
+        } else if self.story.phase() == Phase::Paused {
+            self.story.handback();
+            self.kick_timer(window, cx);
+        } else if self.card_open {
+            let text = self.card_input.read(cx).value().trim().to_string();
+            self.steer(&text, window, cx);
         }
         cx.notify();
     }
@@ -890,7 +1064,9 @@ impl BrowseView {
     /// card, peek, Field, menu, split. Esc on the approval card denies
     /// (library behaviour): the line stays, and the next Esc closes it.
     fn close_topmost(&mut self, cx: &mut Context<Self>) {
-        if self.foot.is_some() {
+        if self.attach_open {
+            self.attach_open = false;
+        } else if self.foot.is_some() {
             self.foot = None;
         } else if self.line_open && self.story.phase() == Phase::Approval {
             self.story.deny();
@@ -1180,35 +1356,14 @@ impl BrowseView {
         .into_any_element()
     }
 
-    /// The centre: the drawn page (plus the split page), or the 28 px
-    /// strip with the page title when the sidebar hides.
+    /// The centre: the drawn page (plus the split page), the empty page
+    /// when no tab shows, or the 28 px strip with the page's real title
+    /// when the sidebar hides.
     fn render_centre(&self, cx: &mut Context<Self>) -> AnyElement {
         let page = self.centre_page();
-        let title: SharedString = match &page {
-            StoryPage::Generic(t) => t.clone(),
-            StoryPage::Pgi => "PGI 2.0 · state scores 2023-24".into(),
-            StoryPage::Udise => "UDISE+ 2024-25 · dashboard".into(),
-            StoryPage::Answer => "Answer · PGI vs indicators".into(),
-            StoryPage::Peek => "Methodology note".into(),
-            _ => "Browse".into(),
-        };
+        let missing = self.own_missing();
+        let title: SharedString = if missing { "No tabs".into() } else { page_title(&page) };
         let link = cx.aui().colors.accent;
-        let on_link = cx.listener(|this, target: &StoryPage, window: &mut Window, cx: &mut Context<Self>| {
-            this.on_page_link(target.clone(), window, cx);
-        });
-        let ask_more = cx.listener(|this, _: &ClickEvent, _, cx: &mut Context<Self>| {
-            cx.stop_propagation();
-            this.ask_after_done = this.story.phase() == Phase::Done;
-            this.line_open = true;
-            this.want_focus = Some(FocusKind::Line);
-            cx.notify();
-        });
-        let done = cx.listener(|this, _: &ClickEvent, _, cx: &mut Context<Self>| {
-            cx.stop_propagation();
-            this.story.finish_task();
-            cx.notify();
-        });
-        let body = render_page(&page, link, on_link, ask_more, done);
         let mut centre = v_flex().size_full();
         if !self.sidebar_open {
             record_ax_label(&title);
@@ -1232,38 +1387,47 @@ impl BrowseView {
                     .child(title.clone()),
             );
         }
-        let page_cell = div()
-            .id("browse-page")
-            .flex_1()
-            .min_h(px(0.0))
-            .w_full()
-            .overflow_y_scroll()
-            .cursor_pointer()
-            .role(Role::Button)
-            .aria_label(format!("Page, {title}"))
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.page_takeover(cx)))
-            .child(body);
-        // Reading mode: the same page in a narrow centred column.
-        let page_cell = if self.reader {
-            record_ax_label("Reader mode");
-            div()
-                .id("browse-reader")
-                .flex_1()
-                .min_h(px(0.0))
-                .w_full()
-                .overflow_y_scroll()
+        if missing {
+            record_ax_label("No tabs — ⌘T for a new tab");
+            let empty = div()
+                .id("browse-empty-page")
+                .size_full()
                 .flex()
+                .items_center()
                 .justify_center()
-                .role(Role::Document)
-                .aria_label("Reader mode")
-                .child(div().w(px(640.0)).max_w(relative(0.8)).flex_none().child(page_cell))
-                .into_any_element()
-        } else {
-            page_cell.into_any_element()
-        };
+                .ui(scale::FS_13)
+                .text_color(cx.aui().colors.ink_3)
+                .role(Role::Label)
+                .aria_label("No tabs — ⌘T for a new tab")
+                .child("No tabs — ⌘T for a new tab")
+                .into_any_element();
+            return centre
+                .child(div().id("browse-page").flex_1().min_h(px(0.0)).w_full().overflow_y_scroll().child(empty))
+                .into_any_element();
+        }
         if self.split {
+            // Each pane renders its page directly (one scroll per pane, no
+            // nested scrollers): the row is `size_full`, each pane
+            // `flex_1 h_full min_w(0)`, each page `size_full` within it.
             let link = cx.aui().colors.accent;
             let line = cx.aui().colors.line;
+            let split_page = self.split_page.clone();
+            let left_title = page_title(&page);
+            let right_title = page_title(&split_page);
+            let left_link = cx.listener(|this, target: &StoryPage, window: &mut Window, cx: &mut Context<Self>| {
+                this.on_page_link(target.clone(), window, cx);
+            });
+            let left_ask = cx.listener(|this, _: &ClickEvent, _, cx: &mut Context<Self>| {
+                cx.stop_propagation();
+                this.ask_after_done = matches!(this.story.phase(), Phase::Done | Phase::Stopped);
+                this.line_open = true;
+                this.want_focus = Some(FocusKind::Line);
+                cx.notify();
+            });
+            let left_done = cx.listener(|this, _: &ClickEvent, _, cx: &mut Context<Self>| {
+                cx.stop_propagation();
+                this.finish_done_task(cx);
+            });
             let right_link =
                 cx.listener(|this, target: &StoryPage, window: &mut Window, cx: &mut Context<Self>| {
                     this.on_page_link(target.clone(), window, cx);
@@ -1272,30 +1436,77 @@ impl BrowseView {
             let noop_done = cx.listener(|_, _: &ClickEvent, _, _| {});
             centre
                 .child(
-                    h_flex().flex_1().min_h(px(0.0)).w_full().child(self.split_pane("left", page_cell, cx)).child(
-                        div().flex_none().w(px(1.0)).bg(line),
-                    ).child(self.split_pane(
-                        "right",
-                        render_page(&self.split_page, link, right_link, noop_ask, noop_done),
-                        cx,
-                    )),
+                    h_flex()
+                        .size_full()
+                        .child(self.split_pane("left", left_title, render_page(&page, link, left_link, left_ask, left_done), cx))
+                        .child(div().flex_none().w(px(1.0)).bg(line))
+                        .child(self.split_pane(
+                            "right",
+                            right_title,
+                            render_page(&split_page, link, right_link, noop_ask, noop_done),
+                            cx,
+                        )),
                 )
                 .into_any_element()
         } else {
+            let on_link = cx.listener(|this, target: &StoryPage, window: &mut Window, cx: &mut Context<Self>| {
+                this.on_page_link(target.clone(), window, cx);
+            });
+            let ask_more = cx.listener(|this, _: &ClickEvent, _, cx: &mut Context<Self>| {
+                cx.stop_propagation();
+                this.ask_after_done = matches!(this.story.phase(), Phase::Done | Phase::Stopped);
+                this.line_open = true;
+                this.want_focus = Some(FocusKind::Line);
+                cx.notify();
+            });
+            let done = cx.listener(|this, _: &ClickEvent, _, cx: &mut Context<Self>| {
+                cx.stop_propagation();
+                this.finish_done_task(cx);
+            });
+            let page_cell = div()
+                .id("browse-page")
+                .flex_1()
+                .min_h(px(0.0))
+                .w_full()
+                .overflow_y_scroll()
+                .cursor_pointer()
+                .role(Role::Button)
+                .aria_label(format!("Page, {title}"))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.page_takeover(cx)))
+                .child(render_page(&page, link, on_link, ask_more, done));
+            // Reading mode: the same page in a narrow centred column.
+            let page_cell = if self.reader {
+                record_ax_label("Reader mode");
+                div()
+                    .id("browse-reader")
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .w_full()
+                    .overflow_y_scroll()
+                    .flex()
+                    .justify_center()
+                    .role(Role::Document)
+                    .aria_label("Reader mode")
+                    .child(div().w(px(640.0)).max_w(relative(0.8)).flex_none().child(page_cell))
+                    .into_any_element()
+            } else {
+                page_cell.into_any_element()
+            };
             centre.child(page_cell).into_any_element()
         }
     }
 
-    /// One split pane: full height, its page, a × in its top-right corner.
-    fn split_pane(&self, side: &str, page: AnyElement, cx: &mut Context<Self>) -> AnyElement {
-        let label = format!("Close {side} split");
-        record_ax_label(&label);
-        let close_label = label.clone();
-        v_flex()
-            .flex_1()
-            .min_w(px(0.0))
-            .min_h(px(0.0))
-            .overflow_hidden()
+    /// One split pane: `flex_1 h_full min_w(0)`, its page filling one
+    /// scroller, a × in its top-right corner. The pane root carries the
+    /// "Split pane N" label; the page title is recorded beside it.
+    fn split_pane(&self, side: &str, title: SharedString, page: AnyElement, cx: &mut Context<Self>) -> AnyElement {
+        let n = if side == "left" { 1 } else { 2 };
+        let pane_label = format!("Split pane {n}");
+        record_ax_label(&pane_label);
+        record_ax_label(&title);
+        let close_label = format!("Close {side} split");
+        record_ax_label(&close_label);
+        v_flex().flex_1().h_full().min_w(px(0.0)).min_h(px(0.0)).overflow_hidden()
             .child(
                 h_flex()
                     .w_full()
@@ -1313,11 +1524,14 @@ impl BrowseView {
             )
             .child(
                 div()
-                    .id(SharedString::from(format!("browse-split-scroll-{side}")))
+                    .id(SharedString::from(format!("browse-split-pane-{side}")))
                     .flex_1()
                     .min_h(px(0.0))
                     .w_full()
                     .overflow_y_scroll()
+                    .role(Role::Label)
+                    .aria_label(pane_label)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.page_takeover(cx)))
                     .child(page),
             )
             .into_any_element()
@@ -1400,18 +1614,19 @@ impl BrowseView {
             // A status row, not a control: announce it so it reads in the tree.
             record_ax_label("You're driving");
         }
-        // Terminal states never offer Take over: Done and Stopped draw
-        // their own quiet rows instead of the library's driving row.
+        // Terminal states never offer Take over, unless the person re-opens
+        // the Ask prompt from them: Done and Stopped draw their own quiet
+        // rows instead of the library's driving row.
         if self.story.phase() == Phase::Done && !self.ask_after_done {
             return self.render_done_line(cx);
         }
-        if self.story.phase() == Phase::Stopped {
+        if self.story.phase() == Phase::Stopped && !self.ask_after_done {
             return self.render_stopped_line(cx);
         }
         let state = self.line_state();
         let input = self.line_input.clone();
         let handler = cx.listener(|this, intent: &LineIntent, window, cx| this.on_line_intent(intent.clone(), window, cx));
-        popover_layer(self.centered_layer("browse-line-layer", self.page_left(), agent_line("browse-line", &state, &input).on_intent(
+        popover_layer(self.centered_layer("browse-line-layer", agent_line("browse-line", &state, &input).on_intent(
             move |next: LineIntent, window, cx| handler(&next, window, cx),
         )))
         .into_any_element()
@@ -1452,7 +1667,7 @@ impl BrowseView {
                         cx.notify();
                     })),
             );
-        popover_layer(self.centered_layer("browse-line-layer", self.page_left(), row)).into_any_element()
+        popover_layer(self.centered_layer("browse-line-layer", row)).into_any_element()
     }
 
     /// Stopped: the paused face, the cause text and ×. No Take over.
@@ -1487,7 +1702,7 @@ impl BrowseView {
                         cx.notify();
                     })),
             );
-        popover_layer(self.centered_layer("browse-line-layer", self.page_left(), row)).into_any_element()
+        popover_layer(self.centered_layer("browse-line-layer", row)).into_any_element()
     }
 
     /// The page's left edge: the sidebar width while it shows, else zero,
@@ -1496,13 +1711,21 @@ impl BrowseView {
         if self.sidebar_open { BROWSE_SIDEBAR_WIDTH } else { 0.0 }
     }
 
-    /// A bottom-centred overlay layer over the page rect.
-    fn centered_layer(&self, id: &str, left: f32, child: impl IntoElement) -> impl IntoElement {
+    /// The page's conceded right edge: the docked column's width while it
+    /// is open, else zero, so the line centres on the page rather than the
+    /// window once the 420 px column lands.
+    fn page_right(&self) -> f32 {
+        if self.docked && self.card_open { RIGHT_W } else { 0.0 }
+    }
+
+    /// A bottom-centred overlay layer over the page rect: 22 px above its
+    /// foot, spanning the page between the sidebar and the docked column.
+    fn centered_layer(&self, id: &str, child: impl IntoElement) -> impl IntoElement {
         div()
             .id(SharedString::from(id))
             .absolute()
-            .left(px(left))
-            .right(px(0.0))
+            .left(px(self.page_left()))
+            .right(px(self.page_right()))
             .bottom(px(22.0))
             .flex()
             .flex_row()
@@ -1510,12 +1733,28 @@ impl BrowseView {
             .child(child)
     }
 
-    /// The ⌘E card, centred over the page 22 px above its foot.
+    /// The ⌘E card's layer: its bottom sits 22 px above the line's top
+    /// (the 48 px line + 44 px from the page foot), right-aligned 20 px
+    /// from the page's right edge.
+    fn card_layer(&self, child: impl IntoElement) -> impl IntoElement {
+        div()
+            .id("browse-card-layer")
+            .absolute()
+            .left(px(self.page_left()))
+            .right(px(self.page_right() + 20.0))
+            .bottom(px(92.0))
+            .flex()
+            .flex_row()
+            .justify_end()
+            .child(child)
+    }
+
+    /// The ⌘E card, floating over the page clear of the line below it.
     fn render_card(&self, cx: &mut Context<Self>) -> AnyElement {
         let transcript = self.transcript();
         let input = self.card_input.clone();
         let handler = cx.listener(|this, intent: &CardIntent, window, cx| this.on_card_intent(intent.clone(), window, cx));
-        popover_layer(self.centered_layer("browse-card-layer", self.page_left(), agent_card("browse-card", &transcript, &input).on_intent(
+        popover_layer(self.card_layer(agent_card("browse-card", &transcript, &input).on_intent(
             move |next: CardIntent, window, cx| handler(&next, window, cx),
         )))
         .into_any_element()
@@ -1534,8 +1773,13 @@ impl BrowseView {
     /// Peek: a frameless rounded card centred over the page (72 % × 82 %),
     /// the page beneath dimmed, a round × floating inside its top-right
     /// corner and a quiet caption at its foot.
-    fn render_peek(&self, cx: &mut Context<Self>) -> AnyElement {
-        record_ax_label("education.gov.in · Peek · Esc closes");
+    /// Peek: a frameless rounded card over the page rect only (never the
+    /// sidebar), the page beneath dimmed, a × floating in its top-right
+    /// corner at full opacity, and the peeked page's host as a caption at
+    /// its foot — but only while the pointer is over the card.
+    fn render_peek(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let caption = format!("{} · Peek · Esc closes", page_host(&self.peek_page));
+        record_ax_label(&caption);
         let p = cx.aui().colors;
         let link = p.accent;
         let peek_link = cx.listener(|this, target: &StoryPage, window: &mut Window, cx: &mut Context<Self>| {
@@ -1543,68 +1787,101 @@ impl BrowseView {
         });
         let noop = cx.listener(|_, _: &ClickEvent, _, _| {});
         let noop2 = cx.listener(|_, _: &ClickEvent, _, _| {});
+        let (hover, flags) = interaction_flags(SharedString::from("browse-peek-card"), window, cx);
+        let show_caption = flags.hovered;
+        let mut card = v_flex()
+            .id("browse-peek-card")
+            .w(relative(0.72))
+            .h(relative(0.82))
+            .rounded(px(12.0))
+            .bg(p.surface_1)
+            .shadow(p.shadow(3))
+            .overflow_hidden()
+            .track_interaction(&hover)
+            .child(
+                div()
+                    .flex_none()
+                    .w_full()
+                    .h(px(0.0))
+                    .flex()
+                    .flex_row()
+                    .justify_end()
+                    .child(
+                        div().mt(px(8.0)).mr(px(8.0)).child(
+                            icon_button("browse-peek-close", IconName::X)
+                                .accessibility_label("Close peek")
+                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    this.peek_open = false;
+                                    cx.notify();
+                                })),
+                        ),
+                    ),
+            )
+            .child(
+                div()
+                    .id("browse-peek-scroll")
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .w_full()
+                    .overflow_y_scroll()
+                    .child(render_page(&self.peek_page, link, peek_link, noop, noop2)),
+            );
+        if show_caption {
+            card = card.child(
+                div()
+                    .flex_none()
+                    .w_full()
+                    .py(px(6.0))
+                    .flex()
+                    .flex_row()
+                    .justify_center()
+                    .ui(scale::FS_11)
+                    .text_color(p.ink_3)
+                    .child(caption),
+            );
+        }
         popover_layer(
             div()
                 .id("browse-peek-layer")
                 .absolute()
-                .inset_0()
+                .left(px(self.page_left()))
+                .right(px(self.page_right()))
+                .top(px(0.0))
+                .bottom(px(0.0))
                 .child(div().absolute().inset_0().bg(gpui::black()).opacity(0.35))
+                .child(div().absolute().inset_0().flex().items_center().justify_center().child(card)),
+        )
+        .into_any_element()
+    }
+
+    /// The `+` menu's quiet attach popover: inert rows, one calm line.
+    fn render_attach(&self, cx: &mut Context<Self>) -> AnyElement {
+        record_ax_label("Attach: Tab · File · Screenshot");
+        let p = cx.aui().colors;
+        popover_layer(
+            div()
+                .id("browse-attach-layer")
+                .absolute()
+                .left(px(self.page_left()))
+                .right(px(self.page_right()))
+                .bottom(px(120.0))
+                .flex()
+                .flex_row()
+                .justify_center()
                 .child(
                     div()
-                        .absolute()
-                        .inset_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            v_flex()
-                                .w(relative(0.72))
-                                .h(relative(0.82))
-                                .rounded(px(12.0))
-                                .bg(gpui::white())
-                                .shadow(p.shadow(3))
-                                .overflow_hidden()
-                                .child(
-                                    div()
-                                        .flex_none()
-                                        .w_full()
-                                        .h(px(0.0))
-                                        .flex()
-                                        .flex_row()
-                                        .justify_end()
-                                        .child(
-                                            div().mt(px(8.0)).mr(px(8.0)).rounded_full().bg(gpui::black()).opacity(0.55).child(
-                                                icon_button("browse-peek-close", IconName::X)
-                                                    .accessibility_label("Close peek")
-                                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                                        this.peek_open = false;
-                                                        cx.notify();
-                                                    })),
-                                            ),
-                                        ),
-                                )
-                                .child(
-                                    div()
-                                        .id("browse-peek-scroll")
-                                        .flex_1()
-                                        .min_h(px(0.0))
-                                        .w_full()
-                                        .overflow_y_scroll()
-                                        .child(render_page(&self.peek_page, link, peek_link, noop, noop2)),
-                                )
-                                .child(
-                                    div()
-                                        .flex_none()
-                                        .w_full()
-                                        .py(px(6.0))
-                                        .flex()
-                                        .flex_row()
-                                        .justify_center()
-                                        .ui(scale::FS_11)
-                                        .text_color(p.ink_3)
-                                        .child("education.gov.in · Peek · Esc closes"),
-                                ),
-                        ),
+                        .id("browse-attach")
+                        .px(px(12.0))
+                        .py(px(8.0))
+                        .rounded(px(scale::R_SM))
+                        .border_1()
+                        .border_color(p.line)
+                        .bg(p.overlay)
+                        .ui(scale::FS_12)
+                        .text_color(p.ink_2)
+                        .role(Role::Status)
+                        .aria_label("Attach: Tab · File · Screenshot")
+                        .child("Attach: Tab · File · Screenshot".to_string()),
                 ),
         )
         .into_any_element()
@@ -1674,7 +1951,7 @@ impl BrowseView {
             _ => match step {
                 "ask" => {
                     self.line_input.update(cx, |state, cx| state.set_value(ASK_TEXT, window, cx));
-                    self.ask_after_done = self.story.phase() == Phase::Done;
+                    self.ask_after_done = matches!(self.story.phase(), Phase::Done | Phase::Stopped);
                     self.line_open = true;
                     self.want_focus = Some(FocusKind::Line);
                     cx.notify();
@@ -1698,10 +1975,10 @@ impl BrowseView {
                     if self.story.phase() == Phase::NeedsYou {
                         self.story.resolve_needs();
                         self.kick_timer(window, cx);
+                        cx.notify();
                     } else {
-                        self.story.finish_task();
+                        self.finish_done_task(cx);
                     }
-                    cx.notify();
                 }
                 "approval" => {
                     self.story.show_approval();
@@ -1723,20 +2000,13 @@ impl BrowseView {
                     cx.notify();
                 }
                 "field" => self.open_field(None, window, cx),
-                "card" => {
-                    self.card_open = true;
-                    self.docked = false;
-                    cx.notify();
-                }
+                "card" => self.show_card(cx),
                 "dock" => {
                     self.card_open = true;
                     self.docked = true;
                     cx.notify();
                 }
-                "undock" => {
-                    self.docked = false;
-                    cx.notify();
-                }
+                "undock" => self.toggle_dock_off(cx),
                 "peek" => {
                     self.peek_open = true;
                     cx.notify();
@@ -1783,6 +2053,9 @@ impl BrowseView {
             }
             let _ = this.update_in(cx, |this, _, cx| {
                 this.stop_timer();
+                // The steps are done: drop our own handle with them, so no
+                // finished task lingers beside the live timer task.
+                this.tasks.clear();
                 cx.notify();
             });
         });
@@ -1792,6 +2065,13 @@ impl BrowseView {
 
 impl Render for BrowseView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A stored timer with no live loop is finished: drop it, so the
+        // view keeps only the live timer task. (A `Some` handle with
+        // `timer_live` false is always the self-exited loop: every stop
+        // already cleared its handle, and a live loop keeps `timer_live`.)
+        if !self.timer_live {
+            self.timer_task = None;
+        }
         if !self.started {
             self.started = true;
             window.focus(&self.focus_root, cx);
@@ -1831,8 +2111,8 @@ impl Render for BrowseView {
                     .can_go_forward(can_forward)
                     .on_back(cx.listener(|this, _: &ClickEvent, _, cx| this.go_back(cx)))
                     .on_forward(cx.listener(|this, _: &ClickEvent, _, cx| this.go_forward(cx)))
-                    .on_reload(cx.listener(|_, _: &ClickEvent, _, cx| {
-                        cx.notify();
+                    .on_reload(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.reload_page(cx);
                     })),
             );
         let shell = app_shell("browse-shell")
@@ -1844,7 +2124,7 @@ impl Render for BrowseView {
             .header_centre(div())
             .sidebar(sidebar)
             .centre(centre)
-            .right_width(px(420.0))
+            .right_width(px(RIGHT_W))
             .right_open(right_open);
         let shell = match right {
             Some(right) => shell.right(right),
@@ -1856,9 +2136,9 @@ impl Render for BrowseView {
             .key_context(BROWSE_CONTEXT)
             .track_focus(&self.focus_root)
             .on_action(cx.listener(|this, _: &ShowLine, _, cx| {
-                // After Done the line re-opens as the Ask prompt: a fresh
-                // story may start.
-                if this.story.phase() == Phase::Done && !this.line_open {
+                // After Done or Stopped the line re-opens as the Ask
+                // prompt: a fresh story may start.
+                if matches!(this.story.phase(), Phase::Done | Phase::Stopped) && !this.line_open {
                     this.ask_after_done = true;
                 }
                 this.line_open = !this.line_open;
@@ -1867,22 +2147,8 @@ impl Render for BrowseView {
                 }
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &ShowCard, window, cx| {
-                this.card_open = true;
-                this.docked = false;
-                this.want_focus = Some(FocusKind::Card);
-                let _ = window;
-                cx.notify();
-            }))
-            .on_action(cx.listener(|this, _: &ToggleDock, _, cx| {
-                if this.card_open && this.docked {
-                    this.docked = false;
-                } else {
-                    this.card_open = true;
-                    this.docked = true;
-                }
-                cx.notify();
-            }))
+            .on_action(cx.listener(|this, _: &ShowCard, _, cx| this.show_card(cx)))
+            .on_action(cx.listener(|this, _: &ToggleDock, _, cx| this.toggle_dock(cx)))
             .on_action(cx.listener(|this, _: &NewTab, window, cx| this.open_field(None, window, cx)))
             .on_action(cx.listener(|this, _: &FocusAddress, window, cx| {
                 let address = this.shown_address();
@@ -1904,26 +2170,15 @@ impl Render for BrowseView {
                     this.advance_step(window, cx);
                 }
             }))
-            .on_action(cx.listener(|this, _: &ConfirmCmd, window, cx| {
-                if this.story.phase() == Phase::Approval {
-                    this.story.allow();
-                    this.kick_timer(window, cx);
-                } else if this.story.phase() == Phase::Paused {
-                    this.story.handback();
-                    this.kick_timer(window, cx);
-                } else if this.card_open {
-                    let text = this.card_input.read(cx).value().trim().to_string();
-                    this.steer(&text, window, cx);
-                }
-                cx.notify();
-            }))
+            .on_action(cx.listener(|this, _: &ConfirmCmd, window, cx| this.confirm_cmd(window, cx)))
             .on_action(cx.listener(|this, _: &CloseTop, _, cx| this.close_topmost(cx)))
             .child(shell)
             .children(self.space_menu.then(|| self.render_space_menu(cx)))
             .children(self.field_open.then(|| self.render_field(cx)))
-            .children(self.peek_open.then(|| self.render_peek(cx)))
+            .children(self.peek_open.then(|| self.render_peek(window, cx)))
             .children((self.card_open && !self.docked).then(|| self.render_card(cx)))
             .children(self.line_open.then(|| self.render_line(cx)))
+            .children(self.attach_open.then(|| self.render_attach(cx)))
             .children(self.foot.is_some().then(|| self.render_foot(cx)))
     }
 }
@@ -1941,9 +2196,10 @@ mod tests {
     // scope where the `#[gpui::test]` expansion's inner `#[test]`
     // re-resolves to the macro instead of the builtin, recursing forever.
     use super::build;
-    use super::{AdvanceStep, BrowseView, FocusKind, Highlight, Phase, Shown, StoryPage};
+    use super::{AdvanceStep, BrowseView, CardIntent, FieldIntent, FocusKind, Highlight, LineIntent, LineState, Phase, Shown, Space, StoryPage};
     use super::{BrowseStory, StoryLine};
     use aui::browse::agent_window::{AgentItem, StepState};
+    use aui::browse::field::{FieldRow, FieldRowKind};
     use aui::keys::SelectNext;
     use aui::transcript::{arm_ax_probe, take_ax_labels};
     use gpui::{Entity, Focusable, IntoElement, TestAppContext, Window};
@@ -2278,6 +2534,302 @@ mod tests {
             super::page_url(&StoryPage::Generic("Hacker News · newest".into())),
             "https://example.com/hacker-news-newest"
         );
+    }
+
+    /// R1: after `card;dock` the rendered tree carries the docked column
+    /// (the "Undock" button and its header), and `undock` brings the
+    /// floating card back.
+    #[gpui::test]
+    fn dock_renders_column_with_undock_then_card_back(cx: &mut TestAppContext) {
+        let (view, cx) = bare_view(cx);
+        arm_ax_probe(true);
+        take_ax_labels();
+        cx.update(|window, app| {
+            view.update(app, |v, cx| {
+                v.show_card(cx);
+                v.toggle_dock(cx);
+                cx.notify();
+            });
+            window.simulate_next_frame(app);
+        });
+        let labels = take_ax_labels();
+        assert!(labels.iter().any(|l| l == "Undock"), "docked column shows Undock, got {labels:?}");
+        assert!(
+            labels.iter().any(|l| l == "Model, Claude Sonnet"),
+            "docked column shows its header, got {labels:?}"
+        );
+        assert!(!labels.iter().any(|l| l == "Dock to column"), "the floating card is gone while docked, got {labels:?}");
+        take_ax_labels();
+        cx.update(|window, app| {
+            view.update(app, |v, cx| v.toggle_dock_off(cx));
+            window.simulate_next_frame(app);
+        });
+        let labels = take_ax_labels();
+        arm_ax_probe(false);
+        assert!(
+            labels.iter().any(|l| l == "Dock to column"),
+            "undocking brings the floating card back, got {labels:?}"
+        );
+        assert!(!labels.iter().any(|l| l == "Undock"), "the column is gone after undock, got {labels:?}");
+    }
+
+    /// R2: after `split`, both panes render with their page titles and
+    /// "Split pane 1/2" labels, each with its own ×.
+    #[gpui::test]
+    fn split_renders_two_labelled_panes(cx: &mut TestAppContext) {
+        let (view, cx) = bare_view(cx);
+        arm_ax_probe(true);
+        take_ax_labels();
+        cx.update(|window, app| {
+            view.update(app, |v, cx| v.apply_step("split", window, cx));
+            window.simulate_next_frame(app);
+        });
+        let labels = take_ax_labels();
+        arm_ax_probe(false);
+        assert!(labels.iter().any(|l| l == "Split pane 1"), "left pane is labelled, got {labels:?}");
+        assert!(labels.iter().any(|l| l == "Split pane 2"), "right pane is labelled, got {labels:?}");
+        assert!(
+            labels.iter().any(|l| l.contains("PGI 2.0 · state scores 2023-24")),
+            "left pane shows the centre title, got {labels:?}"
+        );
+        assert!(labels.iter().any(|l| l.contains("Methodology note")), "right pane shows the split title, got {labels:?}");
+        assert!(labels.iter().any(|l| l == "Close left split"), "left pane has its ×, got {labels:?}");
+        assert!(labels.iter().any(|l| l == "Close right split"), "right pane has its ×, got {labels:?}");
+    }
+
+    /// R3: hidden ⇒ no sidebar rows render, the strip names the shown
+    /// page, and the page layer starts at x = 0 with the shell told the
+    /// sidebar is closed.
+    #[gpui::test]
+    fn hidden_sidebar_gives_page_full_width(cx: &mut TestAppContext) {
+        let (view, cx) = bare_view(cx);
+        arm_ax_probe(true);
+        take_ax_labels();
+        cx.update(|window, app| {
+            view.update(app, |v, cx| {
+                v.sidebar_open = false;
+                cx.notify();
+            });
+            window.simulate_next_frame(app);
+        });
+        let labels = take_ax_labels();
+        arm_ax_probe(false);
+        let (closed, left) = cx.update(|_, app| view.update(app, |v, _| (!v.sidebar_open, v.page_left())));
+        assert!(!labels.iter().any(|l| l.contains("New tab")), "no sidebar rows while hidden, got {labels:?}");
+        assert!(
+            labels.iter().any(|l| l.contains("PGI 2.0 · state scores 2023-24")),
+            "the strip names the shown page, got {labels:?}"
+        );
+        assert!(closed, "the shell is told the sidebar is closed");
+        assert_eq!(left, 0.0, "the page element's bounds start at x = 0");
+    }
+
+    /// D1: Done keeps the answer — the tabs collapse but `shown` follows
+    /// the Answer tab, so the centre never falls back to PGI.
+    #[gpui::test]
+    fn finish_task_keeps_the_answer_shown(cx: &mut TestAppContext) {
+        let (view, cx) = bare_view(cx);
+        cx.update(|window, app| {
+            view.update(app, |v, cx| {
+                v.do_send(window, cx);
+                v.stop_timer();
+                v.story.answer();
+                v.story_advanced();
+                v.finish_done_task(cx);
+            });
+        });
+        let (shown, centre, highlight) =
+            cx.update(|_, app| view.update(app, |v, _| (v.shown.clone(), v.centre_page(), v.highlighted())));
+        assert_eq!(shown, Shown::Task(0), "shown follows the collapsed Answer tab");
+        assert_eq!(centre, StoryPage::Answer, "the centre keeps the answer");
+        assert_eq!(highlight, Highlight::Task(0), "the Answer row keeps the highlight");
+    }
+
+    /// D2: a fresh space shows the empty page with an empty address.
+    #[gpui::test]
+    fn new_space_shows_empty_page(cx: &mut TestAppContext) {
+        let (view, cx) = bare_view(cx);
+        arm_ax_probe(true);
+        take_ax_labels();
+        cx.update(|window, app| {
+            view.update(app, |v, cx| v.switch_space(Space::New, cx));
+            window.simulate_next_frame(app);
+        });
+        let labels = take_ax_labels();
+        arm_ax_probe(false);
+        let (missing, address) = cx.update(|_, app| view.update(app, |v, _| (v.own_missing(), v.shown_address())));
+        assert!(labels.iter().any(|l| l.contains("No tabs — ⌘T for a new tab")), "empty space names the empty page, got {labels:?}");
+        assert!(missing, "no own tab shows in a fresh space");
+        assert_eq!(address, "", "the address line stays empty with no tabs");
+    }
+
+    /// D2: closing the last own tab empties the page and drops stale
+    /// back/forward entries.
+    #[gpui::test]
+    fn closing_last_own_tab_empties_page_and_drops_history(cx: &mut TestAppContext) {
+        let (view, cx) = bare_view(cx);
+        cx.update(|_, app| {
+            view.update(app, |v, cx| {
+                v.select_space_tab(2, cx);
+                v.select_space_tab(1, cx);
+                v.close_space_tab(2, cx);
+                v.close_space_tab(1, cx);
+                v.close_space_tab(0, cx);
+            });
+        });
+        let (missing, address, back, highlight) = cx.update(|_, app| {
+            view.update(app, |v, _| (v.own_missing(), v.shown_address(), v.back.clone(), v.highlighted()))
+        });
+        assert!(missing, "no tab shows past the last close");
+        assert_eq!(address, "", "the address line stays empty with no tabs");
+        assert!(!back.iter().any(|s| matches!(s, Shown::Own(_))), "history drops stale own tabs, got {back:?}");
+        assert_eq!(highlight, Highlight::None, "no row stays highlighted with no tabs");
+    }
+
+    /// D3: `deny;ask;send` restarts — the Ask line returns after Stop and
+    /// Send starts a fresh running story.
+    #[gpui::test]
+    fn ask_after_stop_restarts_the_story(cx: &mut TestAppContext) {
+        let (view, cx) = bare_view(cx);
+        cx.update(|window, app| {
+            view.update(app, |v, cx| {
+                v.story.send();
+                v.story.show_approval();
+                v.story.deny();
+                assert_eq!(v.story.phase(), Phase::Stopped);
+                v.apply_step("ask", window, cx);
+                assert!(v.line_open, "ask re-opens the line after Stop");
+                assert!(matches!(v.line_state(), LineState::Ask { .. }), "the stopped line becomes the Ask prompt");
+                v.apply_step("send", window, cx);
+                assert_eq!(v.story.phase(), Phase::Running, "send starts a fresh story");
+                assert_eq!(v.story.tabs().len(), 1);
+                v.stop_timer();
+            });
+        });
+    }
+
+    /// D5: ⌘↩ allows only while the approval line is open.
+    #[gpui::test]
+    fn confirm_in_approval_requires_open_line(cx: &mut TestAppContext) {
+        let (view, cx) = bare_view(cx);
+        cx.update(|window, app| {
+            view.update(app, |v, cx| {
+                v.story.send();
+                v.story.show_approval();
+                v.line_open = false;
+                v.confirm_cmd(window, cx);
+                assert_eq!(v.story.phase(), Phase::Approval, "a closed line never allows");
+                assert!(v.story.approval_open(), "the approval still waits");
+                v.line_open = true;
+                v.confirm_cmd(window, cx);
+                assert_eq!(v.story.phase(), Phase::Running, "an open line allows");
+                assert!(v.story.downloaded(), "the download runs after allow");
+                v.stop_timer();
+            });
+        });
+    }
+
+    /// V1: the line's page rect concedes the docked column — 420 px while
+    /// open, zero undocked — so it centres on the page either way.
+    #[gpui::test]
+    fn docked_line_concedes_the_right_pane(cx: &mut TestAppContext) {
+        let (view, cx) = bare_view(cx);
+        let undocked = cx.update(|_, app| view.update(app, |v, _| v.page_right()));
+        assert_eq!(undocked, 0.0, "no column conceded while undocked");
+        cx.update(|_, app| {
+            view.update(app, |v, cx| {
+                v.show_card(cx);
+                v.toggle_dock(cx);
+            });
+        });
+        let (docked_right, docked_left) =
+            cx.update(|_, app| view.update(app, |v, _| (v.page_right(), v.page_left())));
+        assert!(
+            (docked_right - super::RIGHT_W).abs() < 0.001,
+            "the line concedes the open right pane, got {docked_right}"
+        );
+        assert!(
+            (docked_left - super::BROWSE_SIDEBAR_WIDTH).abs() < 0.001,
+            "the sidebar edge still holds while open, got {docked_left}"
+        );
+        cx.update(|_, app| {
+            view.update(app, |v, cx| v.toggle_dock_off(cx));
+        });
+        let reopened = cx.update(|_, app| view.update(app, |v, _| v.page_right()));
+        assert_eq!(reopened, 0.0, "undocking hands the width back");
+    }
+
+    /// D4: the inert controls act — Plus opens Attach, ChipRemove drops
+    /// the chip, Model cycles, Choose answers and resumes, reload re-sets
+    /// the shown page, and Background opens a tab without moving shown.
+    #[gpui::test]
+    fn inert_controls_act(cx: &mut TestAppContext) {
+        let (view, cx) = bare_view(cx);
+        arm_ax_probe(true);
+        // Plus opens the quiet attach popover; Esc takes it back down.
+        cx.update(|window, app| {
+            view.update(app, |v, cx| {
+                v.on_line_intent(LineIntent::Plus, window, cx);
+                assert!(v.attach_open, "Plus opens Attach");
+            });
+            window.simulate_next_frame(app);
+        });
+        let labels = take_ax_labels();
+        assert!(
+            labels.iter().any(|l| l.contains("Attach: Tab · File · Screenshot")),
+            "Attach renders its quiet line, got {labels:?}"
+        );
+        cx.update(|window, app| {
+            view.update(app, |v, cx| {
+                v.close_topmost(cx);
+                assert!(!v.attach_open, "Esc closes Attach first");
+                // ChipRemove drops the page chip from the shared state.
+                v.on_line_intent(LineIntent::ChipRemove("this-page".into()), window, cx);
+            });
+        });
+        arm_ax_probe(false);
+        let (chips, model) = cx.update(|_, app| {
+            view.update(app, |v, _| (v.chips.len(), v.model.clone()))
+        });
+        assert_eq!(chips, 0, "the removed chip leaves the state");
+        // Model cycles Sonnet → Haiku → Sonnet; Choose answers and resumes.
+        cx.update(|window, app| {
+            view.update(app, |v, cx| {
+                assert_eq!(model.as_ref(), "Claude Sonnet");
+                v.on_card_intent(CardIntent::Model, window, cx);
+                assert_eq!(v.model.as_ref(), "Claude Haiku", "Model steps to Haiku");
+                v.on_card_intent(CardIntent::Model, window, cx);
+                assert_eq!(v.model.as_ref(), "Claude Sonnet", "Model cycles back");
+                v.story.send();
+                v.story.takeover();
+                v.on_card_intent(CardIntent::Choose(0), window, cx);
+                assert_eq!(v.story.phase(), Phase::Running, "Choose resumes the held turn");
+                let user = v.transcript().items.iter().any(|item| matches!(item, AgentItem::User(text) if text.as_ref() == "Choice 1"));
+                assert!(user, "Choose records the answer as a User item");
+                v.stop_timer();
+            });
+        });
+        // Reload keeps the shown page and its history; Background opens a
+        // tab of its own without moving shown.
+        cx.update(|window, app| {
+            view.update(app, |v, cx| {
+                let before = v.shown.clone();
+                let back = v.back.len();
+                v.reload_page(cx);
+                assert_eq!(v.shown, before, "reload re-sets the shown page");
+                assert_eq!(v.back.len(), back, "reload touches no history");
+                let shown = v.shown.clone();
+                let row = FieldRow {
+                    kind: FieldRowKind::History { url: "https://example.com/added".into() },
+                    title: "example.com".into(),
+                    detail: None,
+                    hint: "".into(),
+                };
+                v.on_field_intent(FieldIntent::Background(row), window, cx);
+                assert!(v.space_tabs().iter().any(|t| t.url == "https://example.com/added"), "background adds the tab");
+                assert_eq!(v.shown, shown, "background never moves shown");
+            });
+        });
     }
 }
 

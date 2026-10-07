@@ -125,6 +125,32 @@ pub fn udise_page(
     ])
 }
 
+/// `dropout_page`: secondary dropout bars for five states.
+pub fn dropout_page(
+    link: Hsla,
+    on_link: impl Fn(&StoryPage, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    const BARS: [(&str, f32); 5] =
+        [("Karnataka", 3.1), ("Tamil Nadu", 2.4), ("Kerala", 1.2), ("Maharashtra", 4.8), ("Gujarat", 6.9)];
+    let mut list = v_flex().w_full().gap(px(8.0));
+    for (state, value) in BARS {
+        list = list.child(
+            h_flex()
+                .w_full()
+                .items_center()
+                .gap(px(12.0))
+                .child(div().w(px(120.0)).flex_none().truncate().ui(scale::FS_12).text_color(gpui::rgb(INK)).child(state.to_string()))
+                .child(div().w(px(value * 22.0)).h(px(14.0)).rounded(px(4.0)).bg(gpui::rgb(INK).opacity(0.75)))
+                .child(div().ui(scale::FS_12).text_color(gpui::rgb(INK)).child(format!("{value:.1} %"))),
+        );
+    }
+    shell(vec![
+        heading("UDISE+ · dropout, secondary", "Share of enrolled students who drop out"),
+        list.into_any_element(),
+        link_row("PTR by state", StoryPage::Udise, link, on_link),
+    ])
+}
+
 /// `datagov_page`: the enrolment dataset behind a sign-in box (inert).
 pub fn datagov_page(
     link: Hsla,
@@ -274,7 +300,7 @@ pub fn render_page(
     match page {
         StoryPage::Pgi => pgi_page(link, on_link),
         StoryPage::Udise => udise_page(link, on_link),
-        StoryPage::Dropout => generic_page("UDISE+ · dropout, secondary", link, on_link),
+        StoryPage::Dropout => dropout_page(link, on_link),
         StoryPage::Datagov => datagov_page(link, on_link),
         StoryPage::Answer => answer_page(link, on_link, on_ask_more, on_done),
         StoryPage::Peek => peek_page(link, on_link),
