@@ -16,6 +16,7 @@
 //! ```
 
 mod assistant;
+mod browse;
 mod cards;
 mod gallery;
 mod idle;

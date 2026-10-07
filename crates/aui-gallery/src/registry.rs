@@ -805,6 +805,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::providers::build_connect,
     },
     Entry {
+        id: "screens/browse",
+        group: "Screens",
+        title: "Browse",
+        subtitle: "The clickable Browse prototype: sidebar, drawn pages and the agent overlays running the PGI story",
+        width: 1280.0,
+        height: 820.0,
+        theme: CardTheme::Dark,
+        build: crate::browse::build,
+    },
+    Entry {
         id: "overlays/usage",
         group: "Overlays",
         title: "Provider usage cards",
