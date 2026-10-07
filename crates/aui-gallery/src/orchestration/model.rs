@@ -1724,6 +1724,52 @@ mod tests {
         assert!(found_merge, "A11 must hold the merged summary");
     }
 
+    /// Right-pane contract the Browser screenshots rely on: scenario A shows
+    /// the Browser pane at 1-based steps 8–11 and starts closed everywhere
+    /// else, so `goto:8` must open it.
+    #[test]
+    fn scenario_a_browser_steps() {
+        let all = scenarios();
+        let a = &all[0];
+        for (index, step) in a.steps.iter().enumerate() {
+            let n = index + 1;
+            if (8..=11).contains(&n) {
+                assert!(
+                    matches!(step.right, RightPane::Browser),
+                    "A{n} must carry the Browser pane"
+                );
+            } else {
+                assert!(
+                    matches!(step.right, RightPane::Closed),
+                    "A{n} must start with the pane closed"
+                );
+            }
+        }
+    }
+
+    /// The bubble-overflow proofs rely on these user turns existing: A5 holds
+    /// both the `go` bubble and the steer bubble, and F1 holds a user bubble.
+    #[test]
+    fn proof_steps_hold_their_user_bubbles() {
+        fn users(items: &[CentreItem]) -> Vec<&str> {
+            items
+                .iter()
+                .filter_map(|item| match item {
+                    CentreItem::User(text) => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect()
+        }
+        let all = scenarios();
+        let a5 = users(&all[0].steps[4].items);
+        assert!(a5.contains(&"go"), "A5 must hold the `go` bubble");
+        assert!(
+            a5.iter().any(|t| t.contains("Button component")),
+            "A5 must hold the steer bubble"
+        );
+        assert!(!users(&all[5].steps[0].items).is_empty(), "F1 must hold a user bubble");
+    }
+
     /// Scenario F's replied step quotes the peer's answer.
     #[test]
     fn scenario_f_reply() {

@@ -28,6 +28,10 @@ use super::model::{
 pub const BODY_TEXT: f32 = 13.5;
 /// Auto-advance tick for `Play`.
 pub const PLAY_TICK: Duration = Duration::from_millis(2500);
+/// Frame pump after a state change: how many notifies, and at what cadence.
+/// Enough wall-clock time for the shell's layout spring to settle.
+const SETTLE_PUMPS: u32 = 30;
+const SETTLE_TICK: Duration = Duration::from_millis(25);
 /// How long the `AUI_GALLERY_STEPS` harness waits before dispatching.
 pub const STEPS_DELAY: Duration = Duration::from_millis(250);
 /// Chrome strip padding and the transcript's padding, mirroring the mock.
@@ -69,6 +73,9 @@ pub struct OrchestrationMock {
     /// `AUI_GALLERY_STEPS`, applied once after the first frame.
     steps: Vec<String>,
     started: bool,
+    /// A state change retargeted a layout spring: keep frames flowing until
+    /// it settles. Consumed by the next render.
+    frames_pending: bool,
     /// Timers keep running only while their task is alive.
     pub(super) tasks: Vec<Task<()>>,
 }
@@ -104,6 +111,7 @@ impl OrchestrationMock {
             focus_root: cx.focus_handle(),
             steps,
             started: false,
+            frames_pending: false,
             tasks: Vec::new(),
         }
     }
@@ -125,6 +133,9 @@ impl OrchestrationMock {
         self.right_override = None;
         self.right_tab = None;
         self.peer_expanded.clear();
+        // The step's right pane may differ from the last frame's: keep
+        // frames flowing so the shell's layout spring settles there too.
+        self.frames_pending = true;
     }
 
     /// Advances one step; `false` when already on the last step.
@@ -262,11 +273,15 @@ impl OrchestrationMock {
     fn render_item(&self, step_no: usize, item_no: usize, item: &CentreItem, cx: &mut Context<Self>) -> AnyElement {
         let id = SharedString::from(format!("orch-s{step_no}-i{item_no}"));
         match item {
+            // The turn's own `ml_auto` right-anchors its capped column, so
+            // the wrapper must not justify as well: the pair offsets the
+            // column by twice the free space (measured +2F on every user
+            // turn; long bubbles hide it under the pane, short ones like
+            // `go` slide fully off-screen). A plain full-width row plus the
+            // turn's own anchor lands the column exactly once.
             CentreItem::User(text) => div()
                 .w_full()
-                .min_w_0()
                 .flex()
-                .justify_end()
                 .child(user_turn(id, text.clone()).max_width_fraction(0.7))
                 .into_any_element(),
             CentreItem::Agent(row) => self.render_agent_row(id, row, cx),
@@ -295,6 +310,7 @@ impl OrchestrationMock {
             CentreItem::WorkerHead(header) => {
                 let open = cx.listener(|this, _: &WorkerHeaderIntent, _, cx| {
                     this.right_override = Some(RightPane::Run(sample_run_view()));
+                    this.frames_pending = true;
                     cx.notify();
                 });
                 worker_header(id, header).on_intent(move |ev, w, cx| open(&ev, w, cx)).into_any_element()
@@ -333,6 +349,7 @@ impl OrchestrationMock {
                         let view = run_view_matching(&this.current().items);
                         this.right_override = Some(RightPane::Run(view));
                         this.right_tab = Some(RightTab::Run);
+                        this.frames_pending = true;
                         cx.notify();
                     }
                 });
@@ -721,6 +738,25 @@ impl OrchestrationMock {
         }
     }
 
+    /// Keeps frames flowing briefly after a state change. The shell's pane
+    /// widths ride a time-driven spring that only advances on a rendered
+    /// frame; a bare `--screenshot` capture delivers no animation frame
+    /// after the harness notifies, so a retargeted pane would freeze shut.
+    /// Each notify re-renders, the spring steps by wall-clock elapsed, and
+    /// it stops asking once settled — a no-op where frames already pump.
+    fn kick_frames(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let this = cx.entity().downgrade();
+        let task = window.spawn(cx, async move |cx| {
+            for _ in 0..SETTLE_PUMPS {
+                cx.background_executor().timer(SETTLE_TICK).await;
+                if this.update_in(cx, |_, _, cx| cx.notify()).is_err() {
+                    return;
+                }
+            }
+        });
+        self.tasks.push(task);
+    }
+
     /// Starts the harness after the first frame.
     fn start_steps(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let steps = std::mem::take(&mut self.steps);
@@ -927,6 +963,10 @@ impl Render for OrchestrationMock {
                 self.start_steps(window, cx);
             }
         }
+        if self.frames_pending {
+            self.frames_pending = false;
+            self.kick_frames(window, cx);
+        }
         // Clone the step: the render tree borrows nothing from `self`.
         let step_no = self.index;
         let step = self.current().clone();
@@ -984,6 +1024,7 @@ impl Render for OrchestrationMock {
                                     } else {
                                         this.right_override = Some(RightPane::Run(sample_run_view()));
                                     }
+                                    this.frames_pending = true;
                                     cx.notify();
                                 }),
                             ),
@@ -992,6 +1033,7 @@ impl Render for OrchestrationMock {
                             right_header("orch-hd-right").tabs(right_tabs).on_add(|_, _, _| {}).on_close(cx.listener(
                                 |this, _, _, cx| {
                                     this.right_override = Some(RightPane::Closed);
+                                    this.frames_pending = true;
                                     cx.notify();
                                 },
                             )),
