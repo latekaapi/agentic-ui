@@ -264,6 +264,7 @@ impl OrchestrationMock {
         match item {
             CentreItem::User(text) => div()
                 .w_full()
+                .min_w_0()
                 .flex()
                 .justify_end()
                 .child(user_turn(id, text.clone()).max_width_fraction(0.7))
@@ -788,6 +789,7 @@ impl OrchestrationMock {
             .flex_1()
             .min_h(px(0.0))
             .w_full()
+            .min_w_0()
             .overflow_y_scroll()
             .flex()
             .flex_col()
@@ -998,6 +1000,8 @@ impl Render for OrchestrationMock {
                         .centre(
                             v_flex()
                                 .size_full()
+                                .min_w_0()
+                                .overflow_hidden()
                                 .child(transcript)
                                 .children(goal_pin)
                                 .child(composer_el),
