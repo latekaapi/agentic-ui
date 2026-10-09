@@ -234,7 +234,7 @@ impl RenderOnce for Toast {
         let mut text = v_flex()
             .flex_1()
             .min_w(px(0.0))
-            .child(div().text_role(TextRole::Title).text_color(p.ink).child(self.data.title.clone()))
+            .child(div().text_role(TextRole::Subtitle).text_color(p.ink).child(self.data.title.clone()))
             .child(div().mt(px(ROW_GAP)).ui(scale::FS_12).text_color(p.ink_2).child(self.data.body.clone()));
         if !self.data.actions.is_empty() {
             let mut row = h_flex().mt(px(ACTIONS_TOP)).gap(px(ACTIONS_GAP));

@@ -14,26 +14,26 @@ use gpui_kit::base::{Spring, TransitionId};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SpringKind {
     /// Deprecated v1 spring (500 / 30 / 0.6 — buttons, chips, rows on
-    /// press). Maps onto the fast tier; use [`SpringKind::Fast`].
+    /// press). Superseded by the fast tier; use [`SpringKind::Fast`].
     Press,
     /// Deprecated v1 spring (460 / 30 / 0.55 — icon morph, chevrons, tab
-    /// indicator, checkbox). Maps onto the fast tier; use
+    /// indicator, checkbox). Superseded by the fast tier; use
     /// [`SpringKind::Fast`].
     Swap,
     /// Deprecated v1 spring (360 / 32 / 1 — collapse/expand, panel width,
-    /// card resize). Maps onto the moderate tier; use
+    /// card resize). Superseded by the moderate tier; use
     /// [`SpringKind::Moderate`].
     Layout,
     /// Deprecated v1 spring (200 / 26 / 1 — popover morph, drop-zone
-    /// overlay). Maps onto the slow tier; use [`SpringKind::Slow`].
+    /// overlay). Superseded by the slow tier; use [`SpringKind::Slow`].
     Gentle,
-    /// The fast tier spring (2467 / 99.3 / 1): presses, chevrons, tab
+    /// The fast tier spring (6168 / 157.1 / 1): presses, chevrons, tab
     /// indicator.
     Fast,
-    /// The moderate tier spring (617 / 49.7 / 1): collapse/expand, panel
+    /// The moderate tier spring (1542 / 78.5 / 1): collapse/expand, panel
     /// width, card resize.
     Moderate,
-    /// The slow tier spring (274 / 29.2 / 1): popover morph, large reveals.
+    /// The slow tier spring (685 / 46.1 / 1): popover morph, large reveals.
     Slow,
 }
 
@@ -220,9 +220,9 @@ mod tests {
 
     #[test]
     fn tiers_match_motion_json() {
-        assert_eq!(SpringKind::Fast.describe(), "2467 / 99.3 / 1");
-        assert_eq!(SpringKind::Moderate.describe(), "617 / 49.7 / 1");
-        assert_eq!(SpringKind::Slow.describe(), "274 / 29.2 / 1");
+        assert_eq!(SpringKind::Fast.describe(), "6168 / 157.1 / 1");
+        assert_eq!(SpringKind::Moderate.describe(), "1542 / 78.5 / 1");
+        assert_eq!(SpringKind::Slow.describe(), "685 / 46.1 / 1");
         let labels: Vec<&str> = TIERS.iter().map(|k| k.label()).collect();
         assert_eq!(labels, vec!["fast", "moderate", "slow"]);
     }

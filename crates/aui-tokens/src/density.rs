@@ -107,6 +107,11 @@ impl Metrics {
                 scale::INSET_COMPACT,
             ),
         };
+        let trim = match density {
+            Density::Standard => 0.0,
+            Density::Compact => 4.0,
+        };
+        let small_trim = trim / 2.0;
         Self {
             control: px(control),
             row_2: px(row_2),
@@ -122,11 +127,11 @@ impl Metrics {
             card_header: px(scale::CTL_COMPACT),
             row: px(control),
             row_sm: px(scale::CTL_COMPACT),
-            control_xs: px(20.0),
-            control_sm: px(24.0),
-            control_md: px(28.0),
-            control_lg: px(32.0),
-            control_xl: px(40.0),
+            control_xs: px(scale::H_XS - small_trim),
+            control_sm: px(scale::H_SM - small_trim),
+            control_md: px(scale::H_MD - small_trim),
+            control_lg: px(scale::H_LG - trim),
+            control_xl: px(scale::H_XL - trim),
         }
     }
 }

@@ -279,16 +279,14 @@ impl AuiTheme {
     fn push_type_sizes(density: Density, cx: &mut App) {
         {
             let theme = Theme::global_mut(cx);
-            match density {
-                Density::Standard => {
-                    theme.font_size = gpui::px(scale::T_BODY_FS);
-                    theme.mono_font_size = gpui::px(scale::T_MONO_FS);
-                }
-                Density::Compact => {
-                    theme.font_size = gpui::px(scale::T_BODY_FS_C);
-                    theme.mono_font_size = gpui::px(scale::T_MONO_FS_C);
-                }
-            }
+            // The window rem is the standard body size in BOTH densities:
+            // roles are absolute px (see `AuiStyled::text_role_in`), so a
+            // compact rem would shrink them a second time. Compact changes
+            // metrics and roles, never the rem; gpui-kit's own widgets keep
+            // the standard size until they take a role.
+            let _ = density;
+            theme.font_size = gpui::px(scale::T_BODY_FS);
+            theme.mono_font_size = gpui::px(scale::T_MONO_FS);
         }
         Theme::sync_base(cx);
     }
@@ -296,6 +294,9 @@ impl AuiTheme {
     fn apply(cx: &mut App, window: Option<&mut Window>) {
         let kind = cx.global::<AuiTheme>().kind;
         Theme::change(kind.kit_mode(), window, cx);
+        // `Theme::change` reloads the kit theme JSON, which carries its own
+        // font sizes; push ours again so the rem never drifts.
+        Self::push_type_sizes(cx.global::<AuiTheme>().density, cx);
         cx.refresh_windows();
     }
 

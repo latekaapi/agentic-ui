@@ -344,10 +344,10 @@ mod tests {
         assert_eq!(springs::LAYOUT.damping, 32.0);
         assert_eq!(springs::GENTLE.stiffness, 200.0);
         assert_eq!(durations::SLOW.as_millis(), 280);
-        assert_eq!(springs::FAST.stiffness, 2467.0);
-        assert_eq!(springs::FAST.damping, 99.3);
-        assert_eq!(springs::MODERATE.stiffness, 617.0);
-        assert_eq!(springs::SLOW.damping, 29.2);
+        assert_eq!(springs::FAST.stiffness, 6168.0);
+        assert_eq!(springs::FAST.damping, 157.1);
+        assert_eq!(springs::MODERATE.stiffness, 1542.0);
+        assert_eq!(springs::SLOW.damping, 46.1);
         assert_eq!(durations::FAST_EXIT.as_millis(), 60);
         assert_eq!(durations::MODERATE_EXIT.as_millis(), 120);
         assert_eq!(durations::SLOW_EXIT.as_millis(), 160);

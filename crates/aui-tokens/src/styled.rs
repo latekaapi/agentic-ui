@@ -139,7 +139,7 @@ pub trait AuiStyled: Styled + Sized {
     /// weight). Line heights are absolute pixels.
     fn text_role_in(self, role: TextRole, density: Density) -> Self {
         let (family, size, lh, weight) = role.spec(density);
-        self.font_family(family).text_size(scaled(size)).line_height(px(lh)).font_weight(weight)
+        self.font_family(family).text_size(px(size)).line_height(px(lh)).font_weight(weight)
     }
 
     /// Applies a [`TextRole`] at the density of the active [`crate::AuiTheme`].

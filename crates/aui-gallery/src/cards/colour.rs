@@ -47,11 +47,11 @@ fn theme_section(title: &'static str, p: Palette) -> impl IntoElement {
         .child(
             div()
                 .mb(px(12.0))
-                .text_role(TextRole::Caps)
+                .text_role(TextRole::Caption)
                 .text_px(scale::FS_12)
                 .line_height(relative(scale::LH_UI)) // h3 inherits the body line height
                 .text_color(p.ink_3)
-                .child(title.to_uppercase()),
+                .child(title),
         )
         .child(swatches(p))
         .child(surface_ladder(p))
@@ -147,7 +147,7 @@ fn surface_ladder(p: Palette) -> impl IntoElement {
                 .line_height(relative(1.0))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(p.ink_3)
-                .child("SURFACE · EIGHT STEPS, RELATIVE TO THE PARENT"),
+                .child("Surface · eight steps, relative to the parent"),
         )
         .child(row)
 }
@@ -200,7 +200,7 @@ fn overlay_grid(p: Palette) -> impl IntoElement {
                 .line_height(relative(1.0))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(p.ink_3)
-                .child("OVERLAYS · TINT OVER THE STEP BENEATH"),
+                .child("Overlays · tint over the step beneath"),
         )
         .child(grid)
 }
@@ -238,7 +238,7 @@ fn labels_row(p: Palette) -> impl IntoElement {
                 .line_height(relative(1.0))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(p.ink_3)
-                .child("LABELS · PROJECT IDENTITY, NEVER STATUS"),
+                .child("Labels · project identity, never status"),
         )
         .child(row)
 }

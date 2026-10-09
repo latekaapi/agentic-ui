@@ -277,6 +277,14 @@ pub fn theme_set_json() -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn committed_theme_json_matches_the_palette() {
+        // `cargo run -p aui-tokens --example dump-theme` rewrites the file;
+        // this fails when tokens changed and the dump was not re-run.
+        let committed = include_str!("../themes/agentic-ui.json");
+        assert_eq!(committed.trim_end(), theme_set_json().trim_end(), "themes/agentic-ui.json is stale: re-run the dump-theme example");
+    }
     use super::*;
     use gpui_kit::component::ThemeSet;
 
