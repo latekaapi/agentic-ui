@@ -10,7 +10,7 @@ use aui::data::kbd;
 use aui::interact::{fluid_list, interactive, menu_surface, nested_radius, row, surface, Axis, Shape};
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
-use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, AnyElement, App, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 /// One gallery step from `AUI_GALLERY_STEPS`.
