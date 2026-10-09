@@ -37,7 +37,10 @@ fn gallery_steps() -> Vec<String> {
 fn apply_steps(mut model: SidebarModel) -> SidebarModel {
     for step in gallery_steps() {
         if let Some(rest) = step.strip_prefix("hover:") {
+            // A hover step pins both the actions (hovered) and the block
+            // (highlighted), since a capture has no pointer.
             model.hovered = Some(rest.to_string().into());
+            model.highlighted = Some(rest.to_string().into());
         } else if let Some(rest) = step.strip_prefix("select:") {
             model.selected = Some(rest.to_string().into());
         } else if let Some(rest) = step.strip_prefix("rename:") {
@@ -92,8 +95,14 @@ thread_local! {
 }
 
 /// The sidebar at `width` × `height` with its caller-owned list state and
-/// fluid handle.
+/// fluid handle, on its own ground.
 fn sidebar_column(id: &'static str, model: SidebarModel, width: f32, height: f32) -> AnyElement {
+    sidebar_column_on(id, model, width, px(height), true)
+}
+
+/// [`sidebar_column`] with the ground optional (the peek sits on an
+/// elevated surface the card draws).
+fn sidebar_column_on(id: &'static str, model: SidebarModel, width: f32, height: gpui::Pixels, ground: bool) -> AnyElement {
     let count = screen_item_count(&model);
     let (state, fluid) = COLUMN_STATE.with(|cell| {
         cell.borrow_mut()
@@ -104,12 +113,11 @@ fn sidebar_column(id: &'static str, model: SidebarModel, width: f32, height: f32
     if state.item_count() != count {
         state.reset(count);
     }
-    div()
-        .flex_none()
-        .w(px(width))
-        .h(px(height))
-        .child(sidebar_screen(id, model, state, fluid).width(px(width)).on_intent(|_, _, _| {}))
-        .into_any_element()
+    let mut screen = sidebar_screen(id, model, state, fluid).width(px(width)).on_intent(|_, _, _| {});
+    if !ground {
+        screen = screen.transparent();
+    }
+    div().flex_none().w(px(width)).h(height).child(screen).into_any_element()
 }
 
 /// The lifted pane beside the sidebar: surface-1, hairline, container
@@ -217,6 +225,7 @@ pub fn build_states(_window: &mut Window, cx: &mut App) -> AnyElement {
     empty.selected = None;
     let mut hover = sample_model();
     hover.hovered = Some("checklist".into());
+    hover.highlighted = Some("checklist".into());
     hover.hovered_group = Some("harness".into());
     hover.hovered_projects_header = true;
     let mut rename = sample_model();
@@ -232,7 +241,8 @@ pub fn build_states(_window: &mut Window, cx: &mut App) -> AnyElement {
         ("screens-sidebar-rename", apply_steps(rename)),
         ("screens-sidebar-menus", apply_steps(menus)),
     ];
-    let mut row = h_flex().w(px(SIDEBAR_W * 5.0 + COLUMN_GAP * 4.0 + 4.0)).h(px(COLUMN_H)).bg(p.bg).gap(px(COLUMN_GAP));
+    // Five columns, four hairlines between them (`SP_2` = 4 px of borders).
+    let mut row = h_flex().w(px(SIDEBAR_W * 5.0 + COLUMN_GAP * 4.0 + scale::SP_2)).h(px(COLUMN_H)).bg(p.bg).gap(px(COLUMN_GAP));
     for (index, (id, model)) in columns.into_iter().enumerate() {
         let mut column = div().flex_none().h(px(COLUMN_H)).flex();
         if index > 0 {
@@ -399,11 +409,13 @@ pub fn build_collapsed(_window: &mut Window, cx: &mut App) -> AnyElement {
         .size(aui::data::ButtonSize::Sm)
         .icon_size(metrics.icon)
         .accessibility_label("Show sidebar");
+    let title_strip = metrics.bar + metrics.item_px;
     let pane_full = div()
         .flex_1()
         .min_w(px(0.0))
         .h_full()
-        .pt(metrics.bar + metrics.item_px)
+        .pt(title_strip)
+        .pl(metrics.item_px)
         .pr(metrics.item_px)
         .pb(metrics.item_px)
         .child(
@@ -431,16 +443,16 @@ pub fn build_collapsed(_window: &mut Window, cx: &mut App) -> AnyElement {
             .ring(true)
             .shadow(true),
         );
+    let peek_h = px(WINDOW_H) - title_strip - metrics.item_px;
     let peek_card = div()
         .absolute()
         .left(metrics.item_px)
-        .top(metrics.bar + metrics.item_px)
+        .top(title_strip)
         .bottom(metrics.item_px)
         .w(px(SIDEBAR_W))
         .child(
-            surface(2, div().size_full().child(sidebar_column("screens-sidebar-peek", peek, SIDEBAR_W, WINDOW_H - 52.0 - 8.0)))
+            surface(2, div().size_full().child(sidebar_column_on("screens-sidebar-peek", peek, SIDEBAR_W, peek_h, false)))
                 .fill()
-                .elevated(2)
                 .shape(Shape::Container)
                 .ring(true)
                 .shadow(true),
@@ -452,7 +464,8 @@ pub fn build_collapsed(_window: &mut Window, cx: &mut App) -> AnyElement {
         .relative()
         .child(traffic_lights())
         .child(div().absolute().left(px(scale::SP_7 * 2.0 + scale::SP_5 + scale::SP_2)).top(px(scale::SP_5 - scale::SP_1)).child(toggle))
-        .child(sidebar_column("screens-sidebar-collapsed", collapsed, scale::SP_4, WINDOW_H))
+        // The 12 px strip is a hover region over the pane's edge, not a column.
+        .child(div().absolute().left(px(0.0)).top(title_strip).bottom(px(0.0)).child(sidebar_column_on("screens-sidebar-collapsed", collapsed, scale::SP_4, px(WINDOW_H) - title_strip, true)))
         .child(pane_full)
         .child(peek_card)
         .into_any_element()

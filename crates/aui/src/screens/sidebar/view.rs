@@ -77,29 +77,47 @@ pub fn list_row_height(cx: &App) -> Pixels {
 }
 
 /// How many virtual rows [`sidebar_screen`] builds for `model`: the
-/// flattened grouping (three skeleton rows while loading, none in Browse
-/// mode). Size the caller-owned [`ListState`] with this before rendering.
+/// flattened project grouping (four skeleton rows while loading, none in
+/// Browse mode). Size the caller-owned [`ListState`] with this before
+/// rendering.
+///
+/// The v2 sidebar renders [`Grouping::Project`] only (Baaz's default, the
+/// mock's structure); a Date or Status grouping counts as empty here and
+/// draws "No projects yet" until those views are re-skinned in their turn.
 pub fn screen_item_count(model: &SidebarModel) -> usize {
     if model.loading {
         4
     } else if model.mode == Mode::Browse {
         0
     } else {
-        flatten_sidebar(&model.grouping, false).len()
+        match model.grouping.as_ref() {
+            Grouping::Project(_) => flatten_sidebar(&model.grouping, false).len(),
+            _ => 0,
+        }
     }
 }
+
+/// The widest of the index ranges FluidList items are spread over; the
+/// bases below must stay in visual order (chrome < pinned < browse <
+/// virtual) because the nearest rule reads indices as positions.
+const _: () = assert!(PINNED_BASE < BROWSE_BASE && BROWSE_BASE < VIRTUAL_BASE);
 
 /// The sidebar screen for `model`, virtualised through `state`, with its
 /// one highlight kept in `fluid`.
 ///
+/// The host creates `state` ([`crate::nav::sidebar_list_state`]) and
+/// `fluid` ([`FluidHandle::new`]) ONCE per sidebar and keeps both across
+/// frames, like any `ListState`: the highlight and selection are measured
+/// one frame and painted the next, and a fresh handle every frame paints
+/// nothing. One handle per sidebar; never share it between lists.
+///
 /// ```ignore
-/// let rows = flatten_sidebar(&model.grouping, false);
-/// let state = sidebar_list_state(rows.len());
-/// let fluid = FluidHandle::new();
-/// sidebar_screen("sidebar", model, state, fluid).on_intent(|intent, _, _| { /* host acts */ })
+/// let state = sidebar_list_state(screen_item_count(&model)); // once
+/// let fluid = FluidHandle::new();                               // once
+/// sidebar_screen("sidebar", model, state.clone(), fluid.clone()).on_intent(|intent, _, _| { /* host acts */ })
 /// ```
 pub fn sidebar_screen(id: impl Into<ElementId>, model: SidebarModel, state: ListState, fluid: FluidHandle) -> SidebarScreen {
-    SidebarScreen { id: id.into(), model, state, fluid, width: px(SIDEBAR_WIDTH), rename_input: None, on_intent: None }
+    SidebarScreen { id: id.into(), model, state, fluid, width: px(SIDEBAR_WIDTH), rename_input: None, on_intent: None, ground: true }
 }
 
 /// The sidebar screen. Build with [`sidebar_screen`].
@@ -112,9 +130,18 @@ pub struct SidebarScreen {
     width: Pixels,
     rename_input: Option<Entity<InputState>>,
     on_intent: Option<IntentHandler>,
+    ground: bool,
 }
 
 impl SidebarScreen {
+    /// Draws no ground of its own: for a host that embeds the sidebar on
+    /// an elevated surface (the collapsed peek). By default the sidebar
+    /// paints the window ground, `bg`.
+    pub fn transparent(mut self) -> Self {
+        self.ground = false;
+        self
+    }
+
     /// Reports what the person asked the app to do.
     pub fn on_intent(mut self, f: impl Fn(SidebarIntent, &mut Window, &mut App) + 'static) -> Self {
         self.on_intent = Some(Rc::new(f));
@@ -200,6 +227,32 @@ impl Ctx {
             div().child(dot)
         };
         self.lead(halo, cx)
+    }
+
+    /// A favicon-style mark: a `surface-3` square on the item radius with
+    /// the initial in `ink-2` (the mock's `.mark`).
+    fn favicon(&self, initial: SharedString, cx: &App) -> AnyElement {
+        let p = cx.aui().colors;
+        let metrics = cx.aui().metrics;
+        Shape::Item
+            .rounded(
+                div()
+                    .size(metrics.icon)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(p.surface(3))
+                    .role_in(TextRole::Micro, cx)
+                    .semibold()
+                    .text_color(p.ink_2)
+                    .child(initial),
+            )
+            .into_any_element()
+    }
+
+    /// The two-line row height: the list row plus one Caption line (16).
+    fn two_line_height(&self, cx: &App) -> Pixels {
+        list_row_height(cx) + px(scale::SP_5)
     }
 
     /// A trailing count or age: Caption, muted, tabular.
@@ -323,7 +376,13 @@ impl Ctx {
                 .flex_none()
                 .items_center()
                 .gap(px(scale::SP_1))
-                .child(self.action(format!("{id}-pin"), IconName::Pin, format!("Pin session {title}"), SidebarIntent::RowAction(id.clone(), RowAction::Pin), cx))
+                .child(self.action(
+                    format!("{id}-pin"),
+                    if session.pinned { IconName::PinOff } else { IconName::Pin },
+                    if session.pinned { format!("Unpin session {title}") } else { format!("Pin session {title}") },
+                    SidebarIntent::RowAction(id.clone(), RowAction::Pin),
+                    cx,
+                ))
                 .child(self.action(format!("{id}-rename"), IconName::Edit, format!("Rename session {title}"), SidebarIntent::RowAction(id.clone(), RowAction::Rename), cx))
                 .child(self.action(format!("{id}-archive"), IconName::Archive, format!("Archive session {title}"), SidebarIntent::RowAction(id.clone(), RowAction::Archive), cx))
                 .into_any_element()
@@ -332,7 +391,7 @@ impl Ctx {
         } else {
             self.trailing(session.elapsed.clone(), cx)
         };
-        let height = if second.is_some() { list_row_height(cx) + metrics.inset } else { list_row_height(cx) };
+        let height = if second.is_some() { self.two_line_height(cx) } else { list_row_height(cx) };
         let label: SharedString = format!("Open session {}", session.name).into();
         record_ax_label(&label);
         h_flex()
@@ -380,18 +439,32 @@ impl Ctx {
         let ctx = self.clone();
         let commit = session.id.clone();
         let text = draft.clone();
+        let live = self.rename_input.clone();
+        // The field wears the one accent in the sidebar: `accent-ring`.
+        let boxed = Shape::Item.rounded(div().w_full().bg(p.surface(2)).border_1().border_color(p.accent_ring).child(field));
         div()
             .id(self.child(format!("rename-{}", session.id)))
             .w_full()
             .when(nested, |d| d.pl(metrics.inset))
             .role(gpui::Role::TextInput)
             .aria_label(label)
+            // Keys bubble up from the focused input inside; Enter commits
+            // the input's live text (the model draft when there is none),
+            // Escape abandons. A static field (no input) takes no keys.
             .on_key_down(move |event: &gpui::KeyDownEvent, w: &mut Window, cx: &mut App| match event.keystroke.key.as_str() {
-                "enter" => ctx.emit(SidebarIntent::Rename(commit.clone(), text.clone()), w, cx),
+                "enter" => {
+                    let value: SharedString = match live.as_ref() {
+                        Some(input) => input.read(cx).value().to_string().into(),
+                        None => text.clone(),
+                    };
+                    ctx.emit(SidebarIntent::Rename(commit.clone(), value), w, cx);
+                }
                 "escape" => ctx.emit(SidebarIntent::RenameCancel, w, cx),
                 _ => {}
             })
-            .child(surface(2, field).shape(Shape::Item).ring(true))
+            // A click in the field stays in the field: never a row activation.
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .child(boxed)
             .into_any_element()
     }
 
@@ -415,19 +488,19 @@ impl Ctx {
             .child(self.lead(chevron, cx))
             .child(
                 div()
-                    .min_w(px(0.0))
-                    .truncate()
+                    .flex_none()
                     .text_role_in(TextRole::Body, Density::Compact)
                     .medium()
                     .text_color(p.fg)
                     .child(group.name.clone()),
             )
-            .child(div().role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(group.count.clone()))
+            .child(div().flex_none().ml(px(scale::SP_2 + scale::SP_1) - metrics.gap).role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(group.count.clone()))
             .child(div().flex_1().min_w(px(0.0)));
-        if let Some(branch) = group.trailing.as_ref().filter(|_| !hovered) {
+        if let Some(branch) = group.trailing.as_ref() {
             head = head.child(
                 div()
-                    .flex_none()
+                    .flex_shrink(1.0)
+                    .min_w(px(0.0))
                     .max_w(px(scale::SP_7 * 3.0))
                     .truncate()
                     .text_role_in(TextRole::Mono, Density::Compact)
@@ -536,7 +609,8 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                         .text_role_in(TextRole::Body, Density::Compact)
                         .child(div().text_color(p.fg).child(browse.host.clone()))
                         .child(div().truncate().text_color(p.fg_muted).child(browse.path.clone())),
-                );
+                )
+                .when(model.hovered.as_deref() == Some("address"), |d| d.child(ctx.chip("⌘L", cx)));
             record_ax_label("Address");
             list = list.item(next, surface(2, address).shape(Shape::Item).into_any_element());
             targets.insert(next, Target::Intent(SidebarIntent::Browse(BrowseIntent::Address)));
@@ -621,17 +695,19 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             if !model.pinned.is_empty() {
                 let turn = spring_phase((ctx.child("pinned-chevron"), "turn"), model.pinned_open, SpringKind::Swap, window, cx);
                 let chevron = icon(IconName::ChevronDown).size(metrics.icon).color(p.fg_muted).rotate(radians(-std::f32::consts::FRAC_PI_2 * (1.0 - turn)));
+                // The 12 px above the section sits outside the highlightable head.
+                list = list.item_static(next, div().w_full().h(px(scale::SP_4)));
+                next += 1;
                 let head = h_flex()
                     .w_full()
                     .h(metrics.control_md)
-                    .mt(px(scale::SP_4))
                     .items_center()
                     .gap(metrics.gap)
                     .role_in(TextRole::Caption, cx)
                     .text_color(p.fg_muted)
                     .child(ctx.lead(chevron, cx))
                     .child(div().child("Pinned"))
-                    .child(div().ml(px(scale::SP_1)).text_color(p.ink_4).child(model.pinned.len().to_string()));
+                    .child(div().ml(px(scale::SP_2 + scale::SP_1) - metrics.gap).text_color(p.ink_4).child(model.pinned.len().to_string()));
                 record_ax_label("Pinned");
                 list = list.item(next, head.id(ctx.child("pinned-head")).role(gpui::Role::Button).aria_label("Pinned"));
                 targets.insert(next, Target::Intent(SidebarIntent::TogglePinned));
@@ -650,18 +726,19 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 Grouping::Project(groups) => groups.len(),
                 _ => 0,
             };
-            let actions = model.hovered_projects_header.then(|| {
-                h_flex()
-                    .flex_none()
-                    .gap(px(scale::SP_1))
-                    .child(ctx.action("add-project".into(), IconName::Plus, "Add project".into(), SidebarIntent::AddProject, cx))
-                    .child(ctx.action("view-options".into(), IconName::Sliders, "View options".into(), SidebarIntent::ViewOptions, cx))
-                    .into_any_element()
+            // Actions appear on hover; with no projects the Add button is
+            // always there (it is the only thing to do).
+            let actions = (model.hovered_projects_header || project_count == 0).then(|| {
+                let mut acts = h_flex().flex_none().gap(px(scale::SP_1)).child(ctx.action("add-project".into(), IconName::Plus, "Add project".into(), SidebarIntent::AddProject, cx));
+                if model.hovered_projects_header {
+                    acts = acts.child(ctx.action("view-options".into(), IconName::Sliders, "View options".into(), SidebarIntent::ViewOptions, cx));
+                }
+                acts.into_any_element()
             });
             let (header_state, _) = interaction_flags(ctx.child("projects-head"), window, cx);
             let hover_ctx = ctx.clone();
             let header = ctx
-                .section("Projects", Some(project_count.to_string().into()), actions, cx)
+                .section("Projects", (project_count > 0).then(|| project_count.to_string().into()), actions, cx)
                 .id(ctx.child("projects-head"))
                 .track_interaction_reported(&header_state, move |hovered: bool, w: &mut Window, cx: &mut App| {
                     hover_ctx.emit(SidebarIntent::HoverProjectsHeader(hovered), w, cx);
@@ -765,9 +842,22 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
         list = list.item_static(next, today);
         next += 1;
         let tab_row = |ctx: &Ctx, list: &mut Option<crate::interact::FluidList>, index: usize, tab: &super::BrowseTab, nested: bool, cx: &App| {
-            let mark = project_mark(tab.initial.clone(), p.surface(6)).size(metrics.icon);
+            let mark = ctx.favicon(tab.initial.clone(), cx);
             let close = if model.hovered.as_ref() == Some(&tab.id) || tab.active {
-                Some(ctx.action(format!("close-{}", tab.id), IconName::XBold, format!("Close tab {}", tab.title), SidebarIntent::Browse(BrowseIntent::CloseTab(tab.id.clone())), cx))
+                let c = ctx.clone();
+                let id = tab.id.clone();
+                Some(
+                    icon_button(ctx.child(format!("close-{}", tab.id)), IconName::XBold)
+                        .ghost()
+                        .size(ButtonSize::Xs)
+                        .icon_size(metrics.icon - px(scale::SP_2))
+                        .accessibility_label(format!("Close tab {}", tab.title))
+                        .on_click(move |_, w, cx| {
+                            cx.stop_propagation();
+                            c.emit(SidebarIntent::Browse(BrowseIntent::CloseTab(id.clone())), w, cx);
+                        })
+                        .into_any_element(),
+                )
             } else {
                 None
             };
@@ -792,7 +882,17 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
         for folder in &browse.folders {
             let turn = spring_phase((ctx.child(format!("folder-chevron-{}", folder.name)), "turn"), folder.open, SpringKind::Swap, window, cx);
             let chevron = icon(IconName::ChevronDown).size(metrics.icon).color(p.fg_muted).rotate(radians(-std::f32::consts::FRAC_PI_2 * (1.0 - turn)));
-            let head = ctx.row(ctx.lead(chevron, cx), folder.name.clone(), Some(ctx.trailing(folder.tabs.len().to_string(), cx)), false, cx);
+            let head = h_flex()
+                .w_full()
+                .h(list_row_height(cx))
+                .items_center()
+                .gap(metrics.gap)
+                .pr(metrics.item_px)
+                .text_color(p.fg)
+                .child(ctx.lead(chevron, cx))
+                .child(div().flex_none().text_role_in(TextRole::Body, Density::Compact).child(folder.name.clone()))
+                .child(div().flex_none().ml(px(scale::SP_2 + scale::SP_1) - metrics.gap).role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(folder.tabs.len().to_string()))
+                .child(div().flex_1());
             let label: SharedString = format!("Folder {}", folder.name).into();
             record_ax_label(&label);
             let index = BROWSE_BASE + next;
@@ -813,8 +913,11 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             }
         }
         list = slot.take().expect("list");
-        // New tab: the one filled row, below the tabs.
-        let new_tab = ctx.row(ctx.lead_icon(IconName::Plus, cx), "New tab", Some(ctx.chip("⌘T", cx)), false, cx).mt(metrics.item_px);
+        // New tab: the one filled row, below the tabs, with its 8 px above
+        // outside the highlightable box.
+        list = list.item_static(next, div().w_full().h(metrics.item_px));
+        next += 1;
+        let new_tab = ctx.row(ctx.lead_icon(IconName::Plus, cx), "New tab", Some(ctx.chip("⌘T", cx)), false, cx);
         record_ax_label("New tab");
         let index = BROWSE_BASE + next;
         list = list.item(index, surface(2, new_tab.id(ctx.child("new-tab")).role(gpui::Role::Button).aria_label("New tab")).shape(Shape::Item).ring(true));
@@ -840,7 +943,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 interactive(ctx.child(format!("space-{i}")), chip)
                     .role("tab")
                     .shape(Shape::Pill)
-                    .selected(false)
+                    .selected(on)
                     .label(format!("Space {space}"))
                     .on_click(move |_, w, cx| {
                         cx.stop_propagation();
@@ -870,13 +973,21 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
     let hover_targets = targets.clone();
     let hover_ctx = ctx.clone();
     list = list.on_highlight(move |index: Option<usize>, w: &mut Window, cx: &mut App| {
-        let id = index.and_then(|i| match hover_targets.get(&i) {
+        let target = index.and_then(|i| hover_targets.get(&i));
+        let id = match target {
             Some(Target::Session(id)) => Some(id.clone()),
             Some(Target::Intent(SidebarIntent::Search)) => Some("search".into()),
             Some(Target::Intent(SidebarIntent::NewSession)) => Some("new-session".into()),
+            Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::Address))) => Some("address".into()),
             Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(id)))) => Some(id.clone()),
             _ => None,
-        });
+        };
+        // A project head under the pointer shows its actions.
+        let group = match target {
+            Some(Target::Intent(SidebarIntent::Toggle(id))) => Some(id.clone()),
+            _ => None,
+        };
+        hover_ctx.emit(SidebarIntent::HoverGroup(group), w, cx);
         hover_ctx.emit(SidebarIntent::Hover(id), w, cx);
     });
     let activate_targets = targets.clone();
@@ -997,7 +1108,7 @@ impl RenderOnce for SidebarScreen {
             .w_full()
             .h(list_row_height(cx))
             .items_center()
-            .gap(metrics.gap)
+            .gap(px(scale::SP_4 + scale::SP_1))
             .pl(px(scale::SP_2 + scale::SP_1))
             .pr(metrics.item_px)
             .child(project_mark(account.initial.clone(), p.label(account.tint)).size(metrics.icon + px(scale::SP_2)))
@@ -1015,7 +1126,7 @@ impl RenderOnce for SidebarScreen {
                 ),
             );
 
-        let mut column = v_flex().w(self.width).h_full().relative().bg(p.bg).child(title_bar).child(body).child(footer);
+        let mut column = v_flex().w(self.width).h_full().relative().when(self.ground, |d| d.bg(p.bg)).child(title_bar).child(body).child(footer);
 
         // Menus, positioned from the ladder: the view-options menu under
         // the Projects header, the account menu above the footer.
@@ -1027,7 +1138,8 @@ impl RenderOnce for SidebarScreen {
                     .left(metrics.item_px)
                     .right(metrics.item_px)
                     .top(top)
-                    .child(view_options_menu(ctx.child("view-menu"), self.on_intent.clone(), cx)),
+                    .occlude()
+                    .child(view_options_menu(ctx.child("view-menu"), &self.model.view_options, self.on_intent.clone(), cx)),
             );
         }
         if account.menu_open {
@@ -1037,6 +1149,7 @@ impl RenderOnce for SidebarScreen {
                     .left(metrics.item_px)
                     .right(metrics.item_px)
                     .bottom(list_row_height(cx) + metrics.item_px * 2.0 + px(1.0) + metrics.item_px)
+                    .occlude()
                     .child(account_menu(ctx.child("account-menu"), account, self.on_intent.clone(), cx)),
             );
         }
@@ -1058,7 +1171,7 @@ fn projects_header_bottom(model: &SidebarModel, cx: &App) -> Pixels {
         if model.pinned_open {
             for session in &model.pinned {
                 let two = session.status.is_some() || (model.bylines == Bylines::All && session.byline.is_some());
-                y += if two { row + metrics.inset } else { row };
+                y += if two { row + px(scale::SP_5) } else { row };
             }
         }
     }

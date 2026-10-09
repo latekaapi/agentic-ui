@@ -17,6 +17,6 @@ mod view;
 pub use menus::{account_menu, view_options_menu};
 pub use model::{
     sample_model, Account, AccountAction, BrowseFolder, BrowseIntent, BrowseModel, BrowsePin, BrowseTab, Bylines,
-    EditingState, Mode, NavItem, ProviderUsage, SidebarIntent, SidebarModel, UsageLine,
+    EditingState, Mode, NavItem, ProviderUsage, SidebarIntent, SidebarModel, UsageLine, ViewOption, ViewOptions,
 };
 pub use view::{list_row_height, screen_item_count, sidebar_screen, SidebarScreen, SIDEBAR_WIDTH};

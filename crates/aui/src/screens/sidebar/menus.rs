@@ -8,7 +8,7 @@
 
 use std::rc::Rc;
 
-use aui_tokens::{ActiveAui, AuiStyled, Density, TextRole};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Density, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -16,7 +16,7 @@ use crate::data::record_ax_label;
 use crate::interact::{interactive, menu_surface, Shape};
 use crate::nav::project_mark;
 
-use super::{Account, AccountAction, SidebarIntent};
+use super::{Account, AccountAction, SidebarIntent, ViewOption, ViewOptions};
 
 type IntentHandler = Rc<dyn Fn(SidebarIntent, &mut Window, &mut App)>;
 
@@ -52,15 +52,22 @@ fn menu_row(
                 .child(label.to_string()),
         );
     if let Some(trailing) = trailing {
-        body = body.child(div().role_in(TextRole::Micro, cx).text_color(p.fg_muted).child(trailing.to_string()));
+        // Values (Project ›, Last activity ›, ✓) are Caption; shortcuts are Micro.
+        let role = if trailing.starts_with('⌘') { TextRole::Micro } else { TextRole::Caption };
+        body = body.child(div().role_in(role, cx).text_color(p.fg_muted).child(trailing.to_string()));
     }
     let mut row = interactive((id.clone(), SharedString::from(label.to_string())), body)
         .role("menuitem")
         .shape(Shape::Item)
         .label(label.to_string());
-    if let (Some(emit), Some(intent)) = (handler.clone(), intent) {
-        row = row.on_click(move |_, w, cx| emit(intent.clone(), w, cx));
-    }
+    let emit = handler.clone();
+    // A menu click never reaches the list beneath the menu.
+    row = row.on_click(move |_, w, cx| {
+        cx.stop_propagation();
+        if let (Some(emit), Some(intent)) = (emit.as_ref(), intent.as_ref()) {
+            emit(intent.clone(), w, cx);
+        }
+    });
     row.into_any_element()
 }
 
@@ -71,11 +78,17 @@ fn separator(cx: &App) -> AnyElement {
 }
 
 /// The view-options menu under the Projects header: grouping, sort and
-/// the three list toggles, as Baaz's Sessions menu has them.
-pub fn view_options_menu(id: impl Into<ElementId>, on_intent: Option<IntentHandler>, cx: &App) -> AnyElement {
+/// the three list toggles, as Baaz's Sessions menu has them. Every row
+/// reports its own [`ViewOption`]; the values and checks come from
+/// `options`.
+pub fn view_options_menu(id: impl Into<ElementId>, options: &ViewOptions, on_intent: Option<IntentHandler>, cx: &App) -> AnyElement {
     let id: ElementId = id.into();
     let metrics = cx.aui().metrics;
     record_ax_label("View options");
+    let group_by = format!("{} ›", options.group_by);
+    let sort_by = format!("{} ›", options.sort_by);
+    let check = |on: bool| if on { Some("✓") } else { None };
+    let backdrop = on_intent.clone();
     menu_surface(
         v_flex()
             .id((id.clone(), "view-options-list"))
@@ -83,12 +96,19 @@ pub fn view_options_menu(id: impl Into<ElementId>, on_intent: Option<IntentHandl
             .p(metrics.item_px / 2.0)
             .role(gpui::Role::Menu)
             .aria_label("View options")
-            .child(menu_row(&id, "Group by", Some("Project ›"), Some(SidebarIntent::ViewOptions), &on_intent, false, cx))
-            .child(menu_row(&id, "Sort by", Some("Last activity ›"), Some(SidebarIntent::ViewOptions), &on_intent, false, cx))
+            .occlude()
+            .on_click(move |_, w, cx| {
+                cx.stop_propagation();
+                if let Some(emit) = backdrop.as_ref() {
+                    emit(SidebarIntent::MenuBackdrop, w, cx);
+                }
+            })
+            .child(menu_row(&id, "Group by", Some(&group_by), Some(SidebarIntent::ViewOption(ViewOption::GroupBy)), &on_intent, false, cx))
+            .child(menu_row(&id, "Sort by", Some(&sort_by), Some(SidebarIntent::ViewOption(ViewOption::SortBy)), &on_intent, false, cx))
             .child(separator(cx))
-            .child(menu_row(&id, "Show empty projects", None, Some(SidebarIntent::ViewOptions), &on_intent, false, cx))
-            .child(menu_row(&id, "Show PR status", Some("✓"), Some(SidebarIntent::ViewOptions), &on_intent, false, cx))
-            .child(menu_row(&id, "Show archived", None, Some(SidebarIntent::ViewOptions), &on_intent, false, cx)),
+            .child(menu_row(&id, "Show empty projects", check(options.show_empty), Some(SidebarIntent::ViewOption(ViewOption::ToggleEmpty)), &on_intent, false, cx))
+            .child(menu_row(&id, "Show PR status", check(options.show_pr_status), Some(SidebarIntent::ViewOption(ViewOption::TogglePrStatus)), &on_intent, false, cx))
+            .child(menu_row(&id, "Show archived", check(options.show_archived), Some(SidebarIntent::ViewOption(ViewOption::ToggleArchived)), &on_intent, false, cx)),
     )
     .into_any_element()
 }
@@ -103,14 +123,13 @@ fn provider_card(id: &ElementId, usage: &super::ProviderUsage, cx: &App) -> AnyE
             .h(metrics.control_sm)
             .items_center()
             .gap(metrics.gap / 2.0)
-            .child(project_mark(usage.initial.clone(), p.label(usage.tint)).size(metrics.icon))
+            .child(project_mark(usage.initial.clone(), p.label(usage.tint)).size(metrics.icon - px(scale::SP_1)))
             .child(div().text_role_in(TextRole::Body, Density::Compact).text_color(p.fg).child(usage.name.clone()))
             .child(div().role_in(TextRole::Micro, cx).text_color(p.fg_muted).child(usage.plan.clone())),
     );
     for (index, line) in usage.lines.iter().enumerate() {
         let fraction = line.fraction.clamp(0.0, 1.0);
         let hot = fraction >= USAGE_WARN;
-        let ink = if hot { p.warning } else { p.fg_muted };
         let percent = format!("{}%", (fraction * 100.0).round() as u32);
         card = card
             .child(
@@ -121,7 +140,7 @@ fn provider_card(id: &ElementId, usage: &super::ProviderUsage, cx: &App) -> AnyE
                     .text_color(p.fg_muted)
                     .child(line.label.clone())
                     .child(div().flex_1())
-                    .child(div().text_color(ink).child(percent))
+                    .child(div().text_color(if hot { p.warning } else { p.ink_2 }).medium().child(percent))
                     .child(div().ml(metrics.gap / 2.0).child(line.resets.clone())),
             )
             .child(
@@ -133,7 +152,7 @@ fn provider_card(id: &ElementId, usage: &super::ProviderUsage, cx: &App) -> AnyE
                         .my(px(2.0))
                         .bg(p.surface(4))
                         .overflow_hidden()
-                        .child(Shape::Pill.rounded(div().h_full().w(gpui::relative(fraction)).bg(if hot { p.warning } else { p.fg_muted }))),
+                        .child(Shape::Pill.rounded(div().h_full().w(gpui::relative(fraction)).bg(if hot { p.warning } else { p.ink_2 }))),
                 ),
             );
     }
@@ -158,12 +177,20 @@ pub fn account_menu(id: impl Into<ElementId>, account: &Account, on_intent: Opti
         .child(div().text_role_in(TextRole::Body, Density::Compact).text_color(p.fg).child(account.name.clone()))
         .child(div().flex_1())
         .child(div().role_in(TextRole::Micro, cx).text_color(p.fg_muted).truncate().child(account.email.clone()));
+    let backdrop = on_intent.clone();
     let mut panel = v_flex()
         .id((id.clone(), "account-menu-list"))
         .w_full()
         .p(metrics.item_px / 2.0)
         .role(gpui::Role::Menu)
         .aria_label(label)
+        .occlude()
+        .on_click(move |_, w, cx| {
+            cx.stop_propagation();
+            if let Some(emit) = backdrop.as_ref() {
+                emit(SidebarIntent::MenuBackdrop, w, cx);
+            }
+        })
         .child(identity)
         .child(separator(cx))
         .child(

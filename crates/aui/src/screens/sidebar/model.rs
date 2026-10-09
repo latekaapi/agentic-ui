@@ -172,6 +172,43 @@ pub struct BrowseModel {
     pub hovered_today_header: bool,
 }
 
+/// The view-options menu's state: what the host groups and sorts by and
+/// which toggles are on, shown in the menu rows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ViewOptions {
+    /// "Project", "Date", "Status".
+    pub group_by: SharedString,
+    /// "Last activity", "Name".
+    pub sort_by: SharedString,
+    /// Show projects with no sessions.
+    pub show_empty: bool,
+    /// Show PR status on rows.
+    pub show_pr_status: bool,
+    /// Show archived sessions.
+    pub show_archived: bool,
+}
+
+impl Default for ViewOptions {
+    fn default() -> Self {
+        Self { group_by: "Project".into(), sort_by: "Last activity".into(), show_empty: false, show_pr_status: true, show_archived: false }
+    }
+}
+
+/// One row of the view-options menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewOption {
+    /// Group by ›
+    GroupBy,
+    /// Sort by ›
+    SortBy,
+    /// Show empty projects.
+    ToggleEmpty,
+    /// Show PR status.
+    TogglePrStatus,
+    /// Show archived.
+    ToggleArchived,
+}
+
 /// The whole sidebar as plain data. The host owns the matching
 /// [`gpui::ListState`] (see [`super::screen_item_count`]) and the
 /// [`FluidHandle`](crate::interact::FluidHandle), and hands all three to
@@ -192,7 +229,11 @@ pub struct SidebarModel {
     pub grouping: Rc<Grouping>,
     /// The selected session id.
     pub selected: Option<SharedString>,
-    /// The session the pointer is over: its trailing slot swaps to actions.
+    /// The row the pointer is over, as reported by [`SidebarIntent::Hover`]:
+    /// a session id (its trailing slot swaps to actions), a Browse tab id
+    /// (its close appears), or one of the reserved chrome keys `"search"`
+    /// and `"new-session"` (their shortcut chip appears). Session ids must
+    /// not use the reserved keys.
     pub hovered: Option<SharedString>,
     /// The project head the pointer is over: it shows its actions.
     pub hovered_group: Option<SharedString>,
@@ -208,6 +249,8 @@ pub struct SidebarModel {
     pub collapsed: bool,
     /// Whether the view-options menu is open under the Projects header.
     pub view_menu_open: bool,
+    /// The view-options menu's current values.
+    pub view_options: ViewOptions,
     /// Second lines on every row, or only where a status demands one.
     pub bylines: Bylines,
     /// The account footer and menu.
@@ -285,8 +328,14 @@ pub enum SidebarIntent {
     Toggle(SharedString),
     /// The Pinned header was clicked: open or close it.
     TogglePinned,
-    /// The Projects header's view-options button.
+    /// The Projects header's view-options button: open or close the menu.
     ViewOptions,
+    /// A row of the view-options menu.
+    ViewOption(ViewOption),
+    /// A click landed on a menu's own surface but no row (the host keeps
+    /// the menu open); outside clicks and Escape are the host's to detect
+    /// and answer with its own close.
+    MenuBackdrop,
     /// The Projects header's add button.
     AddProject,
     /// A project head's action (new session in it, or its menu).
@@ -366,6 +415,7 @@ pub fn sample_model() -> SidebarModel {
         loading: false,
         collapsed: false,
         view_menu_open: false,
+        view_options: ViewOptions::default(),
         bylines: Bylines::All,
         account: Account {
             name: "Bharani".into(),

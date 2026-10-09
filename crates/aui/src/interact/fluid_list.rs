@@ -455,6 +455,19 @@ impl RenderOnce for FluidList {
             }
         }
         let highlight = highlight_for(&keys, &rects, keyboard, pointer, axis);
+        // The pointer may be still while the rows move under it (a wheel
+        // scroll of a virtualised list): the overlay follows at once, and
+        // the parent hears about the new row on the next frame, never
+        // from inside render.
+        if pointer.is_some() && keyboard.is_none() && fluid.borrow().reported != Some(highlight) {
+            if let Some(report) = self.on_highlight.clone() {
+                let fluid = fluid.clone();
+                window.on_next_frame(move |window, cx| {
+                    let next = state_highlight(&fluid.borrow(), axis);
+                    report_change(&fluid, &Some(report), next, window, cx);
+                });
+            }
+        }
         let (previous, previous_selected) = {
             let mut state = fluid.borrow_mut();
             if highlight.is_some() {
