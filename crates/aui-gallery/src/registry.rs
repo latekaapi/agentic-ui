@@ -52,9 +52,9 @@ pub struct Entry {
 impl Entry {
     /// Screens are full-bleed: their reference PNG is a 1440×900 app window,
     /// not a card sitting on the design's 20 px card ground, so the stage
-    /// must render them edge to edge.
+    /// must render them edge to edge. The v2 screens group shares the rule.
     pub fn full_bleed(&self) -> bool {
-        self.group == "Screens"
+        self.group == "Screens" || self.group == "Screens v2"
     }
 }
 
@@ -853,6 +853,36 @@ pub static ENTRIES: &[Entry] = &[
         height: 820.0,
         theme: CardTheme::Dark,
         build: crate::browse::build,
+    },
+    Entry {
+        id: "screens/sidebar",
+        group: "Screens v2",
+        title: "Sidebar on tokens v2",
+        subtitle: "The Baaz sidebar redesigned: workspace tile, search, new session, mode control, nav, virtualised sessions and the account footer beside an empty pane",
+        width: 1440.0,
+        height: 900.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::screen_sidebar::build,
+    },
+    Entry {
+        id: "screens/sidebar-states",
+        group: "Screens v2",
+        title: "Sidebar states",
+        subtitle: "Loading, empty, populated with hover on row 3 and selection on row 1, and Browse mode",
+        width: 1088.0,
+        height: 720.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::screen_sidebar::build_states,
+    },
+    Entry {
+        id: "screens/sidebar-compact",
+        group: "Screens v2",
+        title: "Sidebar, compact",
+        subtitle: "The populated sidebar under the compact density",
+        width: 260.0,
+        height: 720.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::screen_sidebar::build_compact,
     },
     Entry {
         id: "overlays/usage",

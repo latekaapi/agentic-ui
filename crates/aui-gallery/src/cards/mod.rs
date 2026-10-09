@@ -40,6 +40,7 @@ pub mod providers;
 pub mod question_plan_todo;
 pub mod right_header_tabs;
 pub mod rows;
+pub mod screen_sidebar;
 pub mod secret_field;
 pub mod selection;
 pub mod settings;
