@@ -107,13 +107,15 @@ fn nested_radius_follows_the_concentric_rule() {
     }
 }
 
+type Builder = Rc<dyn Fn(&mut Window, &mut gpui::App) -> AnyElement>;
+
 /// Draws `build` once in a real window and returns the AX probe's labels.
 fn drawn_labels(
     cx: &mut TestAppContext,
     build: impl Fn(&mut Window, &mut gpui::App) -> AnyElement + 'static,
 ) -> Vec<String> {
     struct Host {
-        build: Rc<dyn Fn(&mut Window, &mut gpui::App) -> AnyElement>,
+        build: Builder,
     }
     impl gpui::Render for Host {
         fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
