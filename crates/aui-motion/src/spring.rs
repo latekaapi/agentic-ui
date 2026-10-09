@@ -10,17 +10,31 @@ use aui_tokens::springs;
 use gpui::{App, Pixels, SpringConfig, Window};
 use gpui_kit::base::{Spring, TransitionId};
 
-/// Which of the design's four springs to use (`motion.json`).
+/// Which of the design's springs to use (`motion.json`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SpringKind {
-    /// 500 / 30 / 0.6 — buttons, chips, rows on press.
+    /// Deprecated v1 spring (500 / 30 / 0.6 — buttons, chips, rows on
+    /// press). Maps onto the fast tier; use [`SpringKind::Fast`].
     Press,
-    /// 460 / 30 / 0.55 — icon morph, chevrons, tab indicator, checkbox.
+    /// Deprecated v1 spring (460 / 30 / 0.55 — icon morph, chevrons, tab
+    /// indicator, checkbox). Maps onto the fast tier; use
+    /// [`SpringKind::Fast`].
     Swap,
-    /// 360 / 32 / 1 — collapse/expand, panel width, card resize.
+    /// Deprecated v1 spring (360 / 32 / 1 — collapse/expand, panel width,
+    /// card resize). Maps onto the moderate tier; use
+    /// [`SpringKind::Moderate`].
     Layout,
-    /// 200 / 26 / 1 — popover morph, drop-zone overlay.
+    /// Deprecated v1 spring (200 / 26 / 1 — popover morph, drop-zone
+    /// overlay). Maps onto the slow tier; use [`SpringKind::Slow`].
     Gentle,
+    /// The fast tier spring (2467 / 99.3 / 1): presses, chevrons, tab
+    /// indicator.
+    Fast,
+    /// The moderate tier spring (617 / 49.7 / 1): collapse/expand, panel
+    /// width, card resize.
+    Moderate,
+    /// The slow tier spring (274 / 29.2 / 1): popover morph, large reveals.
+    Slow,
 }
 
 impl SpringKind {
@@ -31,6 +45,9 @@ impl SpringKind {
             SpringKind::Swap => springs::SWAP,
             SpringKind::Layout => springs::LAYOUT,
             SpringKind::Gentle => springs::GENTLE,
+            SpringKind::Fast => springs::FAST,
+            SpringKind::Moderate => springs::MODERATE,
+            SpringKind::Slow => springs::SLOW,
         }
     }
 
@@ -41,6 +58,9 @@ impl SpringKind {
             SpringKind::Swap => "swap",
             SpringKind::Layout => "layout",
             SpringKind::Gentle => "gentle",
+            SpringKind::Fast => "fast",
+            SpringKind::Moderate => "moderate",
+            SpringKind::Slow => "slow",
         }
     }
 
@@ -193,5 +213,35 @@ mod tests {
         assert!(times.iter().all(|&t| t > 0), "a spring settles instantly: {times:?}");
         assert!(times[0] < times[2], "press should settle before layout: {times:?}");
         assert!(times[1] < times[3], "swap should settle before gentle: {times:?}");
+    }
+
+    /// The three v2 tiers, in card order.
+    const TIERS: [SpringKind; 3] = [SpringKind::Fast, SpringKind::Moderate, SpringKind::Slow];
+
+    #[test]
+    fn tiers_match_motion_json() {
+        assert_eq!(SpringKind::Fast.describe(), "2467 / 99.3 / 1");
+        assert_eq!(SpringKind::Moderate.describe(), "617 / 49.7 / 1");
+        assert_eq!(SpringKind::Slow.describe(), "274 / 29.2 / 1");
+        let labels: Vec<&str> = TIERS.iter().map(|k| k.label()).collect();
+        assert_eq!(labels, vec!["fast", "moderate", "slow"]);
+    }
+
+    #[test]
+    fn tiers_are_critically_damped_or_just_under() {
+        // fast and moderate are ζ = 1 by construction; slow carries a 0.12
+        // bounce, i.e. ζ ≈ 0.88.
+        for kind in TIERS {
+            let (_, zeta) = kind.config().canonical();
+            assert!((0.8..=1.05).contains(&zeta), "{kind:?} has damping ratio {zeta}");
+        }
+        let (_, fast_zeta) = SpringKind::Fast.config().canonical();
+        assert!((fast_zeta - 1.0).abs() < 0.02, "fast is not critically damped: {fast_zeta}");
+    }
+
+    #[test]
+    fn tiers_settle_fast_to_slow() {
+        let times: Vec<u128> = TIERS.iter().map(|k| k.settle_time().as_millis()).collect();
+        assert!(times[0] < times[1] && times[1] < times[2], "tiers are not ordered fast → slow: {times:?}");
     }
 }

@@ -8,8 +8,8 @@
 //!
 //! | primitive | what it does | timing |
 //! |---|---|---|
-//! | [`spring`] | retargetable spring on `f32` / `Pixels` | press · swap · layout · gentle |
-//! | [`tween`] | CSS-style transition on any interpolable value | fast · base · enter · exit · slow |
+//! | [`spring`] | retargetable spring on `f32` / `Pixels` | fast · moderate · slow tiers (press · swap · layout · gentle are deprecated aliases) |
+//! | [`tween`] | CSS-style transition on any interpolable value | [`Tween::exit`] per tier (fast · base · enter · exit · slow are deprecated presets) |
 //! | [`presence`] | enter / exit with an exit hold, so a leaving element can fade | enter 220 · exit 160 |
 //! | [`collapse`] | height 0 ↔ auto | layout spring |
 //! | [`stagger`] | per-child delay | 40–60 ms |
@@ -47,7 +47,7 @@ pub mod stagger;
 pub mod ticker;
 mod tween;
 
-pub use aui_tokens::{durations, springs, Easing};
+pub use aui_tokens::{durations, springs, Easing, Tier};
 pub use check::{check_draw, CheckDraw};
 pub use collapse::{collapse, Reveal};
 pub use icon_morph::{icon_morph, IconMorph, MorphSample};

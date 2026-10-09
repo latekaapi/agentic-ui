@@ -6,7 +6,11 @@
     "exit": 160,
     "slow": 280,
     "quick_enter": 150,
-    "quick_exit": 120
+    "quick_exit": 120,
+    "fast_exit": 60,
+    "moderate_exit": 120,
+    "slow_exit": 160,
+    "moderate": 160
   },
   "easings": {
     "out": [
@@ -52,6 +56,24 @@
       "damping": 26,
       "mass": 1,
       "use": "popover morph, drop-zone overlay"
+    },
+    "fast": {
+      "stiffness": 2467.0,
+      "damping": 99.3,
+      "mass": 1.0,
+      "use": "tier fast: presses, chevrons, tab indicator (enter 80 ms, exit 60 ms)"
+    },
+    "moderate": {
+      "stiffness": 617.0,
+      "damping": 49.7,
+      "mass": 1.0,
+      "use": "tier moderate: collapse/expand, panel width (enter 160 ms, exit 120 ms)"
+    },
+    "slow": {
+      "stiffness": 274.0,
+      "damping": 29.2,
+      "mass": 1.0,
+      "use": "tier slow: popover morph, large reveals (enter 240 ms, exit 160 ms)"
     }
   },
   "reduced_motion": "all durations 0, springs resolve instantly"

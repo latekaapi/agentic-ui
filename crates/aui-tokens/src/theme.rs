@@ -1,12 +1,14 @@
 //! The active token set as a gpui global, plus theme switching.
 
-use gpui::{App, Global, Window};
+use std::time::Duration;
+
+use gpui::{App, Global, SpringConfig, Window};
 use gpui_kit::component::{Theme, ThemeMode, ThemeRegistry};
 
 use crate::{
     density::{Density, Metrics},
     fonts::load_fonts,
-    generated::{dark, light, scale, Palette},
+    generated::{dark, durations, light, scale, springs, Palette},
     kit_theme::{theme_set_json, KIT_THEME_DARK, KIT_THEME_LIGHT},
 };
 
@@ -56,6 +58,56 @@ impl ThemeKind {
             "light" => Some(ThemeKind::Light),
             "dark" => Some(ThemeKind::Dark),
             _ => None,
+        }
+    }
+}
+
+/// The three motion tiers of the v2 design. Every animation picks a tier;
+/// exits are always faster than enters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Tier {
+    /// Presses, chevrons, tab indicators, hover tints.
+    Fast,
+    /// Collapse/expand, panel width, card resize.
+    Moderate,
+    /// Popover morphs and large reveals.
+    Slow,
+}
+
+impl Tier {
+    /// How long entering takes: 80 / 160 / 240 ms.
+    pub fn enter(self) -> Duration {
+        match self {
+            Tier::Fast => Duration::from_millis(80),
+            Tier::Moderate => durations::MODERATE,
+            Tier::Slow => Duration::from_millis(240),
+        }
+    }
+
+    /// How long exiting takes: 60 / 120 / 160 ms.
+    pub fn exit(self) -> Duration {
+        match self {
+            Tier::Fast => durations::FAST_EXIT,
+            Tier::Moderate => durations::MODERATE_EXIT,
+            Tier::Slow => durations::SLOW_EXIT,
+        }
+    }
+
+    /// The tier's spring, from `motion.json` (`fast` / `moderate` / `slow`).
+    pub fn spring(self) -> SpringConfig {
+        match self {
+            Tier::Fast => springs::FAST,
+            Tier::Moderate => springs::MODERATE,
+            Tier::Slow => springs::SLOW,
+        }
+    }
+
+    /// Human-readable label, as printed on the motion card.
+    pub fn label(self) -> &'static str {
+        match self {
+            Tier::Fast => "fast",
+            Tier::Moderate => "moderate",
+            Tier::Slow => "slow",
         }
     }
 }
@@ -128,9 +180,9 @@ pub struct AuiTheme {
     pub colors: Palette,
     /// Row and control heights for the active density.
     pub metrics: Metrics,
-    /// Text size multiplier (1.0 = the design's 13 px base; the product
-    /// default is `scale::TEXT_SCALE`, 1.1). Applied through
-    /// the window rem size, so every [`crate::AuiStyled`] size follows it.
+    /// Deprecated v1 text multiplier. Always 1.0: v2 renders whole-pixel
+    /// type with no global scale. Kept so hosts that read it keep compiling;
+    /// a later lane removes it.
     pub text_scale: f32,
 }
 
@@ -147,7 +199,7 @@ impl AuiTheme {
                 ThemeKind::Dark => dark(),
             },
             metrics: Metrics::for_density(density),
-            text_scale: scale::TEXT_SCALE,
+            text_scale: 1.0,
         }
     }
 
@@ -176,7 +228,7 @@ impl AuiTheme {
         }
         cx.set_global(AuiTheme::new(kind, Density::Standard));
         Self::apply(cx, None);
-        Self::set_text_scale(scale::TEXT_SCALE, None, cx);
+        Self::push_type_sizes(Density::Standard, cx);
     }
 
     /// Switches the theme (both the token palette and gpui-kit's theme).
@@ -195,13 +247,14 @@ impl AuiTheme {
         Self::set_kind(next, window, cx);
     }
 
-    /// Switches the row density.
+    /// Switches the row density (and the per-density type sizes).
     pub fn set_density(density: Density, window: Option<&mut Window>, cx: &mut App) {
         {
             let this = cx.global_mut::<AuiTheme>();
             this.density = density;
             this.metrics = Metrics::for_density(density);
         }
+        Self::push_type_sizes(density, cx);
         if let Some(window) = window {
             window.refresh();
         } else {
@@ -209,31 +262,40 @@ impl AuiTheme {
         }
     }
 
-    /// Sets the text scale (0.9 … 1.3) and pushes the resulting base size to
-    /// gpui-kit, whose `Root` sets the window rem size from it every frame.
-    pub fn set_text_scale(text_scale: f32, window: Option<&mut Window>, cx: &mut App) {
-        let text_scale = text_scale.clamp(0.8, 1.5);
-        cx.global_mut::<AuiTheme>().text_scale = text_scale;
-        {
-            let theme = Theme::global_mut(cx);
-            theme.font_size = gpui::px(scale::FS_13 * text_scale);
-            theme.mono_font_size = gpui::px(scale::FS_12 * text_scale);
-        }
-        Theme::sync_base(cx);
+    /// Deprecated v1 text-scale setter. Now a no-op that only refreshes, so
+    /// hosts that call it keep compiling. Type sizes come from the per-role
+    /// `t-*-fs` tokens and [`AuiTheme::set_density`]; a later lane removes
+    /// this function.
+    pub fn set_text_scale(_text_scale: f32, window: Option<&mut Window>, cx: &mut App) {
         if let Some(window) = window {
             window.refresh();
         } else {
             cx.refresh_windows();
         }
+    }
+
+    /// Pushes the body/mono sizes for `density` into gpui-kit, whose `Root`
+    /// sets the window rem size from them.
+    fn push_type_sizes(density: Density, cx: &mut App) {
+        {
+            let theme = Theme::global_mut(cx);
+            match density {
+                Density::Standard => {
+                    theme.font_size = gpui::px(scale::T_BODY_FS);
+                    theme.mono_font_size = gpui::px(scale::T_MONO_FS);
+                }
+                Density::Compact => {
+                    theme.font_size = gpui::px(scale::T_BODY_FS_C);
+                    theme.mono_font_size = gpui::px(scale::T_MONO_FS_C);
+                }
+            }
+        }
+        Theme::sync_base(cx);
     }
 
     fn apply(cx: &mut App, window: Option<&mut Window>) {
         let kind = cx.global::<AuiTheme>().kind;
-        let text_scale = cx.global::<AuiTheme>().text_scale;
         Theme::change(kind.kit_mode(), window, cx);
-        if (text_scale - 1.0).abs() > f32::EPSILON {
-            Self::set_text_scale(text_scale, None, cx);
-        }
         cx.refresh_windows();
     }
 
@@ -281,5 +343,19 @@ mod tests {
         let t = AuiTheme::new(ThemeKind::Light, Density::Compact);
         assert_eq!(t.colors, light());
         assert_eq!(t.metrics, Metrics::for_density(Density::Compact));
+    }
+
+    #[test]
+    fn tiers_exit_faster_than_they_enter() {
+        for tier in [Tier::Fast, Tier::Moderate, Tier::Slow] {
+            assert!(tier.exit() < tier.enter(), "{tier:?} exit is not faster than enter");
+        }
+        assert_eq!(Tier::Fast.enter().as_millis(), 80);
+        assert_eq!(Tier::Moderate.enter().as_millis(), 160);
+        assert_eq!(Tier::Slow.enter().as_millis(), 240);
+        assert_eq!(Tier::Fast.exit().as_millis(), 60);
+        assert_eq!(Tier::Moderate.exit().as_millis(), 120);
+        assert_eq!(Tier::Slow.exit().as_millis(), 160);
+        assert_eq!(Tier::Fast.label(), "fast");
     }
 }

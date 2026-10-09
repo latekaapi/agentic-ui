@@ -1,17 +1,12 @@
-//! Card 04 · Motion. The four springs, the easings and the composite
-//! primitives as live samples, each driven by the real `aui-motion`
-//! primitive rather than a canned animation. Reproduces
-//! `design/src/cards/foundations/04-motion.html` at 900×520.
-//!
-//! Every tile loops the way the CSS sample does (`infinite alternate`), so the
-//! springs are exercised by toggling their target on a timer and letting the
-//! solver travel — which is exactly what a button press or a chevron does.
+//! Card 04 · Motion. The three v2 motion tiers as live samples (enter then
+//! exit), with the deprecated v1 springs beneath. Every tile is driven by the
+//! real `aui-motion` primitive rather than a canned animation.
 
 use std::time::Duration;
 
 use aui_icons::{icon, IconName};
-use aui_motion::{icon_morph, looping, spring_phase, CheckDraw, Easing, IconMorph, Loop, SpringKind};
-use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
+use aui_motion::{icon_morph, looping, spring_phase, CheckDraw, Easing, IconMorph, Loop, SpringKind, Tier};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Density, Palette, TextRole};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -21,39 +16,100 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     v_flex()
         .w_full()
         .child(
-            v_flex()
+            h_flex()
                 .w_full()
+                .items_stretch()
                 .gap(px(14.0))
-                .child(
-                    h_flex()
-                        .w_full()
-                        .items_stretch()
-                        .gap(px(14.0))
-                        .child(tile(&p, "spring · press", SpringKind::Press.describe(), press_stage(&p, window, cx)))
-                        .child(tile(&p, "spring · swap", SpringKind::Swap.describe(), swap_stage(&p, window, cx)))
-                        .child(tile(&p, "spring · layout", SpringKind::Layout.describe(), layout_stage(&p, window, cx)))
-                        .child(tile(&p, "spring · gentle", SpringKind::Gentle.describe(), gentle_stage(&p, window, cx))),
-                )
-                .child(
-                    h_flex()
-                        .w_full()
-                        .items_stretch()
-                        .gap(px(14.0))
-                        .child(tile(&p, "ease-out", "enter 220 ms · cubic(.16,1,.3,1)".into(), ease_out_stage(&p, window, cx)))
-                        .child(tile(&p, "fade-rise", "base 180 ms · +4 px".into(), fade_rise_stage(&p, window, cx)))
-                        .child(tile(&p, "icon morph", "send ↔ stop".into(), morph_stage(&p, window, cx)))
-                        .child(tile(&p, "check draw · shake", "success 320 ms · error 500 ms".into(), check_shake_stage(&p, window, cx))),
-                ),
+                .child(tier_tile(&p, Tier::Fast, tier_stage(&p, Tier::Fast, "m-tier-fast", window, cx)))
+                .child(tier_tile(&p, Tier::Moderate, tier_stage(&p, Tier::Moderate, "m-tier-moderate", window, cx)))
+                .child(tier_tile(&p, Tier::Slow, tier_stage(&p, Tier::Slow, "m-tier-slow", window, cx))),
+        )
+        .child(
+            div()
+                .mt(px(14.0))
+                .mb(px(8.0))
+                .text_role_in(TextRole::Caption, Density::Standard)
+                .medium()
+                .text_color(p.ink_3)
+                .child("Deprecated v1 springs — use the tiers above"),
+        )
+        .child(
+            h_flex()
+                .w_full()
+                .items_stretch()
+                .gap(px(14.0))
+                .child(tile(&p, "spring · press", SpringKind::Press.describe(), press_stage(&p, window, cx)))
+                .child(tile(&p, "spring · swap", SpringKind::Swap.describe(), swap_stage(&p, window, cx)))
+                .child(tile(&p, "spring · layout", SpringKind::Layout.describe(), layout_stage(&p, window, cx)))
+                .child(tile(&p, "spring · gentle", SpringKind::Gentle.describe(), gentle_stage(&p, window, cx))),
+        )
+        .child(
+            h_flex()
+                .w_full()
+                .items_stretch()
+                .mt(px(14.0))
+                .gap(px(14.0))
+                .child(tile(&p, "ease-out", "enter 220 ms · cubic(.16,1,.3,1)".into(), ease_out_stage(&p, window, cx)))
+                .child(tile(&p, "fade-rise", "base 180 ms · +4 px".into(), fade_rise_stage(&p, window, cx)))
+                .child(tile(&p, "icon morph", "send ↔ stop".into(), morph_stage(&p, window, cx)))
+                .child(tile(&p, "check draw · shake", "success 320 ms · error 500 ms".into(), check_shake_stage(&p, window, cx))),
         )
         .child(durations_row(&p))
         .child(
             div()
                 .mt(px(12.0))
                 .max_w(px(632.0))
-                .text_role(TextRole::UiSmall)
+                .text_role_in(TextRole::Caption, Density::Standard)
                 .text_color(p.ink_3)
                 .child("Rules: animate transform and opacity, never layout when a fade will do; every animation has a readable resting state; motion explains change and is never ambient."),
         )
+        .into_any_element()
+}
+
+/// A tier tile: the tier name, its enter/exit/spring numbers, and the stage.
+fn tier_tile(p: &Palette, tier: Tier, stage: AnyElement) -> impl IntoElement {
+    let cfg = tier.spring();
+    tile(
+        p,
+        match tier {
+            Tier::Fast => "tier · fast",
+            Tier::Moderate => "tier · moderate",
+            Tier::Slow => "tier · slow",
+        },
+        format!(
+            "enter {} · exit {} · {} / {} / {}",
+            tier.enter().as_millis(),
+            tier.exit().as_millis(),
+            cfg.stiffness,
+            cfg.damping,
+            cfg.mass
+        ),
+        stage,
+    )
+}
+
+/// A tier stage: the ball travels out over the tier's enter duration, holds,
+/// then returns over the tier's exit duration.
+fn tier_stage(p: &Palette, tier: Tier, id: &'static str, window: &mut Window, cx: &mut App) -> AnyElement {
+    let enter = tier.enter().as_millis() as f32;
+    let exit = tier.exit().as_millis() as f32;
+    let hold = 500.0;
+    let total = enter + hold + exit + hold;
+    let t = looping((id, "clock"), Loop::linear(Duration::from_millis(total as u64)), window, cx);
+    let elapsed = t * total;
+    let progress = if elapsed < enter {
+        Easing::OUT.sample(elapsed / enter)
+    } else if elapsed < enter + hold {
+        1.0
+    } else if elapsed < enter + hold + exit {
+        1.0 - Easing::STD.sample((elapsed - enter - hold) / exit)
+    } else {
+        0.0
+    };
+    h_flex()
+        .gap(px(10.0))
+        .child(ball(p, px(18.0)).relative().left(px(120.0 * progress)))
+        .child(caption(p, "enter, then exit"))
         .into_any_element()
 }
 
@@ -71,7 +127,7 @@ fn tile(p: &Palette, title: &'static str, meta: String, stage: AnyElement) -> im
         .child(
             div()
                 .mb(px(2.0))
-                .text_role(TextRole::Title)
+                .text_role_in(TextRole::Title, Density::Standard)
                 .text_px(scale::FS_12)
                 .line_height(relative(1.2))
                 .text_color(p.ink)
@@ -90,7 +146,7 @@ fn tile(p: &Palette, title: &'static str, meta: String, stage: AnyElement) -> im
 }
 
 fn caption(p: &Palette, text: &'static str) -> impl IntoElement {
-    div().text_role(TextRole::Meta).text_color(p.ink_3).child(text)
+    div().text_role_in(TextRole::Caption, Density::Standard).text_color(p.ink_3).child(text)
 }
 
 fn ball(p: &Palette, size: Pixels) -> Div {
@@ -226,7 +282,6 @@ fn check_shake_stage(p: &Palette, window: &mut Window, cx: &mut App) -> AnyEleme
                 .child(CheckDraw::new(px(12.0), progress, icon(IconName::Check).size(px(12.0)).color(p.success))),
         )
         .child(
-            // `.btn.danger.sm`: 24 px, padding 0 9, 12 px 500, danger text, danger-soft border.
             div()
                 .relative()
                 .left(px(shake_x))
@@ -237,9 +292,10 @@ fn check_shake_stage(p: &Palette, window: &mut Window, cx: &mut App) -> AnyEleme
                 .border_color(p.danger_soft)
                 .flex()
                 .items_center()
-                .text_role(TextRole::UiMedium)
+                .text_role_in(TextRole::Body, Density::Standard)
                 .text_px(scale::FS_12)
                 .line_height(relative(1.0))
+                .medium()
                 .text_color(p.danger)
                 .child("Deny"),
         )

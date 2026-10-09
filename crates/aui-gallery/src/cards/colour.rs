@@ -54,6 +54,8 @@ fn theme_section(title: &'static str, p: Palette) -> impl IntoElement {
                 .child(title.to_uppercase()),
         )
         .child(swatches(p))
+        .child(surface_ladder(p))
+        .child(overlay_grid(p))
         .child(labels_row(p))
         .child(states(p, title))
         .child(diff_pair(p))
@@ -108,6 +110,99 @@ fn swatches(p: Palette) -> impl IntoElement {
         grid = grid.child(r);
     }
     grid
+}
+
+/// The eight-step surface ladder: one tile per step, each on its own ground.
+fn surface_ladder(p: Palette) -> impl IntoElement {
+    let mut row = h_flex().w_full().gap(px(4.0)).mb(px(12.0));
+    for step in 1..=8u8 {
+        row = row.child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .h(px(44.0))
+                .rounded(px(scale::R_SM))
+                .border_1()
+                .border_color(p.line)
+                .bg(p.surface(step))
+                .flex()
+                .items_end()
+                .px(px(6.0))
+                .py(px(5.0))
+                .font_family(scale::FONT_MONO)
+                .text_px(10.0)
+                .line_height(relative(1.0))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(p.ink_3)
+                .child(format!("s{step}")),
+        );
+    }
+    v_flex()
+        .w_full()
+        .child(
+            div()
+                .mb(px(4.0))
+                .font_family(scale::FONT_MONO)
+                .text_px(10.0)
+                .line_height(relative(1.0))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(p.ink_3)
+                .child("SURFACE · EIGHT STEPS, RELATIVE TO THE PARENT"),
+        )
+        .child(row)
+}
+
+/// The state overlays: hover, selected and pressed tints over steps 2, 4
+/// and 6. Each cell is the step ground with the tint painted on top.
+fn overlay_grid(p: Palette) -> impl IntoElement {
+    let tints = [("hover", p.hover_overlay()), ("selected", p.selected_overlay()), ("pressed", p.pressed_overlay())];
+    let mut grid = v_flex().w_full().gap(px(4.0)).mb(px(12.0));
+    for (name, tint) in tints {
+        let mut row = h_flex().w_full().gap(px(4.0));
+        for step in [2u8, 4, 6] {
+            row = row.child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .h(px(30.0))
+                    .rounded(px(3.0))
+                    .border_1()
+                    .border_color(p.line)
+                    .bg(p.surface(step))
+                    .child(
+                        div()
+                            .w_full()
+                            .h_full()
+                            .rounded(px(3.0))
+                            .bg(tint)
+                            .flex()
+                            .items_end()
+                            .px(px(6.0))
+                            .py(px(5.0))
+                            .font_family(scale::FONT_MONO)
+                            .text_px(10.0)
+                            .line_height(relative(1.0))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(p.ink)
+                            .child(format!("{name} · s{step}")),
+                    ),
+            );
+        }
+        grid = grid.child(row);
+    }
+    v_flex()
+        .w_full()
+        .child(
+            div()
+                .mb(px(4.0))
+                .font_family(scale::FONT_MONO)
+                .text_px(10.0)
+                .line_height(relative(1.0))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(p.ink_3)
+                .child("OVERLAYS · TINT OVER THE STEP BENEATH"),
+        )
+        .child(grid)
 }
 
 /// The label ramp: the eight project colours, red through pink.

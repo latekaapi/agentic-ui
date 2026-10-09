@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use aui_tokens::{durations, Easing};
+use aui_tokens::{durations, Easing, Tier};
 use gpui::{App, Hsla, Window};
 use gpui_kit::base::{Interpolate, Transition, TransitionId};
 
@@ -20,16 +20,27 @@ pub struct Tween {
 }
 
 impl Tween {
-    /// 120 ms, std easing — hover tints.
+    /// Deprecated v1 preset (120 ms, std easing — hover tints). Pick a motion
+    /// tier instead.
     pub const FAST: Tween = Tween::new(durations::FAST, Easing::STD);
-    /// 180 ms, std easing — toggles, tabs.
+    /// Deprecated v1 preset (180 ms, std easing — toggles, tabs). Pick a
+    /// motion tier instead.
     pub const BASE: Tween = Tween::new(durations::BASE, Easing::STD);
-    /// 220 ms, ease-out — cards and menus entering.
+    /// Deprecated v1 preset (220 ms, ease-out — cards and menus entering).
+    /// Pick a motion tier instead.
     pub const ENTER: Tween = Tween::new(durations::ENTER, Easing::OUT);
-    /// 160 ms, std easing — dismissals.
+    /// Deprecated v1 preset (160 ms, std easing — dismissals). Pick a motion
+    /// tier instead: [`Tween::exit`].
     pub const EXIT: Tween = Tween::new(durations::EXIT, Easing::STD);
-    /// 280 ms, ease-out — panel width.
+    /// Deprecated v1 preset (280 ms, ease-out — panel width). Pick a motion
+    /// tier instead.
     pub const SLOW: Tween = Tween::new(durations::SLOW, Easing::OUT);
+
+    /// The exit policy for a motion tier (60 / 120 / 160 ms, std easing):
+    /// exits are always faster than enters.
+    pub fn exit(tier: Tier) -> Self {
+        Self::new(tier.exit(), Easing::STD)
+    }
 
     /// A custom policy.
     pub const fn new(duration: Duration, easing: Easing) -> Self {
@@ -95,6 +106,19 @@ mod tests {
         assert_eq!(Tween::EXIT.duration.as_millis(), 160);
         assert_eq!(Tween::SLOW.duration.as_millis(), 280);
         assert_eq!(Tween::ENTER.easing, Easing::OUT);
+    }
+
+    #[test]
+    fn exit_follows_the_tier() {
+        assert_eq!(Tween::exit(Tier::Fast).duration.as_millis(), 60);
+        assert_eq!(Tween::exit(Tier::Moderate).duration.as_millis(), 120);
+        assert_eq!(Tween::exit(Tier::Slow).duration.as_millis(), 160);
+        for tier in [Tier::Fast, Tier::Moderate, Tier::Slow] {
+            let exit = Tween::exit(tier);
+            assert_eq!(exit.easing, Easing::STD);
+            assert_eq!(exit.delay, Duration::ZERO);
+            assert!(exit.duration < tier.enter());
+        }
     }
 
     /// Every preset, for the invariants that hold across all of them.

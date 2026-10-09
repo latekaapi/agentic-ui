@@ -1,50 +1,43 @@
-//! Card 03 · Spacing, radius, elevation. The seven spacing steps drawn to
-//! scale, the six radii and the three shadow levels beside a flat panel.
-//! Reproduces `design/src/cards/foundations/03-space.html` at 760×420.
+//! Card 03 · Size ladder, shape, surface ladder, radius, elevation. The v2
+//! foundations: one control height shared by controls and rows, a single
+//! shape with its concentric rule, and the eight-step surface ladder.
 
-use aui_tokens::{ActiveAui, scale, AuiStyled, Palette, TextRole};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Density, Palette, TextRole};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 
-/// `.caps{margin-bottom:10px}` above every section of this card.
+/// Gap below each section heading.
 const SECTION_LABEL_GAP: f32 = 10.0;
-/// `.sp`, `.rad`{margin-bottom:22px}.
+/// Gap below each section body.
 const SECTION_GAP: f32 = 22.0;
-/// `.sp{gap:14px}` and `.rad{gap:14px}`.
+/// Gap between tiles in a row.
 const SWATCH_GAP: f32 = 14.0;
-/// `.el{gap:18px}`.
-const ELEVATION_GAP: f32 = 18.0;
-/// `.sp div{height:24px}` — the spacing bars.
-const BAR_HEIGHT: f32 = 24.0;
-/// `.sp div{border-radius:2px}` — a one-off hairline radius below `--r-xs`.
-const BAR_RADIUS: f32 = 2.0;
-/// `.sp div::after{margin-top:4px}` — the value caption under each bar.
-const BAR_LABEL_GAP: f32 = 4.0;
-/// `.sp div::after`, `.rad div{font:500 10px/1 var(--font-mono)}`.
+/// Captions under tiles: mono 10 / 1.
 const CAPTION_SIZE: f32 = 10.0;
-/// `.el div{font:500 11px/1 var(--font-mono)}`.
-const ELEVATION_LABEL_SIZE: f32 = 11.0;
-/// Captions are set solid (`/1`).
+/// Caption line height.
 const LH_FLAT: f32 = 1.0;
 /// `.rad div{width:56px;height:40px}`.
 const RADIUS_TILE: (f32, f32) = (56.0, 40.0);
 /// `.el div{width:120px;height:64px}`.
 const ELEVATION_TILE: (f32, f32) = (120.0, 64.0);
-/// The subtitle beside the spacing bars: `font-size:12px;margin-left:12px`.
-const SP_NOTE_INDENT: f32 = 12.0;
-/// `.ds-note{max-width:80ch}` — 80 characters of Geist at 12 px (the `0`
-/// advance measures ≈8.1 px in gpui, fixed by matching the reference line breaks).
+/// `.ds-note` measure.
 const NOTE_MEASURE: f32 = 650.0;
-/// `.caps` inherits the body line height (1.5) in this card.
-const CAPS_LH: f32 = scale::LH_UI;
+/// Width of each size-ladder box.
+const LADDER_BOX_W: f32 = 120.0;
+/// Height of each surface-ladder bar.
+const SURFACE_BAR_H: f32 = 30.0;
 
 /// Builds the card content.
 pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
     v_flex()
         .w_full()
-        .child(section_label(p, "Spacing"))
-        .child(spacing_row(p))
+        .child(section_label(p, "Size ladder"))
+        .child(size_ladder(p))
+        .child(section_label(p, "Shape"))
+        .child(shape_demo(p))
+        .child(section_label(p, "Surface ladder"))
+        .child(surface_ladder(p))
         .child(section_label(p, "Radius"))
         .child(radius_row(p))
         .child(section_label(p, "Elevation"))
@@ -53,81 +46,190 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .mt(px(scale::SP_4))
                 .max_w(px(NOTE_MEASURE))
-                .ui(scale::FS_12)
+                .text_role_in(TextRole::Caption, Density::Standard)
                 .text_color(p.ink_3)
                 .child(
-                    "Control heights: 20 / 24 / 28 / 32 / 40. Sidebar rows 56 (two lines), \
-                     transcript card headers 32, status bar 24, panel tab strip 32.",
+                    "One control height (36, compact 28) shared by controls and rows. \
+                     Concentric radii: an item inside a container steps down one shape step \
+                     with a 2 px inset. Surfaces climb one step per nesting level.",
                 ),
         )
         .into_any_element()
 }
 
-/// A `.caps` section heading with its 10 px bottom margin.
+/// A section heading.
 fn section_label(p: Palette, label: &'static str) -> impl IntoElement {
     div()
         .mb(px(SECTION_LABEL_GAP))
-        .text_role(TextRole::Caps)
-        .line_height(relative(CAPS_LH))
+        .text_role_in(TextRole::Caption, Density::Standard)
+        .medium()
         .text_color(p.ink_3)
-        .child(label.to_uppercase())
+        .child(label)
 }
 
-/// `.sp`: the seven spacing steps drawn at their true width, each captioned
-/// underneath by an absolutely positioned label (the CSS `::after`).
-fn spacing_row(p: Palette) -> impl IntoElement {
-    let steps = [
-        scale::SP_1,
-        scale::SP_2,
-        scale::SP_3,
-        scale::SP_4,
-        scale::SP_5,
-        scale::SP_6,
-        scale::SP_7,
-    ];
-    let mut row = h_flex()
-        .w_full()
-        .items_end()
-        .mb(px(SECTION_GAP))
-        .gap(px(SWATCH_GAP));
-    for step in steps {
+/// The v2 size ladder: control, row-2, bar and icon at both densities, each
+/// as a labelled box drawn at its true height.
+fn size_ladder(p: Palette) -> impl IntoElement {
+    let mut row = h_flex().w_full().items_end().mb(px(SECTION_GAP)).gap(px(SWATCH_GAP));
+    for (name, std, compact) in [
+        ("control", scale::CTL_DEFAULT, scale::CTL_COMPACT),
+        ("row-2", scale::ROW_2_DEFAULT, scale::ROW_2_COMPACT),
+        ("bar", scale::BAR_DEFAULT, scale::BAR_COMPACT),
+        ("icon", scale::ICON_DEFAULT, scale::ICON_COMPACT),
+    ] {
         row = row.child(
-            div()
-                .relative()
-                .flex_none()
-                .w(px(step))
-                .h(px(BAR_HEIGHT))
-                .rounded(px(BAR_RADIUS))
-                .border_1()
-                .border_color(p.accent)
-                .bg(p.accent_soft)
-                .child(
-                    div()
-                        .absolute()
-                        .top(px(BAR_HEIGHT + BAR_LABEL_GAP))
-                        .left_0()
-                        .font_family(scale::FONT_MONO)
-                        .text_px(CAPTION_SIZE)
-                        .line_height(relative(LH_FLAT))
-                        .medium()
-                        .whitespace_nowrap()
-                        .text_color(p.ink_3)
-                        .child(format!("{step}")),
-                ),
+            h_flex()
+                .items_end()
+                .gap(px(6.0))
+                .child(ladder_box(p, std, format!("{name} {std}")))
+                .child(ladder_box(p, compact, format!("{name}-c {compact}"))),
         );
     }
-    row.child(
-        div()
-            .flex_1()
-            .min_w(px(0.0))
-            .ml(px(SP_NOTE_INDENT))
-            .ui(scale::FS_12)
-            .text_color(p.ink_3)
+    row
+}
+
+/// One labelled box drawn at its true height.
+fn ladder_box(p: Palette, height: f32, label: String) -> impl IntoElement {
+    v_flex()
+        .flex_none()
+        .gap(px(4.0))
+        .child(
+            div()
+                .w(px(LADDER_BOX_W))
+                .h(px(height))
+                .rounded(px(scale::SHAPE_ITEM))
+                .border_1()
+                .border_color(p.line_strong)
+                .bg(p.surface_2),
+        )
+        .child(
+            div()
+                .font_family(scale::FONT_MONO)
+                .text_px(CAPTION_SIZE)
+                .line_height(relative(LH_FLAT))
+                .medium()
+                .text_color(p.ink_3)
+                .child(label),
+        )
+}
+
+/// The shape pair: a container (8) holding an item (6) at a 2 px inset, and
+/// beside it the wrong same-radius pair labelled accordingly.
+fn shape_demo(p: Palette) -> impl IntoElement {
+    h_flex()
+        .mb(px(SECTION_GAP))
+        .gap(px(SWATCH_GAP))
+        .child(
+            v_flex()
+                .gap(px(4.0))
+                .child(
+                    div()
+                        .w(px(160.0))
+                        .rounded(px(scale::SHAPE_CONTAINER))
+                        .border_1()
+                        .border_color(p.line_strong)
+                        .bg(p.surface_2)
+                        .p(px(2.0))
+                        .child(
+                            div()
+                                .w_full()
+                                .h(px(44.0))
+                                .rounded(px(scale::SHAPE_ITEM))
+                                .bg(p.surface_4)
+                                .border_1()
+                                .border_color(p.line),
+                        ),
+                )
+                .child(shape_caption(p, "container 8 · item 6 · 2 px inset")),
+        )
+        .child(
+            v_flex()
+                .gap(px(4.0))
+                .child(
+                    div()
+                        .w(px(160.0))
+                        .rounded(px(scale::SHAPE_CONTAINER))
+                        .border_1()
+                        .border_color(p.line_strong)
+                        .bg(p.surface_2)
+                        .p(px(2.0))
+                        .child(
+                            div()
+                                .w_full()
+                                .h(px(44.0))
+                                .rounded(px(scale::SHAPE_CONTAINER))
+                                .bg(p.surface_4)
+                                .border_1()
+                                .border_color(p.danger),
+                        ),
+                )
+                .child(shape_caption(p, "✗ same radius")),
+        )
+}
+
+/// Mono caption under a shape tile.
+fn shape_caption(p: Palette, label: &'static str) -> impl IntoElement {
+    div()
+        .font_family(scale::FONT_MONO)
+        .text_px(CAPTION_SIZE)
+        .line_height(relative(LH_FLAT))
+        .medium()
+        .text_color(p.ink_3)
+        .child(label)
+}
+
+/// The eight-step surface ladder as nested bars, each labelled with its hex.
+fn surface_ladder(p: Palette) -> impl IntoElement {
+    let hex_of = |step: u8| {
+        let c: Rgba = p.surface(step).into();
+        let ch = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+        format!("#{:02x}{:02x}{:02x}", ch(c.r), ch(c.g), ch(c.b))
+    };
+    // Innermost first, then wrap outwards: step 8 sits inside step 7, and so on.
+    let mut bar: AnyElement = div()
+        .w_full()
+        .h(px(SURFACE_BAR_H))
+        .rounded(px(scale::SHAPE_ITEM))
+        .bg(p.surface(8))
+        .border_1()
+        .border_color(p.line)
+        .flex()
+        .items_center()
+        .px(px(8.0))
+        .font_family(scale::FONT_MONO)
+        .text_px(CAPTION_SIZE)
+        .line_height(relative(LH_FLAT))
+        .medium()
+        .text_color(p.ink_3)
+        .child(format!("surface-8 · {}", hex_of(8)))
+        .into_any_element();
+    for step in (1..=7).rev() {
+        bar = div()
+            .w_full()
+            .rounded(px(scale::SHAPE_ITEM))
+            .bg(p.surface(step))
+            .border_1()
+            .border_color(p.line)
+            .p(px(6.0))
             .child(
-                "Padding belongs to the component; gaps to the parent. \
-                 Never double up between nested containers.",
-            ),
-    )
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap(px(8.0))
+                    .child(
+                        div()
+                            .font_family(scale::FONT_MONO)
+                            .text_px(CAPTION_SIZE)
+                            .line_height(relative(LH_FLAT))
+                            .medium()
+                            .text_color(p.ink_3)
+                            .child(format!("surface-{step} · {}", hex_of(step))),
+                    )
+                    .child(div().flex_1().child(bar)),
+            )
+            .into_any_element();
+    }
+    div().w_full().mb(px(SECTION_GAP)).child(bar)
 }
 
 /// `.rad`: six 56×40 tiles, one per radius step.
@@ -159,8 +261,6 @@ fn radius_row(p: Palette) -> impl IntoElement {
                 .line_height(relative(LH_FLAT))
                 .medium()
                 .text_color(p.ink_3)
-                // The tile is a grid cell in the CSS, so the caption wraps at
-                // the tile width and the wrapped block stays centred.
                 .child(div().max_w(px(RADIUS_TILE.0)).child(label)),
         );
     }
@@ -169,7 +269,7 @@ fn radius_row(p: Palette) -> impl IntoElement {
 
 /// `.el`: the three shadow levels plus the flat docked-panel ground.
 fn elevation_row(p: Palette) -> impl IntoElement {
-    let mut row = h_flex().gap(px(ELEVATION_GAP));
+    let mut row = h_flex().gap(px(18.0));
     for (level, label) in [
         (1u8, "1 · rows, chips"),
         (2, "2 · popovers, toasts"),
@@ -200,3 +300,6 @@ fn elevation_tile(p: Palette, label: &'static str) -> Div {
         .text_color(p.ink_3)
         .child(div().max_w(px(ELEVATION_TILE.0)).child(label))
 }
+
+/// `.el div` label size.
+const ELEVATION_LABEL_SIZE: f32 = 11.0;

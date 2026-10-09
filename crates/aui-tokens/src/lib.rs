@@ -48,7 +48,7 @@ pub use fonts::{load_fonts, FONT_FILES};
 pub use generated::{dark, durations, light, scale, springs, Palette, ShadowLayer};
 pub use kit_theme::{theme_set_json, theme_set_value, KIT_THEME_DARK, KIT_THEME_LIGHT};
 pub use styled::{scaled, AuiStyled, TextRole};
-pub use theme::{ActiveAui, AgentState, AuiTheme, Easing, ThemeKind};
+pub use theme::{ActiveAui, AgentState, AuiTheme, Easing, ThemeKind, Tier};
 
 /// Raw JSON of `design/tokens/tokens.json`, embedded for tooling that wants the
 /// original values (the gallery's colour card lists them).
@@ -144,6 +144,109 @@ impl Palette {
     pub fn attention_border(&self, color: gpui::Hsla) -> gpui::Hsla {
         color.alpha(0.7)
     }
+
+    /// Whether this is the dark palette, derived from the background
+    /// lightness (dark `bg.l` is below 0.5, light is above 0.9).
+    pub fn is_dark(&self) -> bool {
+        self.bg.l < 0.5
+    }
+
+    /// One of the eight surface steps (`surface-1` … `surface-8`); the step
+    /// is clamped to `1..=8`. Steps are relative to the parent: a card on
+    /// step 2 nests its sections on step 3, and so on.
+    pub fn surface(&self, step: u8) -> gpui::Hsla {
+        match step.clamp(1, 8) {
+            1 => self.surface_1,
+            2 => self.surface_2,
+            3 => self.surface_3,
+            4 => self.surface_4,
+            5 => self.surface_5,
+            6 => self.surface_6,
+            7 => self.surface_7,
+            _ => self.surface_8,
+        }
+    }
+
+    /// The hover tint: white at the hover alpha in dark (lightens), black at
+    /// the hover alpha in light (darkens). Paint over the step beneath it.
+    pub fn hover_overlay(&self) -> gpui::Hsla {
+        if self.is_dark() {
+            gpui::white().alpha(scale::OV_HOVER_DARK)
+        } else {
+            gpui::black().alpha(scale::OV_HOVER_LIGHT)
+        }
+    }
+
+    /// The selected tint, same rule as [`Palette::hover_overlay`].
+    pub fn selected_overlay(&self) -> gpui::Hsla {
+        if self.is_dark() {
+            gpui::white().alpha(scale::OV_SELECTED_DARK)
+        } else {
+            gpui::black().alpha(scale::OV_SELECTED_LIGHT)
+        }
+    }
+
+    /// The pressed tint, same rule as [`Palette::hover_overlay`].
+    pub fn pressed_overlay(&self) -> gpui::Hsla {
+        if self.is_dark() {
+            gpui::white().alpha(scale::OV_PRESSED_DARK)
+        } else {
+            gpui::black().alpha(scale::OV_PRESSED_LIGHT)
+        }
+    }
+
+    /// The elevation ring: white at the ring alpha in dark, `line` in light.
+    pub fn ring(&self) -> gpui::Hsla {
+        if self.is_dark() {
+            gpui::white().alpha(scale::RING_DARK)
+        } else {
+            self.line
+        }
+    }
+
+    /// The hovered elevation ring: white at the hover-ring alpha in dark,
+    /// `line` in light.
+    pub fn ring_hover(&self) -> gpui::Hsla {
+        if self.is_dark() {
+            gpui::white().alpha(scale::RING_HOVER_DARK)
+        } else {
+            self.line
+        }
+    }
+
+    /// The surface step `offset` stairs above `step`, capped at 8. A popover
+    /// over a step-2 row opens on `elevated(2, 3)` = step 5.
+    pub fn elevated(step: u8, offset: u8) -> u8 {
+        step.clamp(1, 8).saturating_add(offset).min(8)
+    }
+
+    /// The shadow for a surface step: in dark one ring layer (spread 1 at
+    /// the ring alpha) plus `shadow-2` for steps 5 and up; in light
+    /// `shadow-1` for steps 3–4, `shadow-2` for 5–6, `shadow-3` for 7–8
+    /// (steps 1–2 sit flat).
+    pub fn elevation_shadow(&self, step: u8) -> Vec<gpui::BoxShadow> {
+        let step = step.clamp(1, 8);
+        if self.is_dark() {
+            let mut out = vec![gpui::BoxShadow {
+                color: self.ring(),
+                offset: gpui::point(gpui::px(0.0), gpui::px(0.0)),
+                blur_radius: gpui::px(0.0),
+                spread_radius: gpui::px(1.0),
+                inset: false,
+            }];
+            if step >= 5 {
+                out.extend(self.shadow(2));
+            }
+            out
+        } else {
+            match step {
+                1 | 2 => Vec::new(),
+                3 | 4 => self.shadow(1),
+                5 | 6 => self.shadow(2),
+                _ => self.shadow(3),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -206,7 +309,32 @@ mod tests {
         assert_eq!(scale::FONT_UI, "Geist");
         assert_eq!(scale::FONT_MONO, "Geist Mono");
         assert_eq!(scale::TRACK_CAPS_EM, 0.08);
-        assert_eq!(scale::TEXT_SCALE, 1.1);
+        // v2 removed the global text multiplier; the shim stays neutral.
+        assert_eq!(scale::TEXT_SCALE, 1.0);
+        // v2 size ladder.
+        assert_eq!(scale::CTL_DEFAULT, 36.0);
+        assert_eq!(scale::CTL_COMPACT, 28.0);
+        assert_eq!(scale::ROW_2_DEFAULT, 52.0);
+        assert_eq!(scale::ROW_2_COMPACT, 44.0);
+        assert_eq!(scale::BAR_DEFAULT, 44.0);
+        assert_eq!(scale::BAR_COMPACT, 36.0);
+        assert_eq!(scale::ICON_DEFAULT, 16.0);
+        assert_eq!(scale::ICON_COMPACT, 14.0);
+        // v2 whole-pixel type ladder.
+        assert_eq!(scale::T_BODY_FS, 14.0);
+        assert_eq!(scale::T_BODY_LH, 20.0);
+        assert_eq!(scale::T_BODY_FS_C, 13.0);
+        assert_eq!(scale::T_DISPLAY_FS, 28.0);
+        assert_eq!(scale::T_DISPLAY_LH, 34.0);
+        assert_eq!(scale::T_MONO_FS, 13.0);
+        assert_eq!(scale::T_MONO_FS_C, 12.0);
+        // v2 shape and overlays.
+        assert_eq!(scale::SHAPE_CONTAINER, 8.0);
+        assert_eq!(scale::SHAPE_ITEM, 6.0);
+        assert_eq!(scale::OV_HOVER_DARK, 0.06);
+        assert_eq!(scale::OV_PRESSED_LIGHT, 0.09);
+        assert_eq!(scale::RING_DARK, 0.08);
+        assert_eq!(scale::RING_HOVER_DARK, 0.13);
     }
 
     #[test]
@@ -216,5 +344,76 @@ mod tests {
         assert_eq!(springs::LAYOUT.damping, 32.0);
         assert_eq!(springs::GENTLE.stiffness, 200.0);
         assert_eq!(durations::SLOW.as_millis(), 280);
+        assert_eq!(springs::FAST.stiffness, 2467.0);
+        assert_eq!(springs::FAST.damping, 99.3);
+        assert_eq!(springs::MODERATE.stiffness, 617.0);
+        assert_eq!(springs::SLOW.damping, 29.2);
+        assert_eq!(durations::FAST_EXIT.as_millis(), 60);
+        assert_eq!(durations::MODERATE_EXIT.as_millis(), 120);
+        assert_eq!(durations::SLOW_EXIT.as_millis(), 160);
+        assert_eq!(durations::MODERATE.as_millis(), 160);
+    }
+
+    #[test]
+    fn surface_ladder_has_eight_steps_in_both_themes() {
+        for theme in [ThemeKind::Light, ThemeKind::Dark] {
+            let p = Palette::for_kind(theme);
+            for step in 1..=8 {
+                let name = format!("surface-{step}");
+                assert!(p.color(&name).is_some(), "{theme:?} cannot look up {name}");
+            }
+            assert_eq!(p.surface(1), p.surface_1);
+            assert_eq!(p.surface(8), p.surface_8);
+        }
+        // Clamped, not panicking.
+        assert_eq!(light().surface(0), light().surface_1);
+        assert_eq!(dark().surface(255), dark().surface_8);
+        // Dark knows it is dark, light knows it is light.
+        assert!(dark().is_dark());
+        assert!(!light().is_dark());
+        // The two-colour text rule has names.
+        assert_eq!(light().fg, light().ink);
+        assert_eq!(light().fg_muted, light().ink_3);
+        assert_eq!(dark().fg, dark().ink);
+    }
+
+    #[test]
+    fn overlays_lighten_dark_and_darken_light() {
+        let d = dark();
+        let l = light();
+        assert!((d.hover_overlay().a - scale::OV_HOVER_DARK).abs() < 1e-6);
+        assert!((d.selected_overlay().a - scale::OV_SELECTED_DARK).abs() < 1e-6);
+        assert!((d.pressed_overlay().a - scale::OV_PRESSED_DARK).abs() < 1e-6);
+        assert!((l.hover_overlay().a - scale::OV_HOVER_LIGHT).abs() < 1e-6);
+        assert!((l.pressed_overlay().a - scale::OV_PRESSED_LIGHT).abs() < 1e-6);
+        // Dark lightens (white tint), light darkens (black tint).
+        assert!(d.hover_overlay().l > 0.9);
+        assert!(l.hover_overlay().l < 0.1);
+        // Rings: white at alpha in dark, line in light.
+        assert_eq!(l.ring(), l.line);
+        assert_eq!(l.ring_hover(), l.line);
+        assert!((d.ring().a - scale::RING_DARK).abs() < 1e-6);
+        assert!((d.ring_hover().a - scale::RING_HOVER_DARK).abs() < 1e-6);
+    }
+
+    #[test]
+    fn elevated_caps_at_step_8() {
+        assert_eq!(Palette::elevated(2, 3), 5);
+        assert_eq!(Palette::elevated(7, 4), 8);
+        assert_eq!(Palette::elevated(8, 0), 8);
+    }
+
+    #[test]
+    fn elevation_shadow_follows_the_step_table() {
+        let d = dark();
+        // Dark: ring only below step 5, ring + shadow-2 at and above.
+        assert_eq!(d.elevation_shadow(2).len(), 1);
+        assert_eq!(d.elevation_shadow(5).len(), 1 + d.shadow_2.len());
+        assert_eq!(d.elevation_shadow(2)[0].spread_radius, gpui::px(1.0));
+        // Light: flat, shadow-1, shadow-2, shadow-3.
+        assert!(light().elevation_shadow(1).is_empty());
+        assert_eq!(light().elevation_shadow(3).len(), light().shadow_1.len());
+        assert_eq!(light().elevation_shadow(6).len(), light().shadow_2.len());
+        assert_eq!(light().elevation_shadow(8).len(), light().shadow_3.len());
     }
 }

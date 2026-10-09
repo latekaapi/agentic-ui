@@ -4,15 +4,15 @@ use gpui::{px, Pixels};
 
 use crate::generated::scale;
 
-/// How tightly rows are packed. Standard is the design; compact trims the row
-/// and header heights the way a "compact" preference would, without changing
-/// type sizes.
+/// How tightly rows are packed. Standard is the design; compact trims the
+/// size ladder the way a "compact" preference would, without changing the
+/// shape tokens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Density {
     /// The values in the design cards.
     #[default]
     Standard,
-    /// Rows 4 px shorter, headers 4 px shorter.
+    /// Controls, rows and bars at their compact values.
     Compact,
 }
 
@@ -38,50 +38,95 @@ impl Density {
 /// comes straight from [`scale`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Metrics {
-    /// Shell header cells (44 in the design).
+    /// The shared control height: buttons, rows, tab strips (36 / 28).
+    pub control: Pixels,
+    /// Two-line rows: sidebar rows, transcript rows (52 / 44).
+    pub row_2: Pixels,
+    /// Chrome bars: shell header, panel headers (44 / 36).
+    pub bar: Pixels,
+    /// Glyph box for 14/16 px icons (16 / 14).
+    pub icon: Pixels,
+    /// Control padding step (12 / 10).
+    pub ctl_px: Pixels,
+    /// Item padding step (8 / 6).
+    pub item_px: Pixels,
+    /// Gaps between siblings (8 / 4).
+    pub gap: Pixels,
+    /// Container insets (16 / 12).
+    pub inset: Pixels,
+    /// Deprecated v1 shell header cell. Use [`Metrics::bar`]: the header is
+    /// the bar at the active density.
     pub header: Pixels,
-    /// Panel header / floating panel chrome (36).
+    /// Deprecated v1 panel header. Always 36 (the bar at its compact value);
+    /// use [`Metrics::bar`].
     pub panel_header: Pixels,
-    /// Tab strips outside the shell header (34).
+    /// Deprecated v1 tab strip. Use [`Metrics::control`].
     pub tab_strip: Pixels,
-    /// Tool-card and thinking headers (34).
+    /// Deprecated v1 card header. Always 28 (the control at its compact
+    /// value); card headers migrate to [`Metrics::control`] in a later lane.
     pub card_header: Pixels,
-    /// Sidebar rows, timeline rows, project rows (30).
+    /// Deprecated v1 row. Use [`Metrics::control`].
     pub row: Pixels,
-    /// Compact rows: file tree rows, file change rows (26).
+    /// Deprecated v1 compact row. Always 28 (the control at its compact
+    /// value); use [`Metrics::control`] and read the density.
     pub row_sm: Pixels,
-    /// Extra-small control (20).
+    /// Deprecated v1 extra-small control (20, unchanged).
     pub control_xs: Pixels,
-    /// Small control (24).
+    /// Deprecated v1 small control (24, unchanged).
     pub control_sm: Pixels,
-    /// Medium control — buttons, composer toolbar (28).
+    /// Deprecated v1 medium control (28, unchanged).
     pub control_md: Pixels,
-    /// Large control (32).
+    /// Deprecated v1 large control (32, unchanged).
     pub control_lg: Pixels,
-    /// Extra-large control — dialog fields (40).
+    /// Deprecated v1 extra-large control (40, unchanged).
     pub control_xl: Pixels,
 }
 
 impl Metrics {
     /// Metrics for a density.
     pub fn for_density(density: Density) -> Self {
-        let trim = match density {
-            Density::Standard => 0.0,
-            Density::Compact => 4.0,
+        let (control, row_2, bar, icon, ctl_px, item_px, gap, inset) = match density {
+            Density::Standard => (
+                scale::CTL_DEFAULT,
+                scale::ROW_2_DEFAULT,
+                scale::BAR_DEFAULT,
+                scale::ICON_DEFAULT,
+                scale::CTL_PX_DEFAULT,
+                scale::ITEM_PX_DEFAULT,
+                scale::GAP_DEFAULT,
+                scale::INSET_DEFAULT,
+            ),
+            Density::Compact => (
+                scale::CTL_COMPACT,
+                scale::ROW_2_COMPACT,
+                scale::BAR_COMPACT,
+                scale::ICON_COMPACT,
+                scale::CTL_PX_COMPACT,
+                scale::ITEM_PX_COMPACT,
+                scale::GAP_COMPACT,
+                scale::INSET_COMPACT,
+            ),
         };
-        let small_trim = trim / 2.0;
         Self {
-            header: px(44.0 - trim),
-            panel_header: px(36.0 - trim),
-            tab_strip: px(34.0 - trim),
-            card_header: px(34.0 - trim),
-            row: px(30.0 - trim),
-            row_sm: px(26.0 - small_trim),
-            control_xs: px(scale::H_XS - small_trim),
-            control_sm: px(scale::H_SM - small_trim),
-            control_md: px(scale::H_MD - small_trim),
-            control_lg: px(scale::H_LG - trim),
-            control_xl: px(scale::H_XL - trim),
+            control: px(control),
+            row_2: px(row_2),
+            bar: px(bar),
+            icon: px(icon),
+            ctl_px: px(ctl_px),
+            item_px: px(item_px),
+            gap: px(gap),
+            inset: px(inset),
+            header: px(bar),
+            panel_header: px(scale::BAR_COMPACT),
+            tab_strip: px(control),
+            card_header: px(scale::CTL_COMPACT),
+            row: px(control),
+            row_sm: px(scale::CTL_COMPACT),
+            control_xs: px(20.0),
+            control_sm: px(24.0),
+            control_md: px(28.0),
+            control_lg: px(32.0),
+            control_xl: px(40.0),
         }
     }
 }
@@ -93,8 +138,12 @@ mod tests {
     #[test]
     fn standard_matches_design() {
         let m = Metrics::for_density(Density::Standard);
+        assert_eq!(m.control, px(36.0));
+        assert_eq!(m.row, px(36.0));
+        assert_eq!(m.bar, px(44.0));
+        assert_eq!(m.row_2, px(52.0));
         assert_eq!(m.header, px(44.0));
-        assert_eq!(m.row, px(30.0));
+        assert_eq!(m.panel_header, px(36.0));
         assert_eq!(m.control_md, px(28.0));
     }
 
@@ -104,5 +153,8 @@ mod tests {
         let c = Metrics::for_density(Density::Compact);
         assert!(c.row < s.row);
         assert!(c.header < s.header);
+        assert_eq!(c.control, px(28.0));
+        assert_eq!(c.card_header, px(28.0));
+        assert_eq!(c.row_sm, px(28.0));
     }
 }

@@ -8,7 +8,7 @@
 //! - `scale` module: every `shared` metric as a typed const
 //!   (`px` values as `f32`, `ms` as `Duration`, ratios as `f32`, easings as
 //!   `[f32; 4]`, font families as `&str`).
-//! - `springs` module: the four `SpringConfig`s from motion.json.
+//! - `springs` module: the `SpringConfig`s from motion.json.
 
 use serde_json::Value;
 use std::{env, fs, path::PathBuf};
@@ -157,6 +157,14 @@ fn emit_scale(out: &mut String, tokens: &Value) {
             panic!("unrecognised shared token {key} = {value}");
         }
     }
+    // v1 compatibility: `text-scale` is gone from the design (v2 renders at
+    // whole pixels with no global multiplier), but hosts still name
+    // `scale::TEXT_SCALE`. It resolves to the neutral 1.0; documented as
+    // deprecated in prose so the mandated `-D warnings` gate stays green for
+    // the call sites a later lane migrates.
+    out.push_str("    /// Deprecated v1 text-scale shim: always 1.0. v2 has no global\n");
+    out.push_str("    /// text multiplier; type sizes come from the per-role `t-*-fs` tokens.\n");
+    out.push_str("    pub const TEXT_SCALE: f32 = 1.0;\n");
     out.push_str("}\n\n");
 }
 
@@ -166,7 +174,7 @@ fn emit_scale(out: &mut String, tokens: &Value) {
 
 fn emit_springs(out: &mut String, motion: &Value) {
     let springs = motion["springs"].as_object().expect("springs");
-    out.push_str("/// The four springs from `design/tokens/motion.json` (stiffness / damping / mass).\n");
+    out.push_str("/// The springs from `design/tokens/motion.json` (stiffness / damping / mass).\n");
     out.push_str("pub mod springs {\n    use gpui::SpringConfig;\n\n");
     for (key, spec) in springs {
         let k = spec["stiffness"].as_f64().unwrap() as f32;
