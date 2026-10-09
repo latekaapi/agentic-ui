@@ -44,6 +44,18 @@ pub fn build_states(_window: &mut Window, cx: &mut App) -> AnyElement {
         let gap = cx.aui().metrics.gap;
         v_flex().flex_1().min_w(px(0.0)).gap(gap).child(caption(name, cx)).child(control)
     };
+    // The control body: a ladder-height, text-axis-padded label, so the
+    // card shows the control at its real size (Interactive itself never
+    // sizes its child).
+    let body = |cx: &App| {
+        let metrics = cx.aui().metrics;
+        h_flex()
+            .h(metrics.control)
+            .px(metrics.ctl_px)
+            .items_center()
+            .role_in(TextRole::Body, cx)
+            .child("Archive")
+    };
     let gap = cx.aui().metrics.gap;
     v_flex()
         .w_full()
@@ -52,17 +64,17 @@ pub fn build_states(_window: &mut Window, cx: &mut App) -> AnyElement {
             h_flex()
                 .w_full()
                 .gap(gap)
-                .child(tile("rest", cx, interactive("interact-states-rest", "Archive").label("Archive")))
-                .child(tile("hover", cx, interactive("interact-states-hover", "Archive").preview(fixed(true, false, false)).label("Archive")))
-                .child(tile("selected", cx, interactive("interact-states-selected", "Archive").selected(true).label("Archive"))),
+                .child(tile("rest", cx, interactive("interact-states-rest", body(cx)).label("Archive")))
+                .child(tile("hover", cx, interactive("interact-states-hover", body(cx)).preview(fixed(true, false, false)).label("Archive")))
+                .child(tile("selected", cx, interactive("interact-states-selected", body(cx)).selected(true).label("Archive"))),
         )
         .child(
             h_flex()
                 .w_full()
                 .gap(gap)
-                .child(tile("pressed", cx, interactive("interact-states-pressed", "Archive").preview(fixed(true, true, false)).label("Archive")))
-                .child(tile("focus-visible", cx, interactive("interact-states-focus", "Archive").focusable(true).preview(fixed(false, false, true)).label("Archive")))
-                .child(tile("disabled", cx, interactive("interact-states-disabled", "Archive").disabled(true).label("Archive"))),
+                .child(tile("pressed", cx, interactive("interact-states-pressed", body(cx)).preview(fixed(true, true, false)).label("Archive")))
+                .child(tile("focus-visible", cx, interactive("interact-states-focus", body(cx)).focusable(true).preview(fixed(false, false, true)).label("Archive")))
+                .child(tile("disabled", cx, interactive("interact-states-disabled", body(cx)).disabled(true).label("Archive"))),
         )
         .child(caption(
             "Heights follow metrics.control (36 standard / 28 compact) — flip the gallery Density switch.",

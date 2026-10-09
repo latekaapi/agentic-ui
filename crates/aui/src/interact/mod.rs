@@ -17,7 +17,7 @@ pub mod row;
 pub mod surface;
 
 pub use fluid_list::{fluid_list, nearest, Axis, FluidList};
-pub use interactive::{interactive, interactive_state, InteractState, Interactive, INTERACT_FOCUS_TAG};
+pub use interactive::{interactive, interactive_state, press_inset, InteractState, Interactive, INTERACT_FOCUS_TAG};
 pub use row::{row, Row};
 pub use surface::{ambient_surface, menu_surface, nested_radius, surface, AmbientScope, Surface};
 

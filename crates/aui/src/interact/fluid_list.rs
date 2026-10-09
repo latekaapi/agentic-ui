@@ -76,9 +76,20 @@ struct FluidState {
     /// with it, so a fresh entry fades in at the nearest item on the fast
     /// tier instead of sliding in from wherever it was.
     session: u64,
-    /// The keyboard-driven override, mirrored from the props each render so
-    /// the pointer handlers see the same highlight the render does.
+    /// Set with the session bump and consumed by the first frame that
+    /// paints the re-keyed tint: that frame renders the tint clear, so the
+    /// new transition starts at alpha 0 and fades in instead of popping.
+    fresh: bool,
+    /// The effective keyboard override this frame (see
+    /// [`effective_keyboard`]), so the pointer handlers see the same
+    /// highlight the render does.
     keyboard: Option<usize>,
+    /// The `highlighted` prop as last seen: a changed prop (a new key
+    /// press) re-arms the keyboard override.
+    last_prop: Option<usize>,
+    /// The pointer moved since the keyboard override was set: the pointer
+    /// owns the highlight until the prop changes again.
+    pointer_override: bool,
     /// The last highlight reported through `on_highlight`, so the pointer
     /// moving inside one item does not re-fire it.
     reported: Option<Option<usize>>,
@@ -218,6 +229,52 @@ fn highlight_for(
     pointer.and_then(|at| nearest(rects, at, axis).and_then(|position| keys.get(position).copied()))
 }
 
+/// Resolves the keyboard override for this frame. The `highlighted` prop
+/// wins while it is unchanged and the pointer has not moved since it was
+/// set; a changed prop (a new key press) re-arms it; real pointer movement
+/// ([`pointer_moved`]) hands the highlight back to the pointer.
+fn effective_keyboard(state: &mut FluidState, prop: Option<usize>) -> Option<usize> {
+    if state.last_prop != prop {
+        state.last_prop = prop;
+        state.pointer_override = false;
+    }
+    let keyboard = if state.pointer_override { None } else { prop };
+    state.keyboard = keyboard;
+    keyboard
+}
+
+/// Records a real pointer movement: the pointer takes the highlight over
+/// from any keyboard override until the prop changes again.
+fn pointer_moved(state: &mut FluidState, at: Point<Pixels>) {
+    state.pointer = Some(at);
+    if state.keyboard.is_some() {
+        state.keyboard = None;
+        state.pointer_override = true;
+    }
+}
+
+/// Whether the hover tint paints `on` this frame. A fresh session (the
+/// pointer just entered) renders one clear frame first: a newly keyed
+/// transition initialises AT its target, so without the clear frame the
+/// highlight would pop in instead of fading.
+fn tint_on(highlight: bool, fresh: bool) -> bool {
+    highlight && !fresh
+}
+
+/// The item a container click activates: with `gap_click` the highlighted
+/// item wherever the click lands; without it only a click over an item
+/// (its own nearest), a gap or padding click does nothing.
+fn click_target(state: &FluidState, gap_click: bool, axis: Axis) -> Option<usize> {
+    if !gap_click {
+        if let Some(at) = state.pointer {
+            if !state.bounds.values().any(|rect| rect.contains(&at)) {
+                return None;
+            }
+        }
+    }
+    state_highlight(state, axis)
+}
+
 /// Clamps a length at zero: spring overshoot must never flip an overlay
 /// into a negative size.
 fn non_negative(value: Pixels) -> Pixels {
@@ -240,6 +297,19 @@ fn state_highlight(state: &FluidState, axis: Axis) -> Option<usize> {
     highlight_for(&keys, &rects, state.keyboard, state.pointer, axis)
 }
 
+/// Records `next` as the current highlight; true when it differs from the
+/// last report (so the caller fires `on_highlight`).
+fn note_change(state: &mut FluidState, next: Option<usize>) -> bool {
+    let changed = state.reported != Some(next);
+    if changed {
+        state.reported = Some(next);
+        if next.is_some() {
+            state.previous_highlight = next;
+        }
+    }
+    changed
+}
+
 /// Records `next` and reports it when it differs from the last report.
 fn report_change(
     fluid: &Rc<RefCell<FluidState>>,
@@ -248,17 +318,7 @@ fn report_change(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let changed = {
-        let mut state = fluid.borrow_mut();
-        let changed = state.reported != Some(next);
-        if changed {
-            state.reported = Some(next);
-            if next.is_some() {
-                state.previous_highlight = next;
-            }
-        }
-        changed
-    };
+    let changed = note_change(&mut fluid.borrow_mut(), next);
     if changed {
         if let Some(report) = report {
             report(next, window, cx);
@@ -282,14 +342,14 @@ impl RenderOnce for FluidList {
         // Drain last frame's bounds: prepaint refills the map with exactly
         // the items built this frame, so unbuilt (virtualised-away) items
         // are never highlight targets.
-        let (container, bounds, pointer, session) = {
+        let (container, bounds, pointer, session, keyboard) = {
             let mut state = fluid.borrow_mut();
-            state.keyboard = keyboard;
+            let keyboard = effective_keyboard(&mut state, keyboard);
             if keyboard.is_some() {
                 state.reported = Some(keyboard);
             }
             let drained = std::mem::take(&mut state.bounds);
-            (state.container, drained, state.pointer, state.session)
+            (state.container, drained, state.pointer, state.session, keyboard)
         };
 
         // Parallel highlightable order and rects for the pure function.
@@ -329,7 +389,13 @@ impl RenderOnce for FluidList {
                 .or_else(|| previous.and_then(|index| bounds.get(&index)));
             if let Some(rect) = anchor {
                 let (x, y, w, h) = relative(*rect);
-                let tint = tint_fade(((id.clone(), "aui-hl"), sess.clone()), highlight.is_some(), p.hover_overlay(), enter, window, cx);
+                // The first frame of a fresh session paints the re-keyed
+                // tint clear and asks for another frame, which fades it in.
+                let fresh = std::mem::take(&mut fluid.borrow_mut().fresh);
+                if fresh {
+                    window.request_animation_frame();
+                }
+                let tint = tint_fade(((id.clone(), "aui-hl"), sess.clone()), tint_on(highlight.is_some(), fresh), p.hover_overlay(), enter, window, cx);
                 let x = spring_px(((id.clone(), "aui-hl-x"), sess.clone()), x, SpringKind::Moderate, window, cx);
                 let y = spring_px(((id.clone(), "aui-hl-y"), sess.clone()), y, SpringKind::Moderate, window, cx);
                 let w = spring_px(((id.clone(), "aui-hl-w"), sess.clone()), w, SpringKind::Moderate, window, cx);
@@ -414,7 +480,9 @@ impl RenderOnce for FluidList {
                 let fluid = fluid.clone();
                 let report = self.on_highlight.clone();
                 move |event: &gpui::MouseMoveEvent, window: &mut Window, cx: &mut App| {
-                    fluid.borrow_mut().pointer = Some(event.position);
+                    // Real pointer movement takes the highlight over from
+                    // a keyboard override and reports where it landed.
+                    pointer_moved(&mut fluid.borrow_mut(), event.position);
                     let next = state_highlight(&fluid.borrow(), axis);
                     // Pointer geometry lives in window keyed state rather
                     // than an entity, so refresh the window directly.
@@ -427,7 +495,10 @@ impl RenderOnce for FluidList {
                 let report = self.on_highlight.clone();
                 move |hovered: &bool, window: &mut Window, cx: &mut App| {
                     if *hovered {
-                        fluid.borrow_mut().session += 1;
+                        let mut state = fluid.borrow_mut();
+                        state.session += 1;
+                        state.fresh = true;
+                        drop(state);
                         window.refresh();
                     } else {
                         fluid.borrow_mut().pointer = None;
@@ -444,21 +515,112 @@ impl RenderOnce for FluidList {
         if let Some(activate) = self.on_activate {
             let fluid = fluid.clone();
             list = list.on_click(move |_, window: &mut Window, cx: &mut App| {
-                let state = fluid.borrow();
-                if !gap_click {
-                    if let Some(at) = state.pointer {
-                        if !state.bounds.values().any(|rect| rect.contains(&at)) {
-                            return;
-                        }
-                    }
-                }
-                let current = state_highlight(&state, axis);
-                drop(state);
+                let current = click_target(&fluid.borrow(), gap_click, axis);
                 if let Some(index) = current {
                     activate(index, window, cx);
                 }
             });
         }
         list
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(y: f32) -> Bounds<Pixels> {
+        Bounds { origin: Point { x: px(0.0), y: px(y) }, size: gpui::Size { width: px(200.0), height: px(36.0) } }
+    }
+
+    fn at(x: f32, y: f32) -> Point<Pixels> {
+        Point { x: px(x), y: px(y) }
+    }
+
+    /// Three built rows at y 0 / 44 / 88 (an 8 px gap).
+    fn built() -> FluidState {
+        let mut state = FluidState::default();
+        for index in 0..3 {
+            state.bounds.insert(index, rect(index as f32 * 44.0));
+        }
+        state
+    }
+
+    #[test]
+    fn keyboard_override_waits_for_an_unbuilt_item() {
+        let keys = [0, 1, 2];
+        let rects: Vec<_> = (0..3).map(|i| rect(i as f32 * 44.0)).collect();
+        assert_eq!(highlight_for(&keys, &rects, Some(1), Some(at(10.0, 10.0)), Axis::Y), Some(1));
+        assert_eq!(highlight_for(&keys, &rects, Some(7), Some(at(10.0, 10.0)), Axis::Y), None);
+        assert_eq!(highlight_for(&keys, &rects, None, Some(at(10.0, 10.0)), Axis::Y), Some(0));
+        assert_eq!(highlight_for(&keys, &rects, None, None, Axis::Y), None);
+    }
+
+    #[test]
+    fn pointer_movement_takes_over_from_the_keyboard() {
+        let mut state = built();
+        // A key press: the parent sets the prop; it wins over the pointer.
+        assert_eq!(effective_keyboard(&mut state, Some(2)), Some(2));
+        state.pointer = Some(at(10.0, 10.0));
+        assert_eq!(state_highlight(&state, Axis::Y), Some(2));
+        // The pointer moves: it owns the highlight again, and the override
+        // stays cleared on the next render with the unchanged prop.
+        pointer_moved(&mut state, at(10.0, 12.0));
+        assert_eq!(state_highlight(&state, Axis::Y), Some(0));
+        assert_eq!(effective_keyboard(&mut state, Some(2)), None);
+        // A new key press (changed prop) re-arms the override.
+        assert_eq!(effective_keyboard(&mut state, Some(1)), Some(1));
+        assert_eq!(state_highlight(&state, Axis::Y), Some(1));
+        // Clearing the prop clears the override without a pointer move.
+        assert_eq!(effective_keyboard(&mut state, None), None);
+        assert_eq!(state_highlight(&state, Axis::Y), Some(0));
+    }
+
+    #[test]
+    fn pointer_movement_is_reported_after_a_keyboard_override() {
+        let mut state = built();
+        effective_keyboard(&mut state, Some(2));
+        state.reported = Some(Some(2));
+        pointer_moved(&mut state, at(10.0, 50.0));
+        let next = state_highlight(&state, Axis::Y);
+        assert_eq!(next, Some(1));
+        assert!(note_change(&mut state, next), "the pointer-derived highlight reaches the parent");
+        assert!(!note_change(&mut state, next), "moving inside the same item does not re-fire");
+        assert!(note_change(&mut state, None), "leaving reports none");
+    }
+
+    #[test]
+    fn a_click_after_moving_activates_the_pointer_item_not_the_keyboard_one() {
+        let mut state = built();
+        effective_keyboard(&mut state, Some(2));
+        pointer_moved(&mut state, at(10.0, 10.0));
+        assert_eq!(click_target(&state, false, Axis::Y), Some(0));
+    }
+
+    #[test]
+    fn gap_click_rule() {
+        let mut state = built();
+        // In the gap between rows 0 and 1, nearer row 1.
+        state.pointer = Some(at(10.0, 42.0));
+        assert_eq!(click_target(&state, false, Axis::Y), None, "no gap_click: a gap click does nothing");
+        assert_eq!(click_target(&state, true, Axis::Y), Some(1), "gap_click: the nearest item activates");
+        // Over an item: its own nearest either way.
+        state.pointer = Some(at(10.0, 100.0));
+        assert_eq!(click_target(&state, false, Axis::Y), Some(2));
+        assert_eq!(click_target(&state, true, Axis::Y), Some(2));
+    }
+
+    #[test]
+    fn a_fresh_session_renders_one_clear_frame_before_fading_in() {
+        // Frame 1 after entry: fresh → clear, so the re-keyed transition
+        // initialises at alpha 0. Frame 2: on → fades in.
+        assert!(!tint_on(true, true));
+        assert!(tint_on(true, false));
+        assert!(!tint_on(false, false));
+        let mut state = FluidState::default();
+        state.session += 1;
+        state.fresh = true;
+        assert!(std::mem::take(&mut state.fresh));
+        assert!(!state.fresh, "consumed by the first painted frame");
     }
 }

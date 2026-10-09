@@ -37,6 +37,12 @@ pub fn interactive_state(id: impl Into<ElementId>, window: &mut Window, cx: &mut
     InteractState { hovered: flags.hovered, pressed: flags.pressed, focused }
 }
 
+/// The press inset for a press phase in `0..=1`: at most 1 px per side,
+/// applied to the overlays only, never to the layout box.
+pub fn press_inset(phase: f32) -> gpui::Pixels {
+    px(1.0) * phase.clamp(0.0, 1.0)
+}
+
 /// Maps the [`Interactive::role`] name to an accessibility role.
 /// Unknown names fall back to `Button`: a control that wraps content and
 /// takes clicks is a button unless the caller says otherwise.
@@ -199,10 +205,14 @@ impl RenderOnce for Interactive {
                 aui_motion::spring_phase((id.clone(), "aui-press"), pressed, SpringKind::Fast, window, cx).clamp(0.0, 1.0),
             )
         };
-        let inset = px(1.0) * press;
+        // The press inset is paint-only: the overlays move 1 px inward
+        // (concentric radius) while the control's layout box stays exactly
+        // where it was, so a press never grows the control or shifts its
+        // neighbours. Padding here would do both.
+        let inset = press_inset(press);
 
         let radius = self.shape.radius();
-        let overlay = |tint: gpui::Hsla| div().absolute().inset(px(0.0)).rounded(px(radius)).bg(tint);
+        let overlay = |tint: gpui::Hsla| div().absolute().inset(inset).rounded(px(radius) - inset).bg(tint);
 
         let inner = div()
             .relative()
@@ -231,7 +241,6 @@ impl RenderOnce for Interactive {
             .id(id)
             .relative()
             .rounded(px(radius))
-            .p(inset)
             .when(disabled, |d| d.text_color(p.fg_muted))
             .when(!disabled && self.on_click.is_some(), |d| d.cursor_pointer())
             .child(inner)

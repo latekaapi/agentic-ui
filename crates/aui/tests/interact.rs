@@ -210,3 +210,34 @@ fn row_height_matches_the_ladder_at_both_densities(cx: &mut TestAppContext) {
     assert_eq!(one, px(28.0), "compact one-line row");
     assert_eq!(two, px(44.0), "compact two-line row");
 }
+
+#[gpui::test]
+fn row_title_reserves_the_semibold_width(cx: &mut TestAppContext) {
+    use gpui::{FontWeight, Styled};
+    cx.update(|cx| aui::init(ThemeKind::Dark, cx));
+    cx.update(|cx| {
+        let plain = row("w-1", "Checkout flow");
+        let picked = row("w-2", "Checkout flow").selected(true);
+        let weight = |mut el: gpui::Div| el.style().text.font_weight;
+        let size = |mut el: gpui::Div| el.style().text.font_size;
+        // The hidden copy is semibold on every row: it is the width the row
+        // reserves. The visible copy turns semibold only when selected. The
+        // role's weight must not overwrite either (role first, weight last).
+        assert_eq!(weight(plain.title(true, cx)), Some(FontWeight::SEMIBOLD), "hidden copy, unselected");
+        assert_eq!(weight(picked.title(true, cx)), Some(FontWeight::SEMIBOLD), "hidden copy, selected");
+        assert_eq!(weight(plain.title(false, cx)), Some(FontWeight::NORMAL), "visible copy, unselected");
+        assert_eq!(weight(picked.title(false, cx)), Some(FontWeight::SEMIBOLD), "visible copy, selected");
+        // Both copies set the same role size, so the reservation is real.
+        assert_eq!(size(plain.title(true, cx)), size(plain.title(false, cx)));
+        assert!(size(plain.title(true, cx)).is_some());
+    });
+}
+
+#[test]
+fn press_inset_is_paint_only_and_capped_at_one_px() {
+    use aui::interact::press_inset;
+    assert_eq!(press_inset(0.0), px(0.0));
+    assert_eq!(press_inset(1.0), px(1.0));
+    assert_eq!(press_inset(1.4), px(1.0), "spring overshoot never insets past 1 px");
+    assert_eq!(press_inset(-0.2), px(0.0));
+}

@@ -95,6 +95,25 @@ impl Row {
         let metrics = &cx.aui().metrics;
         if self.byline.is_some() { metrics.row_2 } else { metrics.control }
     }
+
+    /// One copy of the title. The `hidden` copy is always semibold and lays
+    /// out in flow, reserving the selected width; the visible copy paints
+    /// over it and is semibold only while selected, so selecting a row
+    /// never reflows its neighbours.
+    ///
+    /// The weight is applied AFTER the role: `role_in` sets the role's own
+    /// weight last, so the order matters (a `semibold()` before it is
+    /// silently overwritten). Public so the tests can inspect the style.
+    #[doc(hidden)]
+    pub fn title(&self, hidden: bool, cx: &App) -> gpui::Div {
+        div()
+            .when(hidden, |d| d.opacity(0.0))
+            .role_in(TextRole::Body, cx)
+            .when(hidden || self.selected, |d| d.semibold())
+            .text_color(cx.aui().colors.fg)
+            .truncate()
+            .child(self.label.clone())
+    }
 }
 
 impl RenderOnce for Row {
@@ -113,22 +132,12 @@ impl RenderOnce for Row {
             .h_full()
             .items_center()
             .justify_center();
+        // Width reservation for the selected semibold title (see `title`),
+        // built before the slots take ownership of their elements.
+        let (title_hidden, title_shown) = (self.title(true, cx), self.title(false, cx));
         if let Some(leading) = self.leading {
             leaders = leaders.child(leading);
         }
-
-        // Width reservation for the selected semibold title: the hidden
-        // copy is always semibold and lays out in flow; the visible copy
-        // paints over it and turns semibold only when selected.
-        let title = |hidden: bool| {
-            div()
-                .when(hidden, |d| d.opacity(0.0))
-                .when(hidden || self.selected, |d| d.semibold())
-                .role_in(TextRole::Body, cx)
-                .text_color(p.fg)
-                .truncate()
-                .child(self.label.clone())
-        };
         let byline = |text: &SharedString| {
             div().role_in(TextRole::Caption, cx).text_color(p.fg_muted).truncate().child(text.clone())
         };
@@ -136,12 +145,12 @@ impl RenderOnce for Row {
         let mut text = div().relative().flex_1().min_w(px(0.0));
         if let Some(second) = self.byline.as_ref() {
             text = text
-                .child(div().child(title(true)).child(byline(second)))
-                .child(div().absolute().inset(px(0.0)).child(title(false)).child(byline(second)));
+                .child(div().child(title_hidden).child(byline(second)))
+                .child(div().absolute().inset(px(0.0)).child(title_shown).child(byline(second)));
         } else {
             text = text
-                .child(title(true))
-                .child(div().absolute().inset(px(0.0)).truncate().child(title(false)));
+                .child(title_hidden)
+                .child(div().absolute().inset(px(0.0)).truncate().child(title_shown));
         }
 
         let mut el = h_flex()
