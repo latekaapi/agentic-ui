@@ -38,6 +38,7 @@ pub mod browse;
 pub mod composer;
 pub mod data;
 pub mod feedback;
+pub mod interact;
 pub mod keys;
 pub mod nav;
 pub mod overlay;
@@ -54,6 +55,10 @@ pub use aui_protocol as protocol;
 pub use aui_tokens as tokens;
 
 pub use browse::{Address, Pin, TabRowData, TaskFace};
+pub use interact::{
+    ambient_surface, fluid_list, interactive, interactive_state, menu_surface, nearest, nested_radius, row, surface, Axis,
+    FluidList, InteractState, Interactive, Row, Shape, Surface,
+};
 pub use nav::{account_menu, AccountMenu, AccountMenuItem};
 
 use gpui::App;

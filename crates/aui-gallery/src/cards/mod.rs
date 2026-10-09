@@ -26,6 +26,7 @@ pub mod gutter;
 pub mod handoff;
 pub mod host_actions;
 pub mod icons;
+pub mod interact;
 pub mod login;
 pub mod markdown;
 pub mod markers;
