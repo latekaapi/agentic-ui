@@ -37,12 +37,13 @@ pub struct Surface {
     shape: Shape,
     shadow: bool,
     ring: bool,
+    fill: bool,
 }
 
 /// Paints `colors.surface(step)` under `child` and provides `step` as the
 /// ambient for the subtree.
 pub fn surface(step: u8, child: impl IntoElement) -> Surface {
-    Surface { step: step.clamp(1, 8), child: child.into_any_element(), offset: None, shape: Shape::Container, shadow: false, ring: false }
+    Surface { step: step.clamp(1, 8), child: child.into_any_element(), offset: None, shape: Shape::Container, shadow: false, ring: false, fill: false }
 }
 
 impl Surface {
@@ -70,6 +71,14 @@ impl Surface {
         self.ring = ring;
         self
     }
+
+    /// The surface fills its parent (both axes) and lays its child out as
+    /// a column, so a pane or page whose parent has a definite size gets
+    /// that size instead of shrinking to its content.
+    pub fn fill(mut self) -> Self {
+        self.fill = true;
+        self
+    }
 }
 
 /// The ambient surface step: what the enclosing [`Surface`] provided,
@@ -88,12 +97,19 @@ pub fn ambient_surface(_window: &mut Window, cx: &mut App) -> u8 {
 pub struct AmbientScope {
     step: u8,
     child: AnyElement,
+    fill: bool,
 }
 
 impl AmbientScope {
     /// Scopes `child` to `step`.
     pub fn new(step: u8, child: impl IntoElement) -> Self {
-        Self { step: step.clamp(1, 8), child: child.into_any_element() }
+        Self { step: step.clamp(1, 8), child: child.into_any_element(), fill: false }
+    }
+
+    /// Like [`AmbientScope::new`], but the scope also fills its parent's
+    /// height, so a filling [`Surface`] passes its size through.
+    pub fn filled(step: u8, child: impl IntoElement) -> Self {
+        Self { step: step.clamp(1, 8), child: child.into_any_element(), fill: true }
     }
 }
 
@@ -135,6 +151,9 @@ impl Element for AmbientScope {
         }
         let mut style = Style::default();
         style.size.width = gpui::relative(1.0).into();
+        if self.fill {
+            style.size.height = gpui::relative(1.0).into();
+        }
         (window.request_layout(style, [child], cx), ())
     }
 
@@ -185,7 +204,11 @@ impl RenderOnce for Surface {
             Some(offset) => ambient_surface(window, cx).saturating_add(offset).clamp(1, 8),
             None => self.step,
         };
-        let mut el = div().bg(p.surface(step)).child(AmbientScope::new(step, self.child));
+        let scope = if self.fill { AmbientScope::filled(step, self.child) } else { AmbientScope::new(step, self.child) };
+        let mut el = div().bg(p.surface(step)).child(scope);
+        if self.fill {
+            el = el.size_full().flex().flex_col().overflow_hidden();
+        }
         el = super::Shape::rounded(self.shape, el);
         if self.shadow {
             el = el.shadow(p.elevation_shadow(step));

@@ -16,7 +16,7 @@ pub mod interactive;
 pub mod row;
 pub mod surface;
 
-pub use fluid_list::{fluid_list, nearest, Axis, FluidList};
+pub use fluid_list::{fluid_list, nearest, Axis, FluidHandle, FluidList};
 pub use interactive::{interactive, interactive_state, press_inset, InteractState, Interactive, INTERACT_FOCUS_TAG};
 pub use row::{row, Row};
 pub use surface::{ambient_surface, menu_surface, nested_radius, surface, AmbientScope, Surface};
@@ -50,8 +50,9 @@ impl Shape {
         }
     }
 
-    /// Applies the radius to an element.
-    pub(crate) fn rounded<D: gpui::Styled>(self, el: D) -> D {
+    /// Applies the radius to an element: the one sanctioned way to round a
+    /// corner outside the primitives, so every radius is a shape.
+    pub fn rounded<D: gpui::Styled>(self, el: D) -> D {
         el.rounded(px(self.radius()))
     }
 }

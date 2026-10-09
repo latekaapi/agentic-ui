@@ -6,9 +6,12 @@
 //! screens so far are [`login`], the two-method sign-in the app shows before
 //! the first session opens, and the provider surfaces in [`providers`]: the
 //! Settings provider card, the first-run connect screen and the usage card.
+//! [`sidebar`] is the Baaz sidebar redesigned on the v2 tokens: a view model
+//! in, intents out.
 
 mod login;
 mod providers;
+pub mod sidebar;
 
 pub use login::{login, Login, LoginIntent, LoginMethod, LoginState};
 pub use providers::{

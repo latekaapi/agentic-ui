@@ -106,6 +106,53 @@ struct FluidItem {
     index: usize,
     element: AnyElement,
     highlightable: bool,
+    /// The wrap grows to fill the list's main axis (a virtualised
+    /// `gpui::list` child needs this to get a height at all).
+    fill: bool,
+}
+
+/// A handle to one [`FluidList`]'s geometry, owned by the caller like a
+/// [`gpui::ListState`]: rows built OUTSIDE the list's own children — the
+/// render closure of a virtualised `gpui::list` placed inside the list —
+/// register their bounds through [`FluidHandle::item`], so the one
+/// highlight glides over virtual rows exactly as over static ones.
+///
+/// Hand the same handle to [`FluidList::handle`]; the list then keeps its
+/// pointer session, highlight and selection in the handle instead of in
+/// window keyed state (which is scoped to the element path and cannot be
+/// shared with a `list` closure).
+#[derive(Clone, Default)]
+pub struct FluidHandle {
+    fluid: Rc<RefCell<FluidState>>,
+}
+
+impl FluidHandle {
+    /// A fresh handle with no geometry yet.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Wraps `element` as highlightable item `index` of the list that owns
+    /// this handle: its bounds are recorded in prepaint every frame it is
+    /// built, and forgotten the frame it is not (a virtualised row that
+    /// scrolled away is never a highlight target).
+    pub fn item(&self, index: usize, element: impl IntoElement) -> AnyElement {
+        let fluid = self.fluid.clone();
+        div()
+            .id(("aui-fluid-ext", index))
+            .relative()
+            .w_full()
+            .on_prepaint(move |item_bounds, _, _| {
+                fluid.borrow_mut().bounds.insert(index, item_bounds);
+            })
+            .child(element)
+            .into_any_element()
+    }
+
+    /// The pointer-derived highlight as of the last event, if any.
+    pub fn highlight(&self) -> Option<usize> {
+        self.fluid.borrow().reported.flatten()
+    }
 }
 
 /// One highlight per list that glides to the nearest item.
@@ -135,6 +182,9 @@ pub struct FluidList {
     label: Option<SharedString>,
     on_highlight: Option<HighlightHandler>,
     on_activate: Option<ActivateHandler>,
+    gap: Option<Pixels>,
+    handle: Option<FluidHandle>,
+    fill: bool,
 }
 
 /// A [`FluidList`] over `axis` with `id`.
@@ -149,6 +199,9 @@ pub fn fluid_list(id: impl Into<ElementId>, axis: Axis) -> FluidList {
         label: None,
         on_highlight: None,
         on_activate: None,
+        gap: None,
+        handle: None,
+        fill: false,
     }
 }
 
@@ -156,7 +209,36 @@ impl FluidList {
     /// Adds a highlightable item: measured in prepaint, eligible for the
     /// highlight, reported and activated by index.
     pub fn item(mut self, index: usize, element: impl IntoElement) -> Self {
-        self.items.push(FluidItem { index, element: element.into_any_element(), highlightable: true });
+        self.items.push(FluidItem { index, element: element.into_any_element(), highlightable: true, fill: false });
+        self
+    }
+
+    /// Adds a static item that grows to fill the list's main axis: the
+    /// slot for a virtualised `gpui::list` whose rows register through a
+    /// [`FluidHandle`]. Never highlighted itself.
+    pub fn item_static_fill(mut self, index: usize, element: impl IntoElement) -> Self {
+        self.items.push(FluidItem { index, element: element.into_any_element(), highlightable: false, fill: true });
+        self
+    }
+
+    /// The gap between items (default `metrics.gap`); a row list on the
+    /// ladder passes zero so rows touch.
+    pub fn gap(mut self, gap: Pixels) -> Self {
+        self.gap = Some(gap);
+        self
+    }
+
+    /// The list grows to fill its parent's main axis (so a
+    /// [`FluidList::item_static_fill`] slot inside it can fill too).
+    pub fn fill(mut self) -> Self {
+        self.fill = true;
+        self
+    }
+
+    /// Keeps the list's geometry in `handle` instead of window keyed
+    /// state, so rows built elsewhere ([`FluidHandle::item`]) share it.
+    pub fn handle(mut self, handle: &FluidHandle) -> Self {
+        self.handle = Some(handle.clone());
         self
     }
 
@@ -164,7 +246,7 @@ impl FluidList {
     /// but never highlighted, reported or activated (a divider, a section
     /// header, a disabled row).
     pub fn item_static(mut self, index: usize, element: impl IntoElement) -> Self {
-        self.items.push(FluidItem { index, element: element.into_any_element(), highlightable: false });
+        self.items.push(FluidItem { index, element: element.into_any_element(), highlightable: false, fill: false });
         self
     }
 
@@ -329,15 +411,20 @@ fn report_change(
 impl RenderOnce for FluidList {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let gap = cx.aui().metrics.gap;
+        let gap = self.gap.unwrap_or(cx.aui().metrics.gap);
         let id = self.id.clone();
         let axis = self.axis;
         let keyboard = self.highlighted;
         let selected = self.selected;
         let gap_click = self.gap_click;
 
-        let slot = window.use_keyed_state((id.clone(), "aui-fluid"), cx, |_, _| Rc::new(RefCell::new(FluidState::default())));
-        let fluid = slot.read(cx).clone();
+        let fluid = match self.handle.as_ref() {
+            Some(handle) => handle.fluid.clone(),
+            None => window
+                .use_keyed_state((id.clone(), "aui-fluid"), cx, |_, _| Rc::new(RefCell::new(FluidState::default())))
+                .read(cx)
+                .clone(),
+        };
 
         // Drain last frame's bounds: prepaint refills the map with exactly
         // the items built this frame, so unbuilt (virtualised-away) items
@@ -352,12 +439,18 @@ impl RenderOnce for FluidList {
             (state.container, drained, state.pointer, state.session, keyboard)
         };
 
-        // Parallel highlightable order and rects for the pure function.
-        let mut keys = Vec::with_capacity(self.items.len());
-        let mut rects = Vec::with_capacity(self.items.len());
-        for item in self.items.iter().filter(|item| item.highlightable) {
-            if let Some(rect) = bounds.get(&item.index) {
-                keys.push(item.index);
+        // Parallel highlightable order and rects for the pure function:
+        // every item that recorded bounds last frame, in index order — the
+        // list's own highlightable children and the rows a
+        // [`FluidHandle`] registered from a virtualised list alike (static
+        // items never record bounds, so they never enter the geometry).
+        let mut indices: Vec<usize> = bounds.keys().copied().collect();
+        indices.sort_unstable();
+        let mut keys = Vec::with_capacity(indices.len());
+        let mut rects = Vec::with_capacity(indices.len());
+        for index in indices {
+            if let Some(rect) = bounds.get(&index) {
+                keys.push(index);
                 rects.push(*rect);
             }
         }
@@ -439,6 +532,9 @@ impl RenderOnce for FluidList {
         }
 
         let mut list = div().id(id.clone()).relative().flex().gap(gap).role(Role::List);
+        if self.fill {
+            list = list.flex_1().min_h(px(0.0)).w_full();
+        }
         list = match axis {
             Axis::Y => list.flex_col(),
             Axis::X => list.flex_row(),
@@ -458,6 +554,9 @@ impl RenderOnce for FluidList {
             // Wraps are stateful (roles need the stateful element), keyed
             // off the list id so virtualised items keep stable state.
             let mut wrap = div().id(indexed_child(&id, "item-", index)).relative().role(Role::ListItem);
+            if item.fill {
+                wrap = wrap.flex_1().min_h(px(0.0)).w_full();
+            }
             if highlightable {
                 // Highlightable items record their bounds for the nearest
                 // rule. Static items take part in layout but stay out of

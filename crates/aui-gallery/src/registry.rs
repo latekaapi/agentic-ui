@@ -52,9 +52,9 @@ pub struct Entry {
 impl Entry {
     /// Screens are full-bleed: their reference PNG is a 1440×900 app window,
     /// not a card sitting on the design's 20 px card ground, so the stage
-    /// must render them edge to edge.
+    /// must render them edge to edge. The v2 screens group shares the rule.
     pub fn full_bleed(&self) -> bool {
-        self.group == "Screens"
+        self.group == "Screens" || self.group == "Screens v2"
     }
 }
 
@@ -853,6 +853,66 @@ pub static ENTRIES: &[Entry] = &[
         height: 820.0,
         theme: CardTheme::Dark,
         build: crate::browse::build,
+    },
+    Entry {
+        id: "screens/sidebar",
+        group: "Screens v2",
+        title: "Sidebar · window",
+        subtitle: "The approved mock's populated state: title bar, search, new session, nav, pinned, projects with sessions, footer, beside the lifted pane",
+        width: 1440.0,
+        height: 900.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::screen_sidebar::build,
+    },
+    Entry {
+        id: "screens/sidebar-states",
+        group: "Screens v2",
+        title: "Sidebar · states",
+        subtitle: "Loading, empty, hover (chips, header and row actions), rename + keyboard highlight, and both menus, as five 260 × 720 columns",
+        width: 1432.0,
+        height: 720.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::screen_sidebar::build_states,
+    },
+    Entry {
+        id: "screens/sidebar-browse",
+        group: "Screens v2",
+        title: "Sidebar · Browse window",
+        subtitle: "Browse mode: address and page controls above Search, pins, tabs, folders, the filled New tab row, spaces; the page spans the full height",
+        width: 1440.0,
+        height: 900.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::screen_sidebar::build_browse,
+    },
+    Entry {
+        id: "screens/sidebar-newtab",
+        group: "Screens v2",
+        title: "Sidebar · new tab",
+        subtitle: "Browse mode with a new tab: the app's own surface with one omnibox and the pins",
+        width: 1440.0,
+        height: 900.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::screen_sidebar::build_newtab,
+    },
+    Entry {
+        id: "screens/sidebar-collapsed",
+        group: "Screens v2",
+        title: "Sidebar · collapsed + peek",
+        subtitle: "Collapsed means gone: the pane fills the window, the toggle stays by the traffic lights, and the hover peek floats the sidebar in",
+        width: 1440.0,
+        height: 900.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::screen_sidebar::build_collapsed,
+    },
+    Entry {
+        id: "screens/sidebar-compact",
+        group: "Screens v2",
+        title: "Sidebar · compact",
+        subtitle: "The populated sidebar under the compact density",
+        width: 260.0,
+        height: 720.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::screen_sidebar::build_compact,
     },
     Entry {
         id: "overlays/usage",
