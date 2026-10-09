@@ -92,9 +92,12 @@ fn sidebar_column(
     height: f32,
 ) -> AnyElement {
     let state = sidebar_list_state(screen_item_count(&model));
+    // A collapsed sidebar is gone: the column shrinks to the strip the
+    // screen draws, so the pane beside it reclaims the width.
+    let collapsed = model.collapsed;
     div()
         .flex_none()
-        .w(px(width))
+        .when(!collapsed, |d| d.w(px(width)))
         .h(px(height))
         .child(sidebar_screen(id, model, state).width(px(width)).on_intent(|_, _, _| {}))
         .into_any_element()
