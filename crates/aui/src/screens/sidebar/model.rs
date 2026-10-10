@@ -134,6 +134,8 @@ pub struct BrowseTab {
     pub initial: SharedString,
     /// Whether this is the tab the page shows.
     pub active: bool,
+    /// Whether its page is loading: the favicon slot spins.
+    pub loading: bool,
 }
 
 /// A folder of tabs in Browse mode: one you made, or a session's task
@@ -711,9 +713,9 @@ pub fn sample_model() -> SidebarModel {
                 BrowsePin { id: "n".into(), initial: "N".into(), label: "Survey reports".into() },
             ],
             tabs: vec![
-                BrowseTab { id: "scores".into(), title: "State scores 2023-24".into(), initial: "S".into(), active: true },
-                BrowseTab { id: "dashboard".into(), title: "Dashboard 2024-25".into(), initial: "D".into(), active: false },
-                BrowseTab { id: "cards".into(), title: "State report cards".into(), initial: "S".into(), active: false },
+                BrowseTab { id: "scores".into(), title: "State scores 2023-24".into(), initial: "S".into(), active: true, loading: false },
+                BrowseTab { id: "dashboard".into(), title: "Dashboard 2024-25".into(), initial: "D".into(), active: false, loading: false },
+                BrowseTab { id: "cards".into(), title: "State report cards".into(), initial: "S".into(), active: false, loading: false },
             ],
             folders: vec![BrowseFolder {
                 id: "karnataka".into(),
@@ -721,8 +723,8 @@ pub fn sample_model() -> SidebarModel {
                 kind: FolderKind::Yours,
                 open: true,
                 tabs: vec![
-                    BrowseTab { id: "board".into(), title: "Board results 2025".into(), initial: "B".into(), active: false },
-                    BrowseTab { id: "scheme".into(), title: "Scheme review · Karnataka".into(), initial: "S".into(), active: false },
+                    BrowseTab { id: "board".into(), title: "Board results 2025".into(), initial: "B".into(), active: false, loading: false },
+                    BrowseTab { id: "scheme".into(), title: "Scheme review · Karnataka".into(), initial: "S".into(), active: false, loading: false },
                 ],
             }],
             task_folders: vec![
@@ -731,14 +733,14 @@ pub fn sample_model() -> SidebarModel {
                     name: "Checklist run".into(),
                     kind: FolderKind::Task { state: AgentState::Waiting, status: "needs you".into(), needs_you: true },
                     open: true,
-                    tabs: vec![BrowseTab { id: "ledger".into(), title: "Ledger".into(), initial: "L".into(), active: false }],
+                    tabs: vec![BrowseTab { id: "ledger".into(), title: "Ledger".into(), initial: "L".into(), active: false, loading: false }],
                 },
                 BrowseFolder {
                     id: "browser-audit".into(),
                     name: "Browser integration audit".into(),
                     kind: FolderKind::Task { state: AgentState::Running, status: "reading".into(), needs_you: false },
                     open: true,
-                    tabs: vec![BrowseTab { id: "pr".into(), title: "Pull request #412 · baaz".into(), initial: "G".into(), active: false }],
+                    tabs: vec![BrowseTab { id: "pr".into(), title: "Pull request #412 · baaz".into(), initial: "G".into(), active: false, loading: false }],
                 },
             ],
             spaces: vec![

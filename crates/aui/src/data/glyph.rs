@@ -7,7 +7,7 @@ use std::time::Duration;
 use aui_icons::{icon, IconName};
 use aui_motion::{looping, Loop};
 use aui_tokens::ActiveAui;
-use gpui::{div, prelude::*, px, radians, App, ElementId, IntoElement, Pixels, Window};
+use gpui::{div, prelude::*, px, radians, App, ElementId, Hsla, IntoElement, Pixels, Window};
 
 /// `.glyph{width:14px;height:14px}` and `.spinner` likewise.
 pub const GLYPH_SIZE: f32 = 14.0;
@@ -15,6 +15,8 @@ pub const GLYPH_SIZE: f32 = 14.0;
 const MARK_SIZE: f32 = 9.0;
 /// `@keyframes spin … .9s linear infinite`.
 pub const SPIN_PERIOD: Duration = Duration::from_millis(900);
+/// FF's loading spinner turn (button.tsx: `spinner-move 2s linear infinite`).
+pub const FF_SPIN_PERIOD: Duration = Duration::from_secs(2);
 
 /// Which status a glyph shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,11 +77,14 @@ impl RenderOnce for Glyph {
 pub struct Spinner {
     id: ElementId,
     size: Pixels,
+    /// (track, arc) in place of line-strong / accent.
+    colors: Option<(Hsla, Hsla)>,
+    period: Duration,
 }
 
 /// A spinning ring; `id` keys its rotation.
 pub fn spinner(id: impl Into<ElementId>) -> Spinner {
-    Spinner { id: id.into(), size: px(GLYPH_SIZE) }
+    Spinner { id: id.into(), size: px(GLYPH_SIZE), colors: None, period: SPIN_PERIOD }
 }
 
 impl Spinner {
@@ -88,18 +93,29 @@ impl Spinner {
         self.size = size.into();
         self
     }
+
+    /// FF's loading spinner (button.tsx): the arc in the foreground on a
+    /// border-12 % track, one turn every 2 s. Adaptation: FF also breathes
+    /// the arc's length (`spinner-dash 4s`); ours keeps a fixed quarter.
+    pub fn fluid(mut self, cx: &App) -> Self {
+        let p = cx.aui().colors;
+        self.colors = Some((p.line, p.fg));
+        self.period = FF_SPIN_PERIOD;
+        self
+    }
 }
 
 impl RenderOnce for Spinner {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let phase = looping((self.id, "spin"), Loop::linear(SPIN_PERIOD), window, cx);
+        let (track, arc) = self.colors.unwrap_or((p.line_strong, p.accent));
+        let phase = looping((self.id, "spin"), Loop::linear(self.period), window, cx);
         let angle = radians(phase * std::f32::consts::TAU);
         div()
             .relative()
             .flex_none()
             .size(self.size)
-            .child(div().absolute().inset_0().child(icon(IconName::SpinnerRing).size(self.size).color(p.line_strong)))
-            .child(div().absolute().inset_0().child(icon(IconName::SpinnerArc).size(self.size).color(p.accent).rotate(angle)))
+            .child(div().absolute().inset_0().child(icon(IconName::SpinnerRing).size(self.size).color(track)))
+            .child(div().absolute().inset_0().child(icon(IconName::SpinnerArc).size(self.size).color(arc).rotate(angle)))
     }
 }

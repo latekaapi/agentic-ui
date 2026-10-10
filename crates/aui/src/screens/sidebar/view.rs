@@ -44,7 +44,7 @@ use gpui_kit::base::{
     v_flex,
 };
 
-use crate::data::{icon_button, record_ax_label, ButtonSize};
+use crate::data::{icon_button, record_ax_label, spinner, ButtonSize};
 use crate::interact::{fluid_list, interactive, surface, Axis, FluidHandle, Shape};
 use crate::nav::{flatten_sidebar, project_mark, Grouping, GroupAction, RowAction, SessionSummary, SidebarRow};
 use crate::util::{interaction_flags, TrackInteraction};
@@ -1114,7 +1114,17 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             next += 1;
         }
         let tab_row = |ctx: &Ctx, rows: &mut Vec<AnyElement>, index: usize, tab: &super::BrowseTab, nested: bool, in_folder: bool, trailing: Option<AnyElement>, cx: &App| {
-            let mark = ctx.favicon(tab.initial.clone(), cx);
+            // A loading page spins in the favicon slot (owner 2026-10-11).
+            let mark = if tab.loading {
+                div()
+                    .id(ctx.child(format!("loading-{}", tab.id)))
+                    .role(gpui::Role::ProgressIndicator)
+                    .aria_label(format!("Loading {}", tab.title))
+                    .child(spinner(ctx.child(format!("spin-{}", tab.id))).size(metrics.icon).fluid(cx))
+                    .into_any_element()
+            } else {
+                ctx.favicon(tab.initial.clone(), cx)
+            };
             let lit = model.hovered.as_ref() == Some(&tab.id) || tab.active;
             let close = if lit {
                 let c = ctx.clone();
