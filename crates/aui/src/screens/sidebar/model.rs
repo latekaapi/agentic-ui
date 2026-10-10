@@ -352,8 +352,10 @@ pub enum SidebarIntent {
     Account,
     /// A row of the account menu.
     AccountAction(AccountAction),
-    /// The pointer-driven highlight moved to a session (or off every row).
-    Hover(Option<SharedString>),
+    /// The pointer-driven highlight moved to a row (or off every row): its
+    /// id, and the row's bounds in window coordinates when it was measured —
+    /// what a host seats a hover card beside.
+    Hover(Option<SharedString>, Option<gpui::Bounds<gpui::Pixels>>),
     /// The pointer entered or left a project head (its actions appear).
     HoverGroup(Option<SharedString>),
     /// The pointer entered or left the Projects header.

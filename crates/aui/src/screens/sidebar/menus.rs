@@ -123,25 +123,32 @@ fn provider_card(id: &ElementId, usage: &super::ProviderUsage, cx: &App) -> AnyE
             .h(metrics.control_sm)
             .items_center()
             .gap(metrics.gap / 2.0)
+            .w_full()
             .child(project_mark(usage.initial.clone(), p.label(usage.tint)).size(metrics.icon - px(scale::SP_1)))
-            .child(div().text_role_in(TextRole::Body, Density::Compact).text_color(p.fg).child(usage.name.clone()))
-            .child(div().role_in(TextRole::Micro, cx).text_color(p.fg_muted).child(usage.plan.clone())),
+            .child(div().flex_none().text_role_in(TextRole::Body, Density::Compact).text_color(p.fg).child(usage.name.clone()))
+            .child(div().flex_1().min_w(px(0.0)).truncate().role_in(TextRole::Micro, cx).text_color(p.fg_muted).child(usage.plan.clone())),
     );
     for (index, line) in usage.lines.iter().enumerate() {
         let fraction = line.fraction.clamp(0.0, 1.0);
         let hot = fraction >= USAGE_WARN;
         let percent = format!("{}%", (fraction * 100.0).round() as u32);
+        // Label left, `percent · resets` right; the label and the reset words
+        // truncate so a long reading ("5h reset – no new reading yet") can
+        // never push past the menu's edge.
         card = card
             .child(
                 h_flex()
+                    .w_full()
                     .h(metrics.control_xs)
                     .items_center()
+                    .gap(metrics.gap)
                     .role_in(TextRole::Caption, cx)
                     .text_color(p.fg_muted)
-                    .child(line.label.clone())
-                    .child(div().flex_1())
-                    .child(div().text_color(if hot { p.warning } else { p.ink_2 }).medium().child(percent))
-                    .child(div().ml(metrics.gap / 2.0).child(line.resets.clone())),
+                    .child(div().flex_1().min_w(px(0.0)).truncate().child(line.label.clone()))
+                    .child(div().flex_none().text_color(if hot { p.warning } else { p.ink_2 }).medium().child(percent))
+                    .when(!line.resets.is_empty(), |d| {
+                        d.child(div().flex_shrink(1.0).min_w(px(0.0)).max_w(px(scale::SP_7 * 3.0)).truncate().child(line.resets.clone()))
+                    }),
             )
             .child(
                 Shape::Pill.rounded(
@@ -174,9 +181,11 @@ pub fn account_menu(id: impl Into<ElementId>, account: &Account, on_intent: Opti
         .px(metrics.item_px)
         .gap(metrics.gap)
         .child(project_mark(account.initial.clone(), p.label(account.tint)).size(metrics.icon + metrics.gap / 2.0))
-        .child(div().text_role_in(TextRole::Body, Density::Compact).text_color(p.fg).child(account.name.clone()))
-        .child(div().flex_1())
-        .child(div().role_in(TextRole::Micro, cx).text_color(p.fg_muted).truncate().child(account.email.clone()));
+        .child(div().flex_1().min_w(px(0.0)).truncate().text_role_in(TextRole::Body, Density::Compact).text_color(p.fg).child(account.name.clone()))
+        // The email only when it says something the name does not.
+        .when(!account.email.is_empty() && account.email != account.name, |d| {
+            d.child(div().flex_shrink(1.0).min_w(px(0.0)).max_w(px(scale::SP_7 * 3.0)).truncate().role_in(TextRole::Micro, cx).text_color(p.fg_muted).child(account.email.clone()))
+        });
     let backdrop = on_intent.clone();
     let mut panel = v_flex()
         .id((id.clone(), "account-menu-list"))

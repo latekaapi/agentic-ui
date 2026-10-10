@@ -9,12 +9,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use aui::data::{arm_ax_probe, take_ax_labels};
-use aui::nav::{flatten_sidebar, sidebar_list_state, Grouping};
+use aui::nav::{flatten_sidebar, sidebar_list_state, DateGroup, Grouping, SessionSummary};
 use aui::screens::sidebar::{
     list_row_height, sample_model, screen_item_count, sidebar_screen, EditingState, Mode, SidebarIntent, SidebarModel,
 };
 use aui::interact::FluidHandle;
-use aui_tokens::{AuiTheme, Density, ThemeKind};
+use aui_tokens::{AgentState, AuiTheme, Density, ThemeKind};
 use gpui::{div, point, prelude::*, px, IntoElement, Modifiers, TestAppContext, VisualTestContext, Window};
 
 fn init(cx: &mut TestAppContext) {
@@ -298,4 +298,92 @@ fn account_footer_drops_an_empty_plan(cx: &mut TestAppContext) {
     let labels = labels_of(cx, model);
     assert_has(&labels, &["Account Bharani"]);
     assert!(!labels.iter().any(|l| l.starts_with("Account Bharani ·")), "{labels:?}");
+}
+
+fn date_model(groups: Vec<DateGroup>) -> SidebarModel {
+    let mut model = sample_model();
+    model.grouping = Rc::new(Grouping::Date(groups));
+    model
+}
+
+fn two_buckets() -> Vec<DateGroup> {
+    vec![
+        DateGroup::new("Today", vec![SessionSummary::new("a", "Alpha task", AgentState::Idle, "1h")]),
+        DateGroup::new(
+            "Yesterday",
+            vec![
+                SessionSummary::new("b", "Beta task", AgentState::Done, "1d"),
+                SessionSummary::new("c", "Gamma task", AgentState::Idle, "1d"),
+            ],
+        ),
+    ]
+}
+
+#[gpui::test]
+fn date_grouping_shows_bucket_labels_session_rows_and_sessions_header(cx: &mut TestAppContext) {
+    init(cx);
+    let labels = labels_of(cx, date_model(two_buckets()));
+    // Date bucket headers are plain section text with no AX label, so "Today" /
+    // "Yesterday" are not observable here; the rows under them are.
+    assert_has(&labels, &["Open session Alpha task", "Open session Beta task", "Open session Gamma task", "Sessions"]);
+}
+
+#[gpui::test]
+fn empty_date_grouping_says_no_sessions_yet(cx: &mut TestAppContext) {
+    init(cx);
+    let mut model = date_model(vec![]);
+    model.loading = false;
+    let labels = labels_of(cx, model);
+    let text_ok = has(&labels, "No sessions yet");
+    assert!(text_ok, "missing 'No sessions yet' in {labels:?}");
+    assert!(!has(&labels, "No projects yet"), "{labels:?}");
+}
+
+#[test]
+fn screen_item_count_counts_a_date_groupings_flattened_rows() {
+    let model = date_model(two_buckets());
+    let flat = flatten_sidebar(&model.grouping, false).len();
+    assert!(flat >= 3, "headers + rows: {flat}");
+    assert_eq!(screen_item_count(&model), flat);
+}
+
+/// The email equal to the name is hidden in the account menu, but the menu
+/// records no AX label for the email line, so it is not observable here.
+/// Instead pin what is: the footer label never carries the email.
+#[gpui::test]
+fn account_footer_label_with_email_equal_to_name_is_unchanged(cx: &mut TestAppContext) {
+    init(cx);
+    let mut model = sample_model();
+    model.account.email = model.account.name.clone();
+    let labels = labels_of(cx, model);
+    assert_has(&labels, &["Account Bharani · Max"]);
+    assert!(!labels.iter().any(|l| l.contains("Bharani Bharani")), "{labels:?}");
+}
+
+/// Moving the pointer over a session row reports `Hover(Some(id), Some(bounds))`
+/// with real (non-zero) bounds. Scans down the list since row y positions
+/// depend on the chrome above.
+#[gpui::test]
+fn hovering_a_session_row_reports_id_and_bounds(cx: &mut TestAppContext) {
+    init(cx);
+    let log: Log = Rc::default();
+    let (_host, vcx) = cx.add_window_view({
+        let log = log.clone();
+        let model = date_model(two_buckets());
+        |_, _| Host::new(model, log)
+    });
+    let vcx: &mut VisualTestContext = vcx;
+    let mut y = 100.0;
+    while y < 500.0 {
+        vcx.simulate_mouse_move(point(px(100.0), px(y)), None, Modifiers::none());
+        vcx.run_until_parked();
+        y += 6.0;
+    }
+    let got = log.borrow().clone();
+    let hit = got.iter().find_map(|i| match i {
+        SidebarIntent::Hover(Some(id), Some(b)) if id.as_ref() == "a" => Some(*b),
+        _ => None,
+    });
+    let b = hit.unwrap_or_else(|| panic!("no Hover(Some(a), Some(bounds)) in {got:?}"));
+    assert!(b.size.width > px(0.0) && b.size.height > px(0.0), "{b:?}");
 }

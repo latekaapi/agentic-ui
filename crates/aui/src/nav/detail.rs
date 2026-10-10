@@ -47,13 +47,14 @@
 use std::time::Duration;
 
 use aui_icons::{icon, IconName};
-use aui_tokens::{durations, scale, ActiveAui, AuiStyled};
+use aui_tokens::{durations, scale, ActiveAui, AuiStyled, Density, TextRole};
 use gpui::{
     div, point, prelude::*, px, Anchor, App, Bounds, ElementId, FontWeight, HighlightStyle, IntoElement,
     Pixels, Point, SharedString, Size, StyledText, Window,
 };
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::{menu_surface, Shape};
 use crate::nav::{RowStatus, RowStatusKind};
 use crate::overlay::{anchored_menu, MenuAlign, MenuSide};
 
@@ -360,8 +361,7 @@ impl RenderOnce for SessionDetail {
                 div()
                     .flex_1()
                     .min_w(px(0.0))
-                    .ui(scale::FS_13)
-                    .semibold()
+                    .text_role_in(TextRole::Subtitle, Density::Compact)
                     .line_clamp(SESSION_DETAIL_TITLE_LINES)
                     .text_color(p.ink)
                     .debug_selector(|| "detail-title".into())
@@ -371,9 +371,8 @@ impl RenderOnce for SessionDetail {
                 header = header.child(
                     div()
                         .flex_none()
-                        .font_family(scale::FONT_MONO)
-                        .text_px(scale::FS_11)
-                        .text_color(p.ink_3)
+                        .role_in(TextRole::Caption, cx)
+                        .text_color(p.fg_muted)
                         .child(SharedString::from(age_text(updated).to_owned())),
                 );
             }
@@ -408,7 +407,7 @@ impl RenderOnce for SessionDetail {
                 .pl(px(scale::SP_3));
             if let Some(ask) = ask {
                 quote = quote.child(
-                    div().w_full().ui(scale::FS_12).text_color(p.ink_2).child(SharedString::from(format!("“{ask}”"))),
+                    div().w_full().role_in(TextRole::Caption, cx).text_color(p.ink_2).child(SharedString::from(format!("“{ask}”"))),
                 );
             }
             if let Some(reply) = reply {
@@ -417,8 +416,8 @@ impl RenderOnce for SessionDetail {
                         .w_full()
                         .min_w(px(0.0))
                         .truncate()
-                        .ui(scale::FS_12)
-                        .semibold()
+                        .role_in(TextRole::Caption, cx)
+                        .medium()
                         .text_color(reply_ink(data.status.as_ref(), p))
                         .child(SharedString::from(reply)),
                 );
@@ -438,11 +437,10 @@ impl RenderOnce for SessionDetail {
             };
             let glyph = if quoted { IconName::Question } else { IconName::Shield };
             middle = middle.child(
-                h_flex()
+                Shape::Item.rounded(h_flex()
                     .w_full()
                     .items_start()
                     .gap(px(scale::SP_2))
-                    .rounded(px(scale::R_SM))
                     .border_1()
                     .border_color(p.warning)
                     .bg(p.warning_soft)
@@ -450,10 +448,10 @@ impl RenderOnce for SessionDetail {
                     .px(px(scale::SP_3))
                     .child(div().flex_none().child(icon(glyph).color(p.warning)))
                     .child(
-                        div().flex_1().min_w(px(0.0)).ui(scale::FS_12).text_color(p.ink).child(
+                        div().flex_1().min_w(px(0.0)).role_in(TextRole::Caption, cx).text_color(p.ink).child(
                             StyledText::new(text).with_highlights([(0..label.len(), highlight)]),
                         ),
-                    ),
+                    )),
             );
             middle_any = true;
         }
@@ -485,8 +483,8 @@ impl RenderOnce for SessionDetail {
                     .min_w(px(0.0))
                     .items_center()
                     .gap(px(scale::SP_2))
-                    .text_role(aui_tokens::TextRole::Meta)
-                    .text_color(p.ink_3)
+                    .role_in(TextRole::Caption, cx)
+                    .text_color(p.fg_muted)
                     .child(icon(IconName::Git))
                     .child(
                         div().flex_1().min_w(px(0.0)).truncate().child(SharedString::from(branch.to_owned())),
@@ -500,8 +498,8 @@ impl RenderOnce for SessionDetail {
                     .flex_none()
                     .items_center()
                     .gap(px(scale::SP_2))
-                    .text_role(aui_tokens::TextRole::Meta)
-                    .text_color(p.ink_3)
+                    .role_in(TextRole::Caption, cx)
+                    .text_color(p.fg_muted)
                     .child(icon(IconName::List))
                     .child(SharedString::from(turns.to_string())),
             );
@@ -513,8 +511,8 @@ impl RenderOnce for SessionDetail {
                     .flex_none()
                     .items_center()
                     .gap(px(scale::SP_2))
-                    .text_role(aui_tokens::TextRole::Meta)
-                    .text_color(p.ink_3)
+                    .role_in(TextRole::Caption, cx)
+                    .text_color(p.fg_muted)
                     .child(icon(IconName::Clock))
                     .child(SharedString::from(updated.to_owned())),
             );
@@ -537,31 +535,21 @@ impl RenderOnce for SessionDetail {
                     .w_full()
                     .items_center()
                     .gap(px(scale::SP_2))
-                    .font_family(scale::FONT_MONO)
-                    .text_px(scale::FS_11)
-                    .text_color(p.ink_3)
+                    .text_role_in(TextRole::Mono, Density::Compact)
+                    .text_color(p.fg_muted)
                     .child(icon(IconName::Folder))
                     .child(
                         div().flex_1().min_w(px(0.0)).truncate().child(SharedString::from(halves.join(" · "))),
                     ),
             );
         }
-        div()
-            .id(self.id)
-            .flex_none()
-            .w(px(SESSION_DETAIL_WIDTH))
-            // The card never grows past its cap — without clipping itself, so
-            // the shadow paints whole and the meta rows below the clamped
-            // middle always stay visible.
-            .max_h(px(SESSION_DETAIL_MAX_H))
-            .debug_selector(|| "detail-card".into())
-            .rounded(px(scale::R_MD))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.overlay)
-            .shadow(p.shadow(2))
-            .p(px(scale::SP_4))
-            .child(body)
+        // The v2 floating ground every menu wears (ambient + 2, ring, the
+        // floating shadow) on the container radius. The card never grows
+        // past its cap — without clipping itself, so the shadow paints whole
+        // and the meta rows below the clamped middle always stay visible.
+        div().id(self.id).flex_none().w(px(SESSION_DETAIL_WIDTH)).debug_selector(|| "detail-card".into()).child(
+            menu_surface(div().w_full().max_h(px(SESSION_DETAIL_MAX_H)).p(px(scale::SP_4)).child(body)).shape(Shape::Container),
+        )
     }
 }
 

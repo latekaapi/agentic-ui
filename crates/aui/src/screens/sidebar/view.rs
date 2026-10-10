@@ -112,9 +112,11 @@ pub fn list_row_height(cx: &App) -> Pixels {
 /// Browse mode). Size the caller-owned [`ListState`] with this before
 /// rendering.
 ///
-/// The v2 sidebar renders [`Grouping::Project`] only (Baaz's default, the
-/// mock's structure); a Date or Status grouping counts as empty here and
-/// draws "No projects yet" until those views are re-skinned in their turn.
+/// The v2 sidebar renders [`Grouping::Project`] (projects with nested
+/// sessions) and [`Grouping::Date`] (date headers over flat rows); a Status
+/// grouping counts as empty here. Pinned sessions belong in
+/// [`SidebarModel::pinned`]: a Date grouping handed in with pinned rows still
+/// inside it would flatten a second Pinned header, so hosts lift them first.
 pub fn screen_item_count(model: &SidebarModel) -> usize {
     if model.loading {
         4
@@ -122,8 +124,8 @@ pub fn screen_item_count(model: &SidebarModel) -> usize {
         0
     } else {
         match model.grouping.as_ref() {
-            Grouping::Project(_) => flatten_sidebar(&model.grouping, false).len(),
-            _ => 0,
+            Grouping::Project(_) | Grouping::Date(_) => flatten_sidebar(&model.grouping, false).len(),
+            Grouping::Status(_) => 0,
         }
     }
 }
@@ -381,19 +383,9 @@ impl Ctx {
             .into_any_element()
     }
 
-    /// The second line a session row shows, or none: the status sentence
-    /// where there is one, else the byline when [`Bylines::All`].
+    /// The second line a session row shows, or none.
     fn second_line(&self, session: &SessionSummary) -> Option<SharedString> {
-        if let Some(status) = session.status.as_ref() {
-            return Some(status.text());
-        }
-        if self.model.bylines == Bylines::StatusOnly {
-            return None;
-        }
-        match session.byline.as_ref()? {
-            crate::nav::Byline::Placeholder(text) | crate::nav::Byline::Preview(text) => Some(text.clone()),
-            crate::nav::Byline::TwoLines { ask, result } => Some(format!("{ask} · {result}").into()),
-        }
+        second_line_for(session, self.model.bylines)
     }
 
     /// One session row: dot, title (+ byline), age — or the three hover
@@ -567,8 +559,28 @@ impl Ctx {
         head.id(self.child(format!("project-{}", group.id))).role(gpui::Role::Button).aria_label(label).into_any_element()
     }
 
-    /// One flattened row of the virtualised project list.
+    /// A date bucket's header in the Date grouping: the section title's
+    /// geometry (Caption, muted, label at x 16, `SP_4` above) — sentence
+    /// case, never caps.
+    fn date_head(&self, label: &SharedString, cx: &App) -> AnyElement {
+        self.section(label.as_ref(), None, None, cx).into_any_element()
+    }
+
+    /// One flattened row of the virtualised list.
     fn flat_row(&self, item: &SidebarRow, window: &mut Window, cx: &mut App) -> AnyElement {
+        if let Grouping::Date(buckets) = self.model.grouping.as_ref() {
+            return match item {
+                SidebarRow::DateHeader { group, .. } => match buckets.get(*group) {
+                    Some(bucket) => self.date_head(&bucket.label, cx),
+                    None => div().into_any_element(),
+                },
+                SidebarRow::Session { group, session, .. } => match buckets.get(*group).and_then(|b| b.sessions.get(*session)) {
+                    Some(summary) => self.session_row(summary, false, window, cx),
+                    None => div().into_any_element(),
+                },
+                _ => div().into_any_element(),
+            };
+        }
         let Grouping::Project(groups) = self.model.grouping.as_ref() else {
             return div().into_any_element();
         };
@@ -615,6 +627,37 @@ impl Ctx {
         let line = Shape::Item.rounded(aui_motion::skeleton(self.child(format!("sk-line-{index}")), px(widths[index % widths.len()]), bar, window, cx));
         self.row_frame(self.lead(lead, cx), nested, cx).child(line).into_any_element()
     }
+}
+
+/// What a session row says under its title: a live status sentence
+/// (working, waiting on you, or just "Failed") first — that is news; otherwise, with
+/// [`Bylines::All`], what the session last said (the latest reply's
+/// summary, else the last ask, else a preview or placeholder), else its git
+/// branch. A settled or never-replied status says nothing the dot and the
+/// age do not already say, so it never takes the line (owner note
+/// 2026-10-10: "Settled · 6d · 1 turn" was noise).
+pub fn second_line_for(session: &SessionSummary, bylines: Bylines) -> Option<SharedString> {
+    use crate::nav::{Byline, RowStatusKind};
+    if let Some(status) = session.status.as_ref() {
+        match status.kind {
+            RowStatusKind::Settled | RowStatusKind::NoReply => {}
+            // A failure's detail is the session's age, which the row already
+            // shows at its right edge: the word alone (the hover card has
+            // the error).
+            RowStatusKind::Failed => return Some("Failed".into()),
+            _ => return Some(status.text()),
+        }
+    }
+    if bylines == Bylines::StatusOnly {
+        return None;
+    }
+    let nonblank = |text: &SharedString| (!text.trim().is_empty()).then(|| text.clone());
+    let said = match session.byline.as_ref() {
+        Some(Byline::Placeholder(text)) | Some(Byline::Preview(text)) => nonblank(text),
+        Some(Byline::TwoLines { ask, result }) => nonblank(result).or_else(|| nonblank(ask)),
+        None => None,
+    };
+    said.or_else(|| session.branch.as_ref().and_then(nonblank))
 }
 
 /// Builds the Sessions-mode chrome and list, or the Browse-mode rows, into
@@ -766,9 +809,13 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 }
             }
             // Projects header with its hover actions, then the virtual list.
+            // Grouped by date the same header reads "Sessions" and counts
+            // nothing (the buckets carry the structure).
+            let by_date = matches!(model.grouping.as_ref(), Grouping::Date(_));
             let project_count = match model.grouping.as_ref() {
                 Grouping::Project(groups) => groups.len(),
-                _ => 0,
+                Grouping::Date(buckets) => buckets.iter().map(|b| b.sessions.len()).sum(),
+                Grouping::Status(_) => 0,
             };
             // Actions appear on hover; with no projects the Add button is
             // always there (it is the only thing to do).
@@ -782,7 +829,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             let (header_state, _) = interaction_flags(ctx.child("projects-head"), window, cx);
             let hover_ctx = ctx.clone();
             let header = ctx
-                .section("Projects", (project_count > 0).then(|| project_count.to_string().into()), actions, cx)
+                .section(if by_date { "Sessions" } else { "Projects" }, (project_count > 0 && !by_date).then(|| project_count.to_string().into()), actions, cx)
                 .id(ctx.child("projects-head"))
                 .track_interaction_reported(&header_state, move |hovered: bool, w: &mut Window, cx: &mut App| {
                     hover_ctx.emit(SidebarIntent::HoverProjectsHeader(hovered), w, cx);
@@ -790,8 +837,9 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             list = list.item_static(next, header);
             next += 1;
             if project_count == 0 {
-                let empty = ctx.row(ctx.lead(div(), cx), "No projects yet", None, false, cx).text_color(p.fg_muted);
-                record_ax_label("No projects yet");
+                let words = if by_date { "No sessions yet" } else { "No projects yet" };
+                let empty = ctx.row(ctx.lead(div(), cx), words, None, false, cx).text_color(p.fg_muted);
+                record_ax_label(words);
                 list = list.item_static(next, empty);
             } else {
                 let rows = Rc::new(flatten_sidebar(&model.grouping, false));
@@ -806,11 +854,14 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                             }
                         }
                         SidebarRow::Session { group, session, .. } => {
-                            if let Grouping::Project(groups) = model.grouping.as_ref() {
-                                if let Some(summary) = groups.get(*group).and_then(|g| g.sessions.get(*session)) {
-                                    targets.insert(index, Target::Session(summary.id.clone()));
-                                    index_of_session.insert(summary.id.clone(), index);
-                                }
+                            let summary = match model.grouping.as_ref() {
+                                Grouping::Project(groups) => groups.get(*group).and_then(|g| g.sessions.get(*session)),
+                                Grouping::Date(buckets) => buckets.get(*group).and_then(|b| b.sessions.get(*session)),
+                                Grouping::Status(_) => None,
+                            };
+                            if let Some(summary) = summary {
+                                targets.insert(index, Target::Session(summary.id.clone()));
+                                index_of_session.insert(summary.id.clone(), index);
                             }
                         }
                         SidebarRow::Fold { group } => {
@@ -826,6 +877,8 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 let row_ctx = ctx.clone();
                 let render = move |ix: usize, window: &mut Window, cx: &mut App| -> AnyElement {
                     match rows.get(ix) {
+                        // Date headers are titles, never highlight targets.
+                        Some(row @ SidebarRow::DateHeader { .. }) => row_ctx.flat_row(row, window, cx),
                         Some(row) => row_ctx.fluid.item(VIRTUAL_BASE + ix, row_ctx.flat_row(row, window, cx)),
                         None => div().into_any_element(),
                     }
@@ -1032,7 +1085,8 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             _ => None,
         };
         hover_ctx.emit(SidebarIntent::HoverGroup(group), w, cx);
-        hover_ctx.emit(SidebarIntent::Hover(id), w, cx);
+        let bounds = index.filter(|_| id.is_some()).and_then(|i| hover_ctx.fluid.bounds_of(i));
+        hover_ctx.emit(SidebarIntent::Hover(id, bounds), w, cx);
     });
     let activate_targets = targets.clone();
     let activate_ctx = ctx.clone();
@@ -1084,7 +1138,9 @@ impl RenderOnce for SidebarScreen {
         };
 
         // Title bar: traffic-light gap, the toggle at x 84, the mode switch
-        // at the right. `bar + item_px` = 52.
+        // at the right. Exactly `header` tall, so its controls centre on the
+        // native traffic lights (`traffic_light_position` centres them in
+        // the same height); the mock's 8 px below it is the body's top pad.
         let toggle_ctx = ctx.clone();
         let toggle = icon_button(ctx.child("toggle"), IconName::Sidebar)
             .ghost()
@@ -1125,7 +1181,7 @@ impl RenderOnce for SidebarScreen {
         let title_bar = h_flex()
             .w_full()
             .flex_none()
-            .h(metrics.bar + metrics.item_px)
+            .h(metrics.header)
             .items_center()
             .pl(traffic_light_gap())
             .pr(px(scale::SP_4))
@@ -1135,7 +1191,7 @@ impl RenderOnce for SidebarScreen {
             .child(switch);
 
         let (rows, _targets) = build_list(&ctx, window, cx);
-        let body = div().w_full().flex_1().min_h(px(0.0)).flex().flex_col().px(metrics.item_px).relative().child(rows);
+        let body = div().w_full().flex_1().min_h(px(0.0)).flex().flex_col().px(metrics.item_px).pt(metrics.item_px).relative().child(rows);
 
         // Footer: hairline, then avatar · name · plan · chevron.
         let account = &self.model.account;
@@ -1198,7 +1254,7 @@ impl RenderOnce for SidebarScreen {
                     .absolute()
                     .left(metrics.item_px)
                     .right(metrics.item_px)
-                    .bottom(list_row_height(cx) + metrics.item_px * 2.0 + px(1.0) + metrics.item_px)
+                    .bottom(list_row_height(cx) + metrics.item_px * 2.0 + px(1.0) + px(scale::SP_1))
                     .occlude()
                     .child(account_menu(ctx.child("account-menu"), account, self.on_intent.clone(), cx)),
             );
@@ -1212,7 +1268,7 @@ impl RenderOnce for SidebarScreen {
 fn projects_header_bottom(model: &SidebarModel, cx: &App) -> Pixels {
     let metrics = cx.aui().metrics;
     let row = list_row_height(cx);
-    let mut y = metrics.bar + metrics.item_px; // title bar
+    let mut y = metrics.header + metrics.item_px; // title bar + body pad
     y += row; // search
     y += row; // new session
     y += row * model.nav.len() as f32;
@@ -1220,7 +1276,7 @@ fn projects_header_bottom(model: &SidebarModel, cx: &App) -> Pixels {
         y += px(scale::SP_4) + metrics.control_md;
         if model.pinned_open {
             for session in &model.pinned {
-                let two = session.status.is_some() || (model.bylines == Bylines::All && session.byline.is_some());
+                let two = second_line_for(session, model.bylines).is_some();
                 y += if two { row + px(scale::SP_5) } else { row };
             }
         }
@@ -1240,4 +1296,70 @@ fn collapsed_strip(screen: &SidebarScreen, cx: &App) -> impl IntoElement {
         control = control.on_click(move |_, w, cx| emit(SidebarIntent::Collapse, w, cx));
     }
     div().h_full().flex().child(control)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nav::{Byline, RowStatus, RowStatusKind};
+
+    fn session() -> SessionSummary {
+        SessionSummary::new("s", "Session", AgentState::Idle, "1h")
+    }
+
+    fn two(ask: &str, result: &str) -> Byline {
+        Byline::TwoLines { ask: ask.to_string().into(), result: result.to_string().into() }
+    }
+
+    #[test]
+    fn settled_status_never_takes_the_line_so_the_result_shows() {
+        let mut s = session();
+        s.status = Some(RowStatus::new(RowStatusKind::Settled, "6d · 1 turn"));
+        s.byline = Some(two("the ask", "the result"));
+        assert_eq!(second_line_for(&s, Bylines::All).as_deref(), Some("the result"));
+    }
+
+    #[test]
+    fn blank_result_falls_back_to_the_ask() {
+        let mut s = session();
+        s.status = Some(RowStatus::new(RowStatusKind::Settled, ""));
+        s.byline = Some(two("the ask", "   "));
+        assert_eq!(second_line_for(&s, Bylines::All).as_deref(), Some("the ask"));
+    }
+
+    #[test]
+    fn working_status_wins_over_the_byline() {
+        let mut s = session();
+        s.status = Some(RowStatus::new(RowStatusKind::Working, "2m"));
+        s.byline = Some(two("the ask", "the result"));
+        assert_eq!(second_line_for(&s, Bylines::All).as_deref(), Some("Working · 2m"));
+    }
+
+    #[test]
+    fn no_reply_with_no_byline_shows_the_branch() {
+        let mut s = session();
+        s.status = Some(RowStatus::new(RowStatusKind::NoReply, ""));
+        s.branch = Some("main".into());
+        assert_eq!(second_line_for(&s, Bylines::All).as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn preview_and_placeholder_bylines_show_their_text() {
+        let mut s = session();
+        s.byline = Some(Byline::Preview("a preview".into()));
+        assert_eq!(second_line_for(&s, Bylines::All).as_deref(), Some("a preview"));
+        s.byline = Some(Byline::Placeholder("  ".into()));
+        s.branch = Some("dev".into());
+        assert_eq!(second_line_for(&s, Bylines::All).as_deref(), Some("dev"));
+    }
+
+    #[test]
+    fn status_only_hides_settled_but_keeps_a_live_status() {
+        let mut s = session();
+        s.byline = Some(two("a", "b"));
+        s.status = Some(RowStatus::new(RowStatusKind::Settled, "x"));
+        assert_eq!(second_line_for(&s, Bylines::StatusOnly), None);
+        s.status = Some(RowStatus::new(RowStatusKind::Failed, "boom"));
+        assert_eq!(second_line_for(&s, Bylines::StatusOnly).as_deref(), Some("Failed"));
+    }
 }

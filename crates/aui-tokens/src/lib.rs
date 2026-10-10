@@ -220,6 +220,15 @@ impl Palette {
         step.clamp(1, 8).saturating_add(offset).min(8)
     }
 
+    /// The drop shadow of anything that floats over content — menus,
+    /// popovers, hover cards: `shadow-3` in dark (against a near-black
+    /// ground only the long, dense layer reads as depth — `shadow-2` was
+    /// seen live as no shadow at all), `shadow-2` in light. In-flow surfaces
+    /// use [`Self::elevation_shadow`] instead.
+    pub fn floating_shadow(&self) -> Vec<gpui::BoxShadow> {
+        if self.is_dark() { self.shadow(3) } else { self.shadow(2) }
+    }
+
     /// The shadow for a surface step: in dark one ring layer (spread 1 at
     /// the ring alpha) plus `shadow-2` for steps 5 and up; in light
     /// `shadow-1` for steps 3–4, `shadow-2` for 5–6, `shadow-3` for 7–8
@@ -415,5 +424,12 @@ mod tests {
         assert_eq!(light().elevation_shadow(3).len(), light().shadow_1.len());
         assert_eq!(light().elevation_shadow(6).len(), light().shadow_2.len());
         assert_eq!(light().elevation_shadow(8).len(), light().shadow_3.len());
+    }
+
+    #[test]
+    fn floating_shadow_is_shadow_3_in_dark_and_shadow_2_in_light() {
+        assert_eq!(dark().floating_shadow(), dark().shadow(3));
+        assert_eq!(light().floating_shadow(), light().shadow(2));
+        assert!(!dark().floating_shadow().is_empty() && !light().floating_shadow().is_empty());
     }
 }

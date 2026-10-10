@@ -38,12 +38,13 @@ pub struct Surface {
     shadow: bool,
     ring: bool,
     fill: bool,
+    floating: bool,
 }
 
 /// Paints `colors.surface(step)` under `child` and provides `step` as the
 /// ambient for the subtree.
 pub fn surface(step: u8, child: impl IntoElement) -> Surface {
-    Surface { step: step.clamp(1, 8), child: child.into_any_element(), offset: None, shape: Shape::Container, shadow: false, ring: false, fill: false }
+    Surface { step: step.clamp(1, 8), child: child.into_any_element(), offset: None, shape: Shape::Container, shadow: false, floating: false, ring: false, fill: false }
 }
 
 impl Surface {
@@ -63,6 +64,15 @@ impl Surface {
     /// Whether to apply `colors.elevation_shadow(step)` (default false).
     pub fn shadow(mut self, shadow: bool) -> Self {
         self.shadow = shadow;
+        self
+    }
+
+    /// The surface floats over other content (a menu, popover, hover
+    /// card): it casts `colors.floating_shadow()` in both themes, whatever
+    /// its step. In-flow surfaces keep the step table of
+    /// [`Surface::shadow`] (a ring only below step 5 in dark).
+    pub fn floating(mut self) -> Self {
+        self.floating = true;
         self
     }
 
@@ -184,9 +194,9 @@ impl Element for AmbientScope {
 }
 
 /// The one ground every popover, menu and tooltip adopts: the ambient plus
-/// two steps, `Shape::Item`, with shadow and ring.
+/// two steps, `Shape::Item`, floating (a real drop shadow) with the ring.
 pub fn menu_surface(child: impl IntoElement) -> Surface {
-    surface(1, child).elevated(2).shape(Shape::Item).shadow(true).ring(true)
+    surface(1, child).elevated(2).shape(Shape::Item).floating().ring(true)
 }
 
 /// The concentric rule as a pure function: an inner surface inset by
@@ -210,7 +220,9 @@ impl RenderOnce for Surface {
             el = el.size_full().flex().flex_col().overflow_hidden();
         }
         el = super::Shape::rounded(self.shape, el);
-        if self.shadow {
+        if self.floating {
+            el = el.shadow(p.floating_shadow());
+        } else if self.shadow {
             el = el.shadow(p.elevation_shadow(step));
         }
         if self.ring {

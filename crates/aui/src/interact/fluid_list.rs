@@ -1,10 +1,18 @@
-//! [`FluidList`]: one highlight per list that glides to the nearest item.
+//! [`FluidList`]: one highlight per list that sits on the nearest item.
+//!
+//! The hover and selected blocks jump to their row (no glide between rows,
+//! owner note 2026-10-10: a block sliding under the pointer reads as lag);
+//! they fade on the fast tier when the pointer enters or leaves. The motion
+//! lives on the press instead: the pressed row's blocks squeeze inward and
+//! darken to the pressed overlay, then spring back past rest on release —
+//! the tactile click Emil Kowalski's guides give buttons with
+//! `scale(0.97)` on `:active`, done paint-only so the layout never moves.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use aui_motion::{spring_px, tint_fade, SpringKind, Tween};
+use aui_motion::{spring, tint_fade, SpringKind, Tween};
 use aui_tokens::{scale, ActiveAui, Easing, Tier};
 use gpui::{
     div, prelude::*, px, AnyElement, App, Bounds, ElementId, IntoElement, Pixels, Point, RenderOnce, Role, SharedString,
@@ -72,7 +80,7 @@ struct FluidState {
     bounds: HashMap<usize, Bounds<Pixels>>,
     /// The pointer position in window coordinates (`None` outside).
     pointer: Option<Point<Pixels>>,
-    /// Bumped on every pointer entry: the highlight springs are re-keyed
+    /// Bumped on every pointer entry: the hover tint is re-keyed
     /// with it, so a fresh entry fades in at the nearest item on the fast
     /// tier instead of sliding in from wherever it was.
     session: u64,
@@ -97,6 +105,11 @@ struct FluidState {
     /// the pointer leaves or the selection clears.
     previous_highlight: Option<usize>,
     previous_selected: Option<usize>,
+    /// The item under a held left button, set on mouse down and cleared on
+    /// any release: its blocks wear the press squeeze.
+    pressed: Option<usize>,
+    /// The last pressed item: the release springs back where it was.
+    previous_pressed: Option<usize>,
 }
 
 type HighlightHandler = Rc<dyn Fn(Option<usize>, &mut Window, &mut App)>;
@@ -115,7 +128,7 @@ struct FluidItem {
 /// [`gpui::ListState`]: rows built OUTSIDE the list's own children — the
 /// render closure of a virtualised `gpui::list` placed inside the list —
 /// register their bounds through [`FluidHandle::item`], so the one
-/// highlight glides over virtual rows exactly as over static ones.
+/// highlight sits on virtual rows exactly as on static ones.
 ///
 /// Hand the same handle to [`FluidList::handle`]; the list then keeps its
 /// pointer session, highlight and selection in the handle instead of in
@@ -149,21 +162,27 @@ impl FluidHandle {
             .into_any_element()
     }
 
+    /// Item `index`'s bounds as last measured, in window coordinates —
+    /// `None` when the item was not built last frame.
+    pub fn bounds_of(&self, index: usize) -> Option<Bounds<Pixels>> {
+        self.fluid.borrow().bounds.get(&index).copied()
+    }
+
     /// The pointer-derived highlight as of the last event, if any.
     pub fn highlight(&self) -> Option<usize> {
         self.fluid.borrow().reported.flatten()
     }
 }
 
-/// One highlight per list that glides to the nearest item.
+/// One highlight per list that sits on the nearest item.
 ///
 /// Children arrive through [`FluidList::item`] (measured and highlightable)
 /// or [`FluidList::item_static`] (measured for layout, never highlighted —
 /// a divider or a disabled row). The list renders them in a `relative`
 /// container with two absolutely positioned overlays painted FIRST, so they
 /// sit under the items: the hover highlight (`hover_overlay`, fast fade,
-/// moderate spring on x / y / w / h) and the selected block
-/// (`selected_overlay`, moderate spring).
+/// placed on its item) and the selected block (`selected_overlay`), plus
+/// the pressed block while the left button is held (see the module docs).
 ///
 /// The pointer-inside item wins; otherwise the nearest centre, so a pointer
 /// in a gap, in the padding or past the last item still lands. Keyboard
@@ -250,15 +269,14 @@ impl FluidList {
         self
     }
 
-    /// The selected item: a second overlay that springs between items on
-    /// the moderate tier when the selection moves.
+    /// The selected item: a second overlay placed on that item.
     pub fn selected(mut self, selected: Option<usize>) -> Self {
         self.selected = selected;
         self
     }
 
     /// The keyboard-driven highlight override. When set it wins over the
-    /// pointer: the same highlight glides there, and there is no separate
+    /// pointer: the same highlight moves there, and there is no separate
     /// focus ring inside the list.
     pub fn highlighted(mut self, highlighted: Option<usize>) -> Self {
         self.highlighted = highlighted;
@@ -361,6 +379,15 @@ fn click_target(state: &FluidState, gap_click: bool, axis: Axis) -> Option<usize
 /// into a negative size.
 fn non_negative(value: Pixels) -> Pixels {
     if value > px(0.0) { value } else { px(0.0) }
+}
+
+/// The press squeeze at `phase` (`1` = held): the block moves `SP_1` in
+/// from each side and half that from top and bottom — about the 0.98 scale
+/// of a 32 px row 244 wide. The release spring overshoots, so a slightly
+/// negative phase grows the block a hair past rest before it settles.
+pub fn press_squeeze(phase: f32) -> (Pixels, Pixels) {
+    let phase = phase.clamp(-0.5, 1.0);
+    (px(scale::SP_1) * phase, px(scale::SP_1 / 2.0) * phase)
 }
 
 /// The highlight computed from the keyed state alone (bounds in index
@@ -468,7 +495,7 @@ impl RenderOnce for FluidList {
                 });
             }
         }
-        let (previous, previous_selected) = {
+        let (previous, previous_selected, pressed, previous_pressed) = {
             let mut state = fluid.borrow_mut();
             if highlight.is_some() {
                 state.previous_highlight = highlight;
@@ -476,25 +503,44 @@ impl RenderOnce for FluidList {
             if selected.is_some() {
                 state.previous_selected = selected;
             }
-            (state.previous_highlight, state.previous_selected)
+            if state.pressed.is_some() {
+                state.previous_pressed = state.pressed;
+            }
+            (state.previous_highlight, state.previous_selected, state.pressed, state.previous_pressed)
         };
 
-        // One session string per frame: it re-keys the highlight springs so
-        // a fresh pointer entry fades in at the nearest item.
+        // One session string per frame: it re-keys the hover tint so a fresh
+        // pointer entry fades in at the nearest item.
         let sess: SharedString = SharedString::from(format!("session-{session}"));
         let enter = Tween::new(Tier::Fast.enter(), Easing::STD);
-        let mut overlays = Vec::with_capacity(2);
+        let mut overlays = Vec::with_capacity(3);
         if let Some(origin) = container.map(|bounds| bounds.origin) {
-            let relative = |rect: Bounds<Pixels>| {
-                (rect.origin.x - origin.x, rect.origin.y - origin.y, rect.size.width, rect.size.height)
+            // A block on `rect`, squeezed by the press phase of the item it
+            // sits on. Only the held item and the one just released spring;
+            // every other block sits exactly on its row.
+            let block = |index: usize, rect: Bounds<Pixels>, tint: gpui::Hsla, window: &mut Window, cx: &mut App| {
+                let phase = if Some(index) == pressed || Some(index) == previous_pressed {
+                    let key: SharedString = format!("aui-press-{index}").into();
+                    spring((id.clone(), key), if Some(index) == pressed { 1.0 } else { 0.0 }, SpringKind::Press, window, cx)
+                } else {
+                    0.0
+                };
+                let (dx, dy) = press_squeeze(phase);
+                div()
+                    .absolute()
+                    .left(rect.origin.x - origin.x + dx)
+                    .top(rect.origin.y - origin.y + dy)
+                    .w(non_negative(rect.size.width - dx * 2.0))
+                    .h(non_negative(rect.size.height - dy * 2.0))
+                    .rounded(px(scale::SHAPE_ITEM))
+                    .bg(tint)
             };
-            // Hover highlight: fast fade, moderate glide. The previous
-            // anchor keeps the fade-out painted where the pointer left.
+            // Hover: fast fade in place; the previous anchor keeps the
+            // fade-out painted where the pointer left.
             let anchor = highlight
-                .and_then(|index| bounds.get(&index))
-                .or_else(|| previous.and_then(|index| bounds.get(&index)));
-            if let Some(rect) = anchor {
-                let (x, y, w, h) = relative(*rect);
+                .and_then(|index| bounds.get(&index).map(|rect| (index, *rect)))
+                .or_else(|| previous.and_then(|index| bounds.get(&index).map(|rect| (index, *rect))));
+            if let Some((index, rect)) = anchor {
                 // The first frame of a fresh session paints the re-keyed
                 // tint clear and asks for another frame, which fades it in.
                 let fresh = std::mem::take(&mut fluid.borrow_mut().fresh);
@@ -502,43 +548,22 @@ impl RenderOnce for FluidList {
                     window.request_animation_frame();
                 }
                 let tint = tint_fade(((id.clone(), "aui-hl"), sess.clone()), tint_on(highlight.is_some(), fresh), p.hover_overlay(), enter, window, cx);
-                let x = spring_px(((id.clone(), "aui-hl-x"), sess.clone()), x, SpringKind::Moderate, window, cx);
-                let y = spring_px(((id.clone(), "aui-hl-y"), sess.clone()), y, SpringKind::Moderate, window, cx);
-                let w = spring_px(((id.clone(), "aui-hl-w"), sess.clone()), w, SpringKind::Moderate, window, cx);
-                let h = spring_px(((id.clone(), "aui-hl-h"), sess.clone()), h, SpringKind::Moderate, window, cx);
-                overlays.push(
-                    div()
-                        .absolute()
-                        .left(x)
-                        .top(y)
-                        .w(non_negative(w))
-                        .h(non_negative(h))
-                        .rounded(px(scale::SHAPE_ITEM))
-                        .bg(tint),
-                );
+                overlays.push(block(index, rect, tint, window, cx));
             }
-            // Selected block: the same glide; a cleared selection fades out
-            // where it was.
+            // Selected: sits on its row; a cleared selection fades out where
+            // it was.
             let selected_anchor = selected
-                .and_then(|index| bounds.get(&index))
-                .or_else(|| previous_selected.and_then(|index| bounds.get(&index)));
-            if let Some(rect) = selected_anchor {
-                let (x, y, w, h) = relative(*rect);
+                .and_then(|index| bounds.get(&index).map(|rect| (index, *rect)))
+                .or_else(|| previous_selected.and_then(|index| bounds.get(&index).map(|rect| (index, *rect))));
+            if let Some((index, rect)) = selected_anchor {
                 let tint = tint_fade((id.clone(), "aui-sel"), selected.is_some(), p.selected_overlay(), enter, window, cx);
-                let x = spring_px((id.clone(), "aui-sel-x"), x, SpringKind::Moderate, window, cx);
-                let y = spring_px((id.clone(), "aui-sel-y"), y, SpringKind::Moderate, window, cx);
-                let w = spring_px((id.clone(), "aui-sel-w"), w, SpringKind::Moderate, window, cx);
-                let h = spring_px((id.clone(), "aui-sel-h"), h, SpringKind::Moderate, window, cx);
-                overlays.push(
-                    div()
-                        .absolute()
-                        .left(x)
-                        .top(y)
-                        .w(non_negative(w))
-                        .h(non_negative(h))
-                        .rounded(px(scale::SHAPE_ITEM))
-                        .bg(tint),
-                );
+                overlays.push(block(index, rect, tint, window, cx));
+            }
+            // Pressed: the darker overlay on the held row, fading on release.
+            let pressed_anchor = pressed.or(previous_pressed).and_then(|index| bounds.get(&index).map(|rect| (index, *rect)));
+            if let Some((index, rect)) = pressed_anchor {
+                let tint = tint_fade((id.clone(), "aui-press-tint"), pressed.is_some(), p.pressed_overlay(), Tween::exit(Tier::Fast), window, cx);
+                overlays.push(block(index, rect, tint, window, cx));
             }
         } else {
             window.request_animation_frame();
@@ -600,6 +625,34 @@ impl RenderOnce for FluidList {
                     // than an entity, so refresh the window directly.
                     window.refresh();
                     report_change(&fluid, &report, next, window, cx);
+                }
+            })
+            .on_mouse_down(gpui::MouseButton::Left, {
+                let fluid = fluid.clone();
+                move |_: &gpui::MouseDownEvent, window: &mut Window, _cx: &mut App| {
+                    // The press lands on the item the pointer is over (its
+                    // own nearest); a press in a gap squeezes nothing.
+                    let mut state = fluid.borrow_mut();
+                    let over = state.pointer.is_some_and(|at| state.bounds.values().any(|rect| rect.contains(&at)));
+                    state.pressed = if over { state_highlight(&state, axis) } else { None };
+                    drop(state);
+                    window.refresh();
+                }
+            })
+            .on_mouse_up(gpui::MouseButton::Left, {
+                let fluid = fluid.clone();
+                move |_: &gpui::MouseUpEvent, window: &mut Window, _cx: &mut App| {
+                    if fluid.borrow_mut().pressed.take().is_some() {
+                        window.refresh();
+                    }
+                }
+            })
+            .on_mouse_up_out(gpui::MouseButton::Left, {
+                let fluid = fluid.clone();
+                move |_: &gpui::MouseUpEvent, window: &mut Window, _cx: &mut App| {
+                    if fluid.borrow_mut().pressed.take().is_some() {
+                        window.refresh();
+                    }
                 }
             })
             .on_hover({
@@ -734,5 +787,14 @@ mod tests {
         state.fresh = true;
         assert!(std::mem::take(&mut state.fresh));
         assert!(!state.fresh, "consumed by the first painted frame");
+    }
+
+    #[test]
+    fn press_squeeze_scales_and_clamps_its_phase() {
+        assert_eq!(press_squeeze(1.0), (px(scale::SP_1), px(scale::SP_1 / 2.0)));
+        assert_eq!(press_squeeze(0.0), (px(0.0), px(0.0)));
+        assert_eq!(press_squeeze(2.0), press_squeeze(1.0));
+        assert_eq!(press_squeeze(-1.0), press_squeeze(-0.5));
+        assert_eq!(press_squeeze(-0.5), (px(scale::SP_1) * -0.5, px(scale::SP_1 / 2.0) * -0.5));
     }
 }
