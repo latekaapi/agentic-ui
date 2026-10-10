@@ -80,6 +80,7 @@ pub struct AppShell {
     centre_clear: Option<Pixels>,
     edge_control: Option<(Pixels, Pixels, AnyElement)>,
     centre_header: bool,
+    inset: bool,
 }
 
 /// An empty shell with the default column widths.
@@ -112,6 +113,7 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         centre_clear: None,
         edge_control: None,
         centre_header: true,
+        inset: false,
     }
 }
 
@@ -230,6 +232,15 @@ impl AppShell {
     /// `header_centre` element is dropped.
     pub fn centre_header(mut self, on: bool) -> Self {
         self.centre_header = on;
+        self
+    }
+
+    /// Full-height layout only: FF's sidebar `variant="inset"`
+    /// (sidebar-core.tsx:838-842). The sidebar column draws no right border,
+    /// because the centre is an inset card on the same ground that the host
+    /// draws, and a hairline beside the card's own edge doubles it.
+    pub fn inset(mut self, on: bool) -> Self {
+        self.inset = on;
         self
     }
 
@@ -522,8 +533,7 @@ fn full_height(shell: AppShell, g: FullHeightGeometry, cx: &App) -> gpui::Statef
         .flex_none()
         .relative()
         .overflow_hidden()
-        .border_r_1()
-        .border_color(p.line)
+        .when(!shell.inset, |d| d.border_r_1().border_color(p.line))
         .bg(p.bg)
         .child(div().absolute().left(px(0.0)).top(px(0.0)).bottom(px(0.0)).w(g.rail_width).children(shell.rail))
         .when(g.show_sidebar, |d| {
