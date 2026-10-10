@@ -1404,12 +1404,16 @@ fn list_host(ctx: &Ctx, render: impl Fn(usize, &mut Window, &mut App) -> AnyElem
         .flex_1()
         .min_h(px(0.0))
         .child(ctx.fluid.clip_region(VIRTUAL_BASE, list(ctx_state(ctx), render).w_full().h_full()))
-        .child(list_scrollbar(ctx, cx))
+        // The bar stands in the body's right gutter (owner 2026-10-11): its
+        // host reaches past the rows by the body's padding, so the track is
+        // flush with the sidebar's edge like FF's on its scroll container,
+        // and the thumb never sits over a row's trailing slot.
+        .child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(px(0.0)).right(-cx.aui().metrics.item_px).child(list_scrollbar(ctx, cx)))
         .into_any_element()
 }
 
 /// Fluid Functionalism's scrollbar (`scroll-area.tsx`): shown while the list
-/// is hovered or scrolled, a 10 px track flush to the edge, a 4 px thumb
+/// is hovered or scrolled, a 10 px track flush to the sidebar's edge, a 4 px thumb
 /// nudged 2 px off it at the overlay colour 8 %, widening to 6 px at 12 %
 /// over the track and 16 % while dragged, fully round.
 fn list_scrollbar(ctx: &Ctx, cx: &App) -> AnyElement {
@@ -1423,6 +1427,8 @@ fn list_scrollbar(ctx: &Ctx, cx: &App) -> AnyElement {
     let round = px(scale::SP_2 + scale::SP_1);
     Scrollbar::vertical(&ctx.state)
         .id(ctx.child("scrollbar"))
+        // Its host's box (reaching into the gutter), not the list's viewport.
+        .viewport_from_layout()
         .mode(ScrollbarMode::Hover)
         .styles(|s| {
             s.track(|t| t.width(track).bg(gpui::transparent_black()))
