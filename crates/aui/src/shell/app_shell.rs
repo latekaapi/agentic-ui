@@ -75,6 +75,9 @@ pub struct AppShell {
     hide_rail: bool,
     centre: Option<AnyElement>,
     right: Option<AnyElement>,
+    full_height_sidebar: bool,
+    rail_width: Option<Pixels>,
+    centre_header: bool,
 }
 
 /// An empty shell with the default column widths.
@@ -102,6 +105,9 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         hide_rail: false,
         centre: None,
         right: None,
+        full_height_sidebar: false,
+        rail_width: None,
+        centre_header: true,
     }
 }
 
@@ -202,6 +208,34 @@ impl AppShell {
         self
     }
 
+    /// The sidebar column spans the title bar and the body: for a sidebar
+    /// that draws its own title bar (the v2 `screens::sidebar`, whose bar
+    /// leaves the traffic-light gap and carries the toggle). The centre and
+    /// right columns each own their header cell; a centre with no
+    /// `header_centre` draws none, so a page can fill the column top to
+    /// bottom. Collapsed, the left column is the `rail` at
+    /// [`AppShell::rail_width`] (the v2 sidebar's collapsed strip) and the
+    /// host draws the toggle in the centre header beside the lights.
+    pub fn full_height_sidebar(mut self, on: bool) -> Self {
+        self.full_height_sidebar = on;
+        self
+    }
+
+    /// Whether the centre column draws its header cell (full-height mode
+    /// only): off, the centre pane fills the column top to bottom and the
+    /// `header_centre` element is dropped.
+    pub fn centre_header(mut self, on: bool) -> Self {
+        self.centre_header = on;
+        self
+    }
+
+    /// The collapsed column's width, in place of the rail constants: the
+    /// v2 sidebar collapses to an `SP_4` strip.
+    pub fn rail_width(mut self, width: impl Into<Pixels>) -> Self {
+        self.rail_width = Some(width.into());
+        self
+    }
+
     /// Draws the window frame the design card shows: line-strong border,
     /// radius 12, elevation 3. Apps fill the window instead.
     pub fn framed(mut self, framed: bool) -> Self {
@@ -272,6 +306,8 @@ impl RenderOnce for AppShell {
 
         let rail_width = if self.hide_rail && !self.sidebar_open {
             px(0.0)
+        } else if let Some(width) = self.rail_width {
+            width
         } else if self.traffic_lights {
             px(RAIL_WIDTH_WITH_LIGHTS)
         } else {
@@ -326,6 +362,10 @@ impl RenderOnce for AppShell {
         // resting width however the pane below moves.
         let (header_w, header_pane_w) =
             if self.header_follows_sidebar { (sidebar_w, settled_pane_w) } else { (sidebar_rest, sidebar_rest) };
+
+        if self.full_height_sidebar {
+            return full_height(self, FullHeightGeometry { sidebar_w, sidebar_rest, rail_width, show_sidebar, right_w, right_inner, right_mounted }, cx);
+        }
 
         // Header cells: surface-1, bottom hairline. The sidebar cell owns the
         // first divider (its right border) and the right cell the second (its
@@ -415,6 +455,102 @@ impl RenderOnce for AppShell {
         }
         root
     }
+}
+
+/// The resolved widths [`AppShell::render`] measured, handed to the
+/// full-height layout.
+struct FullHeightGeometry {
+    sidebar_w: Pixels,
+    sidebar_rest: Pixels,
+    rail_width: Pixels,
+    show_sidebar: bool,
+    right_w: Pixels,
+    right_inner: Pixels,
+    right_mounted: bool,
+}
+
+/// The full-height layout: `sidebar | centre | right`, where the sidebar
+/// column runs from the window's top edge to its bottom and the other
+/// two columns stack their own header cell over their pane. The sidebar
+/// column's right border is the first divider; the right column's left
+/// border the second, from top to bottom like the design's.
+fn full_height(shell: AppShell, g: FullHeightGeometry, cx: &App) -> gpui::Stateful<gpui::Div> {
+    let p = cx.aui().colors;
+    let header_h = cx.aui().metrics.header;
+    let id = shell.id.clone();
+    let header = |content: Option<AnyElement>| {
+        div()
+            .w_full()
+            .h(header_h)
+            .flex_none()
+            .flex()
+            .items_center()
+            .min_w(px(0.0))
+            .overflow_x_hidden()
+            .border_b_1()
+            .border_color(p.line)
+            .bg(p.surface_1)
+            .children(content)
+    };
+    let sidebar_column = div()
+        .w(g.sidebar_w)
+        .h_full()
+        .flex_none()
+        .relative()
+        .overflow_hidden()
+        .border_r_1()
+        .border_color(p.line)
+        .bg(p.bg)
+        .child(div().absolute().left(px(0.0)).top(px(0.0)).bottom(px(0.0)).w(g.rail_width).children(shell.rail))
+        .when(g.show_sidebar, |d| {
+            d.child(
+                div()
+                    .absolute()
+                    .left(px(0.0))
+                    .top(px(0.0))
+                    .bottom(px(0.0))
+                    .w(g.sidebar_rest)
+                    .overflow_hidden()
+                    .bg(p.bg)
+                    .children(shell.sidebar),
+            )
+        });
+    // The centre header is the window's drag strip (the sidebar's title
+    // bar is the sidebar's own); a centre with no header is a page that
+    // fills the column, and the window drags from nowhere in it.
+    let centre_header: Option<AnyElement> = shell.header_centre.filter(|_| shell.centre_header).map(|content| {
+        if shell.draggable {
+            drag_region((id.clone(), "header-drag")).child(header(Some(content))).into_any_element()
+        } else {
+            header(Some(content)).into_any_element()
+        }
+    });
+    let centre_column = v_flex()
+        .flex_1()
+        .h_full()
+        .min_w(px(0.0))
+        .overflow_hidden()
+        .bg(p.bg)
+        .children(centre_header)
+        .child(div().w_full().flex_1().min_h(px(0.0)).overflow_hidden().children(shell.centre));
+    let right_column = div().w(g.right_w).h_full().flex_none().overflow_hidden().child(
+        v_flex()
+            .w(g.right_inner)
+            .h_full()
+            .flex_none()
+            .border_l_1()
+            .border_color(p.line)
+            .bg(p.surface_1)
+            .when(g.right_mounted, |d| d.child(header(shell.header_right)))
+            .child(div().w_full().flex_1().min_h(px(0.0)).overflow_hidden().when(g.right_mounted, |d| d.children(shell.right))),
+    );
+    let mut root = crate::keys::track_pointer(
+        h_flex().id(id).size_full().items_stretch().overflow_hidden().bg(p.bg).text_color(p.ink).child(sidebar_column).child(centre_column).child(right_column),
+    );
+    if shell.framed {
+        root = root.rounded(px(scale::R_LG)).border_1().border_color(p.line_strong).shadow(p.shadow(3));
+    }
+    root
 }
 
 #[cfg(test)]

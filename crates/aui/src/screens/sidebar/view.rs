@@ -40,7 +40,7 @@ use gpui::{
 };
 use gpui_kit::base::{
     h_flex,
-    input::{Input, InputState},
+    input::{Input, InputState, Textarea, TextareaState},
     v_flex,
 };
 
@@ -65,11 +65,42 @@ const BROWSE_BASE: usize = 500;
 /// Space left for the traffic lights before the sidebar toggle:
 /// `SP_7 × 2 + SP_5 + SP_2` = 84, Claude Desktop's placement, so the toggle
 /// sits at the same x whether the sidebar is open or collapsed.
-fn traffic_light_gap() -> Pixels {
+pub fn traffic_light_gap() -> Pixels {
     px(scale::SP_7 * 2.0 + scale::SP_5 + scale::SP_2)
 }
 
 type IntentHandler = Rc<dyn Fn(SidebarIntent, &mut Window, &mut App)>;
+
+/// The live editor behind the rename field: a one-line input, or a
+/// host's one-row textarea (Baaz renames through the same state its
+/// header field edits).
+#[derive(Clone)]
+enum RenameInput {
+    Input(Entity<InputState>),
+    Textarea(Entity<TextareaState>),
+}
+
+impl RenameInput {
+    fn value(&self, cx: &App) -> SharedString {
+        match self {
+            RenameInput::Input(input) => input.read(cx).value().to_string().into(),
+            RenameInput::Textarea(input) => input.read(cx).value().to_string().into(),
+        }
+    }
+
+    fn element(&self) -> AnyElement {
+        match self {
+            RenameInput::Input(input) => Input::new(input).into_any_element(),
+            RenameInput::Textarea(input) => Textarea::new(input).into_any_element(),
+        }
+    }
+}
+
+/// The collapsed sidebar's width: the `SP_4` edge strip the host keeps
+/// as the collapsed column.
+pub fn collapsed_strip_width() -> Pixels {
+    px(scale::SP_4)
+}
 
 /// The list row height at the active density: `control_lg` (32 / 28).
 pub fn list_row_height(cx: &App) -> Pixels {
@@ -128,7 +159,7 @@ pub struct SidebarScreen {
     state: ListState,
     fluid: FluidHandle,
     width: Pixels,
-    rename_input: Option<Entity<InputState>>,
+    rename_input: Option<RenameInput>,
     on_intent: Option<IntentHandler>,
     ground: bool,
 }
@@ -157,7 +188,14 @@ impl SidebarScreen {
     /// The live text input for the rename in flight. Without it the
     /// field shows the model's draft as static text (captures, tests).
     pub fn rename_input(mut self, input: &Entity<InputState>) -> Self {
-        self.rename_input = Some(input.clone());
+        self.rename_input = Some(RenameInput::Input(input.clone()));
+        self
+    }
+
+    /// Like [`Self::rename_input`], for a host whose rename state is a
+    /// one-row textarea.
+    pub fn rename_textarea(mut self, input: &Entity<TextareaState>) -> Self {
+        self.rename_input = Some(RenameInput::Textarea(input.clone()));
         self
     }
 }
@@ -170,7 +208,7 @@ struct Ctx {
     model: Rc<SidebarModel>,
     fluid: FluidHandle,
     state: ListState,
-    rename_input: Option<Entity<InputState>>,
+    rename_input: Option<RenameInput>,
     on_intent: Option<IntentHandler>,
 }
 
@@ -418,7 +456,7 @@ impl Ctx {
         let label: SharedString = format!("Rename session {}", session.name).into();
         record_ax_label(&label);
         let body: AnyElement = match self.rename_input.as_ref() {
-            Some(input) => div().flex_1().min_w(px(0.0)).child(Input::new(input)).into_any_element(),
+            Some(input) => div().flex_1().min_w(px(0.0)).child(input.element()).into_any_element(),
             None => h_flex()
                 .flex_1()
                 .min_w(px(0.0))
@@ -454,7 +492,7 @@ impl Ctx {
             .on_key_down(move |event: &gpui::KeyDownEvent, w: &mut Window, cx: &mut App| match event.keystroke.key.as_str() {
                 "enter" => {
                     let value: SharedString = match live.as_ref() {
-                        Some(input) => input.read(cx).value().to_string().into(),
+                        Some(input) => input.value(cx),
                         None => text.clone(),
                     };
                     ctx.emit(SidebarIntent::Rename(commit.clone(), value), w, cx);
