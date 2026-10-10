@@ -543,3 +543,68 @@ pub fn browse_menu_size(menu: &BrowseMenu, folders: usize, cx: &App) -> gpui::Si
     let width = if submenu.is_some() { menu_width() + px(scale::SP_1) + submenu_width() } else { menu_width() };
     gpui::size(width, submenu.map_or(height, |sub| height.max(sub)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{point, TestAppContext};
+
+    fn menu(target: BrowseMenuTarget) -> BrowseMenu {
+        BrowseMenu { target, at: point(px(0.0), px(0.0)) }
+    }
+
+    fn tab(in_folder: bool) -> BrowseMenu {
+        menu(BrowseMenuTarget::Tab { id: "t".into(), pinned: false, in_folder })
+    }
+
+    #[gpui::test]
+    fn tab_menu_width_includes_the_submenu_others_do_not(cx: &mut TestAppContext) {
+        cx.update(|cx| crate::init(aui_tokens::ThemeKind::Dark, cx));
+        cx.update(|cx| {
+            let plain = menu_width();
+            assert!(browse_menu_size(&tab(false), 0, cx).width > plain);
+            let others = [
+                menu(BrowseMenuTarget::Folder("f".into())),
+                menu(BrowseMenuTarget::TaskFolder { session: "s".into(), running: true }),
+                menu(BrowseMenuTarget::Space { id: "p".into(), last: false }),
+            ];
+            for m in &others {
+                assert_eq!(browse_menu_size(m, 0, cx).width, plain, "{m:?}");
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn menu_heights_grow_by_one_control_per_extra_row(cx: &mut TestAppContext) {
+        cx.update(|cx| crate::init(aui_tokens::ThemeKind::Dark, cx));
+        cx.update(|cx| {
+            let control = cx.aui().metrics.control;
+            let close = |a: Pixels, b: Pixels| assert!((f32::from(a) - f32::from(b)).abs() < 0.01, "{a:?} vs {b:?}");
+            let task_idle = menu(BrowseMenuTarget::TaskFolder { session: "s".into(), running: false });
+            let task_run = menu(BrowseMenuTarget::TaskFolder { session: "s".into(), running: true });
+            close(browse_menu_size(&task_run, 0, cx).height - browse_menu_size(&task_idle, 0, cx).height, control);
+            let space = menu(BrowseMenuTarget::Space { id: "p".into(), last: true });
+            let folder = menu(BrowseMenuTarget::Folder("f".into()));
+            close(browse_menu_size(&folder, 0, cx).height - browse_menu_size(&space, 0, cx).height, control);
+            close(browse_menu_size(&task_idle, 0, cx).height, browse_menu_size(&space, 0, cx).height);
+            // The folder count only matters through the tab menu's submenu.
+            assert_eq!(browse_menu_size(&folder, 5, cx), browse_menu_size(&folder, 0, cx));
+        });
+    }
+
+    #[gpui::test]
+    fn tab_menu_height_grows_with_folders_and_in_folder(cx: &mut TestAppContext) {
+        cx.update(|cx| crate::init(aui_tokens::ThemeKind::Dark, cx));
+        cx.update(|cx| {
+            let control = cx.aui().metrics.control;
+            let h = |m: &BrowseMenu, n| browse_menu_size(m, n, cx).height;
+            // Many folders: the submenu is the taller box and each adds one control.
+            let (a, b) = (h(&tab(false), 20), h(&tab(false), 21));
+            assert!((f32::from(b - a) - f32::from(control)).abs() < 0.01, "{a:?} {b:?}");
+            assert!(h(&tab(false), 3) >= h(&tab(false), 0));
+            // In a folder the main column gains "Remove from folder": one more row.
+            let (plain, inside) = (h(&tab(false), 0), h(&tab(true), 0));
+            assert!((f32::from(inside - plain) - f32::from(control)).abs() < 0.01, "{plain:?} {inside:?}");
+        });
+    }
+}

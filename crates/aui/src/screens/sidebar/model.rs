@@ -753,3 +753,22 @@ pub fn sample_model() -> SidebarModel {
         }),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn group_key_labels_and_order() {
+        assert_eq!(GroupKey::ALL, [GroupKey::Project, GroupKey::Date]);
+        assert_eq!(GroupKey::ALL.map(GroupKey::label), ["Project", "Date"]);
+        assert_eq!(GroupKey::default(), GroupKey::Project);
+    }
+
+    #[test]
+    fn sort_key_labels_and_order() {
+        assert_eq!(SortKey::ALL, [SortKey::Recent, SortKey::Created, SortKey::Name]);
+        assert_eq!(SortKey::ALL.map(SortKey::label), ["Recent activity", "Created", "Name"]);
+        assert_eq!(SortKey::default(), SortKey::Recent);
+    }
+}

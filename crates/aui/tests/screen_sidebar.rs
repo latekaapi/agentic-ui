@@ -387,3 +387,60 @@ fn hovering_a_session_row_reports_id_and_bounds(cx: &mut TestAppContext) {
     let b = hit.unwrap_or_else(|| panic!("no Hover(Some(a), Some(bounds)) in {got:?}"));
     assert!(b.size.width > px(0.0) && b.size.height > px(0.0), "{b:?}");
 }
+
+#[gpui::test]
+fn browse_rows_carry_their_accessible_names(cx: &mut TestAppContext) {
+    init(cx);
+    let mut model = sample_model();
+    model.mode = Mode::Browse;
+    let labels = labels_of(cx, model);
+    assert_has(
+        &labels,
+        &[
+            "Address",
+            "New tab",
+            "Spaces",
+            "Tab State scores 2023-24",
+            "Folder Karnataka review",
+            "Task folder Checklist run, open its chat",
+            "Space Personal",
+        ],
+    );
+    assert!(labels.iter().all(|l| !l.is_empty()), "unlabelled control: {labels:?}");
+}
+
+#[gpui::test]
+fn sessions_mode_still_labels_search_and_new_session(cx: &mut TestAppContext) {
+    init(cx);
+    let labels = labels_of(cx, sample_model());
+    assert_has(&labels, &["Search", "New session"]);
+}
+
+#[gpui::test]
+fn view_options_menu_wording(cx: &mut TestAppContext) {
+    init(cx);
+    let mut model = sample_model();
+    model.view_menu_open = true;
+    model.view_options = aui::screens::sidebar::ViewOptions {
+        hidden_count: 3,
+        show_hidden: false,
+        pr_status_available: false,
+        ..Default::default()
+    };
+    let labels = labels_of(cx, model);
+    assert_has(
+        &labels,
+        &["Show hidden", "Show PR status", "Search all projects", "Clear empty sessions", "Group by", "Sort by"],
+    );
+}
+
+#[gpui::test]
+fn account_menu_wording(cx: &mut TestAppContext) {
+    init(cx);
+    let mut model = sample_model();
+    model.account.menu_open = true;
+    let name = model.account.name.to_string();
+    let labels = labels_of(cx, model);
+    let header = format!("Account menu for {name}");
+    assert_has(&labels, &["Settings…", "Providers…", "Sign out of Muse", header.as_str()]);
+}
