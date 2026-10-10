@@ -88,7 +88,7 @@ struct FluidState {
     /// virtualised `gpui::list`) whose viewport is the second field: their
     /// blocks are clipped to it, so a row half scrolled under a header never
     /// paints its highlight over that header.
-    clip: Option<(usize, Bounds<Pixels>)>,
+    clip: Option<(usize, usize, Bounds<Pixels>)>,
     /// The container's bounds last frame (`None` before the first measure).
     container: Option<Bounds<Pixels>>,
     /// Item bounds measured last frame, keyed by item index. Drained at the
@@ -183,12 +183,19 @@ impl FluidHandle {
     /// Wraps the scrolling region that holds items `min_index..`: its
     /// laid-out bounds become their clip (see [`FluidState::clip`]).
     pub fn clip_region(&self, min_index: usize, element: impl IntoElement) -> AnyElement {
+        self.clip_range(min_index..usize::MAX, element)
+    }
+
+    /// Like [`Self::clip_region`] for the items in `range` only, so a
+    /// second region after it (a pane below a scrolling list) keeps its own
+    /// rows unclipped by the first.
+    pub fn clip_range(&self, range: std::ops::Range<usize>, element: impl IntoElement) -> AnyElement {
         let fluid = self.fluid.clone();
         div()
-            .id(("aui-fluid-clip", min_index))
+            .id(("aui-fluid-clip", range.start))
             .size_full()
             .on_prepaint(move |bounds, _, _| {
-                fluid.borrow_mut().clip = Some((min_index, bounds));
+                fluid.borrow_mut().clip = Some((range.start, range.end, bounds));
             })
             .child(element)
             .into_any_element()
@@ -579,8 +586,8 @@ impl RenderOnce for FluidList {
                 rect.origin.y += inset_y;
                 rect.size.height = non_negative(rect.size.height - inset_y * 2.0);
                 rect = rect.intersect(&frame);
-                if let Some((min, region)) = clip {
-                    if index >= min {
+                if let Some((min, max, region)) = clip {
+                    if index >= min && index < max {
                         rect = rect.intersect(&region);
                     }
                 }

@@ -689,6 +689,12 @@ impl WebviewState {
         resized
     }
 
+    /// Rounds the native page's corners to `radius` (0 = square): a host that
+    /// sets the page inside a rounded card passes the card's radius.
+    pub fn set_corner_radius(&mut self, radius: f32) {
+        self.backend.set_corner_radius(radius);
+    }
+
     /// Pushes `frame` into the native backend and remembers it, refreshing
     /// the snapshot stand-in when the page area itself resized.
     fn push_frame(&mut self, frame: (Point<Pixels>, Size<Pixels>), resized: bool) {

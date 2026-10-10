@@ -70,6 +70,7 @@ use serde_json::{json, Value};
 unsafe extern "C" {
     fn aui_cef_place(parent: *mut c_void, child: *mut c_void, x: f64, y: f64, w: f64, h: f64) -> i32;
     fn aui_cef_set_hidden(child: *mut c_void, hidden: i32);
+    fn aui_cef_set_corner_radius(child: *mut c_void, radius: f64);
     fn aui_cef_is_key(child: *mut c_void) -> i32;
     fn aui_cef_focus_parent(parent: *mut c_void);
     fn aui_cef_focus_child(child: *mut c_void);
@@ -112,6 +113,8 @@ struct Shared {
     parent_view: usize,
     bounds: ((f32, f32), (f32, f32)),
     visible: bool,
+    /// The page window's corner radius in points (0 = square).
+    corner_radius: f32,
     /// Set once the setup scripts are registered.
     ready: bool,
     /// The URL to load once ready (the latest `navigate` wins).
@@ -269,9 +272,9 @@ fn current_download_dir() -> PathBuf {
 
 /// Puts the page window over the host's rect, shown or hidden.
 fn place(page: &Page) {
-    let (parent, child, ((x, y), (w, h)), visible) = {
+    let (parent, child, ((x, y), (w, h)), visible, radius) = {
         let s = locked(page);
-        (s.parent_view, s.child_view, s.bounds, s.visible)
+        (s.parent_view, s.child_view, s.bounds, s.visible, s.corner_radius)
     };
     if parent == 0 || child == 0 {
         return;
@@ -279,6 +282,7 @@ fn place(page: &Page) {
     // Safety: both addresses are live NSViews owned by their windows; main thread.
     unsafe {
         aui_cef_place(parent as *mut c_void, child as *mut c_void, x as f64, y as f64, w as f64, h as f64);
+        aui_cef_set_corner_radius(child as *mut c_void, radius as f64);
         aui_cef_set_hidden(child as *mut c_void, if visible { 0 } else { 1 });
     }
 }
@@ -954,6 +958,32 @@ wrap_load_handler! {
     }
 }
 
+/// The page's own (root) scrollbar on Fluid Functionalism's shape
+/// (`scroll-area.tsx`): a clear track and a thin, fully round thumb set 3 px
+/// inside a 10 px gutter, in place of Chromium's classic opaque bar (owner
+/// note 2026-10-11, "ugly scrollbar"). Adaptation: FF's thumb is the overlay
+/// colour at 8 %; on an arbitrary site's background a neutral grey at
+/// 35 / 55 % is what stays visible on light and dark pages alike. Only the
+/// top document's viewport bar: a site's own inner scrollers keep theirs.
+const SCROLLBAR_JS: &str = r#"(function () {
+  if (window.top !== window) return;
+  var css = "html::-webkit-scrollbar{width:10px;height:10px;background:transparent}" +
+    "html::-webkit-scrollbar-track,html::-webkit-scrollbar-corner{background:transparent}" +
+    "html::-webkit-scrollbar-thumb{background-color:rgba(128,128,128,.35);border-radius:9999px;border:3px solid transparent;background-clip:content-box}" +
+    "html::-webkit-scrollbar-thumb:hover{background-color:rgba(128,128,128,.55)}";
+  function add() {
+    if (document.getElementById("aui-scrollbar")) return;
+    var root = document.head || document.documentElement;
+    if (!root) return;
+    var style = document.createElement("style");
+    style.id = "aui-scrollbar";
+    style.textContent = css;
+    root.appendChild(style);
+  }
+  add();
+  document.addEventListener("DOMContentLoaded", add);
+})();"#;
+
 wrap_life_span_handler! {
     struct AuiLifeSpan {
         shared: Page,
@@ -971,7 +1001,7 @@ wrap_life_span_handler! {
             }
             send(&self.shared, "Runtime.enable", json!({}), Pending::Setup { last: false });
             send(&self.shared, "Runtime.addBinding", json!({ "name": BINDING }), Pending::Setup { last: false });
-            let source = format!("{IPC_PRELUDE}\n{ANNOTATOR_JS}");
+            let source = format!("{IPC_PRELUDE}\n{ANNOTATOR_JS}\n{SCROLLBAR_JS}");
             if send(&self.shared, "Page.addScriptToEvaluateOnNewDocument", json!({ "source": source }), Pending::Setup { last: true }).is_none() {
                 // No DevTools channel: load anyway, unannotated.
                 release_first_navigation(&self.shared);
@@ -1919,6 +1949,18 @@ impl WebBackend for CefBackend {
             let mut s = locked(&self.page);
             let changed = s.bounds != (origin, size);
             s.bounds = (origin, size);
+            changed
+        };
+        if changed {
+            place(&self.page);
+        }
+    }
+
+    fn set_corner_radius(&mut self, radius: f32) {
+        let changed = {
+            let mut s = locked(&self.page);
+            let changed = s.corner_radius != radius;
+            s.corner_radius = radius;
             changed
         };
         if changed {

@@ -450,6 +450,13 @@ pub trait WebBackend {
         let _ = (origin, size);
     }
 
+    /// Rounds the page's native surface to `radius` logical pixels (0 =
+    /// square), so a page set inside a rounded card matches it. A page made
+    /// of gpui elements ignores this.
+    fn set_corner_radius(&mut self, radius: f32) {
+        let _ = radius;
+    }
+
     /// Shows or hides the page's native surface. Hiding it is the only way gpui
     /// gets to draw in that rectangle at all; see
     /// [`WebviewState::set_obscured`](crate::view::WebviewState::set_obscured).

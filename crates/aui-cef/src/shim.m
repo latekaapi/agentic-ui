@@ -120,6 +120,27 @@ int aui_cef_place(void *parent_view, void *child_root_view, double x, double y, 
   return 1;
 }
 
+// Rounds the page window's corners to `radius` points (0 = square): the
+// window turns clear and its content view's layer clips every sublayer —
+// Chromium's included — on the continuous curve, so a page set inside a
+// rounded card matches its corners (owner note 2026-10-11).
+void aui_cef_set_corner_radius(void *child_root_view, double radius) {
+  NSWindow *cw = window_of(child_root_view);
+  if (!cw) return;
+  NSView *cv = cw.contentView;
+  if (!cv) return;
+  if (radius > 0) {
+    cw.opaque = NO;
+    cw.backgroundColor = NSColor.clearColor;
+  }
+  cv.wantsLayer = YES;
+  if (cv.layer.cornerRadius != radius) {
+    cv.layer.cornerRadius = radius;
+    cv.layer.masksToBounds = radius > 0;
+    if (@available(macOS 10.15, *)) cv.layer.cornerCurve = kCACornerCurveContinuous;
+  }
+}
+
 // Hidden = invisible and click-through. CEF's own `Window::hide` does nothing
 // to an adopted child window (S1, shot 7); alpha does (S1, shot 6).
 void aui_cef_set_hidden(void *child_root_view, int hidden) {

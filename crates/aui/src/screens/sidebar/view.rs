@@ -62,6 +62,9 @@ pub const SIDEBAR_WIDTH: f32 = 256.0;
 const PINNED_BASE: usize = 100;
 const VIRTUAL_BASE: usize = 1000;
 const BROWSE_BASE: usize = 500;
+/// The task pane's rows (after Browse's scrolling rows, before the virtual
+/// sessions): their own clip range.
+const TASK_BASE: usize = 800;
 
 /// Space left for the traffic lights before the sidebar toggle:
 /// `SP_7 × 2 + SP_5 + SP_2` = 84, Claude Desktop's placement, so the toggle
@@ -139,7 +142,12 @@ pub fn screen_item_count(model: &SidebarModel) -> usize {
 /// The widest of the index ranges FluidList items are spread over; the
 /// bases below must stay in visual order (chrome < pinned < browse <
 /// virtual) because the nearest rule reads indices as positions.
-const _: () = assert!(PINNED_BASE < BROWSE_BASE && BROWSE_BASE < VIRTUAL_BASE);
+const _: () = assert!(PINNED_BASE < BROWSE_BASE && BROWSE_BASE < TASK_BASE && TASK_BASE < VIRTUAL_BASE);
+
+/// The task pane's cap: six rows, so the person's own tabs keep the room.
+fn task_pane_max(cx: &App) -> Pixels {
+    list_row_height(cx) * 6.0 + cx.aui().metrics.item_px
+}
 
 /// The sidebar screen for `model`, virtualised through `state`, with its
 /// one highlight kept in `fluid`.
@@ -1041,9 +1049,12 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 c.emit(SidebarIntent::Browse(BrowseIntent::OpenMenu(BrowseMenu { target: target.clone(), at: event.position })), w, cx);
             }
         };
+        // Pins, Today's tabs, your folders and New tab, built for the
+        // scrolling area below the fixed address / controls / search rows.
+        let mut scroll_rows: Vec<AnyElement> = Vec::new();
         // Pinned sites as tiles, only when the space has any.
         if !browse.pins.is_empty() {
-            list = list.item_static(next, ctx.section("Pinned", None, None, cx));
+            scroll_rows.push(ctx.section("Pinned", None, None, cx).into_any_element());
             next += 1;
             let mut tiles = h_flex().w_full().gap(metrics.gap).pl(metrics.item_px).pb(px(scale::SP_2));
             for pin in &browse.pins {
@@ -1073,7 +1084,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                     ),
                 );
             }
-            list = list.item_static(next, tiles);
+            scroll_rows.push(tiles.into_any_element());
             next += 1;
         }
         // Today: your tabs and folders, with new-folder / close-all while hovered.
@@ -1094,15 +1105,15 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             .track_interaction_reported(&today_state, move |hovered: bool, w: &mut Window, cx: &mut App| {
                 hover_ctx.emit(SidebarIntent::Browse(BrowseIntent::HoverTodayHeader(hovered)), w, cx);
             });
-        list = list.item_static(next, today);
+        scroll_rows.push(today.into_any_element());
         next += 1;
         if browse.tabs.is_empty() && browse.folders.is_empty() {
             let words = "No tabs open";
             record_ax_label(words);
-            list = list.item_static(next, ctx.row(ctx.lead(div(), cx), words, None, false, cx).text_color(p.fg_muted));
+            scroll_rows.push(ctx.row(ctx.lead(div(), cx), words, None, false, cx).text_color(p.fg_muted).into_any_element());
             next += 1;
         }
-        let tab_row = |ctx: &Ctx, list: &mut Option<crate::interact::FluidList>, index: usize, tab: &super::BrowseTab, nested: bool, in_folder: bool, trailing: Option<AnyElement>, cx: &App| {
+        let tab_row = |ctx: &Ctx, rows: &mut Vec<AnyElement>, index: usize, tab: &super::BrowseTab, nested: bool, in_folder: bool, trailing: Option<AnyElement>, cx: &App| {
             let mark = ctx.favicon(tab.initial.clone(), cx);
             let lit = model.hovered.as_ref() == Some(&tab.id) || tab.active;
             let close = if lit {
@@ -1132,13 +1143,12 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 .role(gpui::Role::Tab)
                 .aria_label(label)
                 .on_mouse_down(gpui::MouseButton::Right, menu_at(ctx, BrowseMenuTarget::Tab { id: tab.id.clone(), pinned: false, in_folder }));
-            *list = Some(list.take().expect("list").item(index, built));
+            rows.push(ctx.fluid.item(index, built));
         };
-        let mut slot = Some(list);
         let mut selected_index: Option<usize> = None;
         for tab in &browse.tabs {
             let index = BROWSE_BASE + next;
-            tab_row(ctx, &mut slot, index, tab, false, false, None, cx);
+            tab_row(ctx, &mut scroll_rows, index, tab, false, false, None, cx);
             targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(tab.id.clone()))));
             index_of_session.insert(tab.id.clone(), index);
             if tab.active {
@@ -1200,14 +1210,14 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
         for folder in &browse.folders {
             let index = BROWSE_BASE + next;
             let head = folder_head(ctx, folder, window, cx);
-            slot = Some(slot.take().expect("list").item(index, head));
+            scroll_rows.push(ctx.fluid.item(index, head));
             targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::ToggleFolder(folder.id.clone()))));
             index_of_session.insert(format!("folder-{}", folder.id).into(), index);
             next += 1;
             if folder.open {
                 for tab in &folder.tabs {
                     let index = BROWSE_BASE + next;
-                    tab_row(ctx, &mut slot, index, tab, true, true, None, cx);
+                    tab_row(ctx, &mut scroll_rows, index, tab, true, true, None, cx);
                     targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(tab.id.clone()))));
                     index_of_session.insert(tab.id.clone(), index);
                     if tab.active {
@@ -1217,45 +1227,63 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 }
             }
         }
-        list = slot.take().expect("list");
         // New tab: the one filled row, directly under your tabs (owner
         // 2026-10-11), with its 8 px above outside the highlightable box.
-        list = list.item_static(next, div().w_full().h(metrics.item_px));
+        scroll_rows.push(div().w_full().h(metrics.item_px).into_any_element());
         next += 1;
         let new_tab = ctx.row(ctx.lead_icon(IconName::Plus, cx), "New tab", Some(ctx.chip("⌘T", cx)), false, cx);
         record_ax_label("New tab");
         let index = BROWSE_BASE + next;
-        list = list.item(index, surface(2, new_tab.id(ctx.child("new-tab")).role(gpui::Role::Button).aria_label("New tab")).shape(Shape::Item).ring(true));
+        scroll_rows.push(ctx.fluid.item(index, surface(2, new_tab.id(ctx.child("new-tab")).role(gpui::Role::Button).aria_label("New tab")).shape(Shape::Item).ring(true)));
+        scroll_rows.push(div().w_full().h(metrics.item_px).into_any_element());
         targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::NewTab)));
         next += 1;
-        // Task folders below a hairline (FF separator: `mx-2 h-px bg-border`, 8 above and below).
+        // Your tabs scroll in the main area, clipped to it.
+        let scroll_host = ctx.fluid.clip_range(
+            BROWSE_BASE..TASK_BASE,
+            div().id(ctx.child("browse-scroll")).size_full().overflow_y_scroll().child(v_flex().w_full().children(scroll_rows)),
+        );
+        list = list.item_static_fill(next, scroll_host);
+        next += 1;
+        // Task folders: a shorter pane of their own at the foot (owner
+        // 2026-10-11), under a divider that spans the sidebar edge to edge,
+        // capped in height and scrolling on its own.
         if !browse.task_folders.is_empty() {
-            list = list.item_static(next, div().w_full().py(metrics.item_px).child(div().mx(metrics.item_px).h(px(1.0)).bg(p.line)));
-            next += 1;
-            let mut slot = Some(list);
+            let mut task_rows: Vec<AnyElement> = Vec::new();
+            let mut ti = TASK_BASE;
             for folder in &browse.task_folders {
-                let index = BROWSE_BASE + next;
                 let head = folder_head(ctx, folder, window, cx);
-                slot = Some(slot.take().expect("list").item(index, head));
-                targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::OpenTaskChat(folder.id.clone()))));
-                index_of_session.insert(format!("folder-{}", folder.id).into(), index);
-                next += 1;
+                task_rows.push(ctx.fluid.item(ti, head));
+                targets.insert(ti, Target::Intent(SidebarIntent::Browse(BrowseIntent::OpenTaskChat(folder.id.clone()))));
+                index_of_session.insert(format!("folder-{}", folder.id).into(), ti);
+                ti += 1;
                 for tab in &folder.tabs {
-                    let index = BROWSE_BASE + next;
-                    tab_row(ctx, &mut slot, index, tab, true, false, None, cx);
-                    targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(tab.id.clone()))));
-                    index_of_session.insert(tab.id.clone(), index);
+                    tab_row(ctx, &mut task_rows, ti, tab, true, false, None, cx);
+                    targets.insert(ti, Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(tab.id.clone()))));
+                    index_of_session.insert(tab.id.clone(), ti);
                     if tab.active {
-                        selected_index = Some(index);
+                        selected_index = Some(ti);
                     }
-                    next += 1;
+                    ti += 1;
                 }
             }
-            list = slot.take().expect("list");
+            let pane = v_flex()
+                .w_full()
+                .flex_none()
+                .child(div().mx(-metrics.item_px).h(px(1.0)).bg(p.line))
+                .child(
+                    div()
+                        .w_full()
+                        .max_h(task_pane_max(cx))
+                        .child(ctx.fluid.clip_range(
+                            TASK_BASE..VIRTUAL_BASE,
+                            div().id(ctx.child("task-scroll")).w_full().max_h(task_pane_max(cx)).overflow_y_scroll().py(metrics.item_px / 2.0).child(v_flex().w_full().children(task_rows)),
+                        )),
+                );
+            list = list.item_static(next, pane);
+            next += 1;
         }
-        // A spacer, then the spaces above the footer.
-        list = list.item_static_fill(next, div().w_full().flex_1().min_h(px(0.0)));
-        next += 1;
+        // The spaces, pinned above the footer.
         let naming_space = browse.editing.as_ref().filter(|e| matches!(e.target, BrowseNaming::Space(_)));
         let mut chips = h_flex().id(ctx.child("spaces")).w_full().items_center().gap(px(scale::SP_2)).py(metrics.item_px).role(gpui::Role::TabList).aria_label("Spaces");
         record_ax_label("Spaces");
