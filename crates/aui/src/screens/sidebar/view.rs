@@ -1235,7 +1235,8 @@ impl RenderOnce for SidebarScreen {
         let mut column = v_flex().w(self.width).h_full().relative().when(self.ground, |d| d.bg(p.bg)).child(title_bar).child(body).child(footer);
 
         // Menus, positioned from the ladder: the view-options menu under
-        // the Projects header, the account menu above the footer.
+        // the Projects header, the account menu standing on the footer's
+        // hairline (no gap: list text showed through one, seen live).
         if self.model.view_menu_open {
             let top = projects_header_bottom(&self.model, cx);
             column = column.child(
@@ -1254,7 +1255,7 @@ impl RenderOnce for SidebarScreen {
                     .absolute()
                     .left(metrics.item_px)
                     .right(metrics.item_px)
-                    .bottom(list_row_height(cx) + metrics.item_px * 2.0 + px(1.0) + px(scale::SP_1))
+                    .bottom(list_row_height(cx) + metrics.item_px * 2.0 + px(1.0))
                     .occlude()
                     .child(account_menu(ctx.child("account-menu"), account, self.on_intent.clone(), cx)),
             );

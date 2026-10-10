@@ -390,7 +390,15 @@ impl RenderOnce for SessionDetail {
             Some(_) => None,
             None => {
                 let own = data.reply.as_deref().map(first_line).filter(|s| !s.is_empty());
-                own.or_else(|| data.status.as_ref().map(|status| status.text().to_string()))
+                // With no reply text only a live status earns the line; the
+                // meta row already carries the age and turn count a
+                // settled status would repeat (the sidebar row's rule).
+                own.or_else(|| {
+                    data.status
+                        .as_ref()
+                        .filter(|status| !matches!(status.kind, RowStatusKind::Settled | RowStatusKind::NoReply))
+                        .map(|status| status.text().to_string())
+                })
             }
         };
         // The excerpts share one clamped middle region (see below): only the

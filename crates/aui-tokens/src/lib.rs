@@ -125,18 +125,7 @@ impl Palette {
             2 => self.shadow_2,
             _ => self.shadow_3,
         };
-        layers
-            .iter()
-            .map(|l| gpui::BoxShadow {
-                color: l.color.into(),
-                offset: gpui::point(gpui::px(l.x), gpui::px(l.y)),
-                // gpui's shader treats `blur_radius` as the Gaussian sigma; CSS's
-                // blur radius is twice the sigma, so halve it to match the design.
-                blur_radius: gpui::px(l.blur / 2.0),
-                spread_radius: gpui::px(l.spread),
-                inset: false,
-            })
-            .collect()
+        layers_to_shadows(layers)
     }
 
     /// The pending-dialog attention border: the status colour at 70 % alpha,
@@ -167,11 +156,14 @@ impl Palette {
         }
     }
 
-    /// The hover tint: white at the hover alpha in dark (lightens), black at
-    /// the hover alpha in light (darkens). Paint over the step beneath it.
+    /// The hover tint: `ink-2` at the hover alpha in dark (lightens toward
+    /// the theme's own blue-grey, so a hovered row lands on the surface
+    /// ladder's tone — 8 / 12 / 15 % over `bg` ≈ surface 2 / 3 / 4; white
+    /// read as an off-tone grey, owner note 2026-10-10), black at the hover
+    /// alpha in light (darkens). Paint over the step beneath it.
     pub fn hover_overlay(&self) -> gpui::Hsla {
         if self.is_dark() {
-            gpui::white().alpha(scale::OV_HOVER_DARK)
+            self.ink_2.alpha(scale::OV_HOVER_DARK)
         } else {
             gpui::black().alpha(scale::OV_HOVER_LIGHT)
         }
@@ -180,7 +172,7 @@ impl Palette {
     /// The selected tint, same rule as [`Palette::hover_overlay`].
     pub fn selected_overlay(&self) -> gpui::Hsla {
         if self.is_dark() {
-            gpui::white().alpha(scale::OV_SELECTED_DARK)
+            self.ink_2.alpha(scale::OV_SELECTED_DARK)
         } else {
             gpui::black().alpha(scale::OV_SELECTED_LIGHT)
         }
@@ -189,7 +181,7 @@ impl Palette {
     /// The pressed tint, same rule as [`Palette::hover_overlay`].
     pub fn pressed_overlay(&self) -> gpui::Hsla {
         if self.is_dark() {
-            gpui::white().alpha(scale::OV_PRESSED_DARK)
+            self.ink_2.alpha(scale::OV_PRESSED_DARK)
         } else {
             gpui::black().alpha(scale::OV_PRESSED_LIGHT)
         }
@@ -221,12 +213,13 @@ impl Palette {
     }
 
     /// The drop shadow of anything that floats over content — menus,
-    /// popovers, hover cards: `shadow-3` in dark (against a near-black
-    /// ground only the long, dense layer reads as depth — `shadow-2` was
-    /// seen live as no shadow at all), `shadow-2` in light. In-flow surfaces
-    /// use [`Self::elevation_shadow`] instead.
+    /// popovers, hover cards: the `shadow-float` token. In dark its first
+    /// layer is a crisp 1 px black edge outside the ring and the blur stays
+    /// tight: on a near-black ground a long soft shadow (`shadow-2`,
+    /// `shadow-3`) was seen live as no shadow at all. In-flow surfaces use
+    /// [`Self::elevation_shadow`] instead.
     pub fn floating_shadow(&self) -> Vec<gpui::BoxShadow> {
-        if self.is_dark() { self.shadow(3) } else { self.shadow(2) }
+        layers_to_shadows(self.shadow_float)
     }
 
     /// The shadow for a surface step: in dark one ring layer (spread 1 at
@@ -256,6 +249,22 @@ impl Palette {
             }
         }
     }
+}
+
+/// Converts token shadow layers into gpui box shadows.
+fn layers_to_shadows(layers: &[ShadowLayer]) -> Vec<gpui::BoxShadow> {
+    layers
+        .iter()
+        .map(|l| gpui::BoxShadow {
+            color: l.color.into(),
+            offset: gpui::point(gpui::px(l.x), gpui::px(l.y)),
+            // gpui's shader treats `blur_radius` as the Gaussian sigma; CSS's
+            // blur radius is twice the sigma, so halve it to match the design.
+            blur_radius: gpui::px(l.blur / 2.0),
+            spread_radius: gpui::px(l.spread),
+            inset: false,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -340,7 +349,7 @@ mod tests {
         // v2 shape and overlays.
         assert_eq!(scale::SHAPE_CONTAINER, 8.0);
         assert_eq!(scale::SHAPE_ITEM, 6.0);
-        assert_eq!(scale::OV_HOVER_DARK, 0.06);
+        assert_eq!(scale::OV_HOVER_DARK, 0.08);
         assert_eq!(scale::OV_PRESSED_LIGHT, 0.09);
         assert_eq!(scale::RING_DARK, 0.08);
         assert_eq!(scale::RING_HOVER_DARK, 0.13);
@@ -395,8 +404,11 @@ mod tests {
         assert!((d.pressed_overlay().a - scale::OV_PRESSED_DARK).abs() < 1e-6);
         assert!((l.hover_overlay().a - scale::OV_HOVER_LIGHT).abs() < 1e-6);
         assert!((l.pressed_overlay().a - scale::OV_PRESSED_LIGHT).abs() < 1e-6);
-        // Dark lightens (white tint), light darkens (black tint).
-        assert!(d.hover_overlay().l > 0.9);
+        // Dark lightens toward the theme's blue-grey (ink-2), light darkens
+        // (black tint).
+        let (o, ink) = (d.hover_overlay(), d.ink_2);
+        assert!((o.h - ink.h).abs() < 1e-6 && (o.s - ink.s).abs() < 1e-6 && (o.l - ink.l).abs() < 1e-6);
+        assert!(d.hover_overlay().l > 0.6);
         assert!(l.hover_overlay().l < 0.1);
         // Rings: white at alpha in dark, line in light.
         assert_eq!(l.ring(), l.line);
@@ -427,9 +439,11 @@ mod tests {
     }
 
     #[test]
-    fn floating_shadow_is_shadow_3_in_dark_and_shadow_2_in_light() {
-        assert_eq!(dark().floating_shadow(), dark().shadow(3));
-        assert_eq!(light().floating_shadow(), light().shadow(2));
-        assert!(!dark().floating_shadow().is_empty() && !light().floating_shadow().is_empty());
+    fn floating_shadow_leads_with_a_crisp_edge_in_dark() {
+        let d = dark().floating_shadow();
+        assert_eq!(d.len(), 3);
+        // The crisp 1 px edge: no offset, no blur, spread 1.
+        assert_eq!((d[0].offset, d[0].blur_radius, d[0].spread_radius), (gpui::point(gpui::px(0.0), gpui::px(0.0)), gpui::px(0.0), gpui::px(1.0)));
+        assert!(!light().floating_shadow().is_empty());
     }
 }

@@ -514,11 +514,16 @@ impl RenderOnce for FluidList {
         let sess: SharedString = SharedString::from(format!("session-{session}"));
         let enter = Tween::new(Tier::Fast.enter(), Easing::STD);
         let mut overlays = Vec::with_capacity(3);
-        if let Some(origin) = container.map(|bounds| bounds.origin) {
+        if let Some(frame) = container {
+            let origin = frame.origin;
             // A block on `rect`, squeezed by the press phase of the item it
             // sits on. Only the held item and the one just released spring;
-            // every other block sits exactly on its row.
+            // every other block sits exactly on its row. The block is clipped
+            // to the list's own frame: a row half scrolled out of a
+            // virtualised list must not paint its highlight over whatever
+            // sits below the list (the sidebar footer, seen live).
             let block = |index: usize, rect: Bounds<Pixels>, tint: gpui::Hsla, window: &mut Window, cx: &mut App| {
+                let rect = rect.intersect(&frame);
                 let phase = if Some(index) == pressed || Some(index) == previous_pressed {
                     let key: SharedString = format!("aui-press-{index}").into();
                     spring((id.clone(), key), if Some(index) == pressed { 1.0 } else { 0.0 }, SpringKind::Press, window, cx)
