@@ -121,8 +121,8 @@ impl ButtonSize {
 
 /// `.btn{gap:6px}`.
 const CONTENT_GAP: f32 = 6.0;
-/// Disabled controls (`opacity:.45` on the forward arrow in the shell header).
-const DISABLED_OPACITY: f32 = 0.45;
+/// Disabled controls: FF `disabled:opacity-50` (button.tsx:20-23).
+const DISABLED_OPACITY: f32 = 0.5;
 
 /// A button. Build with [`button`] or [`icon_button`].
 #[derive(IntoElement)]
@@ -139,6 +139,7 @@ pub struct Button {
     muted: bool,
     disabled: bool,
     accessibility_label: Option<SharedString>,
+    tooltip: bool,
     on_click: Option<ClickHandler>,
 }
 
@@ -157,6 +158,7 @@ pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Butto
         muted: false,
         disabled: false,
         accessibility_label: None,
+        tooltip: true,
         on_click: None,
     }
 }
@@ -262,6 +264,15 @@ impl Button {
     /// icon-only button without one stays silent.
     pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
         self.accessibility_label = Some(label.into());
+        self
+    }
+
+    /// No tooltip. By default an icon-only button with an accessibility
+    /// label shows that label as Fluid Functionalism's tooltip after its
+    /// 200 ms delay; a button whose glyph says it all inside a labelled row
+    /// can opt out.
+    pub fn no_tooltip(mut self) -> Self {
+        self.tooltip = false;
         self
     }
 
@@ -391,7 +402,8 @@ impl RenderOnce for Button {
         if let Some(content) = self.icon_content {
             inner = inner.child(content);
         } else if let Some(glyph) = self.icon {
-            inner = inner.child(icon(glyph).size(glyph_size).color(text));
+            // FF: a button's glyph strokes at 2 while hovered or pressed.
+            inner = inner.child(icon(glyph).size(glyph_size).color(text).lit(hovered || pressed));
         }
         if let Some(label) = self.label.clone().filter(|l| !l.is_empty()) {
             inner = inner.child(label);
@@ -442,6 +454,10 @@ impl RenderOnce for Button {
             .clone()
             .or_else(|| self.label.clone().filter(|l| !l.is_empty()));
         record_ax_label(effective.as_deref().unwrap_or(""));
+        let icon_only = self.label.as_ref().is_none_or(|l| l.is_empty());
+        if let Some(label) = self.accessibility_label.clone().filter(|_| icon_only && self.tooltip && !self.disabled) {
+            outer = outer.tooltip(super::tooltip::tip(label)).tooltip_show_delay(super::tooltip::TIP_DELAY);
+        }
         if let Some(label) = effective {
             outer = outer.role(gpui::Role::Button).aria_label(label);
         }

@@ -12,11 +12,19 @@
 
 use std::{collections::BTreeSet, env, fs, path::PathBuf};
 
-/// Header applied to every generated standalone icon file.
+/// Header applied to every generated standalone icon file: Fluid
+/// Functionalism's resting stroke, 1.5 on the 24 grid (FF menu-item.tsx,
+/// sidebar-menu.tsx: `strokeWidth 1.5`).
 const SVG_OPEN: &str = concat!(
     r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" "#,
-    r##"stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">"##
+    r##"stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">"##
 );
+
+/// The lit twin's stroke: FF draws a glyph at 2 while its row or button is
+/// hovered, active or checked. gpui cannot animate an SVG stroke, so each
+/// glyph is baked twice and [`Icon::lit`] swaps the file (FF tweens the
+/// stroke over 80 ms; ours snaps).
+const LIT_STROKE: &str = "stroke-width=\"2\"";
 
 fn main() {
     let sprite_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../design/src/sprite.svg");
@@ -50,19 +58,24 @@ fn main() {
     let mut all = String::new();
     let mut id_arms = String::new();
     let mut path_arms = String::new();
+    let mut lit_path_arms = String::new();
     let mut bytes_arms = String::new();
     let mut lookup_arms = String::new();
 
     for (id, inner) in &symbols {
         let file = icons_dir.join(format!("{id}.svg"));
-        // `.fic` (file-type) glyphs are stroked at 1.5 in base.css, `.i` at 1.6.
-        let open = if id.starts_with("ft-") { SVG_OPEN.replace("stroke-width=\"1.6\"", "stroke-width=\"1.5\"") } else { SVG_OPEN.to_string() };
-        fs::write(&file, format!("{open}{inner}</svg>"))
+        fs::write(&file, format!("{SVG_OPEN}{inner}</svg>"))
             .unwrap_or_else(|e| panic!("failed to write {}: {e}", file.display()));
+        let lit_file = icons_dir.join(format!("{id}.lit.svg"));
+        let lit_open = SVG_OPEN.replace("stroke-width=\"1.5\"", LIT_STROKE);
+        fs::write(&lit_file, format!("{lit_open}{inner}</svg>"))
+            .unwrap_or_else(|e| panic!("failed to write {}: {e}", lit_file.display()));
 
         let variant = pascal_case(id);
         let path = format!("icons/aui/{id}.svg");
         let include = format!(r#"include_bytes!(concat!(env!("OUT_DIR"), "/icons/{id}.svg"))"#);
+        let lit_path = format!("icons/aui/{id}.lit.svg");
+        let lit_include = format!(r#"include_bytes!(concat!(env!("OUT_DIR"), "/icons/{id}.lit.svg"))"#);
 
         variants.push_str(&format!(
             "    /// The `{id}` glyph from the design sprite.\n"
@@ -71,8 +84,10 @@ fn main() {
         all.push_str(&format!("    IconName::{variant},\n"));
         id_arms.push_str(&format!("            IconName::{variant} => \"{id}\",\n"));
         path_arms.push_str(&format!("            IconName::{variant} => \"{path}\",\n"));
+        lit_path_arms.push_str(&format!("            IconName::{variant} => \"{lit_path}\",\n"));
         bytes_arms.push_str(&format!("            IconName::{variant} => {include},\n"));
         lookup_arms.push_str(&format!("        \"{path}\" => Some({include}),\n"));
+        lookup_arms.push_str(&format!("        \"{lit_path}\" => Some({lit_include}),\n"));
     }
 
     let generated = format!(
@@ -101,6 +116,12 @@ impl IconName {{
     pub fn path(self) -> &'static str {{
         match self {{
 {path_arms}        }}
+    }}
+
+    /// The asset path of this glyph's lit twin (stroke 2).
+    pub fn lit_path(self) -> &'static str {{
+        match self {{
+{lit_path_arms}        }}
     }}
 
     /// The standalone SVG bytes for this glyph.

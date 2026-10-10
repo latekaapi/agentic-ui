@@ -8,19 +8,26 @@
 //! puts the pointer highlight on that session (or `search` / `new-session`),
 //! `select:<id>` selects a session, `rename:<id>` opens the inline field,
 //! `key:<id>` keyboard-highlights a row, `mode:browse` / `mode:sessions`,
-//! `collapse`, `menus` (both menus open), `loading`, `empty`, `leave`.
+//! `collapse`, `menus` (both menus open), `loading`, `empty`, `leave`;
+//! Browse: `tab-menu:<tab>`, `folder-menu:<folder>`, `task-menu:<session>`,
+//! `space-menu:<space>` (a right-click menu at the row), `name-folder:<id>`,
+//! `name-space` (naming a new space), `no-tabs`; `hidden:<n>` sets the
+//! hidden-session count the view menu shows.
 
 use std::rc::Rc;
 
 use aui::interact::{surface, FluidHandle, Shape};
 use aui::nav::{sidebar_list_state, Grouping};
-use aui::screens::sidebar::{sample_model, screen_item_count, sidebar_screen, EditingState, Mode, SidebarModel};
+use aui::screens::sidebar::{
+    sample_model, screen_item_count, sidebar_screen, BrowseEditing, BrowseMenu, BrowseMenuTarget, BrowseNaming, EditingState, Mode, SidebarModel,
+    SIDEBAR_WIDTH,
+};
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Density, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, IntoElement, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-const SIDEBAR_W: f32 = 260.0;
+const SIDEBAR_W: f32 = SIDEBAR_WIDTH;
 const COLUMN_H: f32 = 720.0;
 const WINDOW_W: f32 = 1440.0;
 const WINDOW_H: f32 = 900.0;
@@ -63,6 +70,33 @@ fn apply_steps(mut model: SidebarModel) -> SidebarModel {
             model.grouping = Rc::new(Grouping::Project(Vec::new()));
             model.pinned.clear();
             model.selected = None;
+        } else if let Some(rest) = step.strip_prefix("hidden:") {
+            model.view_options.hidden_count = rest.parse().unwrap_or(0);
+        } else if let Some(browse) = model.browse.as_mut().filter(|_| {
+            ["tab-menu:", "folder-menu:", "task-menu:", "space-menu:", "name-folder:"].iter().any(|p| step.starts_with(p)) || step == "name-space" || step == "no-tabs"
+        }) {
+            // A right-click lands where a person would click: mid-row, at the
+            // row's y in the Browse board (the menu seats at the pointer).
+            let at = |y: f32| gpui::point(px(150.0), px(y));
+            if let Some(rest) = step.strip_prefix("tab-menu:") {
+                let in_folder = browse.folders.iter().any(|f| f.tabs.iter().any(|t| t.id.as_ref() == rest));
+                browse.menu = Some(BrowseMenu { target: BrowseMenuTarget::Tab { id: rest.to_string().into(), pinned: false, in_folder }, at: at(322.0) });
+            } else if let Some(rest) = step.strip_prefix("folder-menu:") {
+                browse.menu = Some(BrowseMenu { target: BrowseMenuTarget::Folder(rest.to_string().into()), at: at(386.0) });
+            } else if let Some(rest) = step.strip_prefix("task-menu:") {
+                browse.menu = Some(BrowseMenu { target: BrowseMenuTarget::TaskFolder { session: rest.to_string().into(), running: true }, at: at(540.0) });
+            } else if let Some(rest) = step.strip_prefix("space-menu:") {
+                browse.menu = Some(BrowseMenu { target: BrowseMenuTarget::Space { id: rest.to_string().into(), last: false }, at: gpui::point(px(100.0), px(700.0)) });
+            } else if let Some(rest) = step.strip_prefix("name-folder:") {
+                browse.editing = Some(BrowseEditing { target: BrowseNaming::Folder(rest.to_string().into()), draft: "New folder".into() });
+            } else if step == "name-space" {
+                browse.editing = Some(BrowseEditing { target: BrowseNaming::Space(None), draft: "Trip".into() });
+            } else if step == "no-tabs" {
+                browse.pins.clear();
+                browse.tabs.clear();
+                browse.folders.clear();
+                browse.task_folders.clear();
+            }
         } else if step == "leave" {
             model.hovered = None;
             model.hovered_group = None;

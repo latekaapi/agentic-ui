@@ -30,6 +30,11 @@ impl EnterExit {
     /// popovers), the one presence tween every composer menu shares.
     pub const QUICK: EnterExit = EnterExit { enter: durations::QUICK_ENTER, exit: durations::QUICK_EXIT, delay: Duration::ZERO };
 
+    /// Fluid Functionalism's popup tier: enter on `spring.fast` (80 ms),
+    /// exit one tier quicker (60 ms) — dropdowns, menus, tooltips
+    /// (`registry/base/dropdown.tsx`).
+    pub const POPUP: EnterExit = EnterExit { enter: durations::FAST, exit: durations::FAST_EXIT, delay: Duration::ZERO };
+
     /// Adds an enter delay.
     pub const fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = delay;

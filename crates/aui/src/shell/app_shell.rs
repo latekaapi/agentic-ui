@@ -12,8 +12,8 @@ use aui_tokens::{scale, ActiveAui};
 use gpui::{div, prelude::*, px, AnyElement, App, Div, ElementId, IntoElement, Pixels, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-/// Sidebar column width (`grid-template-columns: 252px …`).
-pub const SIDEBAR_WIDTH: f32 = 252.0;
+/// Sidebar column width: Fluid Functionalism's 16rem (owner 2026-10-11).
+pub const SIDEBAR_WIDTH: f32 = 256.0;
 /// Right column width in the app (400; card 10 uses 392).
 pub const RIGHT_WIDTH: f32 = 400.0;
 /// The collapsed sidebar rail (⌘B).
@@ -77,6 +77,8 @@ pub struct AppShell {
     right: Option<AnyElement>,
     full_height_sidebar: bool,
     rail_width: Option<Pixels>,
+    centre_clear: Option<Pixels>,
+    edge_control: Option<(Pixels, Pixels, AnyElement)>,
     centre_header: bool,
 }
 
@@ -107,6 +109,8 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         right: None,
         full_height_sidebar: false,
         rail_width: None,
+        centre_clear: None,
+        edge_control: None,
         centre_header: true,
     }
 }
@@ -226,6 +230,26 @@ impl AppShell {
     /// `header_centre` element is dropped.
     pub fn centre_header(mut self, on: bool) -> Self {
         self.centre_header = on;
+        self
+    }
+
+    /// Full-height layout only: the window x the centre header's content
+    /// must clear (the traffic lights plus the edge control). The header
+    /// pads by `max(0, x − sidebar width)` on the *animated* width every
+    /// frame, so its title glides with the sidebar's spring and never sits
+    /// under the lights — nothing swaps at the start or end of a collapse.
+    pub fn centre_clear(mut self, x: impl Into<Pixels>) -> Self {
+        self.centre_clear = Some(x.into());
+        self
+    }
+
+    /// Full-height layout only: a control pinned in the title strip at window
+    /// x `left`, `width` wide (the sidebar toggle at 84). It draws while the
+    /// sidebar is closed, and while an opening sidebar's column (on its
+    /// animated width) does not yet cover it, so the toggle stands still
+    /// while the sidebar slides in and out under it.
+    pub fn edge_control(mut self, left: impl Into<Pixels>, width: impl Into<Pixels>, el: impl IntoElement) -> Self {
+        self.edge_control = Some((left.into(), width.into(), el.into_any_element()));
         self
     }
 
@@ -518,12 +542,21 @@ fn full_height(shell: AppShell, g: FullHeightGeometry, cx: &App) -> gpui::Statef
     // The centre header is the window's drag strip (the sidebar's title
     // bar is the sidebar's own); a centre with no header is a page that
     // fills the column, and the window drags from nowhere in it.
+    let clear = shell.centre_clear.map_or(px(0.0), |x| (x - g.sidebar_w).max(px(0.0)));
     let centre_header: Option<AnyElement> = shell.header_centre.filter(|_| shell.centre_header).map(|content| {
+        let content = div().size_full().flex().items_center().pl(clear).child(content).into_any_element();
         if shell.draggable {
             drag_region((id.clone(), "header-drag")).child(header(Some(content))).into_any_element()
         } else {
             header(Some(content)).into_any_element()
         }
+    });
+    // Closed, it stands from the first frame (the sidebar's own toggle sits
+    // at the same x underneath, so nothing jumps); opening, it stays until
+    // the growing column covers it.
+    let open = shell.sidebar_open;
+    let edge_control = shell.edge_control.filter(|(left, width, _)| !open || g.sidebar_w < *left + *width).map(|(left, _, el)| {
+        div().absolute().top(px(0.0)).left(left).h(header_h).flex().items_center().child(el).into_any_element()
     });
     let centre_column = v_flex()
         .flex_1()
@@ -545,7 +578,18 @@ fn full_height(shell: AppShell, g: FullHeightGeometry, cx: &App) -> gpui::Statef
             .child(div().w_full().flex_1().min_h(px(0.0)).overflow_hidden().when(g.right_mounted, |d| d.children(shell.right))),
     );
     let mut root = crate::keys::track_pointer(
-        h_flex().id(id).size_full().items_stretch().overflow_hidden().bg(p.bg).text_color(p.ink).child(sidebar_column).child(centre_column).child(right_column),
+        h_flex()
+            .id(id)
+            .relative()
+            .size_full()
+            .items_stretch()
+            .overflow_hidden()
+            .bg(p.bg)
+            .text_color(p.ink)
+            .child(sidebar_column)
+            .child(centre_column)
+            .child(right_column)
+            .children(edge_control),
     );
     if shell.framed {
         root = root.rounded(px(scale::R_LG)).border_1().border_color(p.line_strong).shadow(p.shadow(3));

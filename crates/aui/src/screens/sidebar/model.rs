@@ -136,15 +136,159 @@ pub struct BrowseTab {
     pub active: bool,
 }
 
-/// A folder of tabs in Browse mode.
+/// A folder of tabs in Browse mode: one you made, or a session's task
+/// folder (its tabs, named after it, below a hairline; docs/27 §4.3).
 #[derive(Debug, Clone, PartialEq)]
 pub struct BrowseFolder {
-    /// The folder name (also its id).
+    /// Stable id: the folder's own id, or the session id for a task folder.
+    /// Reported by every folder intent; never the label (two folders may
+    /// share a name).
+    pub id: SharedString,
+    /// The folder name, or the session's title.
     pub name: SharedString,
-    /// Whether its tabs are visible.
+    /// Yours, or a session's.
+    pub kind: FolderKind,
+    /// Whether its tabs are visible (task folders are always open).
     pub open: bool,
     /// The tabs inside.
     pub tabs: Vec<BrowseTab>,
+}
+
+/// Whose folder a [`BrowseFolder`] is.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FolderKind {
+    /// A folder you made: chevron on the icon axis, folds on click.
+    Yours,
+    /// A session's tabs: its status dot on the icon axis and its status word
+    /// at the row's end; always open; a click opens its chat.
+    Task {
+        /// The session's state (the same dot as its Sessions row).
+        state: AgentState,
+        /// "reading", "typing", "needs you", "done"; empty for none.
+        status: SharedString,
+        /// The session is waiting on the person: the word takes `warning`.
+        needs_you: bool,
+    },
+}
+
+/// One space in Browse mode: the browser's own set of tabs (docs/27 §4.2).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowseSpace {
+    /// Stable id, reported by the space intents.
+    pub id: SharedString,
+    /// The chip's label.
+    pub name: SharedString,
+}
+
+/// What a Browse name field is naming.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BrowseNaming {
+    /// A folder (new or renamed), by id.
+    Folder(SharedString),
+    /// A new space (`None`) or an existing one, by id.
+    Space(Option<SharedString>),
+}
+
+/// A name field in flight in Browse mode: the target and the draft shown
+/// when the host gives the screen no live input.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowseEditing {
+    /// What is being named.
+    pub target: BrowseNaming,
+    /// The draft text.
+    pub draft: SharedString,
+}
+
+/// What a Browse right-click menu belongs to.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BrowseMenuTarget {
+    /// A tab: whether it is pinned and whether it sits in one of your folders.
+    Tab {
+        /// The tab id.
+        id: SharedString,
+        /// Pinned tabs read "Unpin tab".
+        pinned: bool,
+        /// A tab in a folder adds "Remove from folder".
+        in_folder: bool,
+    },
+    /// One of your folders, by id.
+    Folder(SharedString),
+    /// A task folder, by session id; `running` shows Stop.
+    TaskFolder {
+        /// The session id.
+        session: SharedString,
+        /// Whether the session runs (Stop appears).
+        running: bool,
+    },
+    /// A space chip, by id; `last` = the only space (cannot be deleted).
+    Space {
+        /// The space id.
+        id: SharedString,
+        /// Whether it is the only space.
+        last: bool,
+    },
+}
+
+/// An open right-click menu in Browse mode: what it belongs to and where
+/// the pointer was, in window coordinates (the menu's top-left corner).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowseMenu {
+    /// The menu's subject.
+    pub target: BrowseMenuTarget,
+    /// The pointer position at the right-click.
+    pub at: gpui::Point<gpui::Pixels>,
+}
+
+/// A tab menu row.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TabAction {
+    /// Duplicate.
+    Duplicate,
+    /// Copy link.
+    CopyLink,
+    /// Pin tab / Unpin tab.
+    TogglePin,
+    /// Move to folder › <folder id>.
+    MoveToFolder(SharedString),
+    /// Move to folder › New folder.
+    MoveToNewFolder,
+    /// Remove from folder.
+    RemoveFromFolder,
+    /// Close tab.
+    Close,
+    /// Close other tabs.
+    CloseOthers,
+}
+
+/// A folder menu row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FolderAction {
+    /// Rename.
+    Rename,
+    /// Close its tabs.
+    CloseTabs,
+    /// Delete folder (its tabs move up into Today).
+    Delete,
+}
+
+/// A task-folder menu row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskFolderAction {
+    /// Open chat.
+    OpenChat,
+    /// Stop (only while the session runs).
+    Stop,
+    /// Close its tabs.
+    CloseTabs,
+}
+
+/// A space-chip menu row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpaceAction {
+    /// Rename.
+    Rename,
+    /// Delete space.
+    Delete,
 }
 
 /// Browse mode's rows.
@@ -162,51 +306,132 @@ pub struct BrowseModel {
     pub pins: Vec<BrowsePin>,
     /// Today's tabs.
     pub tabs: Vec<BrowseTab>,
-    /// The folders after them.
+    /// Your folders after them.
     pub folders: Vec<BrowseFolder>,
+    /// The task folders, below a hairline after the New tab row.
+    pub task_folders: Vec<BrowseFolder>,
     /// The spaces, as chips above the footer.
-    pub spaces: Vec<SharedString>,
-    /// Which space is current.
+    pub spaces: Vec<BrowseSpace>,
+    /// Which space is current (an index into `spaces`).
     pub space: usize,
     /// Whether the Today header shows its actions (hovered).
     pub hovered_today_header: bool,
+    /// A folder or space name in flight.
+    pub editing: Option<BrowseEditing>,
+    /// The open right-click menu.
+    pub menu: Option<BrowseMenu>,
+}
+
+/// How the session list is grouped (the Group by submenu).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GroupKey {
+    /// Projects with their sessions nested.
+    #[default]
+    Project,
+    /// Date buckets over flat rows.
+    Date,
+}
+
+impl GroupKey {
+    /// Every grouping, in menu order.
+    pub const ALL: [GroupKey; 2] = [GroupKey::Project, GroupKey::Date];
+
+    /// The menu label.
+    pub fn label(self) -> &'static str {
+        match self {
+            GroupKey::Project => "Project",
+            GroupKey::Date => "Date",
+        }
+    }
+}
+
+/// How sessions are ordered inside their group (the Sort by submenu).
+/// Pinned sessions stay first whatever the order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortKey {
+    /// The latest activity first.
+    #[default]
+    Recent,
+    /// The newest session first.
+    Created,
+    /// Alphabetical by title.
+    Name,
+}
+
+impl SortKey {
+    /// Every order, in menu order.
+    pub const ALL: [SortKey; 3] = [SortKey::Recent, SortKey::Created, SortKey::Name];
+
+    /// The menu label.
+    pub fn label(self) -> &'static str {
+        match self {
+            SortKey::Recent => "Recent activity",
+            SortKey::Created => "Created",
+            SortKey::Name => "Name",
+        }
+    }
 }
 
 /// The view-options menu's state: what the host groups and sorts by and
 /// which toggles are on, shown in the menu rows.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewOptions {
-    /// "Project", "Date", "Status".
-    pub group_by: SharedString,
-    /// "Last activity", "Name".
-    pub sort_by: SharedString,
+    /// The current grouping.
+    pub group_by: GroupKey,
+    /// The current order.
+    pub sort_by: SortKey,
     /// Show projects with no sessions.
     pub show_empty: bool,
-    /// Show PR status on rows.
-    pub show_pr_status: bool,
+    /// Show hidden sessions.
+    pub show_hidden: bool,
+    /// How many sessions are hidden (the row's trailing count; 0 = none).
+    pub hidden_count: usize,
     /// Show archived sessions.
     pub show_archived: bool,
+    /// Show PR status on rows.
+    pub show_pr_status: bool,
+    /// Whether PR status exists at all: false draws the row disabled with
+    /// a "Soon" marker (owner 2026-10-11).
+    pub pr_status_available: bool,
+    /// Whether search reaches every project, not just the current one.
+    pub search_all_projects: bool,
 }
 
 impl Default for ViewOptions {
     fn default() -> Self {
-        Self { group_by: "Project".into(), sort_by: "Last activity".into(), show_empty: false, show_pr_status: true, show_archived: false }
+        Self {
+            group_by: GroupKey::Project,
+            sort_by: SortKey::Recent,
+            show_empty: false,
+            show_hidden: false,
+            hidden_count: 0,
+            show_archived: false,
+            show_pr_status: false,
+            pr_status_available: false,
+            search_all_projects: true,
+        }
     }
 }
 
-/// One row of the view-options menu.
+/// One row of the view-options menu (or its two submenus).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewOption {
-    /// Group by ›
-    GroupBy,
-    /// Sort by ›
-    SortBy,
+    /// A Group by submenu row.
+    GroupBy(GroupKey),
+    /// A Sort by submenu row.
+    SortBy(SortKey),
     /// Show empty projects.
     ToggleEmpty,
-    /// Show PR status.
-    TogglePrStatus,
+    /// Show hidden sessions.
+    ToggleHidden,
     /// Show archived.
     ToggleArchived,
+    /// Show PR status (only reported while PR status is available).
+    TogglePrStatus,
+    /// Search all projects.
+    ToggleSearchAll,
+    /// Clear empty sessions (hide every session with no turns).
+    ClearEmpty,
 }
 
 /// The whole sidebar as plain data. The host owns the matching
@@ -273,7 +498,7 @@ pub enum AccountAction {
 /// What the person did in Browse mode.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BrowseIntent {
-    /// The address field was clicked: focus it.
+    /// The address field was clicked: open the Field on it.
     Address,
     /// Back.
     Back,
@@ -293,11 +518,13 @@ pub enum BrowseIntent {
     SelectTab(SharedString),
     /// A tab's close was clicked.
     CloseTab(SharedString),
-    /// A folder head was clicked.
+    /// One of your folder heads was clicked (by folder id).
     ToggleFolder(SharedString),
+    /// A task folder head was clicked: open its session's chat.
+    OpenTaskChat(SharedString),
     /// A space chip was clicked; the argument is its index.
     SwitchSpace(usize),
-    /// The + after the spaces.
+    /// The + after the spaces: name a new space.
     NewSpace,
     /// The Today section's "new folder".
     NewFolder,
@@ -305,6 +532,23 @@ pub enum BrowseIntent {
     CloseAll,
     /// The pointer entered or left the Today header.
     HoverTodayHeader(bool),
+    /// A right-click: open the menu for `target` at the pointer.
+    OpenMenu(BrowseMenu),
+    /// Close the open right-click menu (a click on its backdrop or Escape is
+    /// the host's to detect; a row click reports its action instead).
+    CloseMenu,
+    /// A tab menu row.
+    Tab(SharedString, TabAction),
+    /// A folder menu row.
+    Folder(SharedString, FolderAction),
+    /// A task-folder menu row.
+    TaskFolder(SharedString, TaskFolderAction),
+    /// A space-chip menu row.
+    Space(SharedString, SpaceAction),
+    /// A name field committed: the target and the text.
+    Name(BrowseNaming, SharedString),
+    /// A name field was abandoned.
+    NameCancel,
 }
 
 /// What the person asked the app to do. The screen never searches, opens
@@ -333,9 +577,11 @@ pub enum SidebarIntent {
     /// A row of the view-options menu.
     ViewOption(ViewOption),
     /// A click landed on a menu's own surface but no row (the host keeps
-    /// the menu open); outside clicks and Escape are the host's to detect
-    /// and answer with its own close.
+    /// the menu open).
     MenuBackdrop,
+    /// A press landed outside the open view-options or account menu: the
+    /// host closes it (Escape stays the host's to detect).
+    DismissMenus,
     /// The Projects header's add button.
     AddProject,
     /// A project head's action (new session in it, or its menu).
@@ -470,15 +716,39 @@ pub fn sample_model() -> SidebarModel {
                 BrowseTab { id: "cards".into(), title: "State report cards".into(), initial: "S".into(), active: false },
             ],
             folders: vec![BrowseFolder {
+                id: "karnataka".into(),
                 name: "Karnataka review".into(),
+                kind: FolderKind::Yours,
                 open: true,
                 tabs: vec![
                     BrowseTab { id: "board".into(), title: "Board results 2025".into(), initial: "B".into(), active: false },
                     BrowseTab { id: "scheme".into(), title: "Scheme review · Karnataka".into(), initial: "S".into(), active: false },
                 ],
             }],
-            spaces: vec!["Personal".into(), "Work".into(), "Lakshya".into()],
+            task_folders: vec![
+                BrowseFolder {
+                    id: "checklist".into(),
+                    name: "Checklist run".into(),
+                    kind: FolderKind::Task { state: AgentState::Waiting, status: "needs you".into(), needs_you: true },
+                    open: true,
+                    tabs: vec![BrowseTab { id: "ledger".into(), title: "Ledger".into(), initial: "L".into(), active: false }],
+                },
+                BrowseFolder {
+                    id: "browser-audit".into(),
+                    name: "Browser integration audit".into(),
+                    kind: FolderKind::Task { state: AgentState::Running, status: "reading".into(), needs_you: false },
+                    open: true,
+                    tabs: vec![BrowseTab { id: "pr".into(), title: "Pull request #412 · baaz".into(), initial: "G".into(), active: false }],
+                },
+            ],
+            spaces: vec![
+                BrowseSpace { id: "personal".into(), name: "Personal".into() },
+                BrowseSpace { id: "work".into(), name: "Work".into() },
+                BrowseSpace { id: "lakshya".into(), name: "Lakshya".into() },
+            ],
             space: 0,
+            editing: None,
+            menu: None,
             hovered_today_header: false,
         }),
     }

@@ -13,8 +13,9 @@
 //!
 //! Because gpui rasterises an SVG into an alpha mask that is then tinted with
 //! the element's text colour, the generated files carry explicit `stroke` and
-//! `fill` presentation attributes (stroke `1.6`, round caps and joins, matching
-//! the `.i` rule in `design/src/base.css`) instead of CSS classes, which gpui
+//! `fill` presentation attributes (stroke `1.5` — Fluid Functionalism's resting
+//! stroke — with a stroke-`2` lit twin per glyph, round caps and joins) instead
+//! of CSS classes, which gpui
 //! ignores. An [`Icon`] with no explicit colour inherits the surrounding text
 //! colour, which is the equivalent of `currentColor`.
 //!
@@ -73,6 +74,7 @@ pub struct Icon {
     size: Pixels,
     color: Option<Hsla>,
     rotation: Option<Radians>,
+    lit: bool,
 }
 
 /// Create an [`Icon`] element for the given glyph.
@@ -82,6 +84,7 @@ pub fn icon(name: IconName) -> Icon {
         size: ICON_SIZE,
         color: None,
         rotation: None,
+        lit: false,
     }
 }
 
@@ -113,6 +116,13 @@ impl Icon {
         self
     }
 
+    /// Draws the lit twin (stroke 2 instead of 1.5): Fluid Functionalism's
+    /// glyph while its row or button is hovered, active or checked.
+    pub fn lit(mut self, lit: bool) -> Self {
+        self.lit = lit;
+        self
+    }
+
     /// The glyph this icon renders.
     pub fn name(&self) -> IconName {
         self.name
@@ -123,7 +133,7 @@ impl RenderOnce for Icon {
     fn render(self, window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let color = self.color.unwrap_or_else(|| window.text_style().color);
         let mut element = svg()
-            .path(self.name.path())
+            .path(if self.lit { self.name.lit_path() } else { self.name.path() })
             .size(self.size)
             .flex_none()
             .text_color(color);

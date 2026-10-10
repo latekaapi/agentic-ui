@@ -5,13 +5,13 @@
 //!
 //! The measurements are the mock's, in tokens (default density):
 //!
-//! - list rows are `control_lg` tall (32; 28 compact), two-line rows add
-//!   one `inset` (48); the sidebar is 260 wide with an `item_px` gutter
-//!   (8) on both sides, so rows span 8–252 and the highlight block has the
-//!   item radius;
+//! - list rows are `control_lg` tall (32; 28 compact), two-line rows 46
+//!   (5 + 20 + 16 + 5); the sidebar is 256 wide (FF's 16rem) with an
+//!   `item_px` gutter (8) on both sides, so rows span 8–248 and the
+//!   highlight block has the item radius;
 //! - the leading slot is `item_px + icon` wide (24) with its glyph or dot
 //!   centred, which puts the icon axis at 20; text starts one `gap` after
-//!   it, on the text axis at 40; counts, ages and chips end at 244;
+//!   it, on the text axis at 40; counts, ages and chips end at 240;
 //! - nested rows indent one `inset` (16): dot centre 36, text at 56;
 //! - section titles are `control_md` tall (28) with one `SP_4` (12)
 //!   above, their label at 16; the Projects header carries its actions
@@ -50,10 +50,11 @@ use crate::nav::{flatten_sidebar, project_mark, Grouping, GroupAction, RowAction
 use crate::util::{interaction_flags, TrackInteraction};
 
 use super::menus::{account_menu, view_options_menu};
-use super::{BrowseIntent, Bylines, Mode, SidebarIntent, SidebarModel};
+use super::{BrowseIntent, BrowseMenu, BrowseMenuTarget, BrowseNaming, Bylines, FolderKind, Mode, SidebarIntent, SidebarModel};
 
-/// The sidebar's width beside the pane: the mock's 260.
-pub const SIDEBAR_WIDTH: f32 = 260.0;
+/// The sidebar's width beside the pane: Fluid Functionalism's 16rem
+/// (`sidebar-core.tsx`: `SIDEBAR_WIDTH = "16rem"`), owner 2026-10-11.
+pub const SIDEBAR_WIDTH: f32 = 256.0;
 
 /// FluidList indices: chrome rows count up from 0, pinned rows from
 /// `PINNED_BASE`, virtualised session rows from `VIRTUAL_BASE` (plus their
@@ -155,7 +156,7 @@ const _: () = assert!(PINNED_BASE < BROWSE_BASE && BROWSE_BASE < VIRTUAL_BASE);
 /// sidebar_screen("sidebar", model, state.clone(), fluid.clone()).on_intent(|intent, _, _| { /* host acts */ })
 /// ```
 pub fn sidebar_screen(id: impl Into<ElementId>, model: SidebarModel, state: ListState, fluid: FluidHandle) -> SidebarScreen {
-    SidebarScreen { id: id.into(), model, state, fluid, width: px(SIDEBAR_WIDTH), rename_input: None, on_intent: None, ground: true }
+    SidebarScreen { id: id.into(), model, state, fluid, width: px(SIDEBAR_WIDTH), rename_input: None, on_intent: None, ground: true, external_menus: false }
 }
 
 /// The sidebar screen. Build with [`sidebar_screen`].
@@ -169,9 +170,18 @@ pub struct SidebarScreen {
     rename_input: Option<RenameInput>,
     on_intent: Option<IntentHandler>,
     ground: bool,
+    external_menus: bool,
 }
 
 impl SidebarScreen {
+    /// The host draws Browse's right-click menu itself
+    /// ([`super::browse_menu`]), e.g. in an overlay window over a native
+    /// page, so the screen does not.
+    pub fn external_menus(mut self, external: bool) -> Self {
+        self.external_menus = external;
+        self
+    }
+
     /// Draws no ground of its own: for a host that embeds the sidebar on
     /// an elevated surface (the collapsed peek). By default the sidebar
     /// paints the window ground, `bg`.
@@ -256,7 +266,7 @@ impl Ctx {
     fn lead_icon_lit(&self, name: IconName, lit: bool, cx: &App) -> AnyElement {
         let metrics = cx.aui().metrics;
         let p = cx.aui().colors;
-        self.lead(icon(name).size(metrics.icon).color(if lit { p.fg } else { p.fg_muted }), cx)
+        self.lead(icon(name).size(metrics.icon).color(if lit { p.fg } else { p.fg_muted }).lit(lit), cx)
     }
 
     /// Whether the chrome row `key` is lit: the pointer-driven highlight sits
@@ -531,6 +541,97 @@ impl Ctx {
             .into_any_element()
     }
 
+    /// A Browse name field (a folder being named): the row's geometry on
+    /// `surface-2` with the focus ring, the live input when the host gives
+    /// one; Enter reports [`BrowseIntent::Name`], Escape
+    /// [`BrowseIntent::NameCancel`].
+    #[allow(clippy::too_many_arguments)]
+    fn name_field(&self, key: String, lead: AnyElement, draft: &SharedString, target: BrowseNaming, label: &str, nested: bool, cx: &App) -> AnyElement {
+        let p = cx.aui().colors;
+        let metrics = cx.aui().metrics;
+        record_ax_label(label);
+        let body = self.field_body(draft, cx);
+        let field = h_flex().w_full().h(list_row_height(cx)).items_center().gap(metrics.gap).pr(metrics.item_px).child(lead).child(body);
+        let boxed = Shape::Item.rounded(div().w_full().bg(p.surface(2)).border_1().border_color(p.accent_ring).child(field));
+        div()
+            .id(self.child(key))
+            .w_full()
+            .when(nested, |d| d.pl(metrics.inset))
+            .role(gpui::Role::TextInput)
+            .aria_label(SharedString::from(label.to_string()))
+            .on_key_down(self.name_keys(target, draft.clone()))
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .child(boxed)
+            .into_any_element()
+    }
+
+    /// A space being named: a chip-high pill on `surface-3` with the border
+    /// ring (FF InputField focused: `bg-card ring-border`), the live input
+    /// inside.
+    fn space_field(&self, draft: &SharedString, target: BrowseNaming, cx: &App) -> AnyElement {
+        let p = cx.aui().colors;
+        let metrics = cx.aui().metrics;
+        record_ax_label("Space name");
+        let pill = Shape::Pill.rounded(
+            div()
+                .h(metrics.control_sm)
+                .min_w(px(scale::SP_7 * 2.0))
+                .max_w(px(scale::SP_7 * 4.0))
+                .px(metrics.item_px + px(scale::SP_1))
+                .flex()
+                .items_center()
+                .overflow_hidden()
+                .bg(p.surface(3))
+                .border_1()
+                .border_color(p.line)
+                .role_in(TextRole::Caption, cx)
+                .text_color(p.fg)
+                .child(self.field_body(draft, cx)),
+        );
+        div()
+            .id(self.child("space-name"))
+            .flex_shrink(1.0)
+            .min_w(px(0.0))
+            .role(gpui::Role::TextInput)
+            .aria_label("Space name")
+            .on_key_down(self.name_keys(target, draft.clone()))
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .child(pill)
+            .into_any_element()
+    }
+
+    /// The text inside a name field: the live input, or the static draft
+    /// with a caret.
+    fn field_body(&self, draft: &SharedString, cx: &App) -> AnyElement {
+        let p = cx.aui().colors;
+        let metrics = cx.aui().metrics;
+        match self.rename_input.as_ref() {
+            Some(input) => div().flex_1().min_w(px(0.0)).child(input.element()).into_any_element(),
+            None => h_flex()
+                .flex_1()
+                .min_w(px(0.0))
+                .items_center()
+                .text_color(p.fg)
+                .child(div().truncate().child(draft.clone()))
+                .child(div().flex_none().w(px(1.0)).h(metrics.icon - px(scale::SP_1)).bg(p.fg))
+                .into_any_element(),
+        }
+    }
+
+    /// Enter commits the live text (the draft without one), Escape cancels.
+    fn name_keys(&self, target: BrowseNaming, draft: SharedString) -> impl Fn(&gpui::KeyDownEvent, &mut Window, &mut App) + 'static {
+        let ctx = self.clone();
+        let live = self.rename_input.clone();
+        move |event: &gpui::KeyDownEvent, w: &mut Window, cx: &mut App| match event.keystroke.key.as_str() {
+            "enter" => {
+                let value = live.as_ref().map_or_else(|| draft.clone(), |input| input.value(cx));
+                ctx.emit(SidebarIntent::Browse(BrowseIntent::Name(target.clone(), value)), w, cx);
+            }
+            "escape" => ctx.emit(SidebarIntent::Browse(BrowseIntent::NameCancel), w, cx),
+            _ => {}
+        }
+    }
+
     /// A project head: chevron on the icon axis, name on the text axis,
     /// count, branch, and the two actions while hovered.
     fn project_head(&self, group: &crate::nav::ProjectGroup, window: &mut Window, cx: &mut App) -> AnyElement {
@@ -541,6 +642,7 @@ impl Ctx {
         let chevron = icon(IconName::ChevronDown)
             .size(metrics.icon)
             .color(if hovered { p.fg } else { p.fg_muted })
+            .lit(hovered)
             .rotate(radians(-std::f32::consts::FRAC_PI_2 * (1.0 - turn)));
         let mut head = h_flex()
             .w_full()
@@ -596,6 +698,10 @@ impl Ctx {
     fn flat_row(&self, item: &SidebarRow, window: &mut Window, cx: &mut App) -> AnyElement {
         if let Grouping::Date(buckets) = self.model.grouping.as_ref() {
             return match item {
+                // The first bucket's label is the section header itself
+                // ("Today" with the view actions), so its own row collapses:
+                // never "Sessions" over "Today".
+                SidebarRow::DateHeader { group: 0, .. } => div().into_any_element(),
                 SidebarRow::DateHeader { group, .. } => match buckets.get(*group) {
                     Some(bucket) => self.date_head(&bucket.label, cx),
                     None => div().into_any_element(),
@@ -841,8 +947,9 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 }
             }
             // Projects header with its hover actions, then the virtual list.
-            // Grouped by date the same header reads "Sessions" and counts
-            // nothing (the buckets carry the structure).
+            // Grouped by date the same header reads the first bucket's label
+            // ("Today") and counts nothing; that bucket's own header row
+            // collapses (see `flat_row`).
             let by_date = matches!(model.grouping.as_ref(), Grouping::Date(_));
             let project_count = match model.grouping.as_ref() {
                 Grouping::Project(groups) => groups.len(),
@@ -861,7 +968,15 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             let (header_state, _) = interaction_flags(ctx.child("projects-head"), window, cx);
             let hover_ctx = ctx.clone();
             let header = ctx
-                .section(if by_date { "Sessions" } else { "Projects" }, (project_count > 0 && !by_date).then(|| project_count.to_string().into()), actions, cx)
+                .section(
+                    &match model.grouping.as_ref() {
+                        Grouping::Date(buckets) => buckets.first().map_or_else(|| "Sessions".to_string(), |b| b.label.to_string()),
+                        _ => "Projects".to_string(),
+                    },
+                    (project_count > 0 && !by_date).then(|| project_count.to_string().into()),
+                    actions,
+                    cx,
+                )
                 .id(ctx.child("projects-head"))
                 .track_interaction_reported(&header_state, move |hovered: bool, w: &mut Window, cx: &mut App| {
                     hover_ctx.emit(SidebarIntent::HoverProjectsHeader(hovered), w, cx);
@@ -919,38 +1034,49 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             }
         }
     } else if let Some(browse) = model.browse.as_ref() {
-        // Pinned sites as tiles.
-        list = list.item_static(next, ctx.section("Pinned", None, None, cx));
-        next += 1;
-        let mut tiles = h_flex().w_full().gap(metrics.gap).pl(metrics.item_px).pb(px(scale::SP_2));
-        for pin in &browse.pins {
-            let tile = surface(
-                2,
-                div()
-                    .size(metrics.control)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_role_in(TextRole::Body, Density::Standard)
-                    .medium()
-                    .text_color(p.ink_2)
-                    .child(pin.initial.clone()),
-            )
-            .shape(Shape::Item);
+        let menu_at = |ctx: &Ctx, target: BrowseMenuTarget| {
             let c = ctx.clone();
-            let id = pin.id.clone();
-            tiles = tiles.child(
-                interactive(ctx.child(format!("pin-{}", pin.id)), tile)
-                    .label(pin.label.clone())
-                    .on_click(move |_, w, cx| {
-                        cx.stop_propagation();
-                        c.emit(SidebarIntent::Browse(BrowseIntent::OpenPin(id.clone())), w, cx);
-                    }),
-            );
+            move |event: &gpui::MouseDownEvent, w: &mut Window, cx: &mut App| {
+                cx.stop_propagation();
+                c.emit(SidebarIntent::Browse(BrowseIntent::OpenMenu(BrowseMenu { target: target.clone(), at: event.position })), w, cx);
+            }
+        };
+        // Pinned sites as tiles, only when the space has any.
+        if !browse.pins.is_empty() {
+            list = list.item_static(next, ctx.section("Pinned", None, None, cx));
+            next += 1;
+            let mut tiles = h_flex().w_full().gap(metrics.gap).pl(metrics.item_px).pb(px(scale::SP_2));
+            for pin in &browse.pins {
+                let tile = surface(
+                    2,
+                    div()
+                        .size(metrics.control)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_role_in(TextRole::Body, Density::Standard)
+                        .medium()
+                        .text_color(p.ink_2)
+                        .child(pin.initial.clone()),
+                )
+                .shape(Shape::Item);
+                let c = ctx.clone();
+                let id = pin.id.clone();
+                tiles = tiles.child(
+                    div().id(ctx.child(format!("pin-wrap-{}", pin.id))).on_mouse_down(gpui::MouseButton::Right, menu_at(ctx, BrowseMenuTarget::Tab { id: pin.id.clone(), pinned: true, in_folder: false })).child(
+                        interactive(ctx.child(format!("pin-{}", pin.id)), tile)
+                            .label(pin.label.clone())
+                            .on_click(move |_, w, cx| {
+                                cx.stop_propagation();
+                                c.emit(SidebarIntent::Browse(BrowseIntent::OpenPin(id.clone())), w, cx);
+                            }),
+                    ),
+                );
+            }
+            list = list.item_static(next, tiles);
+            next += 1;
         }
-        list = list.item_static(next, tiles);
-        next += 1;
-        // Today: the tabs, with new-folder / close-all while hovered.
+        // Today: your tabs and folders, with new-folder / close-all while hovered.
         let today_actions = browse.hovered_today_header.then(|| {
             h_flex()
                 .flex_none()
@@ -963,16 +1089,23 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
         let (today_state, _) = interaction_flags(ctx.child("today-head"), window, cx);
         let hover_ctx = ctx.clone();
         let today = ctx
-            .section("Today", Some(tab_total.to_string().into()), today_actions, cx)
+            .section("Today", (tab_total > 0).then(|| tab_total.to_string().into()), today_actions, cx)
             .id(ctx.child("today-head"))
             .track_interaction_reported(&today_state, move |hovered: bool, w: &mut Window, cx: &mut App| {
                 hover_ctx.emit(SidebarIntent::Browse(BrowseIntent::HoverTodayHeader(hovered)), w, cx);
             });
         list = list.item_static(next, today);
         next += 1;
-        let tab_row = |ctx: &Ctx, list: &mut Option<crate::interact::FluidList>, index: usize, tab: &super::BrowseTab, nested: bool, cx: &App| {
+        if browse.tabs.is_empty() && browse.folders.is_empty() {
+            let words = "No tabs open";
+            record_ax_label(words);
+            list = list.item_static(next, ctx.row(ctx.lead(div(), cx), words, None, false, cx).text_color(p.fg_muted));
+            next += 1;
+        }
+        let tab_row = |ctx: &Ctx, list: &mut Option<crate::interact::FluidList>, index: usize, tab: &super::BrowseTab, nested: bool, in_folder: bool, trailing: Option<AnyElement>, cx: &App| {
             let mark = ctx.favicon(tab.initial.clone(), cx);
-            let close = if model.hovered.as_ref() == Some(&tab.id) || tab.active {
+            let lit = model.hovered.as_ref() == Some(&tab.id) || tab.active;
+            let close = if lit {
                 let c = ctx.clone();
                 let id = tab.id.clone();
                 Some(
@@ -981,6 +1114,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                         .size(ButtonSize::Xs)
                         .icon_size(metrics.icon - px(scale::SP_2))
                         .accessibility_label(format!("Close tab {}", tab.title))
+                        .no_tooltip()
                         .on_click(move |_, w, cx| {
                             cx.stop_propagation();
                             c.emit(SidebarIntent::Browse(BrowseIntent::CloseTab(id.clone())), w, cx);
@@ -988,20 +1122,23 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                         .into_any_element(),
                 )
             } else {
-                None
+                trailing
             };
-            let lit = model.hovered.as_ref() == Some(&tab.id) || tab.active;
             let row = ctx.row(ctx.lead(mark, cx), tab.title.clone(), close, nested, cx).when(lit, |d| d.text_color(cx.aui().colors.fg));
             let label: SharedString = format!("Tab {}", tab.title).into();
             record_ax_label(&label);
-            let built = row.id(ctx.child(format!("tab-{}", tab.id))).role(gpui::Role::Tab).aria_label(label);
+            let built = row
+                .id(ctx.child(format!("tab-{}", tab.id)))
+                .role(gpui::Role::Tab)
+                .aria_label(label)
+                .on_mouse_down(gpui::MouseButton::Right, menu_at(ctx, BrowseMenuTarget::Tab { id: tab.id.clone(), pinned: false, in_folder }));
             *list = Some(list.take().expect("list").item(index, built));
         };
         let mut slot = Some(list);
         let mut selected_index: Option<usize> = None;
         for tab in &browse.tabs {
             let index = BROWSE_BASE + next;
-            tab_row(ctx, &mut slot, index, tab, false, cx);
+            tab_row(ctx, &mut slot, index, tab, false, false, None, cx);
             targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(tab.id.clone()))));
             index_of_session.insert(tab.id.clone(), index);
             if tab.active {
@@ -1009,30 +1146,68 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             }
             next += 1;
         }
-        for folder in &browse.folders {
-            let turn = spring_phase((ctx.child(format!("folder-chevron-{}", folder.name)), "turn"), folder.open, SpringKind::Swap, window, cx);
-            let chevron = icon(IconName::ChevronDown).size(metrics.icon).color(p.fg_muted).rotate(radians(-std::f32::consts::FRAC_PI_2 * (1.0 - turn)));
-            let head = h_flex()
+        // A folder head: your folder's chevron (or the name field while it is
+        // being named), or a task folder's status dot and status word.
+        let folder_head = |ctx: &Ctx, folder: &super::BrowseFolder, window: &mut Window, cx: &mut App| -> AnyElement {
+            let p = cx.aui().colors;
+            let metrics = cx.aui().metrics;
+            let hovered = ctx.lit(&format!("folder-{}", folder.id));
+            let naming = model.browse.as_ref().and_then(|b| b.editing.as_ref()).filter(|e| e.target == BrowseNaming::Folder(folder.id.clone()));
+            let lead: AnyElement = match &folder.kind {
+                FolderKind::Yours => {
+                    let turn = spring_phase((ctx.child(format!("folder-chevron-{}", folder.id)), "turn"), folder.open, SpringKind::Swap, window, cx);
+                    ctx.lead(icon(IconName::ChevronDown).size(metrics.icon).color(if hovered { p.fg } else { p.fg_muted }).lit(hovered).rotate(radians(-std::f32::consts::FRAC_PI_2 * (1.0 - turn))), cx)
+                }
+                FolderKind::Task { state, .. } => ctx.dot(*state, cx),
+            };
+            if let Some(editing) = naming {
+                return ctx.name_field(format!("folder-name-{}", folder.id), lead, &editing.draft, BrowseNaming::Folder(folder.id.clone()), "Folder name", false, cx);
+            }
+            let mut head = h_flex()
                 .w_full()
                 .h(list_row_height(cx))
                 .items_center()
                 .gap(metrics.gap)
                 .pr(metrics.item_px)
-                .text_color(p.fg)
-                .child(ctx.lead(chevron, cx))
-                .child(div().flex_none().text_role_in(TextRole::Body, Density::Standard).child(folder.name.clone()))
-                .child(div().flex_none().ml(px(scale::SP_2 + scale::SP_1) - metrics.gap).role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(folder.tabs.len().to_string()))
-                .child(div().flex_1());
-            let label: SharedString = format!("Folder {}", folder.name).into();
+                .child(lead)
+                .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().text_role_in(TextRole::Body, Density::Standard).text_color(if hovered { p.fg } else { p.fg_muted }).child(folder.name.clone()));
+            let target = match &folder.kind {
+                FolderKind::Yours => {
+                    head = head
+                        .child(div().flex_none().ml(px(scale::SP_2 + scale::SP_1) - metrics.gap).role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(folder.tabs.len().to_string()))
+                        .child(div().flex_1());
+                    BrowseMenuTarget::Folder(folder.id.clone())
+                }
+                FolderKind::Task { state, status, needs_you } => {
+                    head = head.child(div().flex_1());
+                    if !status.is_empty() {
+                        head = head.child(div().flex_none().role_in(TextRole::Caption, cx).text_color(if *needs_you { p.warning } else { p.fg_muted }).child(status.clone()));
+                    }
+                    BrowseMenuTarget::TaskFolder { session: folder.id.clone(), running: *state == AgentState::Running }
+                }
+            };
+            let label: SharedString = match folder.kind {
+                FolderKind::Yours => format!("Folder {}", folder.name).into(),
+                FolderKind::Task { .. } => format!("Task folder {}, open its chat", folder.name).into(),
+            };
             record_ax_label(&label);
+            head.id(ctx.child(format!("folder-{}", folder.id)))
+                .role(gpui::Role::Button)
+                .aria_label(label)
+                .on_mouse_down(gpui::MouseButton::Right, menu_at(ctx, target))
+                .into_any_element()
+        };
+        for folder in &browse.folders {
             let index = BROWSE_BASE + next;
-            slot = Some(slot.take().expect("list").item(index, head.id(ctx.child(format!("folder-{}", folder.name))).role(gpui::Role::Button).aria_label(label)));
-            targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::ToggleFolder(folder.name.clone()))));
+            let head = folder_head(ctx, folder, window, cx);
+            slot = Some(slot.take().expect("list").item(index, head));
+            targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::ToggleFolder(folder.id.clone()))));
+            index_of_session.insert(format!("folder-{}", folder.id).into(), index);
             next += 1;
             if folder.open {
                 for tab in &folder.tabs {
                     let index = BROWSE_BASE + next;
-                    tab_row(ctx, &mut slot, index, tab, true, cx);
+                    tab_row(ctx, &mut slot, index, tab, true, true, None, cx);
                     targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(tab.id.clone()))));
                     index_of_session.insert(tab.id.clone(), index);
                     if tab.active {
@@ -1043,8 +1218,8 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             }
         }
         list = slot.take().expect("list");
-        // New tab: the one filled row, below the tabs, with its 8 px above
-        // outside the highlightable box.
+        // New tab: the one filled row, directly under your tabs (owner
+        // 2026-10-11), with its 8 px above outside the highlightable box.
         list = list.item_static(next, div().w_full().h(metrics.item_px));
         next += 1;
         let new_tab = ctx.row(ctx.lead_icon(IconName::Plus, cx), "New tab", Some(ctx.chip("⌘T", cx)), false, cx);
@@ -1053,11 +1228,42 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
         list = list.item(index, surface(2, new_tab.id(ctx.child("new-tab")).role(gpui::Role::Button).aria_label("New tab")).shape(Shape::Item).ring(true));
         targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::NewTab)));
         next += 1;
+        // Task folders below a hairline (FF separator: `mx-2 h-px bg-border`, 8 above and below).
+        if !browse.task_folders.is_empty() {
+            list = list.item_static(next, div().w_full().py(metrics.item_px).child(div().mx(metrics.item_px).h(px(1.0)).bg(p.line)));
+            next += 1;
+            let mut slot = Some(list);
+            for folder in &browse.task_folders {
+                let index = BROWSE_BASE + next;
+                let head = folder_head(ctx, folder, window, cx);
+                slot = Some(slot.take().expect("list").item(index, head));
+                targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::OpenTaskChat(folder.id.clone()))));
+                index_of_session.insert(format!("folder-{}", folder.id).into(), index);
+                next += 1;
+                for tab in &folder.tabs {
+                    let index = BROWSE_BASE + next;
+                    tab_row(ctx, &mut slot, index, tab, true, false, None, cx);
+                    targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(tab.id.clone()))));
+                    index_of_session.insert(tab.id.clone(), index);
+                    if tab.active {
+                        selected_index = Some(index);
+                    }
+                    next += 1;
+                }
+            }
+            list = slot.take().expect("list");
+        }
         // A spacer, then the spaces above the footer.
         list = list.item_static_fill(next, div().w_full().flex_1().min_h(px(0.0)));
         next += 1;
-        let mut chips = h_flex().w_full().items_center().gap(px(scale::SP_2)).py(metrics.item_px);
+        let naming_space = browse.editing.as_ref().filter(|e| matches!(e.target, BrowseNaming::Space(_)));
+        let mut chips = h_flex().id(ctx.child("spaces")).w_full().items_center().gap(px(scale::SP_2)).py(metrics.item_px).role(gpui::Role::TabList).aria_label("Spaces");
+        record_ax_label("Spaces");
         for (i, space) in browse.spaces.iter().enumerate() {
+            if let Some(editing) = naming_space.filter(|e| e.target == BrowseNaming::Space(Some(space.id.clone()))) {
+                chips = chips.child(ctx.space_field(&editing.draft, editing.target.clone(), cx));
+                continue;
+            }
             let on = i == browse.space;
             let chip = div()
                 .h(metrics.control_sm)
@@ -1066,22 +1272,28 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 .items_center()
                 .role_in(TextRole::Caption, cx)
                 .text_color(if on { p.fg } else { p.fg_muted })
-                .child(space.clone());
+                .child(space.name.clone());
             let chip: AnyElement = if on { surface(3, chip).shape(Shape::Pill).into_any_element() } else { chip.into_any_element() };
             let c = ctx.clone();
             chips = chips.child(
-                interactive(ctx.child(format!("space-{i}")), chip)
-                    .role("tab")
-                    .shape(Shape::Pill)
-                    .selected(on)
-                    .label(format!("Space {space}"))
-                    .on_click(move |_, w, cx| {
-                        cx.stop_propagation();
-                        c.emit(SidebarIntent::Browse(BrowseIntent::SwitchSpace(i)), w, cx);
-                    }),
+                div().id(ctx.child(format!("space-wrap-{}", space.id))).on_mouse_down(gpui::MouseButton::Right, menu_at(ctx, BrowseMenuTarget::Space { id: space.id.clone(), last: browse.spaces.len() == 1 })).child(
+                    interactive(ctx.child(format!("space-{}", space.id)), chip)
+                        .role("tab")
+                        .shape(Shape::Pill)
+                        .selected(on)
+                        .label(format!("Space {}", space.name))
+                        .on_click(move |_, w, cx| {
+                            cx.stop_propagation();
+                            c.emit(SidebarIntent::Browse(BrowseIntent::SwitchSpace(i)), w, cx);
+                        }),
+                ),
             );
         }
-        chips = chips.child(div().flex_1()).child(ctx.action("new-space".into(), IconName::Plus, "New space".into(), SidebarIntent::Browse(BrowseIntent::NewSpace), cx));
+        if let Some(editing) = naming_space.filter(|e| e.target == BrowseNaming::Space(None)) {
+            chips = chips.child(ctx.space_field(&editing.draft, editing.target.clone(), cx));
+        } else {
+            chips = chips.child(div().flex_1()).child(ctx.action("new-space".into(), IconName::Plus, "New space".into(), SidebarIntent::Browse(BrowseIntent::NewSpace), cx));
+        }
         list = list.item_static(next, chips);
         if let Some(index) = selected_index {
             list = list.selected(Some(index));
@@ -1111,6 +1323,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             Some(Target::Intent(SidebarIntent::Nav(nav))) => Some(format!("nav-{nav}").into()),
             Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::Address))) => Some("address".into()),
             Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(id)))) => Some(id.clone()),
+            Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::ToggleFolder(id) | BrowseIntent::OpenTaskChat(id)))) => Some(format!("folder-{id}").into()),
             _ => None,
         };
         // A project head under the pointer shows its actions.
@@ -1182,19 +1395,31 @@ impl RenderOnce for SidebarScreen {
             .icon_size(metrics.icon)
             .accessibility_label("Hide sidebar")
             .on_click(move |_, w, cx| toggle_ctx.emit(SidebarIntent::Collapse, w, cx));
+        // The Sessions | Browse switch: FF tabs (`registry/base/tabs.tsx`) at
+        // the icon size — a `surface-2` track with a 2 px inset, and ONE
+        // indicator on `surface-4` with its shadow-4 that slides between the
+        // two glyphs on the moderate spring.
+        let item_w = metrics.control_md;
+        let item_h = metrics.control_xs;
+        let browse_on = spring_phase((ctx.child("modes"), "slide"), ctx.model.mode == Mode::Browse, SpringKind::Moderate, window, cx);
+        let indicator = div()
+            .absolute()
+            .top(px(scale::SP_1))
+            .left(px(scale::SP_1) + item_w * browse_on)
+            .w(item_w)
+            .h(item_h)
+            .child(surface(4, div().size_full()).shape(Shape::Item));
         let mode = |ctx: &Ctx, key: &str, glyph: IconName, label: &str, target: Mode| {
             let on = ctx.model.mode == target;
             let c = ctx.clone();
             let glyph_el = div()
-                .w(metrics.control_md)
-                .h(metrics.control_xs)
+                .w(item_w)
+                .h(item_h)
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_color(if on { p.fg } else { p.fg_muted })
-                .child(icon(glyph).size(metrics.icon).color(if on { p.fg } else { p.fg_muted }));
-            let body: AnyElement = if on { surface(4, glyph_el).shape(Shape::Item).shadow(true).into_any_element() } else { glyph_el.into_any_element() };
-            interactive(ctx.child(format!("mode-{key}")), body)
+                .child(icon(glyph).size(metrics.icon).color(if on { p.fg } else { p.fg_muted }).lit(on));
+            interactive(ctx.child(format!("mode-{key}")), glyph_el)
                 .role("tab")
                 .label(label.to_string())
                 .selected(on)
@@ -1205,13 +1430,16 @@ impl RenderOnce for SidebarScreen {
             2,
             h_flex()
                 .id(ctx.child("modes"))
+                .relative()
                 .p(px(scale::SP_1))
                 .role(gpui::Role::TabList)
                 .aria_label("Sidebar mode")
+                .child(indicator)
                 .child(mode(&ctx, "sessions", IconName::List, "Sessions", Mode::Sessions))
                 .child(mode(&ctx, "browse", IconName::Globe, "Browse", Mode::Browse)),
         )
-        .shape(Shape::Item);
+        .shape(Shape::Item)
+        .shadow(false);
         let title_bar = h_flex()
             .w_full()
             .flex_none()
@@ -1223,6 +1451,9 @@ impl RenderOnce for SidebarScreen {
             .child(toggle)
             .child(div().flex_1())
             .child(switch);
+        // The title bar moves the window like any title bar (press-drag), and a
+        // double-click zooms; its two controls keep their clicks.
+        let title_bar = crate::shell::drag_region(ctx.child("title-drag")).child(title_bar);
 
         let (rows, _targets) = build_list(&ctx, window, cx);
         let body = div().w_full().flex_1().min_h(px(0.0)).flex().flex_col().px(metrics.item_px).pt(metrics.item_px).relative().child(rows);
@@ -1270,17 +1501,34 @@ impl RenderOnce for SidebarScreen {
 
         // Menus, positioned from the ladder: the view-options menu under
         // the Projects header, the account menu standing on the footer's
-        // hairline (no gap: list text showed through one, seen live).
+        // hairline (no gap: list text showed through one, seen live). Both
+        // paint on gpui's top layer (`deferred`), so a submenu can reach
+        // past the sidebar's edge and nothing clips them.
+        let menu_w = self.width - metrics.item_px * 2.0;
+        // A press outside an open menu dismisses it (FF: the dropdown closes
+        // on an outside pointer-down).
+        let dismiss = |ctx: &Ctx| {
+            let c = ctx.clone();
+            move |_: &gpui::MouseDownEvent, w: &mut Window, cx: &mut App| c.emit(SidebarIntent::DismissMenus, w, cx)
+        };
         if self.model.view_menu_open {
             let top = projects_header_bottom(&self.model, cx);
             column = column.child(
                 div()
                     .absolute()
                     .left(metrics.item_px)
-                    .right(metrics.item_px)
                     .top(top)
-                    .occlude()
-                    .child(view_options_menu(ctx.child("view-menu"), &self.model.view_options, self.on_intent.clone(), window, cx)),
+                    .child(
+                        gpui::deferred(
+                            gpui::anchored().child(
+                                div()
+                                    .id(ctx.child("view-menu-wrap"))
+                                    .on_mouse_down_out(dismiss(&ctx))
+                                    .child(view_options_menu(ctx.child("view-menu"), &self.model.view_options, menu_w, self.on_intent.clone(), window, cx)),
+                            ),
+                        )
+                        .with_priority(1),
+                    ),
             );
         }
         if account.menu_open {
@@ -1291,8 +1539,19 @@ impl RenderOnce for SidebarScreen {
                     .right(metrics.item_px)
                     .bottom(list_row_height(cx) + metrics.item_px * 2.0 + px(1.0))
                     .occlude()
-                    .child(account_menu(ctx.child("account-menu"), account, self.on_intent.clone(), window, cx)),
+                    .on_mouse_down_out(dismiss(&ctx))
+                    .child(account_menu(ctx.child("account-menu"), account, menu_w, self.on_intent.clone(), window, cx)),
             );
+        }
+        // Browse's right-click menu at the pointer — unless the host draws it
+        // itself over a native page (an overlay window, [`Self::external_menus`]).
+        if !self.external_menus {
+            if let Some(browse) = self.model.browse.as_ref().filter(|_| self.model.mode == Mode::Browse) {
+                if let (Some(menu), Some(element)) = (browse.menu.as_ref(), super::menus::browse_menu(ctx.child("browse-menu"), browse, self.on_intent.clone(), window, cx)) {
+                    let at = menu.at;
+                    column = column.child(gpui::deferred(gpui::anchored().position(at).snap_to_window().child(element)).with_priority(1));
+                }
+            }
         }
         column.into_any_element()
     }

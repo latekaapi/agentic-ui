@@ -18,6 +18,7 @@ mod meter;
 mod pill;
 mod secret_field;
 mod tag;
+mod tooltip;
 
 pub use avatar::{avatar, Avatar};
 pub use button::{arm_ax_probe, button, icon_button, icon_content_button, record_ax_label, take_ax_labels, Button, ButtonSize, ButtonVariant};
@@ -30,3 +31,4 @@ pub use meter::{usage_meter, UsageMeter};
 pub use pill::{pill, Pill, PillVariant};
 pub use secret_field::{secret_field, SecretField};
 pub use tag::{tag, Tag};
+pub use tooltip::{tip, Tip, TIP_DELAY};
