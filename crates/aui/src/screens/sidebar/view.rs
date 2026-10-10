@@ -1322,7 +1322,11 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
         } else {
             chips = chips.child(div().flex_1()).child(ctx.action("new-space".into(), IconName::Plus, "New space".into(), SidebarIntent::Browse(BrowseIntent::NewSpace), cx));
         }
-        list = list.item_static(next, chips);
+        // Always under a divider spanning the sidebar edge to edge, the
+        // task pane's own (owner 2026-10-11): the strip is the foot's, not
+        // the list's, whether or not task folders sit above it.
+        let foot = v_flex().w_full().flex_none().child(div().mx(-metrics.item_px).h(px(1.0)).bg(p.line)).child(chips);
+        list = list.item_static(next, foot);
         if let Some(index) = selected_index {
             list = list.selected(Some(index));
         }
