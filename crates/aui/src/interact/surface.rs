@@ -44,7 +44,7 @@ pub struct Surface {
 /// Paints `colors.surface(step)` under `child` and provides `step` as the
 /// ambient for the subtree.
 pub fn surface(step: u8, child: impl IntoElement) -> Surface {
-    Surface { step: step.clamp(1, 8), child: child.into_any_element(), offset: None, shape: Shape::Container, shadow: false, floating: false, ring: false, fill: false }
+    Surface { step: step.clamp(1, 8), child: child.into_any_element(), offset: None, shape: Shape::Container, shadow: true, floating: false, ring: false, fill: false }
 }
 
 impl Surface {
@@ -61,22 +61,26 @@ impl Surface {
         self
     }
 
-    /// Whether to apply `colors.elevation_shadow(step)` (default false).
+    /// Whether to paint the shadow recipe paired with this surface's level
+    /// (default **true**, as FF's `Elevated` always does: in dark that is the
+    /// 1–6 % inset highlight and hairline that make a step read; in light the
+    /// 6 % hairline and stacked drops). `false` paints the bare fill.
     pub fn shadow(mut self, shadow: bool) -> Self {
         self.shadow = shadow;
         self
     }
 
-    /// The surface floats over other content (a menu, popover, hover
-    /// card): it casts `colors.floating_shadow()` in both themes, whatever
-    /// its step. In-flow surfaces keep the step table of
-    /// [`Surface::shadow`] (a ring only below step 5 in dark).
+    /// The surface floats over other content (a menu, popover, tooltip,
+    /// hover card): its fill still follows the substrate, but its shadow is
+    /// the constant `colors.floating_shadow()` (shadow-3), FF's `shadowLevel`.
     pub fn floating(mut self) -> Self {
         self.floating = true;
         self
     }
 
-    /// Whether to draw the 1 px ring (`colors.ring()`, default false).
+    /// Kept for source compatibility; draws nothing. FF's shadow recipes
+    /// carry the hairline (inset in dark, outer in light), so a separate
+    /// border would double it.
     pub fn ring(mut self, ring: bool) -> Self {
         self.ring = ring;
         self
@@ -193,10 +197,10 @@ impl Element for AmbientScope {
     }
 }
 
-/// The one ground every popover, menu and tooltip adopts: the ambient plus
-/// two steps, `Shape::Item`, floating (a real drop shadow) with the ring.
+/// The one ground every dropdown, popover and tooltip adopts (FF): the
+/// substrate plus two levels, the container radius, the constant shadow-3.
 pub fn menu_surface(child: impl IntoElement) -> Surface {
-    surface(1, child).elevated(2).shape(Shape::Item).floating().ring(true)
+    surface(1, child).elevated(2).shape(Shape::Container).floating()
 }
 
 /// The concentric rule as a pure function: an inner surface inset by
@@ -224,9 +228,6 @@ impl RenderOnce for Surface {
             el = el.shadow(p.floating_shadow());
         } else if self.shadow {
             el = el.shadow(p.elevation_shadow(step));
-        }
-        if self.ring {
-            el = el.border_1().border_color(p.ring());
         }
         el
     }

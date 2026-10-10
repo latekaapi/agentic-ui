@@ -135,7 +135,7 @@ fn pane(cx: &App) -> AnyElement {
         .gap(metrics.gap)
         .border_b_1()
         .border_color(p.line)
-        .text_role_in(TextRole::Body, Density::Compact)
+        .text_role_in(TextRole::Body, Density::Standard)
         .child(div().text_color(p.fg).child("Design v2 tokens"))
         .child(icon(IconName::ChevronDown).size(metrics.icon).color(p.fg_muted))
         .child(
@@ -154,7 +154,7 @@ fn pane(cx: &App) -> AnyElement {
             .flex()
             .items_center()
             .px(metrics.ctl_px)
-            .text_role_in(TextRole::Body, Density::Compact)
+            .text_role_in(TextRole::Body, Density::Standard)
             .text_color(p.fg_muted)
             .child("Type / for commands"),
     )
@@ -432,7 +432,7 @@ pub fn build_collapsed(_window: &mut Window, cx: &mut App) -> AnyElement {
                             .gap(metrics.gap)
                             .border_b_1()
                             .border_color(p.line)
-                            .text_role_in(TextRole::Body, Density::Compact)
+                            .text_role_in(TextRole::Body, Density::Standard)
                             .child(div().text_color(p.fg).child("Design v2 tokens"))
                             .child(icon(IconName::ChevronDown).size(metrics.icon).color(p.fg_muted)),
                     )

@@ -59,16 +59,16 @@ pub fn record_ax_label(label: &str) {
 /// `.btn` variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonVariant {
-    /// Filled surface-2, line-strong border, hairline shadow (the default).
+    /// FF secondary: a see-through tint (white 25 % / black 8 %), no border (the default).
     #[default]
     Secondary,
-    /// Accent fill, white text.
+    /// FF primary: the foreground fill with background-coloured text.
     Primary,
-    /// Transparent, ink-2 text; surface-2 on hover.
+    /// FF ghost: transparent, muted text that turns foreground on hover.
     Ghost,
-    /// Transparent with the line-strong border, no shadow.
+    /// FF tertiary: transparent with the 1 px border ring.
     Outline,
-    /// Transparent, danger text, danger-soft border.
+    /// A tertiary button in the danger colour (FF has no destructive variant).
     Danger,
 }
 
@@ -119,16 +119,10 @@ impl ButtonSize {
     }
 }
 
-/// `transform: scale(.97)` on `:active`, expressed as an inset because gpui
-/// has no element transform.
-const PRESS_SCALE: f32 = 0.97;
 /// `.btn{gap:6px}`.
 const CONTENT_GAP: f32 = 6.0;
 /// Disabled controls (`opacity:.45` on the forward arrow in the shell header).
 const DISABLED_OPACITY: f32 = 0.45;
-/// `.btn:focus-visible{outline:none;box-shadow:0 0 0 3px var(--accent-ring)}`:
-/// no offset, no blur, a 3 px spread in `accent-ring`, replacing `--shadow-1`.
-const FOCUS_RING: f32 = 3.0;
 
 /// A button. Build with [`button`] or [`icon_button`].
 #[derive(IntoElement)]
@@ -250,7 +244,7 @@ impl Button {
         self
     }
 
-    /// Ghost buttons in headers are ink-3 instead of ink-2 (`.hd .btn.ghost`).
+    /// Kept for source compatibility: an FF ghost is always muted at rest.
     pub fn muted(mut self) -> Self {
         self.muted = true;
         self
@@ -278,68 +272,62 @@ impl Button {
     }
 }
 
-/// Resting and hover colours of a variant.
+/// Resting, hover and pressed colours of a variant (Fluid Functionalism's
+/// `button.tsx`: primary / secondary / tertiary / ghost; Danger is ours).
 struct Look {
     bg: Hsla,
     bg_hover: Hsla,
+    bg_pressed: Hsla,
     border: Hsla,
-    border_hover: Hsla,
     text: Hsla,
     text_hover: Hsla,
-    shadow: bool,
 }
 
 impl Look {
-    fn of(variant: ButtonVariant, muted: bool, p: &Palette) -> Self {
+    fn of(variant: ButtonVariant, _muted: bool, p: &Palette) -> Self {
         let transparent = gpui::transparent_black();
+        // FF --tint / --tint-hover: see-through, so the button takes on the
+        // surface beneath it.
+        let (tint, tint_hover) = if p.is_dark() {
+            (gpui::white().alpha(0.25), gpui::white().alpha(0.20))
+        } else {
+            (gpui::black().alpha(0.08), gpui::black().alpha(0.065))
+        };
         match variant {
-            ButtonVariant::Secondary => Look {
-                bg: p.surface_2,
-                bg_hover: p.surface_3,
-                border: p.line_strong,
-                border_hover: p.ink_4,
-                text: p.ink,
-                text_hover: p.ink,
-                shadow: true,
-            },
+            // FF secondary.
+            ButtonVariant::Secondary => Look { bg: tint, bg_hover: tint_hover, bg_pressed: tint, border: transparent, text: p.fg, text_hover: p.fg },
+            // FF primary: the foreground fill, background text; hover and
+            // press mix toward the background (90 % / 80 %).
             ButtonVariant::Primary => Look {
                 bg: p.accent,
                 bg_hover: p.accent_strong,
+                bg_pressed: mix(p.accent, p.bg, 0.8),
                 border: transparent,
-                border_hover: transparent,
-                text: gpui::white(),
-                text_hover: gpui::white(),
-                shadow: true,
+                text: p.bg,
+                text_hover: p.bg,
             },
+            // FF ghost: muted text that lights on hover, the hover / active overlays.
             ButtonVariant::Ghost => Look {
                 bg: transparent,
-                bg_hover: p.surface_2,
+                bg_hover: p.hover_overlay(),
+                bg_pressed: p.pressed_overlay(),
                 border: transparent,
-                border_hover: transparent,
-                text: if muted { p.ink_3 } else { p.ink_2 },
-                text_hover: p.ink,
-                shadow: false,
+                text: p.fg_muted,
+                text_hover: p.fg,
             },
-            ButtonVariant::Outline => Look {
-                bg: transparent,
-                bg_hover: p.surface_2,
-                border: p.line_strong,
-                border_hover: p.ink_4,
-                text: p.ink,
-                text_hover: p.ink,
-                shadow: false,
-            },
-            ButtonVariant::Danger => Look {
-                bg: transparent,
-                bg_hover: p.danger_soft,
-                border: p.danger_soft,
-                border_hover: p.danger,
-                text: p.danger,
-                text_hover: p.danger,
-                shadow: false,
-            },
+            // FF tertiary: transparent with the 1 px --border ring.
+            ButtonVariant::Outline => Look { bg: transparent, bg_hover: p.hover_overlay(), bg_pressed: p.pressed_overlay(), border: p.line, text: p.fg, text_hover: p.fg },
+            // Not in FF: a tertiary button in the danger colour.
+            ButtonVariant::Danger => Look { bg: transparent, bg_hover: p.danger_soft, bg_pressed: p.danger_soft, border: p.line, text: p.danger, text_hover: p.danger },
         }
     }
+}
+
+/// `a` mixed toward `b` keeping `amount` of `a` (FF's `color-mix(in oklab, …)`,
+/// approximated in RGB — the two greys it mixes differ only in lightness).
+fn mix(a: Hsla, b: Hsla, amount: f32) -> Hsla {
+    let (a, b): (gpui::Rgba, gpui::Rgba) = (a.into(), b.into());
+    gpui::Rgba { r: a.r * amount + b.r * (1.0 - amount), g: a.g * amount + b.g * (1.0 - amount), b: a.b * amount + b.b * (1.0 - amount), a: 1.0 }.into()
 }
 
 impl RenderOnce for Button {
@@ -361,12 +349,15 @@ impl RenderOnce for Button {
         let hovered = flags.hovered && !self.disabled;
         let pressed = flags.pressed && !self.disabled;
 
-        // Hover tints tween (fast · std); the press is the press spring.
-        let bg = tween((id.clone(), "bg"), if hovered { look.bg_hover } else { look.bg }, Tween::FAST, window, cx);
-        let border = tween((id.clone(), "border"), if hovered { look.border_hover } else { look.border }, Tween::FAST, window, cx);
-        let text = tween((id.clone(), "text"), if hovered { look.text_hover } else { look.text }, Tween::FAST, window, cx);
-        let press = spring_phase((id.clone(), "press"), pressed, SpringKind::Press, window, cx).clamp(0.0, 1.0);
-        let inset = height * ((1.0 - PRESS_SCALE) / 2.0) * press;
+        // Colours tween on the fast tier (FF: background 80 ms). The press is
+        // FF's: the surface shrinks exactly 1 px per side — fast in, a slower
+        // release (FF 80 ms / 180 ms) — never a scale.
+        let target = if pressed { look.bg_pressed } else if hovered { look.bg_hover } else { look.bg };
+        let bg = tween((id.clone(), "bg"), target, Tween::FAST, window, cx);
+        let border = look.border;
+        let text = tween((id.clone(), "text"), if hovered || pressed { look.text_hover } else { look.text }, Tween::FAST, window, cx);
+        let press = spring_phase((id.clone(), "press"), pressed, if pressed { SpringKind::Fast } else { SpringKind::Moderate }, window, cx).clamp(0.0, 1.0);
+        let inset = px(1.0) * press;
 
         let pad = if self.square { px(0.0) } else { px(self.size.padding()) - inset };
         let glyph_size = self.icon_size.unwrap_or(px(self.size.icon_size()));
@@ -378,7 +369,7 @@ impl RenderOnce for Button {
             .justify_center()
             .gap(px(CONTENT_GAP))
             .px(pad)
-            .rounded(px(scale::R_SM))
+            .rounded(px(scale::SHAPE_ITEM))
             .border_1()
             .border_color(border)
             .bg(bg)
@@ -386,18 +377,16 @@ impl RenderOnce for Button {
             .font_family(scale::FONT_UI)
             .text_px(self.size.font_size())
             .line_height(gpui::relative(1.0))
-            .medium()
             .whitespace_nowrap();
+        // FF's native-control focus ring: 1 px of #6B97FF, no offset.
         if ring {
             inner = inner.shadow(vec![BoxShadow {
                 color: p.accent_ring,
                 offset: point(px(0.0), px(0.0)),
                 blur_radius: px(0.0),
-                spread_radius: px(FOCUS_RING),
+                spread_radius: px(1.0),
                 inset: false,
             }]);
-        } else if look.shadow {
-            inner = inner.shadow(p.shadow(1));
         }
         if let Some(content) = self.icon_content {
             inner = inner.child(content);

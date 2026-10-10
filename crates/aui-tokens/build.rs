@@ -63,7 +63,7 @@ fn emit_palette(out: &mut String, tokens: &Value) {
 
     out.push_str("/// One layer of a box shadow, in logical pixels.\n");
     out.push_str("#[derive(Debug, Clone, Copy, PartialEq)]\n");
-    out.push_str("pub struct ShadowLayer {\n    /// Horizontal offset.\n    pub x: f32,\n    /// Vertical offset.\n    pub y: f32,\n    /// Blur radius.\n    pub blur: f32,\n    /// Spread radius.\n    pub spread: f32,\n    /// Shadow colour.\n    pub color: gpui::Rgba,\n}\n\n");
+    out.push_str("pub struct ShadowLayer {\n    /// Horizontal offset.\n    pub x: f32,\n    /// Vertical offset.\n    pub y: f32,\n    /// Blur radius.\n    pub blur: f32,\n    /// Spread radius.\n    pub spread: f32,\n    /// Drawn inside the element (CSS `inset`).\n    pub inset: bool,\n    /// Shadow colour.\n    pub color: gpui::Rgba,\n}\n\n");
 
     out.push_str("/// The full colour palette of one theme. Field names mirror the CSS custom\n/// properties in `design/tokens/tokens.css` (`--surface-1` → `surface_1`).\n");
     out.push_str("#[derive(Debug, Clone, Copy, PartialEq)]\n#[allow(missing_docs)]\npub struct Palette {\n");
@@ -102,9 +102,9 @@ fn emit_palette(out: &mut String, tokens: &Value) {
         for key in &shadow_keys {
             out.push_str(&format!("        {}: &[", ident(key)));
             for layer in parse_shadow(map[key].as_str().unwrap()) {
-                let (x, y, blur, spread, (r, g, b, a)) = layer;
+                let (x, y, blur, spread, inset, (r, g, b, a)) = layer;
                 out.push_str(&format!(
-                    "ShadowLayer {{ x: {x:?}, y: {y:?}, blur: {blur:?}, spread: {spread:?}, color: gpui::Rgba {{ r: {r:?}, g: {g:?}, b: {b:?}, a: {a:?} }} }}, "
+                    "ShadowLayer {{ x: {x:?}, y: {y:?}, blur: {blur:?}, spread: {spread:?}, inset: {inset}, color: gpui::Rgba {{ r: {r:?}, g: {g:?}, b: {b:?}, a: {a:?} }} }}, "
                 ));
             }
             out.push_str("],\n");
@@ -244,7 +244,7 @@ fn parse_colour(value: &str) -> Option<(f32, f32, f32, f32)> {
     None
 }
 
-type Layer = (f32, f32, f32, f32, (f32, f32, f32, f32));
+type Layer = (f32, f32, f32, f32, bool, (f32, f32, f32, f32));
 
 /// Parses a CSS `box-shadow` list such as
 /// `0 4px 14px rgba(20,22,30,.10),0 1px 2px rgba(20,22,30,.06)`.
@@ -271,6 +271,10 @@ fn parse_shadow(value: &str) -> Vec<Layer> {
         .into_iter()
         .map(|layer| {
             let layer = layer.trim();
+            let (inset, layer) = match layer.strip_prefix("inset ") {
+                Some(rest) => (true, rest.trim()),
+                None => (false, layer),
+            };
             let colour_at = layer.find("rgb").expect("shadow colour");
             let colour = parse_colour(&layer[colour_at..]).expect("shadow colour parses");
             let nums: Vec<f32> = layer[..colour_at]
@@ -281,7 +285,7 @@ fn parse_shadow(value: &str) -> Vec<Layer> {
             let y = nums.get(1).copied().unwrap_or(0.0);
             let blur = nums.get(2).copied().unwrap_or(0.0);
             let spread = nums.get(3).copied().unwrap_or(0.0);
-            (x, y, blur, spread, colour)
+            (x, y, blur, spread, inset, colour)
         })
         .collect()
 }

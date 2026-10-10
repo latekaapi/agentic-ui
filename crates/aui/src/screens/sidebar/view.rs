@@ -242,10 +242,22 @@ impl Ctx {
             .into_any_element()
     }
 
-    /// A glyph in the leading slot.
+    /// A glyph in the leading slot: muted at rest, foreground when its row
+    /// is lit (FF: icons and labels light together on hover / selection).
     fn lead_icon(&self, name: IconName, cx: &App) -> AnyElement {
+        self.lead_icon_lit(name, false, cx)
+    }
+
+    fn lead_icon_lit(&self, name: IconName, lit: bool, cx: &App) -> AnyElement {
         let metrics = cx.aui().metrics;
-        self.lead(icon(name).size(metrics.icon).color(cx.aui().colors.fg_muted), cx)
+        let p = cx.aui().colors;
+        self.lead(icon(name).size(metrics.icon).color(if lit { p.fg } else { p.fg_muted }), cx)
+    }
+
+    /// Whether the chrome row `key` is lit: the pointer-driven highlight sits
+    /// on it.
+    fn lit(&self, key: &str) -> bool {
+        self.model.hovered.as_deref() == Some(key)
     }
 
     /// The status dot: 8 px, hollow `ink-4` when idle, filled in the state
@@ -311,7 +323,7 @@ impl Ctx {
             .flex_1()
             .min_w(px(0.0))
             .truncate()
-            .text_role_in(TextRole::Body, Density::Compact)
+            .text_role_in(TextRole::Body, Density::Standard)
             .child(text.into())
     }
 
@@ -328,7 +340,8 @@ impl Ctx {
             .items_center()
             .gap(metrics.gap)
             .pr(metrics.item_px)
-            .text_color(cx.aui().colors.fg)
+            // FF: a row's label rests muted and lights to foreground.
+            .text_color(cx.aui().colors.fg_muted)
             .when(nested, |d| d.pl(metrics.inset))
             .child(lead)
     }
@@ -357,7 +370,7 @@ impl Ctx {
             .text_color(p.fg_muted)
             .child(div().child(label.to_string()));
         if let Some(count) = count {
-            head = head.child(div().ml(px(scale::SP_2 + scale::SP_1)).text_color(p.ink_4).child(count));
+            head = head.child(div().ml(px(scale::SP_2 + scale::SP_1)).text_color(p.fg_muted).child(count));
         }
         head = head.child(div().flex_1());
         if let Some(actions) = actions {
@@ -399,10 +412,17 @@ impl Ctx {
             return self.rename_field(session, &editing.draft, nested, window, cx);
         }
         let hovered = self.model.hovered.as_ref() == Some(&id);
+        let selected = self.model.selected.as_ref() == Some(&id);
         let second = self.second_line(session);
-        let mut text = v_flex().flex_1().min_w(px(0.0)).justify_center().child(
-            div().truncate().text_role_in(TextRole::Body, Density::Compact).text_color(p.fg).child(session.name.clone()),
-        );
+        // FF: the title rests muted, lights to foreground under the pointer
+        // or when selected, and takes the semibold weight when selected.
+        let title = div()
+            .truncate()
+            .text_role_in(TextRole::Body, Density::Standard)
+            .text_color(if hovered || selected { p.fg } else { p.fg_muted })
+            .when(selected, |d| d.semibold())
+            .child(session.name.clone());
+        let mut text = v_flex().flex_1().min_w(px(0.0)).justify_center().child(title);
         if let Some(line) = second.clone() {
             text = text.child(div().truncate().role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(line));
         }
@@ -460,7 +480,7 @@ impl Ctx {
                 .min_w(px(0.0))
                 .items_center()
                 .text_color(p.fg)
-                .child(div().truncate().text_role_in(TextRole::Body, Density::Compact).child(draft.clone()))
+                .child(div().truncate().text_role_in(TextRole::Body, Density::Standard).child(draft.clone()))
                 .child(div().flex_none().w(px(1.0)).h(metrics.icon).bg(p.fg))
                 .into_any_element(),
         };
@@ -513,7 +533,7 @@ impl Ctx {
         let turn = spring_phase((self.child(format!("chevron-{}", group.id)), "turn"), group.open, SpringKind::Swap, window, cx);
         let chevron = icon(IconName::ChevronDown)
             .size(metrics.icon)
-            .color(p.fg_muted)
+            .color(if hovered { p.fg } else { p.fg_muted })
             .rotate(radians(-std::f32::consts::FRAC_PI_2 * (1.0 - turn)));
         let mut head = h_flex()
             .w_full()
@@ -525,9 +545,8 @@ impl Ctx {
             .child(
                 div()
                     .flex_none()
-                    .text_role_in(TextRole::Body, Density::Compact)
-                    .medium()
-                    .text_color(p.fg)
+                    .text_role_in(TextRole::Body, Density::Standard)
+                    .text_color(if hovered { p.fg } else { p.fg_muted })
                     .child(group.name.clone()),
             )
             .child(div().flex_none().ml(px(scale::SP_2 + scale::SP_1) - metrics.gap).role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(group.count.clone()))
@@ -693,7 +712,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                         .flex_1()
                         .min_w(px(0.0))
                         .overflow_hidden()
-                        .text_role_in(TextRole::Body, Density::Compact)
+                        .text_role_in(TextRole::Body, Density::Standard)
                         .child(div().text_color(p.fg).child(browse.host.clone()))
                         .child(div().truncate().text_color(p.fg_muted).child(browse.path.clone())),
                 )
@@ -742,8 +761,8 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
     let search_hovered = model.hovered.as_deref() == Some("search");
     let search_text = model.search.clone().unwrap_or_else(|| "Search".into());
     let search = ctx
-        .row(ctx.lead_icon(IconName::Search, cx), search_text, if search_hovered { Some(ctx.chip("⌘K", cx)) } else { None }, false, cx)
-        .when(model.search.is_none(), |d| d.text_color(p.fg_muted));
+        .row(ctx.lead_icon_lit(IconName::Search, search_hovered, cx), search_text, if search_hovered { Some(ctx.chip("⌘K", cx)) } else { None }, false, cx)
+        .when(search_hovered || model.search.is_some(), |d| d.text_color(p.fg));
     record_ax_label("Search");
     list = list.item(next, search.id(ctx.child("search")).role(gpui::Role::Button).aria_label("Search"));
     targets.insert(next, Target::Intent(SidebarIntent::Search));
@@ -752,7 +771,9 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
     if model.mode == Mode::Sessions {
         // New session, then the nav rows.
         let new_hovered = model.hovered.as_deref() == Some("new-session");
-        let new_row = ctx.row(ctx.lead_icon(IconName::Plus, cx), "New session", if new_hovered { Some(ctx.chip("⌘N", cx)) } else { None }, false, cx);
+        let new_row = ctx
+            .row(ctx.lead_icon_lit(IconName::Plus, new_hovered, cx), "New session", if new_hovered { Some(ctx.chip("⌘N", cx)) } else { None }, false, cx)
+            .when(new_hovered, |d| d.text_color(p.fg));
         record_ax_label("New session");
         list = list.item(next, new_row.id(ctx.child("new-session")).role(gpui::Role::Button).aria_label("New session"));
         targets.insert(next, Target::Intent(SidebarIntent::NewSession));
@@ -763,7 +784,8 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             } else {
                 item.count.map(|count| ctx.trailing(count.to_string(), cx))
             };
-            let row = ctx.row(ctx.lead_icon(item.icon, cx), item.label.clone(), trailing, false, cx);
+            let lit = ctx.lit(&format!("nav-{}", item.id));
+            let row = ctx.row(ctx.lead_icon_lit(item.icon, lit, cx), item.label.clone(), trailing, false, cx).when(lit, |d| d.text_color(p.fg));
             record_ax_label(&item.label);
             list = list.item(next, row.id(ctx.child(format!("nav-{}", item.id))).role(gpui::Role::Button).aria_label(item.label.clone()));
             targets.insert(next, Target::Intent(SidebarIntent::Nav(item.id.clone())));
@@ -794,7 +816,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                     .text_color(p.fg_muted)
                     .child(ctx.lead(chevron, cx))
                     .child(div().child("Pinned"))
-                    .child(div().ml(px(scale::SP_2 + scale::SP_1) - metrics.gap).text_color(p.ink_4).child(model.pinned.len().to_string()));
+                    .child(div().ml(px(scale::SP_2 + scale::SP_1) - metrics.gap).text_color(p.fg_muted).child(model.pinned.len().to_string()));
                 record_ax_label("Pinned");
                 list = list.item(next, head.id(ctx.child("pinned-head")).role(gpui::Role::Button).aria_label("Pinned"));
                 targets.insert(next, Target::Intent(SidebarIntent::TogglePinned));
@@ -899,7 +921,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                     .flex()
                     .items_center()
                     .justify_center()
-                    .text_role_in(TextRole::Body, Density::Compact)
+                    .text_role_in(TextRole::Body, Density::Standard)
                     .medium()
                     .text_color(p.ink_2)
                     .child(pin.initial.clone()),
@@ -958,7 +980,8 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             } else {
                 None
             };
-            let row = ctx.row(ctx.lead(mark, cx), tab.title.clone(), close, nested, cx);
+            let lit = model.hovered.as_ref() == Some(&tab.id) || tab.active;
+            let row = ctx.row(ctx.lead(mark, cx), tab.title.clone(), close, nested, cx).when(lit, |d| d.text_color(cx.aui().colors.fg));
             let label: SharedString = format!("Tab {}", tab.title).into();
             record_ax_label(&label);
             let built = row.id(ctx.child(format!("tab-{}", tab.id))).role(gpui::Role::Tab).aria_label(label);
@@ -987,7 +1010,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 .pr(metrics.item_px)
                 .text_color(p.fg)
                 .child(ctx.lead(chevron, cx))
-                .child(div().flex_none().text_role_in(TextRole::Body, Density::Compact).child(folder.name.clone()))
+                .child(div().flex_none().text_role_in(TextRole::Body, Density::Standard).child(folder.name.clone()))
                 .child(div().flex_none().ml(px(scale::SP_2 + scale::SP_1) - metrics.gap).role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(folder.tabs.len().to_string()))
                 .child(div().flex_1());
             let label: SharedString = format!("Folder {}", folder.name).into();
@@ -1075,6 +1098,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             Some(Target::Session(id)) => Some(id.clone()),
             Some(Target::Intent(SidebarIntent::Search)) => Some("search".into()),
             Some(Target::Intent(SidebarIntent::NewSession)) => Some("new-session".into()),
+            Some(Target::Intent(SidebarIntent::Nav(nav))) => Some(format!("nav-{nav}").into()),
             Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::Address))) => Some("address".into()),
             Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(id)))) => Some(id.clone()),
             _ => None,
@@ -1199,7 +1223,7 @@ impl RenderOnce for SidebarScreen {
             .flex_1()
             .min_w(px(0.0))
             .truncate()
-            .text_role_in(TextRole::Body, Density::Compact)
+            .text_role_in(TextRole::Body, Density::Standard)
             .child(div().text_color(p.fg).child(account.name.clone()))
             .when(!account.plan.is_empty(), |d| {
                 d.child(div().ml(px(scale::SP_2)).text_color(p.fg_muted).child(format!("· {}", account.plan)))
@@ -1246,7 +1270,7 @@ impl RenderOnce for SidebarScreen {
                     .right(metrics.item_px)
                     .top(top)
                     .occlude()
-                    .child(view_options_menu(ctx.child("view-menu"), &self.model.view_options, self.on_intent.clone(), cx)),
+                    .child(view_options_menu(ctx.child("view-menu"), &self.model.view_options, self.on_intent.clone(), window, cx)),
             );
         }
         if account.menu_open {
@@ -1257,7 +1281,7 @@ impl RenderOnce for SidebarScreen {
                     .right(metrics.item_px)
                     .bottom(list_row_height(cx) + metrics.item_px * 2.0 + px(1.0))
                     .occlude()
-                    .child(account_menu(ctx.child("account-menu"), account, self.on_intent.clone(), cx)),
+                    .child(account_menu(ctx.child("account-menu"), account, self.on_intent.clone(), window, cx)),
             );
         }
         column.into_any_element()

@@ -336,15 +336,14 @@ fn attention_for(data: &SessionDetailData) -> Option<(&'static str, String)> {
     Some((label, words))
 }
 
-/// Ink for the reply line, from the status: settled green, working accent,
-/// failed danger, waiting warning, everything else muted.
+/// Ink for the reply line (FF: text is foreground or muted, colour only for
+/// what needs attention): failed reads danger, waiting on the person reads
+/// warning, everything else is plain foreground.
 fn reply_ink(status: Option<&RowStatus>, p: aui_tokens::Palette) -> gpui::Hsla {
     match status.map(|s| s.kind) {
-        Some(RowStatusKind::Settled) => p.success,
-        Some(RowStatusKind::Working) => p.accent_ink,
         Some(RowStatusKind::Failed) => p.danger,
         Some(RowStatusKind::Asked) | Some(RowStatusKind::NeedsApproval) => p.warning,
-        Some(RowStatusKind::NoReply) | None => p.ink_3,
+        _ => p.fg,
     }
 }
 
@@ -361,7 +360,7 @@ impl RenderOnce for SessionDetail {
                 div()
                     .flex_1()
                     .min_w(px(0.0))
-                    .text_role_in(TextRole::Subtitle, Density::Compact)
+                    .text_role_in(TextRole::Body, Density::Standard).semibold()
                     .line_clamp(SESSION_DETAIL_TITLE_LINES)
                     .text_color(p.ink)
                     .debug_selector(|| "detail-title".into())

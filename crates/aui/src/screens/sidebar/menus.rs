@@ -25,19 +25,24 @@ const USAGE_WARN: f32 = 0.8;
 
 /// One menu row: a `control_md`-tall menu item with its label on the
 /// left and an optional value or shortcut on the right.
-fn menu_row(
-    id: &ElementId,
-    label: &str,
-    trailing: Option<&str>,
+/// What one menu row shows and reports.
+struct MenuRow<'a> {
+    label: &'a str,
+    trailing: Option<&'a str>,
     intent: Option<SidebarIntent>,
-    handler: &Option<IntentHandler>,
     danger: bool,
-    cx: &App,
-) -> AnyElement {
+}
+
+fn menu_row(id: &ElementId, spec: MenuRow<'_>, handler: &Option<IntentHandler>, window: &mut Window, cx: &mut App) -> AnyElement {
+    let MenuRow { label, trailing, intent, danger } = spec;
     let p = cx.aui().colors;
     let metrics = cx.aui().metrics;
+    let row_id: ElementId = (id.clone(), SharedString::from(label.to_string())).into();
+    // FF menu rows: one `control` tall (36), label muted at rest and
+    // foreground while the row is lit.
+    let lit = crate::interact::interactive_state(row_id.clone(), window, cx).hovered;
     let mut body = h_flex()
-        .h(metrics.control_md)
+        .h(metrics.control)
         .w_full()
         .items_center()
         .px(metrics.item_px)
@@ -47,8 +52,8 @@ fn menu_row(
                 .flex_1()
                 .min_w(px(0.0))
                 .truncate()
-                .text_role_in(TextRole::Body, Density::Compact)
-                .text_color(if danger { p.danger } else { p.fg })
+                .text_role_in(TextRole::Body, Density::Standard)
+                .text_color(if danger { p.danger } else if lit { p.fg } else { p.fg_muted })
                 .child(label.to_string()),
         );
     if let Some(trailing) = trailing {
@@ -56,7 +61,7 @@ fn menu_row(
         let role = if trailing.starts_with('⌘') { TextRole::Micro } else { TextRole::Caption };
         body = body.child(div().role_in(role, cx).text_color(p.fg_muted).child(trailing.to_string()));
     }
-    let mut row = interactive((id.clone(), SharedString::from(label.to_string())), body)
+    let mut row = interactive(row_id, body)
         .role("menuitem")
         .shape(Shape::Item)
         .label(label.to_string());
@@ -81,7 +86,7 @@ fn separator(cx: &App) -> AnyElement {
 /// the three list toggles, as Baaz's Sessions menu has them. Every row
 /// reports its own [`ViewOption`]; the values and checks come from
 /// `options`.
-pub fn view_options_menu(id: impl Into<ElementId>, options: &ViewOptions, on_intent: Option<IntentHandler>, cx: &App) -> AnyElement {
+pub fn view_options_menu(id: impl Into<ElementId>, options: &ViewOptions, on_intent: Option<IntentHandler>, window: &mut Window, cx: &mut App) -> AnyElement {
     let id: ElementId = id.into();
     let metrics = cx.aui().metrics;
     record_ax_label("View options");
@@ -103,12 +108,12 @@ pub fn view_options_menu(id: impl Into<ElementId>, options: &ViewOptions, on_int
                     emit(SidebarIntent::MenuBackdrop, w, cx);
                 }
             })
-            .child(menu_row(&id, "Group by", Some(&group_by), Some(SidebarIntent::ViewOption(ViewOption::GroupBy)), &on_intent, false, cx))
-            .child(menu_row(&id, "Sort by", Some(&sort_by), Some(SidebarIntent::ViewOption(ViewOption::SortBy)), &on_intent, false, cx))
+            .child(menu_row(&id, MenuRow { label: "Group by", trailing: Some(&group_by), intent: Some(SidebarIntent::ViewOption(ViewOption::GroupBy)), danger: false }, &on_intent, window, cx))
+            .child(menu_row(&id, MenuRow { label: "Sort by", trailing: Some(&sort_by), intent: Some(SidebarIntent::ViewOption(ViewOption::SortBy)), danger: false }, &on_intent, window, cx))
             .child(separator(cx))
-            .child(menu_row(&id, "Show empty projects", check(options.show_empty), Some(SidebarIntent::ViewOption(ViewOption::ToggleEmpty)), &on_intent, false, cx))
-            .child(menu_row(&id, "Show PR status", check(options.show_pr_status), Some(SidebarIntent::ViewOption(ViewOption::TogglePrStatus)), &on_intent, false, cx))
-            .child(menu_row(&id, "Show archived", check(options.show_archived), Some(SidebarIntent::ViewOption(ViewOption::ToggleArchived)), &on_intent, false, cx)),
+            .child(menu_row(&id, MenuRow { label: "Show empty projects", trailing: check(options.show_empty), intent: Some(SidebarIntent::ViewOption(ViewOption::ToggleEmpty)), danger: false }, &on_intent, window, cx))
+            .child(menu_row(&id, MenuRow { label: "Show PR status", trailing: check(options.show_pr_status), intent: Some(SidebarIntent::ViewOption(ViewOption::TogglePrStatus)), danger: false }, &on_intent, window, cx))
+            .child(menu_row(&id, MenuRow { label: "Show archived", trailing: check(options.show_archived), intent: Some(SidebarIntent::ViewOption(ViewOption::ToggleArchived)), danger: false }, &on_intent, window, cx)),
     )
     .into_any_element()
 }
@@ -125,7 +130,7 @@ fn provider_card(id: &ElementId, usage: &super::ProviderUsage, cx: &App) -> AnyE
             .gap(metrics.gap / 2.0)
             .w_full()
             .child(project_mark(usage.initial.clone(), p.label(usage.tint)).size(metrics.icon - px(scale::SP_1)))
-            .child(div().flex_none().text_role_in(TextRole::Body, Density::Compact).text_color(p.fg).child(usage.name.clone()))
+            .child(div().flex_none().text_role_in(TextRole::Body, Density::Standard).text_color(p.fg).child(usage.name.clone()))
             .child(div().flex_1().min_w(px(0.0)).truncate().role_in(TextRole::Micro, cx).text_color(p.fg_muted).child(usage.plan.clone())),
     );
     for (index, line) in usage.lines.iter().enumerate() {
@@ -168,7 +173,7 @@ fn provider_card(id: &ElementId, usage: &super::ProviderUsage, cx: &App) -> AnyE
 
 /// The account menu above the footer: identity, every provider's usage,
 /// then Settings, Providers and Sign out, as Baaz's account panel has them.
-pub fn account_menu(id: impl Into<ElementId>, account: &Account, on_intent: Option<IntentHandler>, cx: &App) -> AnyElement {
+pub fn account_menu(id: impl Into<ElementId>, account: &Account, on_intent: Option<IntentHandler>, window: &mut Window, cx: &mut App) -> AnyElement {
     let id: ElementId = id.into();
     let p = cx.aui().colors;
     let metrics = cx.aui().metrics;
@@ -181,7 +186,7 @@ pub fn account_menu(id: impl Into<ElementId>, account: &Account, on_intent: Opti
         .px(metrics.item_px)
         .gap(metrics.gap)
         .child(project_mark(account.initial.clone(), p.label(account.tint)).size(metrics.icon + metrics.gap / 2.0))
-        .child(div().flex_1().min_w(px(0.0)).truncate().text_role_in(TextRole::Body, Density::Compact).text_color(p.fg).child(account.name.clone()))
+        .child(div().flex_1().min_w(px(0.0)).truncate().text_role_in(TextRole::Body, Density::Standard).text_color(p.fg).child(account.name.clone()))
         // The email only when it says something the name does not.
         .when(!account.email.is_empty() && account.email != account.name, |d| {
             d.child(div().flex_shrink(1.0).min_w(px(0.0)).max_w(px(scale::SP_7 * 3.0)).truncate().role_in(TextRole::Micro, cx).text_color(p.fg_muted).child(account.email.clone()))
@@ -217,9 +222,9 @@ pub fn account_menu(id: impl Into<ElementId>, account: &Account, on_intent: Opti
     }
     panel = panel
         .child(separator(cx))
-        .child(menu_row(&id, "Settings…", Some("⌘,"), Some(SidebarIntent::AccountAction(AccountAction::Settings)), &on_intent, false, cx))
-        .child(menu_row(&id, "Providers…", None, Some(SidebarIntent::AccountAction(AccountAction::Providers)), &on_intent, false, cx))
+        .child(menu_row(&id, MenuRow { label: "Settings…", trailing: Some("⌘,"), intent: Some(SidebarIntent::AccountAction(AccountAction::Settings)), danger: false }, &on_intent, window, cx))
+        .child(menu_row(&id, MenuRow { label: "Providers…", trailing: None, intent: Some(SidebarIntent::AccountAction(AccountAction::Providers)), danger: false }, &on_intent, window, cx))
         .child(separator(cx))
-        .child(menu_row(&id, "Sign out of Muse", None, Some(SidebarIntent::AccountAction(AccountAction::SignOut)), &on_intent, true, cx));
+        .child(menu_row(&id, MenuRow { label: "Sign out of Muse", trailing: None, intent: Some(SidebarIntent::AccountAction(AccountAction::SignOut)), danger: true }, &on_intent, window, cx));
     menu_surface(panel).into_any_element()
 }

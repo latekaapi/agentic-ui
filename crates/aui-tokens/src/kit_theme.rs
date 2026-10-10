@@ -302,8 +302,8 @@ mod tests {
         assert_eq!(set.themes[0].name.as_ref(), KIT_THEME_LIGHT);
         assert_eq!(set.themes[1].name.as_ref(), KIT_THEME_DARK);
         assert!(set.themes[1].mode.is_dark());
-        assert_eq!(set.themes[0].font_family.as_deref(), Some("Geist"));
-        assert_eq!(set.themes[0].colors.primary.as_deref(), Some("#565cc4"));
+        assert_eq!(set.themes[0].font_family.as_deref(), Some("Inter"));
+        assert_eq!(set.themes[0].colors.primary.as_deref(), Some("#171717"));
         assert!(set.themes[0].highlight.is_some());
     }
 }

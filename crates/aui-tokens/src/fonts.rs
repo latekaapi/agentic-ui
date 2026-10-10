@@ -1,5 +1,5 @@
-//! The bundled Geist and Geist Mono faces (SIL Open Font License, see
-//! `fonts/OFL.txt`).
+//! The bundled Inter (Fluid Functionalism's face, `fonts/Inter-OFL.txt`) and
+//! Geist Mono (`fonts/OFL.txt`) faces, both SIL Open Font License.
 
 use std::borrow::Cow;
 
@@ -11,14 +11,16 @@ use gpui::App;
 struct Fonts;
 
 /// File names of the embedded faces (Regular, Medium, SemiBold, Bold and the
-/// two italics for Geist; Regular, Medium, SemiBold, Bold for Geist Mono).
+/// two italics for Inter; Regular, Medium, SemiBold, Bold for Geist Mono).
+/// Inter is static: gpui has no variable-axis support, so FF's 550 weight
+/// resolves to the nearest static face.
 pub const FONT_FILES: &[&str] = &[
-    "Geist-Regular.ttf",
-    "Geist-Medium.ttf",
-    "Geist-SemiBold.ttf",
-    "Geist-Bold.ttf",
-    "Geist-Italic.ttf",
-    "Geist-MediumItalic.ttf",
+    "Inter-Regular.ttf",
+    "Inter-Medium.ttf",
+    "Inter-SemiBold.ttf",
+    "Inter-Bold.ttf",
+    "Inter-Italic.ttf",
+    "Inter-MediumItalic.ttf",
     "GeistMono-Regular.ttf",
     "GeistMono-Medium.ttf",
     "GeistMono-SemiBold.ttf",
@@ -26,7 +28,7 @@ pub const FONT_FILES: &[&str] = &[
 ];
 
 /// Registers the embedded faces with gpui's text system so that the families
-/// `Geist` and `Geist Mono` resolve without a system install.
+/// `Inter` and `Geist Mono` resolve without a system install.
 pub fn load_fonts(cx: &App) -> anyhow::Result<()> {
     let mut data: Vec<Cow<'static, [u8]>> = Vec::with_capacity(FONT_FILES.len());
     for name in FONT_FILES {
