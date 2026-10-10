@@ -114,6 +114,24 @@ extern "C" fn pump_work() {
     do_message_loop_work();
 }
 
+/// Chromium features every Baaz page runs without (see
+/// `on_before_command_line_processing`): the macOS media-key and Now
+/// Playing integrations that trigger the Apple Music privacy prompt.
+pub const DISABLED_FEATURES: &str = "HardwareMediaKeyHandling";
+
+/// `existing` (a comma list) with every name in `add` appended once, order
+/// kept, blanks dropped.
+pub fn merge_features(existing: &str, add: &[&str]) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for name in std::iter::once(existing).chain(add.iter().copied()).flat_map(|list| list.split(',')) {
+        let name = name.trim();
+        if !name.is_empty() && !out.iter().any(|n| n == name) {
+            out.push(name.to_owned());
+        }
+    }
+    out.join(",")
+}
+
 wrap_app! {
     struct AuiApp {
         mock_keychain: bool,
@@ -133,15 +151,28 @@ wrap_app! {
                 if self.mock_keychain {
                     command_line.append_switch(Some(&CefString::from("use-mock-keychain")));
                 }
-                // `AUI_CEF_DISABLE_FEATURES=A,B` → `--disable-features=A,B`:
-                // a diagnosis aid for Chromium UI features (no rebuild).
-                if let Ok(features) = std::env::var("AUI_CEF_DISABLE_FEATURES") {
-                    if !features.trim().is_empty() {
-                        command_line.append_switch_with_value(
-                            Some(&CefString::from("disable-features")),
-                            Some(&CefString::from(features.trim())),
-                        );
-                    }
+                // Always off: Chromium's hardware media keys and its media
+                // session (Now Playing) go through macOS's MediaPlayer
+                // framework, which macOS treats as Apple Music / media-library
+                // access — a TCC prompt ("would like to access Apple Music…")
+                // that an ad-hoc-signed build re-asks after every rebuild.
+                // `AUI_CEF_DISABLE_FEATURES=A,B` adds more (a diagnosis aid for
+                // Chromium UI features, no rebuild).
+                // MERGED into whatever list CEF already passes, never replacing
+                // it: CEF disables features of its own (seen live:
+                // AutofillActorMode, GlicActorUi, KillOnInvalidNavigationHeaders,
+                // LensOverlay), and a second switch that replaced that list
+                // re-enabled them and crashed window creation, 3 runs of 3.
+                let key = CefString::from("disable-features");
+                let existing = if command_line.has_switch(Some(&key)) != 0 {
+                    CefString::from(&command_line.switch_value(Some(&key))).to_string()
+                } else {
+                    String::new()
+                };
+                let extra = std::env::var("AUI_CEF_DISABLE_FEATURES").unwrap_or_default();
+                let features = merge_features(&existing, &[DISABLED_FEATURES, extra.trim()]);
+                if !features.is_empty() {
+                    command_line.append_switch_with_value(Some(&key), Some(&CefString::from(features.as_str())));
                 }
             }
         }
@@ -322,5 +353,17 @@ mod session_tests {
         assert!(profile.join("Local Storage").exists(), "site data is kept");
         assert!(discard_chromium_session(&root).is_empty(), "a second run finds nothing");
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod feature_merge_tests {
+    use super::merge_features;
+
+    #[test]
+    fn merge_keeps_cefs_list_and_appends_ours_once() {
+        assert_eq!(merge_features("LensOverlay,GlicActorUi", &["HardwareMediaKeyHandling", ""]), "LensOverlay,GlicActorUi,HardwareMediaKeyHandling");
+        assert_eq!(merge_features("A", &["A,B", " B , C "]), "A,B,C");
+        assert_eq!(merge_features("", &["", ""]), "");
     }
 }
