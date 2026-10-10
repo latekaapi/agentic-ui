@@ -78,6 +78,12 @@ struct FluidState {
     /// Bumped on such a stall: it re-keys the springs, which start at
     /// their targets.
     epoch: u64,
+    /// The `selected` prop as last rendered, and a counter bumped when the
+    /// selection lands on the item the pointer is already lighting (a
+    /// click): that move snaps — the hover pill is already there, and a
+    /// selection gliding in from another row crossed it (seen live).
+    last_selected: Option<usize>,
+    select_snaps: u64,
     /// Items at or past this index live inside a scrolling region (a
     /// virtualised `gpui::list`) whose viewport is the second field: their
     /// blocks are clipped to it, so a row half scrolled under a header never
@@ -408,7 +414,7 @@ fn click_target(state: &FluidState, gap_click: bool, axis: Axis) -> Option<usize
 
 /// A gap between frames longer than this, with a block still gliding, is a
 /// stall: the glide snaps instead of resuming.
-const STALL: std::time::Duration = std::time::Duration::from_millis(120);
+const STALL: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// Clamps a length at zero: spring overshoot must never flip an overlay
 /// into a negative size.
@@ -546,8 +552,18 @@ impl RenderOnce for FluidList {
             state.last_frame = Some(now);
             state.epoch
         };
+        let snaps = {
+            let mut state = fluid.borrow_mut();
+            if state.last_selected != selected {
+                if selected.is_some() && selected == highlight {
+                    state.select_snaps += 1;
+                }
+                state.last_selected = selected;
+            }
+            state.select_snaps
+        };
         let sess: SharedString = SharedString::from(format!("session-{session}-{epoch}"));
-        let sel_key: SharedString = SharedString::from(format!("sel-{epoch}"));
+        let sel_key: SharedString = SharedString::from(format!("sel-{epoch}-{snaps}"));
         let mut gliding = false;
         let enter = Tween::new(Tier::Fast.enter(), Easing::STD);
         let mut overlays = Vec::with_capacity(2);
