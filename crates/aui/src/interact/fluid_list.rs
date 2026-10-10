@@ -122,6 +122,22 @@ struct FluidState {
     /// the pointer leaves or the selection clears.
     previous_highlight: Option<usize>,
     previous_selected: Option<usize>,
+    /// The highlight as painted last frame (`None` when nothing was lit).
+    last_highlight: Option<usize>,
+    /// Last frame's hover and selection blocks: the item each sat on and
+    /// that item's rect. The same item at a new rect (a scroll, a resize)
+    /// bumps the matching counter, which re-keys the block's position
+    /// springs so it rides with its row instead of springing after it —
+    /// FF's blocks live in the list's content coordinates.
+    hover_anchor: Option<(usize, Bounds<Pixels>)>,
+    selected_anchor: Option<(usize, Bounds<Pixels>)>,
+    hover_rides: u64,
+    selected_rides: u64,
+    /// A real mouse move landed since the last render.
+    moved: bool,
+    /// The highlight held on its row while rows scroll under a still
+    /// pointer, and when they last moved ([`scroll_hold`]).
+    hold: Option<(usize, std::time::Instant)>,
 }
 
 type HighlightHandler = Rc<dyn Fn(Option<usize>, &mut Window, &mut App)>;
@@ -391,6 +407,8 @@ fn effective_keyboard(state: &mut FluidState, prop: Option<usize>) -> Option<usi
 /// from any keyboard override until the prop changes again.
 fn pointer_moved(state: &mut FluidState, at: Point<Pixels>) {
     state.pointer = Some(at);
+    state.moved = true;
+    state.hold = None;
     if state.keyboard.is_some() {
         state.keyboard = None;
         state.pointer_override = true;
@@ -417,6 +435,63 @@ fn click_target(state: &FluidState, gap_click: bool, axis: Axis) -> Option<usize
         }
     }
     state_highlight(state, axis)
+}
+
+/// How long rows must rest under a still pointer before the highlight
+/// re-picks the row beneath it: Chromium's synthetic mouse move after a
+/// scroll, which is what moves FF's highlight once a wheel scroll ends.
+const SCROLL_SETTLE: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// FF re-picks the lit row only on a real mouse move (use-fluid-hover.ts
+/// `handleMouseMove`), so rows scrolling under a still pointer carry the
+/// highlight with them; Chromium's synthetic move once the scroll settles
+/// then hands it to the row beneath. Ours re-picked every frame, so the
+/// pill chased the pointer's row through the scroll (owner recording
+/// 2026-10-11). Answers the highlight to paint and whether it is held
+/// (the caller keeps frames coming until the hold settles).
+fn scroll_hold(
+    state: &mut FluidState,
+    picked: Option<usize>,
+    keyboard: Option<usize>,
+    bounds: &HashMap<usize, Bounds<Pixels>>,
+    now: std::time::Instant,
+) -> (Option<usize>, bool) {
+    let moved = std::mem::take(&mut state.moved);
+    if moved || keyboard.is_some() || state.pointer.is_none() {
+        state.hold = None;
+        return (picked, false);
+    }
+    let Some(shown) = state.last_highlight else {
+        state.hold = None;
+        return (picked, false);
+    };
+    // A row scrolled out of the built range lets go.
+    let Some(rect) = bounds.get(&shown) else {
+        state.hold = None;
+        return (picked, false);
+    };
+    if state.hover_anchor.is_some_and(|(index, was)| index == shown && was != *rect) {
+        state.hold = Some((shown, now));
+    }
+    match state.hold {
+        Some((index, at)) if index == shown && now.duration_since(at) < SCROLL_SETTLE => (Some(shown), true),
+        _ => {
+            state.hold = None;
+            (picked, false)
+        }
+    }
+}
+
+/// Bumps `rides` when `anchor` is the same item as last frame at a new
+/// rect, and records the new anchor: the block's springs re-key and start
+/// at the new rect, so a scroll carries the block with its row.
+fn ride(last: &mut Option<(usize, Bounds<Pixels>)>, rides: &mut u64, anchor: Option<(usize, Bounds<Pixels>)>) {
+    if let (Some((was_index, was)), Some((index, rect))) = (*last, anchor) {
+        if was_index == index && was != rect {
+            *rides += 1;
+        }
+    }
+    *last = anchor;
 }
 
 /// A gap between frames longer than this, with a block still gliding, is a
@@ -521,11 +596,15 @@ impl RenderOnce for FluidList {
                 rects.push(*rect);
             }
         }
-        let highlight = highlight_for(&keys, &rects, keyboard, pointer, axis);
-        // The pointer may be still while the rows move under it (a wheel
-        // scroll of a virtualised list): the overlay follows at once, and
-        // the parent hears about the new row on the next frame, never
-        // from inside render.
+        let picked = highlight_for(&keys, &rects, keyboard, pointer, axis);
+        // Rows moving under a still pointer (a wheel scroll) keep the
+        // highlight on its row until they rest (`scroll_hold`); then the
+        // row beneath takes it, and the parent hears about the new row on
+        // the next frame, never from inside render.
+        let (highlight, holding) = scroll_hold(&mut fluid.borrow_mut(), picked, keyboard, &bounds, std::time::Instant::now());
+        if holding {
+            window.request_animation_frame();
+        }
         if pointer.is_some() && keyboard.is_none() && fluid.borrow().reported != Some(highlight) {
             if let Some(report) = self.on_highlight.clone() {
                 let fluid = fluid.clone();
@@ -597,6 +676,14 @@ impl RenderOnce for FluidList {
             // (0.08 s, no bounce); opacity fades 0.08 s in, the fast exit out.
             // The previous anchor keeps the fade-out painted where it left.
             let anchor = highlight.or(previous).and_then(|index| bounds.get(&index).map(|rect| (index, *rect)));
+            let rides = {
+                let mut state = fluid.borrow_mut();
+                let state = &mut *state;
+                ride(&mut state.hover_anchor, &mut state.hover_rides, anchor);
+                state.last_highlight = highlight;
+                state.hover_rides
+            };
+            let pos: SharedString = SharedString::from(format!("{sess}-r{rides}"));
             if let Some((index, rect)) = anchor {
                 let (x, y, w, h) = relative(index, rect);
                 // The first frame of a fresh session paints the re-keyed
@@ -607,16 +694,16 @@ impl RenderOnce for FluidList {
                 }
                 let tint = tint_fade(((id.clone(), "aui-hl"), sess.clone()), tint_on(highlight.is_some(), fresh), p.hover_overlay(), enter, window, cx);
                 let x_to = x;
-                let x = spring_px(((id.clone(), "aui-hl-x"), sess.clone()), x, SpringKind::Fast, window, cx);
+                let x = spring_px(((id.clone(), "aui-hl-x"), pos.clone()), x, SpringKind::Fast, window, cx);
                 gliding |= (x - x_to).abs() > px(0.5);
                 let y_to = y;
-                let y = spring_px(((id.clone(), "aui-hl-y"), sess.clone()), y, SpringKind::Fast, window, cx);
+                let y = spring_px(((id.clone(), "aui-hl-y"), pos.clone()), y, SpringKind::Fast, window, cx);
                 gliding |= (y - y_to).abs() > px(0.5);
                 let w_to = w;
-                let w = spring_px(((id.clone(), "aui-hl-w"), sess.clone()), w, SpringKind::Fast, window, cx);
+                let w = spring_px(((id.clone(), "aui-hl-w"), pos.clone()), w, SpringKind::Fast, window, cx);
                 gliding |= (w - w_to).abs() > px(0.5);
                 let h_to = h;
-                let h = spring_px(((id.clone(), "aui-hl-h"), sess.clone()), h, SpringKind::Fast, window, cx);
+                let h = spring_px(((id.clone(), "aui-hl-h"), pos.clone()), h, SpringKind::Fast, window, cx);
                 gliding |= (h - h_to).abs() > px(0.5);
                 overlays.push(div().absolute().left(x).top(y).w(non_negative(w)).h(non_negative(h)).rounded(px(scale::SHAPE_ITEM)).bg(tint));
             }
@@ -624,20 +711,26 @@ impl RenderOnce for FluidList {
             // tier when the selection moves; a cleared selection fades out
             // where it was.
             let selected_anchor = selected.or(previous_selected).and_then(|index| bounds.get(&index).map(|rect| (index, *rect)));
+            let sel_pos: SharedString = {
+                let mut state = fluid.borrow_mut();
+                let state = &mut *state;
+                ride(&mut state.selected_anchor, &mut state.selected_rides, selected_anchor);
+                SharedString::from(format!("{sel_key}-r{}", state.selected_rides))
+            };
             if let Some((index, rect)) = selected_anchor {
                 let (x, y, w, h) = relative(index, rect);
                 let tint = tint_fade((id.clone(), "aui-sel"), selected.is_some(), p.selected_overlay(), enter, window, cx);
                 let x_to = x;
-                let x = spring_px(((id.clone(), "aui-sel-x"), sel_key.clone()), x, SpringKind::Moderate, window, cx);
+                let x = spring_px(((id.clone(), "aui-sel-x"), sel_pos.clone()), x, SpringKind::Moderate, window, cx);
                 gliding |= (x - x_to).abs() > px(0.5);
                 let y_to = y;
-                let y = spring_px(((id.clone(), "aui-sel-y"), sel_key.clone()), y, SpringKind::Moderate, window, cx);
+                let y = spring_px(((id.clone(), "aui-sel-y"), sel_pos.clone()), y, SpringKind::Moderate, window, cx);
                 gliding |= (y - y_to).abs() > px(0.5);
                 let w_to = w;
-                let w = spring_px(((id.clone(), "aui-sel-w"), sel_key.clone()), w, SpringKind::Moderate, window, cx);
+                let w = spring_px(((id.clone(), "aui-sel-w"), sel_pos.clone()), w, SpringKind::Moderate, window, cx);
                 gliding |= (w - w_to).abs() > px(0.5);
                 let h_to = h;
-                let h = spring_px(((id.clone(), "aui-sel-h"), sel_key.clone()), h, SpringKind::Moderate, window, cx);
+                let h = spring_px(((id.clone(), "aui-sel-h"), sel_pos.clone()), h, SpringKind::Moderate, window, cx);
                 gliding |= (h - h_to).abs() > px(0.5);
                 overlays.push(div().absolute().left(x).top(y).w(non_negative(w)).h(non_negative(h)).rounded(px(scale::SHAPE_ITEM)).bg(tint));
             }
@@ -749,6 +842,47 @@ mod tests {
 
     fn at(x: f32, y: f32) -> Point<Pixels> {
         Point { x: px(x), y: px(y) }
+    }
+
+    /// Owner recording 2026-10-11: rows scrolling under a still pointer
+    /// keep the highlight on its row (FF re-picks only on a mouse move);
+    /// once they rest for the settle time, the row beneath takes it.
+    #[test]
+    fn a_scroll_under_a_still_pointer_holds_the_row_until_it_settles() {
+        let t0 = std::time::Instant::now();
+        let mut state = FluidState { pointer: Some(at(10.0, 50.0)), last_highlight: Some(1), hover_anchor: Some((1, rect(36.0))), ..Default::default() };
+        // Row 1 scrolled up 30 px; the pointer now sits over row 2.
+        let bounds: HashMap<usize, Bounds<Pixels>> = [(1, rect(6.0)), (2, rect(42.0))].into_iter().collect();
+        assert_eq!(scroll_hold(&mut state, Some(2), None, &bounds, t0), (Some(1), true));
+        // Still within the settle time, rows at rest: held.
+        state.hover_anchor = Some((1, rect(6.0)));
+        assert_eq!(scroll_hold(&mut state, Some(2), None, &bounds, t0 + std::time::Duration::from_millis(50)), (Some(1), true));
+        // Past it: the row under the pointer takes the highlight.
+        assert_eq!(scroll_hold(&mut state, Some(2), None, &bounds, t0 + SCROLL_SETTLE), (Some(2), false));
+    }
+
+    #[test]
+    fn a_real_mouse_move_ends_the_hold_at_once() {
+        let t0 = std::time::Instant::now();
+        let mut state = FluidState { pointer: Some(at(10.0, 50.0)), last_highlight: Some(1), hover_anchor: Some((1, rect(36.0))), ..Default::default() };
+        let bounds: HashMap<usize, Bounds<Pixels>> = [(1, rect(6.0)), (2, rect(42.0))].into_iter().collect();
+        assert_eq!(scroll_hold(&mut state, Some(2), None, &bounds, t0), (Some(1), true));
+        pointer_moved(&mut state, at(10.0, 50.0));
+        assert_eq!(scroll_hold(&mut state, Some(2), None, &bounds, t0), (Some(2), false));
+    }
+
+    /// The same row at a new rect re-keys the block's springs (it rides
+    /// with the row); a different row keeps the key (it glides).
+    #[test]
+    fn a_block_rides_its_row_and_glides_between_rows() {
+        let mut last = Some((1, rect(36.0)));
+        let mut rides = 0;
+        ride(&mut last, &mut rides, Some((1, rect(6.0))));
+        assert_eq!(rides, 1);
+        ride(&mut last, &mut rides, Some((2, rect(42.0))));
+        assert_eq!(rides, 1);
+        ride(&mut last, &mut rides, Some((2, rect(42.0))));
+        assert_eq!(rides, 1);
     }
 
     /// Three built rows at y 0 / 44 / 88 (an 8 px gap).
