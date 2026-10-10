@@ -214,6 +214,7 @@ pub struct FluidList {
     gap: Option<Pixels>,
     handle: Option<FluidHandle>,
     fill: bool,
+    block_inset_y: Pixels,
 }
 
 /// A [`FluidList`] over `axis` with `id`.
@@ -231,6 +232,7 @@ pub fn fluid_list(id: impl Into<ElementId>, axis: Axis) -> FluidList {
         gap: None,
         handle: None,
         fill: false,
+        block_inset_y: px(0.0),
     }
 }
 
@@ -254,6 +256,15 @@ impl FluidList {
     /// ladder passes zero so rows touch.
     pub fn gap(mut self, gap: Pixels) -> Self {
         self.gap = Some(gap);
+        self
+    }
+
+    /// Insets the hover and selected blocks this much from the top and
+    /// bottom of their item (paint only; the rows still touch), so two lit
+    /// neighbours keep a gap of twice it between their pills, as Claude
+    /// Desktop's sidebar does.
+    pub fn block_inset_y(mut self, inset: Pixels) -> Self {
+        self.block_inset_y = inset;
         self
     }
 
@@ -445,6 +456,7 @@ impl RenderOnce for FluidList {
         let keyboard = self.highlighted;
         let selected = self.selected;
         let gap_click = self.gap_click;
+        let inset_y = self.block_inset_y;
 
         let fluid = match self.handle.as_ref() {
             Some(handle) => handle.fluid.clone(),
@@ -520,6 +532,11 @@ impl RenderOnce for FluidList {
             // highlight over whatever sits below the list (seen live).
             let relative = |index: usize, rect: Bounds<Pixels>| {
                 let mut rect = rect.intersect(&frame);
+                // Inset before the clip, so a pill half under a header keeps
+                // its own edge where it is cut.
+                rect.origin.y += inset_y;
+                rect.size.height = non_negative(rect.size.height - inset_y * 2.0);
+                rect = rect.intersect(&frame);
                 if let Some((min, region)) = clip {
                     if index >= min {
                         rect = rect.intersect(&region);

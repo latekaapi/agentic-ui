@@ -696,6 +696,9 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
         .gap(px(0.0))
         .gap_click(false)
         .fill()
+        // Pills never touch: 1 px clear above and below each, 2 px between
+        // lit neighbours (owner, from Claude Desktop's sidebar).
+        .block_inset_y(px(scale::SP_1 / 2.0))
         .handle(&ctx.fluid);
     let mut next = 0usize;
 
