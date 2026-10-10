@@ -107,6 +107,11 @@ pub fn list_row_height(cx: &App) -> Pixels {
     cx.aui().metrics.control_lg
 }
 
+/// The two-line row's height: 5 + 20 (title) + 16 (byline) + 5 = 46.
+fn two_line_row_height() -> Pixels {
+    px(scale::T_BODY_LH + scale::T_CAPTION_LH + scale::SP_3 + scale::SP_1)
+}
+
 /// How many virtual rows [`sidebar_screen`] builds for `model`: the
 /// flattened project grouping (four skeleton rows while loading, none in
 /// Browse mode). Size the caller-owned [`ListState`] with this before
@@ -303,11 +308,10 @@ impl Ctx {
     }
 
     /// The two-line row height: the title line (20) and one Caption line
-    /// (16) with 2 px above and below — 40, so the pill reads as one row
-    /// that says two things rather than a tall block (owner note 2026-10-10:
-    /// 48 was "too tall, awkward").
+    /// (16) with 5 px above and below — 46 (owner 2026-10-10: 48 read too
+    /// tall, 40 too squished; the 1 px pill inset leaves a 44 px pill).
     fn two_line_height(&self, _cx: &App) -> Pixels {
-        px(scale::T_BODY_LH + scale::T_CAPTION_LH + scale::SP_2)
+        two_line_row_height()
     }
 
     /// A trailing count or age: Caption, muted, tabular.
@@ -1308,7 +1312,7 @@ fn projects_header_bottom(model: &SidebarModel, cx: &App) -> Pixels {
         if model.pinned_open {
             for session in &model.pinned {
                 let two = second_line_for(session, model.bylines).is_some();
-                y += if two { px(scale::T_BODY_LH + scale::T_CAPTION_LH + scale::SP_2) } else { row };
+                y += if two { two_line_row_height() } else { row };
             }
         }
     }
