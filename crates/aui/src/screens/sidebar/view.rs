@@ -1030,7 +1030,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                         None => div().into_any_element(),
                     }
                 };
-                list = list.item_static_fill(next, list_host(ctx, render));
+                list = list.item_static_fill(next, list_host(ctx, render, cx));
             }
         }
     } else if let Some(browse) = model.browse.as_ref() {
@@ -1353,14 +1353,41 @@ enum Target {
 }
 
 /// The virtualised list, filling its FluidList slot.
-fn list_host(ctx: &Ctx, render: impl Fn(usize, &mut Window, &mut App) -> AnyElement + 'static) -> AnyElement {
+fn list_host(ctx: &Ctx, render: impl Fn(usize, &mut Window, &mut App) -> AnyElement + 'static, cx: &App) -> AnyElement {
     div()
         .id(ctx.child("virtual"))
+        .relative()
         .w_full()
         .h_full()
         .flex_1()
         .min_h(px(0.0))
         .child(ctx.fluid.clip_region(VIRTUAL_BASE, list(ctx_state(ctx), render).w_full().h_full()))
+        .child(list_scrollbar(ctx, cx))
+        .into_any_element()
+}
+
+/// Fluid Functionalism's scrollbar (`scroll-area.tsx`): shown while the list
+/// is hovered or scrolled, a 10 px track flush to the edge, a 4 px thumb
+/// nudged 2 px off it at the overlay colour 8 %, widening to 6 px at 12 %
+/// over the track and 16 % while dragged, fully round.
+fn list_scrollbar(ctx: &Ctx, cx: &App) -> AnyElement {
+    use aui_tokens::ThumbState;
+    use gpui_kit::base::{Scrollbar, ScrollbarMode};
+    let p = cx.aui().colors;
+    let track = px(scale::SP_4 - scale::SP_1); // 10
+    let rest = px(scale::SP_2); // 4
+    let wide = px(scale::SP_2 + scale::SP_1); // 6
+    let inset = px(scale::SP_1); // 2
+    let round = px(scale::SP_2 + scale::SP_1);
+    Scrollbar::vertical(&ctx.state)
+        .id(ctx.child("scrollbar"))
+        .mode(ScrollbarMode::Hover)
+        .styles(|s| {
+            s.track(|t| t.width(track).bg(gpui::transparent_black()))
+                .thumb(|t| t.width(rest).inset(inset).radius(round).bg(p.scrollbar_thumb(ThumbState::Rest)))
+                .thumb_hover(|t| t.width(wide).inset(inset).radius(round).bg(p.scrollbar_thumb(ThumbState::Hover)))
+                .thumb_active(|t| t.width(wide).inset(inset).radius(round).bg(p.scrollbar_thumb(ThumbState::Active)))
+        })
         .into_any_element()
 }
 

@@ -46,6 +46,17 @@ mod theme;
 pub use density::{Density, Metrics};
 pub use fonts::{load_fonts, FONT_FILES};
 pub use generated::{dark, durations, light, scale, springs, Palette, ShadowLayer};
+
+/// A scrollbar thumb's state, for [`Palette::scrollbar_thumb`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThumbState {
+    /// At rest.
+    Rest,
+    /// The track is hovered.
+    Hover,
+    /// Being dragged.
+    Active,
+}
 pub use kit_theme::{theme_set_json, theme_set_value, KIT_THEME_DARK, KIT_THEME_LIGHT};
 pub use styled::{scaled, AuiStyled, TextRole};
 pub use theme::{ActiveAui, AgentState, AuiTheme, Easing, ThemeKind, Tier};
@@ -191,6 +202,22 @@ impl Palette {
             gpui::white().alpha(scale::OV_PRESSED_DARK)
         } else {
             gpui::black().alpha(scale::OV_PRESSED_LIGHT)
+        }
+    }
+
+    /// The scrollbar thumb (FF `rgb(var(--overlay) / a)`, `scroll-area.tsx`):
+    /// the overlay colour — white in dark, black in light — at 8 % resting,
+    /// 12 % while the track is hovered, 16 % while dragged.
+    pub fn scrollbar_thumb(&self, state: ThumbState) -> gpui::Hsla {
+        let alpha = match state {
+            ThumbState::Rest => 0.08,
+            ThumbState::Hover => 0.12,
+            ThumbState::Active => 0.16,
+        };
+        if self.is_dark() {
+            gpui::white().alpha(alpha)
+        } else {
+            gpui::black().alpha(alpha)
         }
     }
 
