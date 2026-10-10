@@ -68,6 +68,16 @@ pub fn nearest(items: &[Bounds<Pixels>], pointer: Point<Pixels>, axis: Axis) -> 
 /// Last-frame geometry plus the pointer session of one [`FluidList`].
 #[derive(Default)]
 struct FluidState {
+    /// When the list last rendered, and whether a block was still gliding
+    /// then: a glide interrupted by a stalled main thread (a modal prompt, a
+    /// blocking call) snaps to its target on the next frame instead of
+    /// resuming from a stale position, which drew two pills overlapping
+    /// mid-flight (seen live 2026-10-10).
+    last_frame: Option<std::time::Instant>,
+    gliding: bool,
+    /// Bumped on such a stall: it re-keys the springs, which start at
+    /// their targets.
+    epoch: u64,
     /// Items at or past this index live inside a scrolling region (a
     /// virtualised `gpui::list`) whose viewport is the second field: their
     /// blocks are clipped to it, so a row half scrolled under a header never
@@ -396,6 +406,10 @@ fn click_target(state: &FluidState, gap_click: bool, axis: Axis) -> Option<usize
     state_highlight(state, axis)
 }
 
+/// A gap between frames longer than this, with a block still gliding, is a
+/// stall: the glide snaps instead of resuming.
+const STALL: std::time::Duration = std::time::Duration::from_millis(120);
+
 /// Clamps a length at zero: spring overshoot must never flip an overlay
 /// into a negative size.
 fn non_negative(value: Pixels) -> Pixels {
@@ -522,7 +536,19 @@ impl RenderOnce for FluidList {
         // One session string per frame: it re-keys the hover springs so a
         // fresh pointer entry fades in at the nearest item instead of
         // sliding over from wherever it was (FF `key={session}`).
-        let sess: SharedString = SharedString::from(format!("session-{session}"));
+        let epoch = {
+            let mut state = fluid.borrow_mut();
+            let now = std::time::Instant::now();
+            let stalled = state.last_frame.is_some_and(|last| now.duration_since(last) > STALL);
+            if stalled && state.gliding {
+                state.epoch += 1;
+            }
+            state.last_frame = Some(now);
+            state.epoch
+        };
+        let sess: SharedString = SharedString::from(format!("session-{session}-{epoch}"));
+        let sel_key: SharedString = SharedString::from(format!("sel-{epoch}"));
+        let mut gliding = false;
         let enter = Tween::new(Tier::Fast.enter(), Easing::STD);
         let mut overlays = Vec::with_capacity(2);
         if let Some(frame) = container {
@@ -557,10 +583,18 @@ impl RenderOnce for FluidList {
                     window.request_animation_frame();
                 }
                 let tint = tint_fade(((id.clone(), "aui-hl"), sess.clone()), tint_on(highlight.is_some(), fresh), p.hover_overlay(), enter, window, cx);
+                let x_to = x;
                 let x = spring_px(((id.clone(), "aui-hl-x"), sess.clone()), x, SpringKind::Fast, window, cx);
+                gliding |= (x - x_to).abs() > px(0.5);
+                let y_to = y;
                 let y = spring_px(((id.clone(), "aui-hl-y"), sess.clone()), y, SpringKind::Fast, window, cx);
+                gliding |= (y - y_to).abs() > px(0.5);
+                let w_to = w;
                 let w = spring_px(((id.clone(), "aui-hl-w"), sess.clone()), w, SpringKind::Fast, window, cx);
+                gliding |= (w - w_to).abs() > px(0.5);
+                let h_to = h;
                 let h = spring_px(((id.clone(), "aui-hl-h"), sess.clone()), h, SpringKind::Fast, window, cx);
+                gliding |= (h - h_to).abs() > px(0.5);
                 overlays.push(div().absolute().left(x).top(y).w(non_negative(w)).h(non_negative(h)).rounded(px(scale::SHAPE_ITEM)).bg(tint));
             }
             // Selected (FF `bg-active`): springs between rows on the moderate
@@ -570,15 +604,24 @@ impl RenderOnce for FluidList {
             if let Some((index, rect)) = selected_anchor {
                 let (x, y, w, h) = relative(index, rect);
                 let tint = tint_fade((id.clone(), "aui-sel"), selected.is_some(), p.selected_overlay(), enter, window, cx);
-                let x = spring_px((id.clone(), "aui-sel-x"), x, SpringKind::Moderate, window, cx);
-                let y = spring_px((id.clone(), "aui-sel-y"), y, SpringKind::Moderate, window, cx);
-                let w = spring_px((id.clone(), "aui-sel-w"), w, SpringKind::Moderate, window, cx);
-                let h = spring_px((id.clone(), "aui-sel-h"), h, SpringKind::Moderate, window, cx);
+                let x_to = x;
+                let x = spring_px(((id.clone(), "aui-sel-x"), sel_key.clone()), x, SpringKind::Moderate, window, cx);
+                gliding |= (x - x_to).abs() > px(0.5);
+                let y_to = y;
+                let y = spring_px(((id.clone(), "aui-sel-y"), sel_key.clone()), y, SpringKind::Moderate, window, cx);
+                gliding |= (y - y_to).abs() > px(0.5);
+                let w_to = w;
+                let w = spring_px(((id.clone(), "aui-sel-w"), sel_key.clone()), w, SpringKind::Moderate, window, cx);
+                gliding |= (w - w_to).abs() > px(0.5);
+                let h_to = h;
+                let h = spring_px(((id.clone(), "aui-sel-h"), sel_key.clone()), h, SpringKind::Moderate, window, cx);
+                gliding |= (h - h_to).abs() > px(0.5);
                 overlays.push(div().absolute().left(x).top(y).w(non_negative(w)).h(non_negative(h)).rounded(px(scale::SHAPE_ITEM)).bg(tint));
             }
         } else {
             window.request_animation_frame();
         }
+        fluid.borrow_mut().gliding = gliding;
 
         let mut list = div().id(id.clone()).relative().flex().gap(gap).role(Role::List);
         if self.fill {
