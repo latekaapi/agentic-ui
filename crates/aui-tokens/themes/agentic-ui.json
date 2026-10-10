@@ -11,8 +11,8 @@
       "font.size": 13.0,
       "mono_font.family": "Geist Mono",
       "mono_font.size": 13.0,
-      "radius": 6,
-      "radius.lg": 12,
+      "radius": 4,
+      "radius.lg": 10,
       "shadow": true,
       "colors": {
         "background": "#fafafa",
@@ -252,8 +252,8 @@
       "font.size": 13.0,
       "mono_font.family": "Geist Mono",
       "mono_font.size": 13.0,
-      "radius": 6,
-      "radius.lg": 12,
+      "radius": 4,
+      "radius.lg": 10,
       "shadow": true,
       "colors": {
         "background": "#171717",

@@ -302,9 +302,12 @@ impl Ctx {
             .into_any_element()
     }
 
-    /// The two-line row height: the list row plus one Caption line (16).
-    fn two_line_height(&self, cx: &App) -> Pixels {
-        list_row_height(cx) + px(scale::SP_5)
+    /// The two-line row height: the title line (20) and one Caption line
+    /// (16) with 2 px above and below — 40, so the pill reads as one row
+    /// that says two things rather than a tall block (owner note 2026-10-10:
+    /// 48 was "too tall, awkward").
+    fn two_line_height(&self, _cx: &App) -> Pixels {
+        px(scale::T_BODY_LH + scale::T_CAPTION_LH + scale::SP_2)
     }
 
     /// A trailing count or age: Caption, muted, tabular.
@@ -1137,7 +1140,7 @@ fn list_host(ctx: &Ctx, render: impl Fn(usize, &mut Window, &mut App) -> AnyElem
         .h_full()
         .flex_1()
         .min_h(px(0.0))
-        .child(list(ctx_state(ctx), render).w_full().h_full())
+        .child(ctx.fluid.clip_region(VIRTUAL_BASE, list(ctx_state(ctx), render).w_full().h_full()))
         .into_any_element()
 }
 
@@ -1302,7 +1305,7 @@ fn projects_header_bottom(model: &SidebarModel, cx: &App) -> Pixels {
         if model.pinned_open {
             for session in &model.pinned {
                 let two = second_line_for(session, model.bylines).is_some();
-                y += if two { row + px(scale::SP_5) } else { row };
+                y += if two { px(scale::T_BODY_LH + scale::T_CAPTION_LH + scale::SP_2) } else { row };
             }
         }
     }

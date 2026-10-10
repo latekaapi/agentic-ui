@@ -68,6 +68,11 @@ pub fn nearest(items: &[Bounds<Pixels>], pointer: Point<Pixels>, axis: Axis) -> 
 /// Last-frame geometry plus the pointer session of one [`FluidList`].
 #[derive(Default)]
 struct FluidState {
+    /// Items at or past this index live inside a scrolling region (a
+    /// virtualised `gpui::list`) whose viewport is the second field: their
+    /// blocks are clipped to it, so a row half scrolled under a header never
+    /// paints its highlight over that header.
+    clip: Option<(usize, Bounds<Pixels>)>,
     /// The container's bounds last frame (`None` before the first measure).
     container: Option<Bounds<Pixels>>,
     /// Item bounds measured last frame, keyed by item index. Drained at the
@@ -157,6 +162,20 @@ impl FluidHandle {
     /// `None` when the item was not built last frame.
     pub fn bounds_of(&self, index: usize) -> Option<Bounds<Pixels>> {
         self.fluid.borrow().bounds.get(&index).copied()
+    }
+
+    /// Wraps the scrolling region that holds items `min_index..`: its
+    /// laid-out bounds become their clip (see [`FluidState::clip`]).
+    pub fn clip_region(&self, min_index: usize, element: impl IntoElement) -> AnyElement {
+        let fluid = self.fluid.clone();
+        div()
+            .id(("aui-fluid-clip", min_index))
+            .size_full()
+            .on_prepaint(move |bounds, _, _| {
+                fluid.borrow_mut().clip = Some((min_index, bounds));
+            })
+            .child(element)
+            .into_any_element()
     }
 
     /// The pointer-derived highlight as of the last event, if any.
@@ -438,14 +457,14 @@ impl RenderOnce for FluidList {
         // Drain last frame's bounds: prepaint refills the map with exactly
         // the items built this frame, so unbuilt (virtualised-away) items
         // are never highlight targets.
-        let (container, bounds, pointer, session, keyboard) = {
+        let (container, bounds, pointer, session, keyboard, clip) = {
             let mut state = fluid.borrow_mut();
             let keyboard = effective_keyboard(&mut state, keyboard);
             if keyboard.is_some() {
                 state.reported = Some(keyboard);
             }
             let drained = std::mem::take(&mut state.bounds);
-            (state.container, drained, state.pointer, state.session, keyboard)
+            (state.container, drained, state.pointer, state.session, keyboard, state.clip)
         };
 
         // Parallel highlightable order and rects for the pure function:
@@ -499,16 +518,21 @@ impl RenderOnce for FluidList {
             // Rect relative to the list, clipped to the list's own frame: a
             // row half scrolled out of a virtualised list must not paint its
             // highlight over whatever sits below the list (seen live).
-            let relative = |rect: Bounds<Pixels>| {
-                let rect = rect.intersect(&frame);
+            let relative = |index: usize, rect: Bounds<Pixels>| {
+                let mut rect = rect.intersect(&frame);
+                if let Some((min, region)) = clip {
+                    if index >= min {
+                        rect = rect.intersect(&region);
+                    }
+                }
                 (rect.origin.x - origin.x, rect.origin.y - origin.y, rect.size.width, rect.size.height)
             };
             // Hover (FF fluid hover): glides between rows on the fast spring
             // (0.08 s, no bounce); opacity fades 0.08 s in, the fast exit out.
             // The previous anchor keeps the fade-out painted where it left.
-            let anchor = highlight.and_then(|index| bounds.get(&index)).or_else(|| previous.and_then(|index| bounds.get(&index)));
-            if let Some(rect) = anchor {
-                let (x, y, w, h) = relative(*rect);
+            let anchor = highlight.or(previous).and_then(|index| bounds.get(&index).map(|rect| (index, *rect)));
+            if let Some((index, rect)) = anchor {
+                let (x, y, w, h) = relative(index, rect);
                 // The first frame of a fresh session paints the re-keyed
                 // tint clear and asks for another frame, which fades it in.
                 let fresh = std::mem::take(&mut fluid.borrow_mut().fresh);
@@ -525,9 +549,9 @@ impl RenderOnce for FluidList {
             // Selected (FF `bg-active`): springs between rows on the moderate
             // tier when the selection moves; a cleared selection fades out
             // where it was.
-            let selected_anchor = selected.and_then(|index| bounds.get(&index)).or_else(|| previous_selected.and_then(|index| bounds.get(&index)));
-            if let Some(rect) = selected_anchor {
-                let (x, y, w, h) = relative(*rect);
+            let selected_anchor = selected.or(previous_selected).and_then(|index| bounds.get(&index).map(|rect| (index, *rect)));
+            if let Some((index, rect)) = selected_anchor {
+                let (x, y, w, h) = relative(index, rect);
                 let tint = tint_fade((id.clone(), "aui-sel"), selected.is_some(), p.selected_overlay(), enter, window, cx);
                 let x = spring_px((id.clone(), "aui-sel-x"), x, SpringKind::Moderate, window, cx);
                 let y = spring_px((id.clone(), "aui-sel-y"), y, SpringKind::Moderate, window, cx);

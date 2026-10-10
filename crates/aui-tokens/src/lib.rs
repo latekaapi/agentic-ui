@@ -307,7 +307,7 @@ mod tests {
     fn scale_matches_design() {
         assert_eq!(scale::FS_13, 13.0);
         assert_eq!(scale::H_MD, 28.0);
-        assert_eq!(scale::R_LG, 12.0);
+        assert_eq!(scale::R_LG, 10.0);
         assert_eq!(scale::D_ENTER.as_millis(), 220);
         assert_eq!(scale::E_OUT, [0.16, 1.0, 0.3, 1.0]);
         assert_eq!(scale::FONT_UI, "Inter");
@@ -335,9 +335,10 @@ mod tests {
         assert_eq!(scale::T_DISPLAY_LH, 34.0);
         assert_eq!(scale::T_MONO_FS, 13.0);
         assert_eq!(scale::T_MONO_FS_C, 12.0);
-        // FF Rounded shapes and overlays.
-        assert_eq!(scale::SHAPE_CONTAINER, 12.0);
-        assert_eq!(scale::SHAPE_ITEM, 8.0);
+        // Shapes: one step tighter than FF Rounded (owner 2026-10-10), still
+        // concentric for the 4 px popup inset (10 = 6 + 4).
+        assert_eq!(scale::SHAPE_CONTAINER, 10.0);
+        assert_eq!(scale::SHAPE_ITEM, 6.0);
         assert_eq!(scale::OV_HOVER_DARK, 0.06);
         assert_eq!(scale::OV_PRESSED_LIGHT, 0.07);
         assert_eq!(scale::RING_DARK, 0.08);
