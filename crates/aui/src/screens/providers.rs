@@ -332,7 +332,7 @@ impl RenderOnce for ProviderCard {
         let switch_label: SharedString = format!("Enable {}", name).into();
         let mut toggle = Switch::new((self.id.clone(), "enabled"))
             .checked(data.enabled)
-            .color(p.accent)
+            .color(p.accent_ring)
             .accessibility_label(switch_label);
         if let Some(handler) = self.on_intent.clone() {
             toggle = toggle.on_click(move |next, w, cx| {

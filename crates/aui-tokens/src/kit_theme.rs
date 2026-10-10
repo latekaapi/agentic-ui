@@ -154,7 +154,9 @@ fn colors(p: &Palette, kind: ThemeKind) -> Map<String, Value> {
         ("progress.bar.background", p.ink_3),
         ("slider.background", p.ink),
         ("slider.thumb.background", p.surface_1),
-        ("switch.background", p.surface_3),
+        // FF switch: the off track is --accent (#525252 dark / #E5E5E5 light),
+        // the thumb white in both themes, on = the focus blue (set per call).
+        ("switch.background", if p.is_dark() { gpui::rgb(0x525252).into() } else { gpui::rgb(0xE5E5E5).into() }),
         ("switch.thumb.background", white()),
         ("skeleton.background", p.surface_3),
         ("scrollbar.background", transparent()),

@@ -68,7 +68,7 @@ impl RenderOnce for Switch {
         let label = self.accessibility_label.unwrap_or_else(|| SharedString::from(format!("Toggle, {state}")));
         let mut el = KitSwitch::new(self.id)
             .checked(self.on)
-            .color(p.accent)
+            .color(p.accent_ring)
             .with_size(Size::Small)
             .disabled(self.disabled)
             .accessibility_label(label);

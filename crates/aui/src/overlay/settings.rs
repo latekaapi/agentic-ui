@@ -916,7 +916,7 @@ fn switch_row(
     let text = row_text(p, label.clone(), detail);
 
     let switch_key: ElementId = (id.clone(), SharedString::from(format!("toggle-{switch_at}"))).into();
-    let mut toggle = Switch::new(switch_key).checked(on).color(p.accent).accessibility_label(label);
+    let mut toggle = Switch::new(switch_key).checked(on).color(p.accent_ring).accessibility_label(label);
     if let Some(handler) = on_switch {
         toggle = toggle.on_click(move |next, w, cx| handler(&row_id, *next, w, cx));
     }
