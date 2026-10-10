@@ -315,9 +315,12 @@ impl Ctx {
 
     /// A one-line list row: leading slot, title, trailing. `nested`
     /// indents one `inset`.
-    fn row(&self, lead: AnyElement, title: impl Into<SharedString>, trailing: Option<AnyElement>, nested: bool, cx: &App) -> gpui::Div {
+    /// A row's frame: height, gap, insets and the lead — no title slot, so
+    /// a skeleton bar sits right after the lead instead of past a flexing
+    /// empty title.
+    fn row_frame(&self, lead: AnyElement, nested: bool, cx: &App) -> gpui::Div {
         let metrics = cx.aui().metrics;
-        let mut row = h_flex()
+        h_flex()
             .w_full()
             .h(list_row_height(cx))
             .items_center()
@@ -326,7 +329,10 @@ impl Ctx {
             .text_color(cx.aui().colors.fg)
             .when(nested, |d| d.pl(metrics.inset))
             .child(lead)
-            .child(self.title(title, cx));
+    }
+
+    fn row(&self, lead: AnyElement, title: impl Into<SharedString>, trailing: Option<AnyElement>, nested: bool, cx: &App) -> gpui::Div {
+        let mut row = self.row_frame(lead, nested, cx).child(self.title(title, cx));
         if let Some(trailing) = trailing {
             row = row.child(trailing);
         }
@@ -607,7 +613,7 @@ impl Ctx {
             Shape::Item.rounded(aui_motion::skeleton(self.child(format!("sk-mark-{index}")), metrics.icon, metrics.icon, window, cx))
         };
         let line = Shape::Item.rounded(aui_motion::skeleton(self.child(format!("sk-line-{index}")), px(widths[index % widths.len()]), bar, window, cx));
-        self.row(self.lead(lead, cx), "", None, nested, cx).child(line).into_any_element()
+        self.row_frame(self.lead(lead, cx), nested, cx).child(line).into_any_element()
     }
 }
 
@@ -1139,9 +1145,15 @@ impl RenderOnce for SidebarScreen {
             .truncate()
             .text_role_in(TextRole::Body, Density::Compact)
             .child(div().text_color(p.fg).child(account.name.clone()))
-            .child(div().ml(px(scale::SP_2)).text_color(p.fg_muted).child(format!("· {}", account.plan)));
+            .when(!account.plan.is_empty(), |d| {
+                d.child(div().ml(px(scale::SP_2)).text_color(p.fg_muted).child(format!("· {}", account.plan)))
+            });
         let foot_ctx = ctx.clone();
-        let foot_label: SharedString = format!("Account {} · {}", account.name, account.plan).into();
+        let foot_label: SharedString = if account.plan.is_empty() {
+            format!("Account {}", account.name).into()
+        } else {
+            format!("Account {} · {}", account.name, account.plan).into()
+        };
         let foot_row = h_flex()
             .w_full()
             .h(list_row_height(cx))

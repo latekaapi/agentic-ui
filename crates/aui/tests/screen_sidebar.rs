@@ -287,3 +287,15 @@ fn clicking_new_session_reports_new_session(cx: &mut TestAppContext) {
     let got = log.borrow().clone();
     assert!(got.contains(&SidebarIntent::NewSession), "intents: {got:?}");
 }
+
+/// A host with no plan to show (Baaz offline) labels the footer by name
+/// alone — no dangling "·".
+#[gpui::test]
+fn account_footer_drops_an_empty_plan(cx: &mut TestAppContext) {
+    init(cx);
+    let mut model = sample_model();
+    model.account.plan = "".into();
+    let labels = labels_of(cx, model);
+    assert_has(&labels, &["Account Bharani"]);
+    assert!(!labels.iter().any(|l| l.starts_with("Account Bharani ·")), "{labels:?}");
+}
