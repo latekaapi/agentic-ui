@@ -1492,9 +1492,10 @@ impl RenderOnce for SidebarScreen {
             .min_w(px(0.0))
             .truncate()
             .text_role_in(TextRole::Body, Density::Standard)
-            .child(div().text_color(p.fg).child(account.name.clone()))
+            // A long name truncates; the plan stays whole beside it.
+            .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().text_color(p.fg).child(account.name.clone()))
             .when(!account.plan.is_empty(), |d| {
-                d.child(div().ml(px(scale::SP_2)).text_color(p.fg_muted).child(format!("· {}", account.plan)))
+                d.child(div().flex_none().ml(px(scale::SP_2)).text_color(p.fg_muted).child(format!("· {}", account.plan)))
             });
         let foot_ctx = ctx.clone();
         let foot_label: SharedString = if account.plan.is_empty() {
