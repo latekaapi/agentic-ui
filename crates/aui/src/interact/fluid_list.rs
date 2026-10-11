@@ -137,6 +137,8 @@ struct FluidState {
     moved: bool,
     /// The list's inert item ([`FluidList::inert`]), for the handlers.
     inert: Option<usize>,
+    /// The list's toolbar items ([`FluidList::item_toolbar`]), for the handlers.
+    toolbars: Vec<usize>,
     /// The highlight held on its row while rows scroll under a still
     /// pointer, and when they last moved ([`scroll_hold`]).
     hold: Option<(usize, std::time::Instant)>,
@@ -152,6 +154,9 @@ struct FluidItem {
     /// The wrap grows to fill the list's main axis (a virtualised
     /// `gpui::list` child needs this to get a height at all).
     fill: bool,
+    /// A toolbar standing in the list ([`FluidList::item_toolbar`]): measured
+    /// like an item, so the pointer over it is ON it, but never lit.
+    toolbar: bool,
 }
 
 /// A handle to one [`FluidList`]'s geometry, owned by the caller like a
@@ -283,7 +288,7 @@ impl FluidList {
     /// Adds a highlightable item: measured in prepaint, eligible for the
     /// highlight, reported and activated by index.
     pub fn item(mut self, index: usize, element: impl IntoElement) -> Self {
-        self.items.push(FluidItem { index, element: element.into_any_element(), highlightable: true, fill: false });
+        self.items.push(FluidItem { index, element: element.into_any_element(), highlightable: true, fill: false, toolbar: false });
         self
     }
 
@@ -291,7 +296,7 @@ impl FluidList {
     /// slot for a virtualised `gpui::list` whose rows register through a
     /// [`FluidHandle`]. Never highlighted itself.
     pub fn item_static_fill(mut self, index: usize, element: impl IntoElement) -> Self {
-        self.items.push(FluidItem { index, element: element.into_any_element(), highlightable: false, fill: true });
+        self.items.push(FluidItem { index, element: element.into_any_element(), highlightable: false, fill: true, toolbar: false });
         self
     }
 
@@ -337,7 +342,19 @@ impl FluidList {
     /// but never highlighted, reported or activated (a divider, a section
     /// header, a disabled row).
     pub fn item_static(mut self, index: usize, element: impl IntoElement) -> Self {
-        self.items.push(FluidItem { index, element: element.into_any_element(), highlightable: false, fill: false });
+        self.items.push(FluidItem { index, element: element.into_any_element(), highlightable: false, fill: false, toolbar: false });
+        self
+    }
+
+    /// Adds a toolbar row: its own buttons answer the pointer, so the list
+    /// measures it like an item — the pointer over it is on IT, never in a
+    /// gap — and never lights, selects, reports or activates it. A static
+    /// item is a gap to the nearest rule (right for a divider or a header):
+    /// a toolbar between two rows lit its neighbours, the pill flicking
+    /// between them as the pointer crossed its buttons (owner recording
+    /// 2026-10-11 7.16 PM, the Browse page controls).
+    pub fn item_toolbar(mut self, index: usize, element: impl IntoElement) -> Self {
+        self.items.push(FluidItem { index, element: element.into_any_element(), highlightable: true, fill: false, toolbar: true });
         self
     }
 
@@ -529,7 +546,13 @@ fn state_highlight(state: &FluidState, axis: Axis) -> Option<usize> {
             rects.push(*rect);
         }
     }
-    highlight_for(&keys, &rects, state.keyboard, state.pointer, axis).filter(|index| Some(*index) != state.inert)
+    highlight_for(&keys, &rects, state.keyboard, state.pointer, axis).filter(|index| lightable(state, *index))
+}
+
+/// Whether `index` can carry the hover or selected block: not the inert
+/// item, not a toolbar.
+fn lightable(state: &FluidState, index: usize) -> bool {
+    Some(index) != state.inert && !state.toolbars.contains(&index)
 }
 
 /// Records `next` as the current highlight; true when it differs from the
@@ -568,7 +591,7 @@ impl RenderOnce for FluidList {
         let id = self.id.clone();
         let axis = self.axis;
         let keyboard = self.highlighted;
-        let selected = self.selected.filter(|index| Some(*index) != self.inert);
+        let selected = self.selected.filter(|index| Some(*index) != self.inert && !self.items.iter().any(|item| item.toolbar && item.index == *index));
         let gap_click = self.gap_click;
         let inset_y = self.block_inset_y;
 
@@ -614,9 +637,14 @@ impl RenderOnce for FluidList {
         // row beneath takes it, and the parent hears about the new row on
         // the next frame, never from inside render.
         let inert = self.inert;
-        fluid.borrow_mut().inert = inert;
+        let toolbars: Vec<usize> = self.items.iter().filter(|item| item.toolbar).map(|item| item.index).collect();
+        {
+            let mut state = fluid.borrow_mut();
+            state.inert = inert;
+            state.toolbars = toolbars.clone();
+        }
         let (highlight, holding) = scroll_hold(&mut fluid.borrow_mut(), picked, keyboard, &bounds, std::time::Instant::now());
-        let highlight = highlight.filter(|index| Some(*index) != inert);
+        let highlight = highlight.filter(|index| Some(*index) != inert && !toolbars.contains(index));
         if holding {
             window.request_animation_frame();
         }
@@ -958,6 +986,24 @@ mod tests {
         effective_keyboard(&mut state, Some(2));
         pointer_moved(&mut state, at(10.0, 10.0));
         assert_eq!(click_target(&state, false, Axis::Y), Some(0));
+    }
+
+    /// Owner recording 2026-10-11 7.16 PM: the pointer resting on the Browse
+    /// page controls (a toolbar between the address row and Search) lit
+    /// one neighbour or the other. A toolbar is ON the pointer's way: it
+    /// wins the nearest rule and lights nothing; the rows around it still
+    /// light when the pointer is over them.
+    #[test]
+    fn a_toolbar_takes_the_pointer_and_lights_nothing() {
+        let bounds: HashMap<usize, Bounds<Pixels>> = [(0, rect(0.0)), (1, rect(36.0)), (2, rect(72.0))].into_iter().collect();
+        let over = |y: f32| FluidState { bounds: bounds.clone(), toolbars: vec![1], pointer: Some(at(10.0, y)), ..Default::default() };
+        for y in [37.0, 50.0, 54.0, 70.0] {
+            assert_eq!(state_highlight(&over(y), Axis::Y), None, "pointer at {y} on the toolbar lights nothing");
+        }
+        assert_eq!(state_highlight(&over(10.0), Axis::Y), Some(0), "the row above still lights");
+        assert_eq!(state_highlight(&over(90.0), Axis::Y), Some(2), "the row below still lights");
+        let plain = FluidState { bounds: [(0, rect(0.0)), (2, rect(72.0))].into_iter().collect(), pointer: Some(at(10.0, 50.0)), ..Default::default() };
+        assert_eq!(state_highlight(&plain, Axis::Y), Some(0), "a static item is a gap: the nearest row lights (the old behaviour)");
     }
 
     #[test]

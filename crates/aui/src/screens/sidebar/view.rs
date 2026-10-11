@@ -927,7 +927,8 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 .child(div().flex_1())
                 .child(control(ctx, "ask", IconName::Sparkle, "Ask Claude about this page", BrowseIntent::Ask, true, cx))
                 .child(control(ctx, "page-menu", IconName::Dots, "Page menu", BrowseIntent::PageMenu, true, cx));
-            list = list.item_static(next, controls);
+            // A toolbar: the pointer over its buttons lights no row.
+            list = list.item_toolbar(next, controls);
             next += 1;
         }
     }
@@ -1040,7 +1041,8 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 .track_interaction_reported(&header_state, move |hovered: bool, w: &mut Window, cx: &mut App| {
                     hover_ctx.emit(SidebarIntent::HoverProjectsHeader(hovered), w, cx);
                 });
-            list = list.item_static(next, header);
+            // A toolbar: its hover actions answer the pointer, never a row.
+            list = list.item_toolbar(next, header);
             next += 1;
             if project_count == 0 {
                 let words = if by_date { "No sessions yet" } else { "No projects yet" };
@@ -1396,7 +1398,8 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
         // task pane's own (owner 2026-10-11): the strip is the foot's, not
         // the list's, whether or not task folders sit above it.
         let foot = v_flex().w_full().flex_none().child(div().mx(-metrics.item_px).h(px(1.0)).bg(p.line)).child(chips);
-        list = list.item_static(next, foot);
+        // A toolbar: its chips and + answer the pointer, never the row above.
+        list = list.item_toolbar(next, foot);
         if let Some(index) = selected_index {
             list = list.selected(Some(index));
         }
