@@ -28,6 +28,15 @@ use crate::page::{page_body, pin_at};
 /// How often the pane drains its backend. Fast enough that a title or a pin
 /// lands within a frame or two, slow enough to cost nothing while idle.
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+/// How long a cover waits for its fresh picture before giving up on it
+/// ([`WebviewState::set_obscured`]): a CDP screenshot answers in tens of ms.
+const COVER_CAPTURE_WAIT: Duration = Duration::from_millis(300);
+
+/// After the fresh picture lands, the native view stays up this much
+/// longer, so the frame that paints the picture is on screen before the
+/// live page goes (no bare frame between them).
+const COVER_HANDOFF: Duration = Duration::from_millis(40);
 /// Where the note popover opens relative to the pinned element: just clear of
 /// its right edge, dropped a little so the pin stays visible.
 const NOTE_GAP: f32 = 14.0;
@@ -172,6 +181,13 @@ pub struct WebviewState {
     /// snapshot stand-in rounds to it too, so covering the page never
     /// squares a rounded card's corners (owner 2026-10-11).
     corner_radius: f32,
+    /// While set, the page is covered but its native view stays up until a
+    /// picture taken NOW lands ([`Self::set_obscured`]), or until the
+    /// deadline passes.
+    cover_capture_until: Option<std::time::Instant>,
+    /// The stand-in was taken at the moment of this cover: only then is it
+    /// the page as the person last saw it (same scroll, same content).
+    stand_in_fresh: bool,
     /// The last box pushed into a native backend, so an unchanged layout costs
     /// no `setFrame:`.
     pushed: Option<(Point<Pixels>, Size<Pixels>)>,
@@ -284,6 +300,8 @@ impl WebviewState {
             focus: cx.focus_handle(),
             obscured: false,
             corner_radius: 0.0,
+            cover_capture_until: None,
+            stand_in_fresh: false,
             pushed: None,
             visible_box: None,
             animating: false,
@@ -532,10 +550,22 @@ impl WebviewState {
             return;
         }
         self.obscured = obscured;
+        self.stand_in_fresh = false;
+        self.cover_capture_until = None;
         if obscured {
             // The page is covered: a native view that kept first responder
             // would eat the keystrokes meant for whatever covers it.
             self.release_keyboard();
+            // The stand-in must be the page as it is NOW — a picture from
+            // load time showed the wrong scroll position and stale content
+            // under every cover (owner recordings 2026-10-11). Take one, and
+            // keep the native view up until it lands, so the swap is
+            // invisible; a capture that never answers falls back to the flat
+            // surface at the deadline, never to an old picture.
+            if self.native && self.shown && !is_blank_url(&self.url) {
+                self.backend.capture();
+                self.cover_capture_until = Some(std::time::Instant::now() + COVER_CAPTURE_WAIT);
+            }
         }
         self.sync_visibility();
     }
@@ -626,7 +656,8 @@ impl WebviewState {
         // The first layout while animating defers its (tiny) frame instead
         // of pushing it, so the native view stays parked until the rest
         // frame lands: hidden is the snapshot stand-in, or nothing.
-        let want = !self.obscured && self.visible_box.is_some() && !(self.animating && self.pushed.is_none());
+        let holding = self.cover_capture_until.is_some();
+        let want = (!self.obscured || holding) && self.visible_box.is_some() && !(self.animating && self.pushed.is_none());
         if want != self.shown {
             self.shown = want;
             self.backend.set_visible(want);
@@ -856,6 +887,11 @@ impl WebviewState {
                     self.screenshot_image = Some(Arc::new(Image::from_bytes(ImageFormat::Png, bytes.clone())));
                     self.screenshot = Some(bytes);
                     screenshot = true;
+                    // The picture a cover asked for: the native view can go.
+                    if self.cover_capture_until.is_some() {
+                        self.stand_in_fresh = true;
+                        self.cover_capture_until = Some(std::time::Instant::now() + COVER_HANDOFF);
+                    }
                 }
                 WebEvent::Favicon(url) => self.favicon = url.map(SharedString::from),
                 WebEvent::Progress(progress) => self.progress = progress.clamp(0.0, 1.0),
@@ -921,6 +957,11 @@ impl WebviewState {
     /// changed something, never merely because the backend is native.
     fn drain(&mut self, cx: &mut Context<Self>) {
         let (changed, screenshot) = self.apply_pending();
+        // A cover's picture that never came: give up on it at the deadline.
+        if self.cover_capture_until.is_some_and(|until| std::time::Instant::now() >= until) {
+            self.cover_capture_until = None;
+        }
+        self.sync_visibility();
         self.maybe_auto_settle();
         let hidden = self.is_hidden();
         let became_visible = !hidden && self.was_hidden;
@@ -1209,7 +1250,9 @@ impl RenderOnce for WebviewPane {
         let focus = view.focus.clone();
         // A blank page has nothing worth standing in for: its picture is
         // WebKit's white ground, which reads as a white slab over a dark pane.
-        let stand_in = if is_blank_url(&view.url) { None } else { view.screenshot_image.clone() };
+        // Only a picture taken for this cover stands in; an older one would
+        // show the page at another scroll position or with stale content.
+        let stand_in = if is_blank_url(&view.url) || !view.stand_in_fresh { None } else { view.screenshot_image.clone() };
         // Below [`COMPACT_PANE_WIDTH`] the full nav row starves the URL
         // field, so the keycap and the annotate label get out of its way.
         let compact =
@@ -2805,6 +2848,46 @@ mod tests {
         tick(&state, cx);
         assert_eq!(count.get(), 1, "a screenshot must repaint even while obscured");
         assert!(state.update(cx, |state, _| state.screenshot().is_some()));
+    }
+
+    /// Owner recordings 2026-10-11: a cover showed a picture from load time
+    /// (wrong scroll, stale content). Covering now asks for a picture of the
+    /// page as it is and keeps the live page up until it lands — then one
+    /// handoff tick more — so the swap is invisible.
+    #[gpui::test]
+    fn a_cover_keeps_the_live_page_until_its_fresh_picture_lands(cx: &mut TestAppContext) {
+        let (state, _, visible, events) = native_state(cx);
+        events.borrow_mut().push(WebEvent::Url("https://a.example/".to_owned()));
+        tick(&state, cx);
+        lay_out(&state, cx, frame_at(0., 400.));
+        visible.borrow_mut().clear();
+        state.update(cx, |state, _| state.set_obscured(true));
+        tick(&state, cx);
+        assert!(!visible.borrow().contains(&false), "the live page stays up while its picture is taken");
+        assert!(state.update(cx, |state, _| !state.stand_in_fresh), "no fresh picture yet");
+        events.borrow_mut().push(WebEvent::Screenshot(vec![1, 2, 3, 4]));
+        tick(&state, cx);
+        assert!(state.update(cx, |state, _| state.stand_in_fresh), "the cover's picture landed");
+        assert!(!visible.borrow().contains(&false), "one handoff tick so the picture paints first");
+        std::thread::sleep(super::COVER_HANDOFF + std::time::Duration::from_millis(10));
+        tick(&state, cx);
+        assert_eq!(visible.borrow().last(), Some(&false), "then the native view goes");
+    }
+
+    /// A picture that never comes falls back to the flat surface at the
+    /// deadline — never to an older picture.
+    #[gpui::test]
+    fn a_cover_without_its_picture_gives_up_at_the_deadline(cx: &mut TestAppContext) {
+        let (state, _, visible, events) = native_state(cx);
+        events.borrow_mut().push(WebEvent::Screenshot(vec![9, 9]));
+        events.borrow_mut().push(WebEvent::Url("https://a.example/".to_owned()));
+        tick(&state, cx);
+        lay_out(&state, cx, frame_at(0., 400.));
+        state.update(cx, |state, _| state.set_obscured(true));
+        std::thread::sleep(super::COVER_CAPTURE_WAIT + std::time::Duration::from_millis(10));
+        tick(&state, cx);
+        assert_eq!(visible.borrow().last(), Some(&false), "hidden at the deadline");
+        assert!(state.update(cx, |state, _| !state.stand_in_fresh), "the load-time picture never stands in");
     }
 
     /// L5fix: un-obscuring has no `cx`, so the next drain repaints — once.
