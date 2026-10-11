@@ -57,7 +57,7 @@ use aui::workbench::Annotation;
 use aui_webview::backend::OUTER_HTML_LIMIT;
 use aui_webview::wry_backend::navigation_allowed;
 use aui_webview::{
-    BackendFeature, DownloadState, DownloadStatus, ElementInfo, FindState, PageSecurity, PermissionDecision, PermissionKind, PermissionRequest, WebBackend, WebEvent,
+    BackendFeature, CertificateInfo, DownloadState, DownloadStatus, ElementInfo, FindState, PageSecurity, PermissionDecision, PermissionKind, PermissionRequest, WebBackend, WebEvent,
     ANNOTATOR_JS, download_emit_due, sanitize_download_name, unique_download_name,
 };
 use base64::Engine as _;
@@ -595,6 +595,58 @@ fn progress_should_push(last: Option<f32>, next: f32) -> bool {
         None => true,
         Some(last) => (next >= 1.0 && last < 1.0) || (next - last).abs() >= 0.02,
     }
+}
+
+unsafe extern "C" {
+    /// CommonCrypto's SHA-256 (libSystem, always linked on macOS).
+    fn CC_SHA256(data: *const c_void, len: u32, md: *mut u8) -> *mut u8;
+}
+
+/// Microseconds from 1601-01-01 (CEF's base time) to the Unix epoch.
+const BASETIME_UNIX_OFFSET_US: i64 = 11_644_473_600 * 1_000_000;
+
+/// A [`Basetime`] as Unix seconds.
+fn basetime_unix(time: Basetime) -> i64 {
+    (time.val - BASETIME_UNIX_OFFSET_US) / 1_000_000
+}
+
+/// A principal's common name and first organisation.
+fn principal_names(principal: Option<X509CertPrincipal>) -> (String, Option<String>) {
+    let Some(principal) = principal else {
+        return (String::new(), None);
+    };
+    let name = CefString::from(&principal.common_name()).to_string();
+    let mut orgs = CefStringList::new();
+    principal.organization_names(Some(&mut orgs));
+    let mut first = CefString::from("");
+    let org = (cef::string_list_size(Some(&mut orgs)) > 0 && cef::string_list_value(Some(&mut orgs), 0, Some(&mut first)) == 1)
+        .then(|| first.to_string())
+        .filter(|org| !org.is_empty());
+    (name, org)
+}
+
+/// `bytes`' SHA-256 as colon-separated upper-case hex, Chrome's spelling.
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut digest = [0u8; 32];
+    // Safety: CC_SHA256 reads `len` bytes from `data` and writes 32 to `md`.
+    unsafe { CC_SHA256(bytes.as_ptr().cast(), bytes.len() as u32, digest.as_mut_ptr()) };
+    digest.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")
+}
+
+/// The protocol name for an SSL version, when it is one worth showing.
+fn protocol_name(version: SslVersion) -> Option<String> {
+    let name = if version == SslVersion::TLS1_3 {
+        "TLS 1.3"
+    } else if version == SslVersion::TLS1_2 {
+        "TLS 1.2"
+    } else if version == SslVersion::TLS1_1 {
+        "TLS 1.1"
+    } else if version == SslVersion::TLS1 {
+        "TLS 1.0"
+    } else {
+        return None;
+    };
+    Some(name.to_owned())
 }
 
 /// The [`PageSecurity`] of `url` from the visible navigation entry's SSL
@@ -1998,6 +2050,33 @@ impl WebBackend for CefBackend {
         }
     }
 
+    fn certificate(&self) -> Option<CertificateInfo> {
+        let browser = browser_of(&self.page)?;
+        let status = browser.host()?.visible_navigation_entry()?.sslstatus()?;
+        if status.is_secure_connection() != 1 {
+            return None;
+        }
+        let protocol = protocol_name(status.sslversion());
+        let cert = status.x509_certificate()?;
+        let (subject, subject_org) = principal_names(cert.subject());
+        let (issuer, issuer_org) = principal_names(cert.issuer());
+        let der = cert.derencoded().map(|der| {
+            let mut bytes = vec![0u8; der.size()];
+            der.data(Some(&mut bytes), 0);
+            bytes
+        });
+        Some(CertificateInfo {
+            subject,
+            subject_org,
+            issuer,
+            issuer_org,
+            valid_from: basetime_unix(cert.valid_start()),
+            valid_to: basetime_unix(cert.valid_expiry()),
+            sha256: der.as_deref().map(sha256_hex).unwrap_or_default(),
+            protocol,
+        })
+    }
+
     fn holds_keyboard(&self) -> bool {
         let child = locked(&self.page).child_view;
         // Safety: a live NSView address or 0, main thread.
@@ -2215,6 +2294,21 @@ mod tests {
         assert!(!find_is_next(Some(("a", false)), "a", true));
         assert!(!find_is_next(Some(("a", true)), "a", false));
         assert!(find_is_next(Some(("a", true)), "a", true));
+    }
+
+    /// CEF's base time counts microseconds from 1601; the panel shows Unix.
+    #[test]
+    fn basetime_converts_to_unix_seconds() {
+        assert_eq!(basetime_unix(Basetime { val: BASETIME_UNIX_OFFSET_US }), 0);
+        assert_eq!(basetime_unix(Basetime { val: BASETIME_UNIX_OFFSET_US + 1_760_000_000_000_000 }), 1_760_000_000);
+    }
+
+    /// Chrome's fingerprint spelling: colon-separated upper-case hex.
+    #[test]
+    fn sha256_is_chromes_spelling() {
+        let empty = sha256_hex(b"");
+        assert!(empty.starts_with("E3:B0:C4:42:98:FC:1C:14"), "{empty}");
+        assert_eq!(empty.len(), 32 * 3 - 1);
     }
 
     #[test]

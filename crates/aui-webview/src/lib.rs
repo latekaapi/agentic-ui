@@ -64,7 +64,7 @@ pub mod view;
 pub mod wry_backend;
 
 pub use backend::{
-    BackendFeature, DOWNLOAD_EMIT_INTERVAL_MS, DownloadState, DownloadStatus, ElementInfo, FindState, PageSecurity, PermissionDecision,
+    BackendFeature, CertificateInfo, DOWNLOAD_EMIT_INTERVAL_MS, DownloadState, DownloadStatus, ElementInfo, FindState, PageSecurity, PermissionDecision,
     PermissionKind, PermissionRequest, WebBackend, WebEvent, download_emit_due, sanitize_download_name, unique_download_name,
 };
 pub use fake::FakeWebBackend;

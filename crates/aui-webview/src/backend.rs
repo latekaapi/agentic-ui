@@ -221,6 +221,28 @@ pub struct DownloadState {
     pub state: DownloadStatus,
 }
 
+/// The shown page's TLS certificate and connection, for a site-info panel
+/// like Chrome's "Connection is secure › Certificate is valid".
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CertificateInfo {
+    /// Issued to: the subject's common name (usually the host).
+    pub subject: String,
+    /// The subject's organisation, when the certificate names one.
+    pub subject_org: Option<String>,
+    /// Issued by: the issuer's common name.
+    pub issuer: String,
+    /// The issuer's organisation.
+    pub issuer_org: Option<String>,
+    /// Valid from, as Unix seconds.
+    pub valid_from: i64,
+    /// Valid until, as Unix seconds.
+    pub valid_to: i64,
+    /// The SHA-256 fingerprint of the DER certificate, upper-case hex.
+    pub sha256: String,
+    /// The protocol, such as "TLS 1.3", when known.
+    pub protocol: Option<String>,
+}
+
 /// What the address row's site button says about the current page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageSecurity {
@@ -455,6 +477,12 @@ pub trait WebBackend {
     /// of gpui elements ignores this.
     fn set_corner_radius(&mut self, radius: f32) {
         let _ = radius;
+    }
+
+    /// The shown page's certificate, when it was served over TLS and the
+    /// engine exposes one. Engines that do not answer `None`.
+    fn certificate(&self) -> Option<CertificateInfo> {
+        None
     }
 
     /// Shows or hides the page's native surface. Hiding it is the only way gpui

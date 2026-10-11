@@ -725,6 +725,12 @@ impl WebviewState {
         resized
     }
 
+    /// The shown page's certificate, asked of the engine now (see
+    /// [`WebBackend::certificate`](crate::backend::WebBackend::certificate)).
+    pub fn certificate(&self) -> Option<crate::backend::CertificateInfo> {
+        self.backend.certificate()
+    }
+
     /// Rounds the native page's corners to `radius` (0 = square): a host that
     /// sets the page inside a rounded card passes the card's radius.
     pub fn set_corner_radius(&mut self, radius: f32) {
