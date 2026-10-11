@@ -102,6 +102,11 @@ enum Pending {
 
 #[derive(Default)]
 struct Shared {
+    /// The one browser this page hosts ([`foreign`]): the first one created
+    /// for its client. CEF gives DevTools the inspected page's client when it
+    /// is opened without one — Chromium's Inspect, ⌥⌘I, `show_dev_tools` — so
+    /// every handler here also hears the DevTools browser.
+    browser_id: Option<i32>,
     events: Vec<WebEvent>,
     elements: HashMap<usize, ElementInfo>,
     eval_results: Vec<(u64, Result<String, String>)>,
@@ -759,6 +764,22 @@ pub fn media_kinds_from_bits(bits: u32) -> Vec<PermissionKind> {
 /// unit-testable without a browser.
 /// Whether a popup request is a link opened in a new tab (cancelled and
 /// re-opened by the host as one of its tabs) rather than a scripted popup.
+/// Whether `browser` is some other browser than the page's own: DevTools,
+/// which CEF hands the page's client (see [`Shared::browser_id`]). Every
+/// handler that touches the page returns CEF's default for it, so DevTools
+/// runs in its own window as stock Chromium and never renames, re-points or
+/// closes the tab.
+fn foreign(page: &Page, browser: Option<&Browser>) -> bool {
+    let Some(browser) = browser else { return false };
+    let id = browser.identifier();
+    locked(page).browser_id.is_some_and(|own| own != id)
+}
+
+/// Whether `url` is the DevTools front end (or any `devtools:` page).
+fn is_devtools_url(url: &str) -> bool {
+    url.starts_with("devtools://") || url.starts_with("devtools:")
+}
+
 fn opens_as_host_tab(disposition: WindowOpenDisposition) -> bool {
     disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB
         || disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB
@@ -913,12 +934,18 @@ wrap_display_handler! {
     }
 
     impl DisplayHandler {
-        fn on_title_change(&self, _browser: Option<&mut Browser>, title: Option<&CefString>) {
+        fn on_title_change(&self, browser: Option<&mut Browser>, title: Option<&CefString>) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             let title = title.map(|t| t.to_string()).unwrap_or_default();
             locked(&self.shared).events.push(WebEvent::Title(title));
         }
 
         fn on_address_change(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, url: Option<&CefString>) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             if frame.map(|f| f.is_main() == 1).unwrap_or(true) {
                 let url = url.map(|u| u.to_string()).unwrap_or_default();
                 // The entry's SSL state and the host zoom level are CEF
@@ -932,7 +959,10 @@ wrap_display_handler! {
             }
         }
 
-        fn on_favicon_urlchange(&self, _browser: Option<&mut Browser>, icon_urls: Option<&mut CefStringList>) {
+        fn on_favicon_urlchange(&self, browser: Option<&mut Browser>, icon_urls: Option<&mut CefStringList>) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             let first = icon_urls.and_then(|list| {
                 if cef::string_list_size(Some(&mut *list)) == 0 {
                     return None;
@@ -953,7 +983,10 @@ wrap_display_handler! {
             s.events.push(WebEvent::Favicon(first));
         }
 
-        fn on_loading_progress_change(&self, _browser: Option<&mut Browser>, progress: f64) {
+        fn on_loading_progress_change(&self, browser: Option<&mut Browser>, progress: f64) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             let progress = progress.clamp(0.0, 1.0) as f32;
             // Sub-step repeats stay quiet; the arrival at 1.0 always lands.
             let mut s = locked(&self.shared);
@@ -974,11 +1007,14 @@ wrap_load_handler! {
     impl LoadHandler {
         fn on_loading_state_change(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             is_loading: ::std::os::raw::c_int,
             can_go_back: ::std::os::raw::c_int,
             can_go_forward: ::std::os::raw::c_int,
         ) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             let mut s = locked(&self.shared);
             s.can_back = can_go_back == 1;
             s.can_forward = can_go_forward == 1;
@@ -991,6 +1027,9 @@ wrap_load_handler! {
             frame: Option<&mut Frame>,
             _http_status_code: ::std::os::raw::c_int,
         ) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             if frame.map(|f| f.is_main() == 1).unwrap_or(true) {
                 // The entry read and the host zoom level are CEF calls:
                 // finish both before locking.
@@ -1053,6 +1092,18 @@ wrap_life_span_handler! {
     impl LifeSpanHandler {
         fn on_after_created(&self, browser: Option<&mut Browser>) {
             let Some(browser) = browser else { return };
+            // The page's browser is the first one; any later one on this
+            // client (DevTools) is not ours to adopt (owner screenshot
+            // 2026-10-11: DevTools took over the tab and could not be closed).
+            let id = browser.identifier();
+            {
+                let mut s = locked(&self.shared);
+                match s.browser_id {
+                    Some(own) if own != id => return,
+                    Some(_) => {}
+                    None => s.browser_id = Some(id),
+                }
+            }
             let mut observer = AuiDevTools::new(self.shared.clone());
             let registration = browser.host().and_then(|host| host.add_dev_tools_message_observer(Some(&mut observer)));
             {
@@ -1069,7 +1120,10 @@ wrap_life_span_handler! {
             }
         }
 
-        fn on_before_close(&self, _browser: Option<&mut Browser>) {
+        fn on_before_close(&self, browser: Option<&mut Browser>) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             let mut s = locked(&self.shared);
             s.closed = true;
             s.registration = None;
@@ -1099,6 +1153,9 @@ wrap_life_span_handler! {
             _extra_info: Option<&mut Option<DictionaryValue>>,
             _no_javascript_access: Option<&mut ::std::os::raw::c_int>,
         ) -> ::std::os::raw::c_int {
+            if foreign(&self.shared, browser.as_deref()) {
+                return 0;
+            }
             // CEF reads first: the popup URL and the opener URL are engine
             // calls, never made under the page Mutex.
             let url = target_url.map(|u| u.to_string()).unwrap_or_default();
@@ -1108,6 +1165,16 @@ wrap_life_span_handler! {
                 .map(|f| CefString::from(&f.url()).to_string())
                 .unwrap_or_default();
             let foreground = popup_foreground(target_disposition);
+            if std::env::var("AUI_CEF_POPUP_TRACE").as_deref() == Ok("1") {
+                eprintln!("aui-cef: popup {url} disposition={target_disposition:?} from {opener_url}");
+            }
+            // DevTools is never a tab: it opens in its own window (owner
+            // decision 2026-10-11). Chromium's Inspect asked for its front
+            // end as a new tab, so it landed in the sidebar as an
+            // unclosable-looking "DevTools" page beside its real window.
+            if is_devtools_url(&url) {
+                return 0;
+            }
             // A link opened "in a new tab" (`target=_blank`, ⌘-click) never
             // reaches `on_popup_browser_view_created` in Chrome style: Chromium
             // opened its own top-level window for it (found live). Those carry
@@ -1139,7 +1206,10 @@ wrap_life_span_handler! {
             0
         }
 
-        fn on_before_popup_aborted(&self, _browser: Option<&mut Browser>, popup_id: ::std::os::raw::c_int) {
+        fn on_before_popup_aborted(&self, browser: Option<&mut Browser>, popup_id: ::std::os::raw::c_int) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             locked(&self.shared).pending_popups.retain(|(id, _)| *id != popup_id);
         }
     }
@@ -1153,12 +1223,15 @@ wrap_request_handler! {
     impl RequestHandler {
         fn on_before_browse(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             request: Option<&mut Request>,
             _user_gesture: ::std::os::raw::c_int,
             _is_redirect: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
+            if foreign(&self.shared, browser.as_deref()) {
+                return 0;
+            }
             // A main-frame navigation leaves every pending prompt behind.
             let main = frame.map(|f| f.is_main() == 1).unwrap_or(true);
             if main {
@@ -1177,11 +1250,14 @@ wrap_request_handler! {
 
         fn on_render_process_terminated(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             status: TerminationStatus,
             error_code: ::std::os::raw::c_int,
             error_string: Option<&CefString>,
         ) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             let detail = error_string.map(|e| e.to_string()).unwrap_or_default();
             let reason = crash_reason(status, error_code, &detail);
             let mut s = locked(&self.shared);
@@ -1209,12 +1285,15 @@ wrap_permission_handler! {
     impl PermissionHandler {
         fn on_show_permission_prompt(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             prompt_id: u64,
             requesting_origin: Option<&CefString>,
             requested_permissions: u32,
             callback: Option<&mut PermissionPromptCallback>,
         ) -> ::std::os::raw::c_int {
+            if foreign(&self.shared, browser.as_deref()) {
+                return 0;
+            }
             // Plain copies first; the lock only stores and queues.
             let origin = requesting_origin.map(|o| o.to_string()).unwrap_or_default();
             let kinds = permission_kinds_from_bits(requested_permissions);
@@ -1228,10 +1307,13 @@ wrap_permission_handler! {
 
         fn on_dismiss_permission_prompt(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             prompt_id: u64,
             _result: PermissionRequestResult,
         ) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             let mut s = locked(&self.shared);
             s.permissions.remove(&prompt_id);
             s.events.push(WebEvent::PermissionDismissed(prompt_id));
@@ -1239,12 +1321,15 @@ wrap_permission_handler! {
 
         fn on_request_media_access_permission(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             _frame: Option<&mut Frame>,
             requesting_origin: Option<&CefString>,
             requested_permissions: u32,
             callback: Option<&mut MediaAccessCallback>,
         ) -> ::std::os::raw::c_int {
+            if foreign(&self.shared, browser.as_deref()) {
+                return 0;
+            }
             let origin = requesting_origin.map(|o| o.to_string()).unwrap_or_default();
             let kinds = media_kinds_from_bits(requested_permissions);
             let mut s = locked(&self.shared);
@@ -1277,20 +1362,26 @@ wrap_download_handler! {
     impl DownloadHandler {
         fn can_download(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             _url: Option<&CefString>,
             _request_method: Option<&CefString>,
         ) -> ::std::os::raw::c_int {
+            if foreign(&self.shared, browser.as_deref()) {
+                return 1;
+            }
             1
         }
 
         fn on_before_download(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             download_item: Option<&mut DownloadItem>,
             suggested_name: Option<&CefString>,
             callback: Option<&mut BeforeDownloadCallback>,
         ) -> ::std::os::raw::c_int {
+            if foreign(&self.shared, browser.as_deref()) {
+                return 0;
+            }
             let (Some(item), Some(callback)) = (download_item, callback) else { return 0 };
             // CEF reads first — all outside the lock.
             let id = item.id();
@@ -1330,10 +1421,13 @@ wrap_download_handler! {
 
         fn on_download_updated(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             download_item: Option<&mut DownloadItem>,
             callback: Option<&mut DownloadItemCallback>,
         ) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             let (Some(item), Some(callback)) = (download_item, callback) else { return };
             // CEF reads first; nothing below runs under the page Mutex.
             let id = item.id();
@@ -1417,11 +1511,14 @@ wrap_context_menu_handler! {
     impl ContextMenuHandler {
         fn on_before_context_menu(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             _frame: Option<&mut Frame>,
             params: Option<&mut ContextMenuParams>,
             _model: Option<&mut MenuModel>,
         ) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             let url = params.map(|p| {
                 let link = CefString::from(&p.link_url()).to_string();
                 if link.is_empty() { CefString::from(&p.source_url()).to_string() } else { link }
@@ -1431,12 +1528,15 @@ wrap_context_menu_handler! {
 
         fn on_context_menu_command(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             _frame: Option<&mut Frame>,
             _params: Option<&mut ContextMenuParams>,
             command_id: ::std::os::raw::c_int,
             _event_flags: EventFlags,
         ) -> ::std::os::raw::c_int {
+            if foreign(&self.shared, browser.as_deref()) {
+                return 0;
+            }
             let Some(foreground) = crate::keys::context_menu_open_foreground(command_id) else { return 0 };
             // Brief lock, no CEF under it.
             let mut s = locked(&self.shared);
@@ -1555,10 +1655,13 @@ wrap_audio_handler! {
 
         fn on_audio_stream_started(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             _params: Option<&AudioParameters>,
             _channels: ::std::os::raw::c_int,
         ) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             let mut s = locked(&self.shared);
             let (next, event) = audio_update(s.audio_streams, 1);
             s.audio_streams = next;
@@ -1567,7 +1670,10 @@ wrap_audio_handler! {
             }
         }
 
-        fn on_audio_stream_stopped(&self, _browser: Option<&mut Browser>) {
+        fn on_audio_stream_stopped(&self, browser: Option<&mut Browser>) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             let mut s = locked(&self.shared);
             let (next, event) = audio_update(s.audio_streams, -1);
             s.audio_streams = next;
@@ -1576,7 +1682,10 @@ wrap_audio_handler! {
             }
         }
 
-        fn on_audio_stream_error(&self, _browser: Option<&mut Browser>, _message: Option<&CefString>) {
+        fn on_audio_stream_error(&self, browser: Option<&mut Browser>, _message: Option<&CefString>) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             // An errored stream is gone like a stopped one.
             let mut s = locked(&self.shared);
             let (next, event) = audio_update(s.audio_streams, -1);
@@ -1599,13 +1708,16 @@ wrap_find_handler! {
     impl FindHandler {
         fn on_find_result(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             _identifier: ::std::os::raw::c_int,
             count: ::std::os::raw::c_int,
             _selection_rect: Option<&Rect>,
             active_match_ordinal: ::std::os::raw::c_int,
             final_update: ::std::os::raw::c_int,
         ) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
             let found = {
                 let s = locked(&self.shared);
                 FindState {
@@ -2205,6 +2317,16 @@ impl WebBackend for CefBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Owner screenshot 2026-10-11: Inspect's front end asked for a tab and
+    /// landed in the sidebar. A `devtools:` address is never a host tab.
+    #[test]
+    fn devtools_addresses_are_never_tabs() {
+        assert!(is_devtools_url("devtools://devtools/bundled/devtools_app.html?remoteBase=https://x"));
+        assert!(is_devtools_url("devtools:inspector"));
+        assert!(!is_devtools_url("https://devtools.example.com/"));
+        assert!(!is_devtools_url("about:blank"));
+    }
 
     #[test]
     fn eval_answers_carry_json_text_or_the_exception_message() {
