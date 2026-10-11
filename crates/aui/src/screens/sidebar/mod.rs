@@ -18,7 +18,7 @@ pub use menus::{account_menu, browse_menu, browse_menu_size, view_options_menu};
 pub use model::{
     sample_model, Account, AccountAction, BrowseEditing, BrowseFolder, BrowseIntent, BrowseMenu, BrowseMenuTarget, BrowseModel,
     BrowseNaming, BrowsePin, BrowseSpace, BrowseTab, Bylines, EditingState, FolderAction, FolderKind, GroupKey, Mode, NavItem,
-    ProviderUsage, SidebarIntent, SidebarModel, SortKey, SpaceAction, TabAction, TaskFolderAction, UsageLine, ViewOption,
+    PageAction, ProviderUsage, SidebarIntent, SidebarModel, SortKey, SpaceAction, TabAction, TaskFolderAction, UsageLine, ViewOption,
     ViewOptions,
 };
 pub use view::{collapsed_strip_width, list_row_height, screen_item_count, sidebar_screen, traffic_light_gap, SidebarScreen, SIDEBAR_WIDTH};

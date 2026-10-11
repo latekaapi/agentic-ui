@@ -31,7 +31,7 @@ use crate::nav::project_mark;
 
 use super::{
     Account, AccountAction, BrowseIntent, BrowseMenu, BrowseMenuTarget, BrowseModel, FolderAction, GroupKey,
-    SidebarIntent, SortKey, SpaceAction, TabAction, TaskFolderAction, ViewOption, ViewOptions,
+    PageAction, SidebarIntent, SortKey, SpaceAction, TabAction, TaskFolderAction, ViewOption, ViewOptions,
 };
 
 type IntentHandler = Rc<dyn Fn(SidebarIntent, &mut Window, &mut App)>;
@@ -475,6 +475,27 @@ pub fn browse_menu(id: impl Into<ElementId>, browse: &BrowseModel, on_intent: Op
                 None,
             )
         }
+        BrowseMenuTarget::Page { safari, devtools, annotating } => {
+            let act = |a: PageAction| b(BrowseIntent::Page(a));
+            let mut rows = vec![
+                MenuRow::new("New tab", act(PageAction::NewTab)).keys("⌘T"),
+                MenuRow::new("Find in page", act(PageAction::Find)).keys("⌘F"),
+                MenuRow::new("Copy link", act(PageAction::CopyLink)).keys("⇧⌘C").after_separator(),
+            ];
+            if *safari {
+                rows.push(MenuRow::new("Open in Safari", act(PageAction::OpenInSafari)));
+            }
+            rows.push(MenuRow::new(if *annotating { "Stop annotating" } else { "Annotate page" }, act(PageAction::Annotate)).after_separator());
+            rows.push(MenuRow::new("Screenshot", act(PageAction::Screenshot)));
+            let mut tools = vec![];
+            if *devtools {
+                tools.push(MenuRow::new("Developer tools", act(PageAction::DevTools)).keys("⌥⌘I"));
+            }
+            tools.push(MenuRow::new("Browser settings", act(PageAction::Settings)));
+            tools[0] = tools[0].clone().after_separator();
+            rows.extend(tools);
+            ("page".to_owned(), "Page".into(), rows, None)
+        }
     };
     let menu_id: ElementId = (id.clone(), SharedString::from(key)).into();
     let sub_open = window.use_keyed_state((menu_id.clone(), "sub"), cx, |_, _| false);
@@ -538,6 +559,7 @@ pub fn browse_menu_size(menu: &BrowseMenu, folders: usize, cx: &App) -> gpui::Si
         BrowseMenuTarget::Folder(_) => (3, 1, None),
         BrowseMenuTarget::TaskFolder { running, .. } => (2 + usize::from(*running), 1, None),
         BrowseMenuTarget::Space { .. } => (2, 1, None),
+        BrowseMenuTarget::Page { safari, devtools, .. } => (3 + usize::from(*safari) + 2 + usize::from(*devtools) + 1, 3, None),
     };
     let height = metrics.control * rows as f32 + separator * separators as f32 + inset;
     let width = if submenu.is_some() { menu_width() + px(scale::SP_1) + submenu_width() } else { menu_width() };
@@ -555,6 +577,21 @@ mod tests {
 
     fn tab(in_folder: bool) -> BrowseMenu {
         menu(BrowseMenuTarget::Tab { id: "t".into(), pinned: false, in_folder })
+    }
+
+    /// Owner screenshot 2026-10-12: the page controls' ⋯ opened the Sessions
+    /// header menu. The page menu is a Browse menu: no submenu, its rows
+    /// (8 with Safari and DevTools, 6 without) under three separators.
+    #[gpui::test]
+    fn the_page_menu_sizes_its_optional_rows(cx: &mut TestAppContext) {
+        cx.update(|cx| crate::init(aui_tokens::ThemeKind::Dark, cx));
+        cx.update(|cx| {
+            let page = |safari, devtools| menu(BrowseMenuTarget::Page { safari, devtools, annotating: false });
+            let full = browse_menu_size(&page(true, true), 0, cx);
+            let bare = browse_menu_size(&page(false, false), 0, cx);
+            assert_eq!(full.width, menu_width(), "no submenu room");
+            assert_eq!(full.height - bare.height, cx.aui().metrics.control * 2.0, "Safari and DevTools are a row each");
+        });
     }
 
     #[gpui::test]

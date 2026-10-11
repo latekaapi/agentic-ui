@@ -234,6 +234,15 @@ pub enum BrowseMenuTarget {
         /// Whether it is the only space.
         last: bool,
     },
+    /// The shown page (the page controls' ⋯): which rows the page offers.
+    Page {
+        /// "Open in Safari" (http(s) pages only).
+        safari: bool,
+        /// "Developer tools" (when the engine has them).
+        devtools: bool,
+        /// Annotate mode is on: the row reads "Stop annotating".
+        annotating: bool,
+    },
 }
 
 /// An open right-click menu in Browse mode: what it belongs to and where
@@ -287,6 +296,27 @@ pub enum TaskFolderAction {
     Stop,
     /// Close its tabs.
     CloseTabs,
+}
+
+/// A page menu row (the page controls' ⋯).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageAction {
+    /// New tab.
+    NewTab,
+    /// Find in page.
+    Find,
+    /// Copy link.
+    CopyLink,
+    /// Open in Safari.
+    OpenInSafari,
+    /// Annotate (or stop annotating).
+    Annotate,
+    /// Screenshot into the draft.
+    Screenshot,
+    /// Developer tools (their own window).
+    DevTools,
+    /// Browser settings.
+    Settings,
 }
 
 /// A space-chip menu row.
@@ -555,6 +585,8 @@ pub enum BrowseIntent {
     TaskFolder(SharedString, TaskFolderAction),
     /// A space-chip menu row.
     Space(SharedString, SpaceAction),
+    /// A page menu row.
+    Page(PageAction),
     /// A name field committed: the target and the text.
     Name(BrowseNaming, SharedString),
     /// A name field was abandoned.
