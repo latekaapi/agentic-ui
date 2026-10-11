@@ -308,11 +308,16 @@ impl Ctx {
         self.lead(halo, cx)
     }
 
-    /// A favicon-style mark: a `surface-3` square on the item radius with
-    /// the initial in `ink-2` (the mock's `.mark`).
-    fn favicon(&self, initial: SharedString, cx: &App) -> AnyElement {
+    /// A tab's mark: its favicon image when the host has one (the icon
+    /// size, square, as sites draw them), else a favicon-style tile — a
+    /// `surface-3` square on the item radius with the initial in `ink-2`
+    /// (the mock's `.mark`).
+    fn favicon(&self, initial: SharedString, image: Option<&SharedString>, cx: &App) -> AnyElement {
         let p = cx.aui().colors;
         let metrics = cx.aui().metrics;
+        if let Some(path) = image {
+            return gpui::img(std::path::PathBuf::from(path.as_ref())).size(metrics.icon).flex_none().into_any_element();
+        }
         Shape::Item
             .rounded(
                 div()
@@ -1094,7 +1099,10 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                         .text_role_in(TextRole::Body, Density::Standard)
                         .medium()
                         .text_color(p.ink_2)
-                        .child(pin.initial.clone()),
+                        .child(match pin.favicon.as_ref() {
+                            Some(path) => gpui::img(std::path::PathBuf::from(path.as_ref())).size(metrics.icon).into_any_element(),
+                            None => pin.initial.clone().into_any_element(),
+                        }),
                 )
                 .shape(Shape::Item);
                 let c = ctx.clone();
@@ -1149,7 +1157,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                     .child(spinner(ctx.child(format!("spin-{}", tab.id))).size(metrics.icon).fluid(cx))
                     .into_any_element()
             } else {
-                ctx.favicon(tab.initial.clone(), cx)
+                ctx.favicon(tab.initial.clone(), tab.favicon.as_ref(), cx)
             };
             let lit = model.hovered.as_ref() == Some(&tab.id) || tab.active;
             let close = if lit {

@@ -117,10 +117,12 @@ pub struct EditingState {
 pub struct BrowsePin {
     /// Stable id, reported by [`BrowseIntent::OpenPin`].
     pub id: SharedString,
-    /// The tile's initial (no favicon yet).
+    /// The tile's initial: the mark while there is no favicon.
     pub initial: SharedString,
     /// The human label (the accessible name).
     pub label: SharedString,
+    /// The page's favicon as a local image file, once the host has one.
+    pub favicon: Option<SharedString>,
 }
 
 /// One open tab in Browse mode.
@@ -136,6 +138,9 @@ pub struct BrowseTab {
     pub active: bool,
     /// Whether its page is loading: the favicon slot spins.
     pub loading: bool,
+    /// The page's favicon as a local image file, once the host has one;
+    /// the initial stands in until then.
+    pub favicon: Option<SharedString>,
 }
 
 /// A folder of tabs in Browse mode: one you made, or a session's task
@@ -707,15 +712,15 @@ pub fn sample_model() -> SidebarModel {
             can_go_back: true,
             can_go_forward: false,
             pins: vec![
-                BrowsePin { id: "u".into(), initial: "U".into(), label: "Unified dashboard".into() },
-                BrowsePin { id: "p".into(), initial: "P".into(), label: "Performance grades".into() },
-                BrowsePin { id: "d".into(), initial: "D".into(), label: "Open data portal".into() },
-                BrowsePin { id: "n".into(), initial: "N".into(), label: "Survey reports".into() },
+                BrowsePin { id: "u".into(), initial: "U".into(), label: "Unified dashboard".into(), favicon: None },
+                BrowsePin { id: "p".into(), initial: "P".into(), label: "Performance grades".into(), favicon: None },
+                BrowsePin { id: "d".into(), initial: "D".into(), label: "Open data portal".into(), favicon: None },
+                BrowsePin { id: "n".into(), initial: "N".into(), label: "Survey reports".into(), favicon: None },
             ],
             tabs: vec![
-                BrowseTab { id: "scores".into(), title: "State scores 2023-24".into(), initial: "S".into(), active: true, loading: false },
-                BrowseTab { id: "dashboard".into(), title: "Dashboard 2024-25".into(), initial: "D".into(), active: false, loading: false },
-                BrowseTab { id: "cards".into(), title: "State report cards".into(), initial: "S".into(), active: false, loading: false },
+                BrowseTab { id: "scores".into(), title: "State scores 2023-24".into(), initial: "S".into(), active: true, loading: false, favicon: None },
+                BrowseTab { id: "dashboard".into(), title: "Dashboard 2024-25".into(), initial: "D".into(), active: false, loading: false, favicon: None },
+                BrowseTab { id: "cards".into(), title: "State report cards".into(), initial: "S".into(), active: false, loading: false, favicon: None },
             ],
             folders: vec![BrowseFolder {
                 id: "karnataka".into(),
@@ -723,8 +728,8 @@ pub fn sample_model() -> SidebarModel {
                 kind: FolderKind::Yours,
                 open: true,
                 tabs: vec![
-                    BrowseTab { id: "board".into(), title: "Board results 2025".into(), initial: "B".into(), active: false, loading: false },
-                    BrowseTab { id: "scheme".into(), title: "Scheme review · Karnataka".into(), initial: "S".into(), active: false, loading: false },
+                    BrowseTab { id: "board".into(), title: "Board results 2025".into(), initial: "B".into(), active: false, loading: false, favicon: None },
+                    BrowseTab { id: "scheme".into(), title: "Scheme review · Karnataka".into(), initial: "S".into(), active: false, loading: false, favicon: None },
                 ],
             }],
             task_folders: vec![
@@ -733,14 +738,14 @@ pub fn sample_model() -> SidebarModel {
                     name: "Checklist run".into(),
                     kind: FolderKind::Task { state: AgentState::Waiting, status: "needs you".into(), needs_you: true },
                     open: true,
-                    tabs: vec![BrowseTab { id: "ledger".into(), title: "Ledger".into(), initial: "L".into(), active: false, loading: false }],
+                    tabs: vec![BrowseTab { id: "ledger".into(), title: "Ledger".into(), initial: "L".into(), active: false, loading: false, favicon: None }],
                 },
                 BrowseFolder {
                     id: "browser-audit".into(),
                     name: "Browser integration audit".into(),
                     kind: FolderKind::Task { state: AgentState::Running, status: "reading".into(), needs_you: false },
                     open: true,
-                    tabs: vec![BrowseTab { id: "pr".into(), title: "Pull request #412 · baaz".into(), initial: "G".into(), active: false, loading: false }],
+                    tabs: vec![BrowseTab { id: "pr".into(), title: "Pull request #412 · baaz".into(), initial: "G".into(), active: false, loading: false, favicon: None }],
                 },
             ],
             spaces: vec![
