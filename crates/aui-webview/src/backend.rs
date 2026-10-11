@@ -99,8 +99,12 @@ pub enum WebEvent {
     /// The person pinned an element while annotate mode was on. The metadata
     /// that goes with it is fetched with [`WebBackend::element_info`].
     Annotation(Annotation),
-    /// An encoded PNG of the page.
+    /// An encoded PNG of the page, answering [`WebBackend::capture`].
     Screenshot(Vec<u8>),
+    /// A picture of the page for a cover's stand-in only, answering
+    /// [`WebBackend::capture_stand_in`]: any format gpui decodes (JPEG for
+    /// speed), never handed to anyone as "the screenshot".
+    StandIn(Vec<u8>),
     /// The page's icon changed; the first icon URL, or `None` when the page
     /// has none. The toolbar shows this on the tab.
     Favicon(Option<String>),
@@ -452,6 +456,16 @@ pub trait WebBackend {
     /// Asks for a screenshot; the answer arrives as [`WebEvent::Screenshot`].
     /// Backends that cannot capture do nothing, which is the default.
     fn capture(&mut self) {}
+
+    /// Asks for the picture a cover paints in the page's place; the answer
+    /// arrives as [`WebEvent::StandIn`] (or as a [`WebEvent::Screenshot`],
+    /// which serves too). It is on the critical path of every cover, so a
+    /// backend should make it cheap: the CEF one asks for a speed-optimised
+    /// JPEG, since Chromium encodes on the thread that also runs the UI.
+    /// Defaults to [`Self::capture`].
+    fn capture_stand_in(&mut self) {
+        self.capture();
+    }
 
     /// Whether the page is a **native surface composited over the gpui scene**
     /// rather than gpui elements inside it.

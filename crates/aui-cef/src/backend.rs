@@ -92,7 +92,10 @@ const IPC_PRELUDE: &str = "window.ipc = window.ipc || { postMessage: function (m
 enum Pending {
     /// A host `eval_with_result`, by the host's request id.
     Eval(u64),
-    Screenshot,
+    /// A page capture, asked for at this instant (`AUI_CEF_CAPTURE_TRACE=1`
+    /// logs the round trip): the PNG screenshot (`stand_in` false) or a
+    /// cover's JPEG stand-in.
+    Screenshot { asked: std::time::Instant, stand_in: bool },
     /// Setup calls; the last one releases the first real navigation.
     Setup { last: bool },
 }
@@ -468,10 +471,16 @@ fn on_devtools(page: &Page, message: &[u8]) {
                 };
                 locked(page).eval_results.push((request, result));
             }
-            Pending::Screenshot => {
+            Pending::Screenshot { asked, stand_in } => {
+                if std::env::var("AUI_CEF_CAPTURE_TRACE").as_deref() == Ok("1") {
+                    eprintln!("aui-cef: capture{} {} ms", if stand_in { " (stand-in)" } else { "" }, asked.elapsed().as_millis());
+                }
                 let data = value.pointer("/result/data").and_then(Value::as_str).unwrap_or_default();
                 match base64::engine::general_purpose::STANDARD.decode(data) {
-                    Ok(bytes) if !bytes.is_empty() => locked(page).events.push(WebEvent::Screenshot(bytes)),
+                    Ok(bytes) if !bytes.is_empty() => {
+                        let event = if stand_in { WebEvent::StandIn(bytes) } else { WebEvent::Screenshot(bytes) };
+                        locked(page).events.push(event);
+                    }
                     _ => eprintln!("aui-cef: captureScreenshot returned no image ({})", error.unwrap_or_default()),
                 }
             }
@@ -2084,7 +2093,18 @@ impl WebBackend for CefBackend {
     }
 
     fn capture(&mut self) {
-        send(&self.page, "Page.captureScreenshot", json!({ "format": "png" }), Pending::Screenshot);
+        let asked = std::time::Instant::now();
+        send(&self.page, "Page.captureScreenshot", json!({ "format": "png" }), Pending::Screenshot { asked, stand_in: false });
+    }
+
+    /// Chromium encodes a capture on its UI thread — the host's main thread
+    /// under the external pump — so a cover's picture is a speed-optimised
+    /// JPEG: measured live over HN (2026-10-11), round trip 36–44 ms against
+    /// 107–120 ms for the PNG, and gpui decodes it faster too.
+    fn capture_stand_in(&mut self) {
+        let asked = std::time::Instant::now();
+        let params = json!({ "format": "jpeg", "quality": 92, "optimizeForSpeed": true });
+        send(&self.page, "Page.captureScreenshot", params, Pending::Screenshot { asked, stand_in: true });
     }
 
     fn stop(&mut self) {

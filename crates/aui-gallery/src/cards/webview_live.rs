@@ -169,7 +169,7 @@ mod real {
                                 cx.notify();
                             });
                             state.update(cx, |state, cx| {
-                                state.set_obscured(now);
+                                state.set_obscured(now, cx);
                                 cx.notify();
                             });
                         })

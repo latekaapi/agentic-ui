@@ -37,6 +37,10 @@ const COVER_CAPTURE_WAIT: Duration = Duration::from_millis(300);
 /// longer, so the frame that paints the picture is on screen before the
 /// live page goes (no bare frame between them).
 const COVER_HANDOFF: Duration = Duration::from_millis(40);
+
+/// How often a cover that waits for its picture drains the backend: about a
+/// frame, so the picture stands in the frame after it lands.
+const COVER_POLL_INTERVAL: Duration = Duration::from_millis(8);
 /// Where the note popover opens relative to the pinned element: just clear of
 /// its right edge, dropped a little so the pin stays visible.
 const NOTE_GAP: f32 = 14.0;
@@ -222,6 +226,9 @@ pub struct WebviewState {
     page_size: Size<Pixels>,
     /// The poll timer; it stops when the state is dropped.
     _poll: Task<()>,
+    /// The fast drain while a cover waits for its picture
+    /// ([`Self::set_obscured`]); it ends itself once the cover settles.
+    _cover_poll: Option<Task<()>>,
 }
 
 impl WebviewState {
@@ -314,6 +321,7 @@ impl WebviewState {
             page_origin: gpui::point(px(0.0), px(0.0)),
             page_size: gpui::size(px(0.0), px(0.0)),
             _poll: poll,
+            _cover_poll: None,
         };
         // A backend usually has its first page to announce before the poll
         // timer has run, so the pane never draws an empty URL field.
@@ -348,7 +356,13 @@ impl WebviewState {
     }
 
     /// Turns annotate mode on or off, clearing the hover and any open note.
+    ///
+    /// Turning it on takes the picture [`WebviewIntent::SendAnnotations`]
+    /// carries: nothing else captures the page any more.
     pub fn set_annotate(&mut self, on: bool) {
+        if on && !self.annotate {
+            self.capture();
+        }
         self.annotate = on;
         self.backend.set_annotate(on);
         if !on {
@@ -396,7 +410,11 @@ impl WebviewState {
     /// Asks the backend for a screenshot. The bytes arrive on the poll as
     /// [`WebEvent::Screenshot`] and are what
     /// [`WebviewIntent::SendAnnotations`] then carries.
+    ///
+    /// Forgets the previous picture first, so a reader waiting on
+    /// [`Self::screenshot`] gets this capture, never an older one.
     pub fn capture(&mut self) {
+        self.screenshot = None;
         self.backend.capture();
     }
 
@@ -539,13 +557,16 @@ impl WebviewState {
     /// put gpui pixels in that rectangle is to take the native view out of it.
     ///
     /// So the host calls this with `true` while such an overlay is open. The
-    /// pane hides the native view and paints the last screenshot in its place
-    /// (a flat surface if there is none yet), which keeps the page looking
-    /// like the page while the overlay is up. `false` puts it back.
+    /// pane hides the native view and paints a picture taken for this cover
+    /// in its place (a flat surface if none comes), which keeps the page
+    /// looking like the page while the overlay is up. `false` puts it back.
     ///
-    /// Ask for a [`Self::capture`] when the pane opens and after each
-    /// navigation, or the stand-in will be a flat surface.
-    pub fn set_obscured(&mut self, obscured: bool) {
+    /// Covering asks for a fresh picture ([`WebBackend::capture_stand_in`])
+    /// and keeps the live page up until it lands; [`Self::cover_settling`]
+    /// says when that is over. While it waits, the backend is drained every
+    /// [`COVER_POLL_INTERVAL`] instead of every [`POLL_INTERVAL`]: the slow
+    /// poll alone added up to 100 ms to every cover.
+    pub fn set_obscured(&mut self, obscured: bool, cx: &mut Context<Self>) {
         if self.obscured == obscured {
             return;
         }
@@ -563,8 +584,20 @@ impl WebviewState {
             // invisible; a capture that never answers falls back to the flat
             // surface at the deadline, never to an old picture.
             if self.native && self.shown && !is_blank_url(&self.url) {
-                self.backend.capture();
+                self.backend.capture_stand_in();
                 self.cover_capture_until = Some(std::time::Instant::now() + COVER_CAPTURE_WAIT);
+                self._cover_poll = Some(cx.spawn(async move |this, cx| loop {
+                    cx.background_executor().timer(COVER_POLL_INTERVAL).await;
+                    let waiting = this
+                        .update(cx, |this, cx| {
+                            this.drain(cx);
+                            this.cover_capture_until.is_some()
+                        })
+                        .unwrap_or(false);
+                    if !waiting {
+                        return;
+                    }
+                }));
             }
         }
         self.sync_visibility();
@@ -740,23 +773,39 @@ impl WebviewState {
 
     /// Pushes `frame` into the native backend and remembers it, refreshing
     /// the snapshot stand-in when the page area itself resized.
-    fn push_frame(&mut self, frame: (Point<Pixels>, Size<Pixels>), resized: bool) {
+    ///
+    /// No picture is taken here. A capture per resize was the stand-in's old
+    /// source: a sidebar drag asked Chromium for a full-window PNG every frame,
+    /// encoded on the UI thread, and the window fell to ~11 fps (sampled
+    /// 2026-10-11: 84 % of the main thread in the PNG writer). Covers take
+    /// their own fresh picture ([`Self::set_obscured`]).
+    fn push_frame(&mut self, frame: (Point<Pixels>, Size<Pixels>), _resized: bool) {
         self.pushed = Some(frame);
         self.backend.set_bounds(
             (f32::from(frame.0.x), f32::from(frame.0.y)),
             (f32::from(frame.1.width), f32::from(frame.1.height)),
         );
-        if resized && f32::from(frame.1.width) >= 1.0 && f32::from(frame.1.height) >= 1.0 {
-            // (Not at zero area: the first layout reports a size before the
-            // native view has a frame, and a snapshot then comes back 0×0 —
-            // seen live as a failed PNG encode on every pane open.)
-            // The stand-in an overlay is painted over has to be the page at
-            // *this* size, so a reflow is worth a new picture. Taking it
-            // here rather than in `set_obscured` also keeps it a picture of
-            // a visible view: `takeSnapshot` on a hidden one comes back
-            // blank.
-            self.backend.capture();
+    }
+
+    /// A picture landed while a cover waits for one: it stands in from now,
+    /// and the native view goes after [`COVER_HANDOFF`]. A picture with no
+    /// cover waiting is only kept (a later cover asks for its own).
+    fn land_stand_in(&mut self, image: Image) {
+        self.screenshot_image = Some(Arc::new(image));
+        if self.cover_capture_until.is_some() && !self.stand_in_fresh {
+            self.stand_in_fresh = true;
+            self.cover_capture_until = Some(std::time::Instant::now() + COVER_HANDOFF);
         }
+    }
+
+    /// Whether a cover was asked for but the live page is still up, waiting
+    /// on its picture (or the handoff after it). A host draws its covering
+    /// UI only once this is false: drawn sooner, the part over the gpui
+    /// ground shows while the page is still live above the rest — the ⌘K
+    /// scrim dimmed the sidebar ~165 ms before the page (owner recording
+    /// 2026-10-11).
+    pub fn cover_settling(&self) -> bool {
+        self.native && self.obscured && self.shown && self.cover_capture_until.is_some()
     }
 
     /// Whether the address field is open for typing.
@@ -856,7 +905,6 @@ impl WebviewState {
         let hovered = self.backend.hovered();
         let mut changed = hovered != self.hovered;
         let mut screenshot = false;
-        let mut settled = false;
         self.hovered = hovered;
         for event in events {
             changed = true;
@@ -878,7 +926,6 @@ impl WebviewState {
                 }
                 WebEvent::Loading(loading) => {
                     self.loading = loading;
-                    settled |= !loading;
                     // Only the load end of a navigation we asked for clears
                     // the crash. The crash report itself arrives with a
                     // `Loading(false)` (a dead renderer never finishes), and
@@ -890,14 +937,14 @@ impl WebviewState {
                 }
                 WebEvent::Annotation(annotation) => self.push_annotation(annotation),
                 WebEvent::Screenshot(bytes) => {
-                    self.screenshot_image = Some(Arc::new(Image::from_bytes(ImageFormat::Png, bytes.clone())));
+                    self.land_stand_in(Image::from_bytes(ImageFormat::Png, bytes.clone()));
                     self.screenshot = Some(bytes);
                     screenshot = true;
-                    // The picture a cover asked for: the native view can go.
-                    if self.cover_capture_until.is_some() {
-                        self.stand_in_fresh = true;
-                        self.cover_capture_until = Some(std::time::Instant::now() + COVER_HANDOFF);
-                    }
+                }
+                WebEvent::StandIn(bytes) => {
+                    let format = if bytes.starts_with(&[0xFF, 0xD8]) { ImageFormat::Jpeg } else { ImageFormat::Png };
+                    self.land_stand_in(Image::from_bytes(format, bytes));
+                    screenshot = true;
                 }
                 WebEvent::Favicon(url) => self.favicon = url.map(SharedString::from),
                 WebEvent::Progress(progress) => self.progress = progress.clamp(0.0, 1.0),
@@ -943,11 +990,6 @@ impl WebviewState {
             // re-render like any other backend news.
             self.eval_results.extend(eval_results);
             changed = true;
-        }
-        if settled {
-            // The page that just finished loading is what an obscuring overlay
-            // will be painted over, so take its picture now.
-            self.backend.capture();
         }
         (changed, screenshot)
     }
@@ -2093,9 +2135,9 @@ mod tests {
         use gpui::AppContext as _;
         let state = cx.new(|cx| WebviewState::new(Box::new(FakeWebBackend::new()), cx));
         state.update(cx, |state, _| state.backend.set_focused(true));
-        state.update(cx, |state, _| {
+        state.update(cx, |state, cx| {
             assert!(state.holds_keyboard());
-            state.set_obscured(true);
+            state.set_obscured(true, cx);
             assert!(!state.holds_keyboard());
         });
     }
@@ -2554,6 +2596,8 @@ mod tests {
         set_bounds_calls: BoundsLog,
         set_visible_calls: Rc<RefCell<Vec<bool>>>,
         extra_events: Rc<RefCell<Vec<WebEvent>>>,
+        captures: Rc<Cell<u32>>,
+        stand_ins: Rc<Cell<u32>>,
     }
 
     impl NativeFake {
@@ -2562,7 +2606,14 @@ mod tests {
             set_visible_calls: Rc<RefCell<Vec<bool>>>,
             extra_events: Rc<RefCell<Vec<WebEvent>>>,
         ) -> Self {
-            Self { inner: FakeWebBackend::new(), set_bounds_calls, set_visible_calls, extra_events }
+            Self {
+                inner: FakeWebBackend::new(),
+                set_bounds_calls,
+                set_visible_calls,
+                extra_events,
+                captures: Rc::new(Cell::new(0)),
+                stand_ins: Rc::new(Cell::new(0)),
+            }
         }
     }
 
@@ -2590,6 +2641,12 @@ mod tests {
         }
         fn set_annotate(&mut self, on: bool) {
             self.inner.set_annotate(on);
+        }
+        fn capture(&mut self) {
+            self.captures.set(self.captures.get() + 1);
+        }
+        fn capture_stand_in(&mut self) {
+            self.stand_ins.set(self.stand_ins.get() + 1);
         }
         fn poll_events(&mut self) -> Vec<WebEvent> {
             let mut events = self.extra_events.borrow_mut().drain(..).collect::<Vec<_>>();
@@ -2646,7 +2703,7 @@ mod tests {
         });
         // `new` already folded the opening announcements; covering the page
         // is what hides it — no layout has run, so there is no box either.
-        state.update(cx, |state, _| state.set_obscured(true));
+        state.update(cx, |state, cx| state.set_obscured(true, cx));
         let count = Rc::new(Cell::new(0usize));
         // Kept alive to the end of the test: dropping it stops the count.
         let _keep = cx.update(|cx| {
@@ -2763,6 +2820,20 @@ mod tests {
         (state, bounds, visible, events)
     }
 
+    /// A native-backed state with counters for `capture` and
+    /// `capture_stand_in` calls, plus its `set_visible` log and event queue.
+    #[allow(clippy::type_complexity)]
+    fn counting_state(
+        cx: &mut TestAppContext,
+    ) -> (Entity<WebviewState>, Rc<Cell<u32>>, Rc<Cell<u32>>, Rc<RefCell<Vec<bool>>>, Rc<RefCell<Vec<WebEvent>>>) {
+        let visible = Rc::new(RefCell::new(Vec::new()));
+        let events: Rc<RefCell<Vec<WebEvent>>> = Rc::new(RefCell::new(Vec::new()));
+        let fake = NativeFake::new(Rc::new(RefCell::new(Vec::new())), visible.clone(), events.clone());
+        let (captures, stand_ins) = (fake.captures.clone(), fake.stand_ins.clone());
+        let state = cx.new(|cx| WebviewState::new(Box::new(fake), cx));
+        (state, captures, stand_ins, visible, events)
+    }
+
     /// L5fix: the laid-out page box at `x` with `width` (600 px tall).
     fn frame_at(x: f32, width: f32) -> gpui::Bounds<gpui::Pixels> {
         gpui::Bounds {
@@ -2846,7 +2917,7 @@ mod tests {
     fn screenshot_while_obscured_still_notifies(cx: &mut TestAppContext) {
         let (state, _, _, events) = native_state(cx);
         lay_out(&state, cx, frame_at(0., 400.));
-        state.update(cx, |state, _| state.set_obscured(true));
+        state.update(cx, |state, cx| state.set_obscured(true, cx));
         let (count, _keep) = notify_count(&state, cx);
         tick(&state, cx);
         assert_eq!(count.get(), 0, "a hidden page with no news stays quiet");
@@ -2867,7 +2938,7 @@ mod tests {
         tick(&state, cx);
         lay_out(&state, cx, frame_at(0., 400.));
         visible.borrow_mut().clear();
-        state.update(cx, |state, _| state.set_obscured(true));
+        state.update(cx, |state, cx| state.set_obscured(true, cx));
         tick(&state, cx);
         assert!(!visible.borrow().contains(&false), "the live page stays up while its picture is taken");
         assert!(state.update(cx, |state, _| !state.stand_in_fresh), "no fresh picture yet");
@@ -2889,11 +2960,113 @@ mod tests {
         events.borrow_mut().push(WebEvent::Url("https://a.example/".to_owned()));
         tick(&state, cx);
         lay_out(&state, cx, frame_at(0., 400.));
-        state.update(cx, |state, _| state.set_obscured(true));
+        state.update(cx, |state, cx| state.set_obscured(true, cx));
         std::thread::sleep(super::COVER_CAPTURE_WAIT + std::time::Duration::from_millis(10));
         tick(&state, cx);
         assert_eq!(visible.borrow().last(), Some(&false), "hidden at the deadline");
         assert!(state.update(cx, |state, _| !state.stand_in_fresh), "the load-time picture never stands in");
+    }
+
+    /// Owner recording 2026-10-11 (sidebar resize lag): resizing the page asks
+    /// the backend for no picture at all.
+    #[gpui::test]
+    fn a_resize_asks_for_no_capture(cx: &mut TestAppContext) {
+        let (state, captures, stand_ins, _, _) = counting_state(cx);
+        lay_out(&state, cx, frame_at(0., 400.));
+        lay_out(&state, cx, frame_at(0., 300.));
+        tick(&state, cx);
+        assert_eq!((captures.get(), stand_ins.get()), (0, 0));
+    }
+
+    /// Owner recording 2026-10-11 (PNG writer on the main thread): a load end
+    /// asks the backend for no picture.
+    #[gpui::test]
+    fn a_load_end_asks_for_no_capture(cx: &mut TestAppContext) {
+        let (state, captures, stand_ins, _, events) = counting_state(cx);
+        lay_out(&state, cx, frame_at(0., 400.));
+        events.borrow_mut().push(WebEvent::Loading(true));
+        tick(&state, cx);
+        events.borrow_mut().push(WebEvent::Loading(false));
+        tick(&state, cx);
+        assert_eq!((captures.get(), stand_ins.get()), (0, 0));
+    }
+
+    /// Owner recording 2026-10-11 (slow covers): covering a shown page takes
+    /// exactly one cover-only picture, not a full capture.
+    #[gpui::test]
+    fn covering_takes_one_stand_in_and_no_capture(cx: &mut TestAppContext) {
+        let (state, captures, stand_ins, _, events) = counting_state(cx);
+        events.borrow_mut().push(WebEvent::Url("https://a.example/".to_owned()));
+        tick(&state, cx);
+        lay_out(&state, cx, frame_at(0., 400.));
+        state.update(cx, |state, cx| state.set_obscured(true, cx));
+        tick(&state, cx);
+        assert_eq!((captures.get(), stand_ins.get()), (0, 1));
+    }
+
+    /// Owner recording 2026-10-11 (cover picture): a stand-in landing hands the
+    /// page off to the cover without becoming the readable screenshot.
+    #[gpui::test]
+    fn a_stand_in_covers_without_becoming_the_screenshot(cx: &mut TestAppContext) {
+        let (state, _, _, visible, events) = counting_state(cx);
+        events.borrow_mut().push(WebEvent::Url("https://a.example/".to_owned()));
+        tick(&state, cx);
+        lay_out(&state, cx, frame_at(0., 400.));
+        visible.borrow_mut().clear();
+        state.update(cx, |state, cx| state.set_obscured(true, cx));
+        events.borrow_mut().push(WebEvent::StandIn(vec![1, 2, 3, 4]));
+        tick(&state, cx);
+        assert!(state.update(cx, |state, _| state.stand_in_fresh), "the cover's picture landed");
+        assert!(state.update(cx, |state, _| state.screenshot().is_none()), "not the annotate screenshot");
+        assert!(!visible.borrow().contains(&false), "one handoff tick first");
+        std::thread::sleep(super::COVER_HANDOFF + std::time::Duration::from_millis(10));
+        tick(&state, cx);
+        assert_eq!(visible.borrow().last(), Some(&false), "then the native view goes");
+    }
+
+    /// Owner recording 2026-10-11 (scrim dimmed the sidebar before the page):
+    /// `cover_settling` holds through the picture wait and the handoff only.
+    #[gpui::test]
+    fn cover_settling_spans_the_wait_and_the_handoff(cx: &mut TestAppContext) {
+        let (state, _, _, events) = native_state(cx);
+        events.borrow_mut().push(WebEvent::Url("https://a.example/".to_owned()));
+        tick(&state, cx);
+        lay_out(&state, cx, frame_at(0., 400.));
+        assert!(!state.update(cx, |state, _| state.cover_settling()), "not covered");
+        state.update(cx, |state, cx| state.set_obscured(true, cx));
+        assert!(state.update(cx, |state, _| state.cover_settling()), "waiting on the picture");
+        events.borrow_mut().push(WebEvent::StandIn(vec![1, 2, 3, 4]));
+        tick(&state, cx);
+        assert!(state.update(cx, |state, _| state.cover_settling()), "during the handoff");
+        std::thread::sleep(super::COVER_HANDOFF + std::time::Duration::from_millis(10));
+        tick(&state, cx);
+        assert!(!state.update(cx, |state, _| state.cover_settling()), "settled");
+    }
+
+    /// Owner recording 2026-10-11 (annotate sent an older picture): `capture`
+    /// forgets the previous screenshot before asking for the next.
+    #[gpui::test]
+    fn capture_forgets_an_older_screenshot(cx: &mut TestAppContext) {
+        let (state, _, _, events) = native_state(cx);
+        events.borrow_mut().push(WebEvent::Screenshot(vec![1]));
+        tick(&state, cx);
+        assert!(state.update(cx, |state, _| state.screenshot().is_some()));
+        state.update(cx, |state, _| state.capture());
+        assert!(state.update(cx, |state, _| state.screenshot().is_none()));
+        events.borrow_mut().push(WebEvent::Screenshot(vec![2]));
+        tick(&state, cx);
+        assert_eq!(state.update(cx, |state, _| state.screenshot().map(<[u8]>::to_vec)), Some(vec![2]));
+    }
+
+    /// Owner recording 2026-10-11 (PNG writer on the main thread): turning
+    /// annotate on captures once; turning it on again while on does not.
+    #[gpui::test]
+    fn annotate_captures_only_on_the_off_to_on_edge(cx: &mut TestAppContext) {
+        let (state, captures, _, _, _) = counting_state(cx);
+        state.update(cx, |state, _| state.set_annotate(true));
+        assert_eq!(captures.get(), 1);
+        state.update(cx, |state, _| state.set_annotate(true));
+        assert_eq!(captures.get(), 1, "already on: no second capture");
     }
 
     /// L5fix: un-obscuring has no `cx`, so the next drain repaints — once.
@@ -2901,11 +3074,11 @@ mod tests {
     fn hidden_to_visible_notifies_once(cx: &mut TestAppContext) {
         let (state, _, _, _) = native_state(cx);
         lay_out(&state, cx, frame_at(0., 400.));
-        state.update(cx, |state, _| state.set_obscured(true));
+        state.update(cx, |state, cx| state.set_obscured(true, cx));
         let (count, _keep) = notify_count(&state, cx);
         tick(&state, cx);
         assert_eq!(count.get(), 0, "covering the page notifies nothing by itself");
-        state.update(cx, |state, _| state.set_obscured(false));
+        state.update(cx, |state, cx| state.set_obscured(false, cx));
         tick(&state, cx);
         assert_eq!(count.get(), 1, "the un-obscure repaints on the next drain");
         tick(&state, cx);
