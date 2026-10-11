@@ -2232,7 +2232,7 @@ mod tests {
     /// A bare view with the theme initialised, for state-level tests.
     fn bare_view(cx: &mut TestAppContext) -> (Entity<BrowseView>, &mut gpui::VisualTestContext) {
         cx.update(|cx| aui::init(aui_tokens::ThemeKind::Dark, cx));
-        cx.add_window_view(|window, cx| BrowseView::new(window, cx))
+        cx.add_window_view(BrowseView::new)
     }
 
     /// The scripted takeover leaves the "You're driving" line with its

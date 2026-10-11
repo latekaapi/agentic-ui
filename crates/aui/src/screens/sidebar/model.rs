@@ -550,8 +550,10 @@ pub enum BrowseIntent {
     NewTab,
     /// Ask Claude about this page.
     Ask,
-    /// The page menu.
-    PageMenu,
+    /// The page menu (the page controls' ⋯), with the button's bounds in
+    /// window coordinates: the menu opens under it (FF: 6 px below, right
+    /// edges aligned). A click while it is open closes it.
+    PageMenu(Option<gpui::Bounds<gpui::Pixels>>),
     /// A pinned site was clicked.
     OpenPin(SharedString),
     /// A tab was clicked.

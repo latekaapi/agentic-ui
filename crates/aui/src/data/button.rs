@@ -141,6 +141,7 @@ pub struct Button {
     accessibility_label: Option<SharedString>,
     tooltip: bool,
     tooltip_right: Option<gpui::Pixels>,
+    menu_open: bool,
     on_click: Option<ClickHandler>,
 }
 
@@ -161,6 +162,7 @@ pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Butto
         accessibility_label: None,
         tooltip: true,
         tooltip_right: None,
+        menu_open: false,
         on_click: None,
     }
 }
@@ -286,6 +288,14 @@ impl Button {
         self
     }
 
+    /// The menu this button opens is open: it holds its hover look (FF's
+    /// `data-popup-open`) and shows no tooltip, which would otherwise sit
+    /// beside the open menu.
+    pub fn menu_open(mut self, open: bool) -> Self {
+        self.menu_open = open;
+        self
+    }
+
     /// Click handler.
     pub fn on_click(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Box::new(f));
@@ -367,7 +377,7 @@ impl RenderOnce for Button {
         let ring = !self.disabled && focus.is_focused(window) && crate::keys::keyboard_nav(cx);
 
         let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let hovered = flags.hovered && !self.disabled;
+        let hovered = (flags.hovered || self.menu_open) && !self.disabled;
         let pressed = flags.pressed && !self.disabled;
 
         // Colours tween on the fast tier (FF: background 80 ms). The press is
@@ -465,7 +475,7 @@ impl RenderOnce for Button {
             .or_else(|| self.label.clone().filter(|l| !l.is_empty()));
         record_ax_label(effective.as_deref().unwrap_or(""));
         let icon_only = self.label.as_ref().is_none_or(|l| l.is_empty());
-        if let Some(label) = self.accessibility_label.clone().filter(|_| icon_only && self.tooltip && !self.disabled) {
+        if let Some(label) = self.accessibility_label.clone().filter(|_| icon_only && self.tooltip && !self.disabled && !self.menu_open) {
             outer = match self.tooltip_right {
                 Some(right) => outer.tooltip(super::tooltip::tip_within(label, right)),
                 None => outer.tooltip(super::tooltip::tip(label)),

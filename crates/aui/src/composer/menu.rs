@@ -1,5 +1,5 @@
-//! `.menu`: the `+` popover — overlay ground, rising 6 px with a
-//! fade on the quick presence tween every composer menu shares.
+//! The composer's `+` menu: the one menu panel ([`crate::interact::Dropdown`],
+//! Fluid Functionalism's dropdown), opening upward from the `+` button.
 //!
 //! It is anchored to the `+` button (absolute, from the button's holder) but
 //! painted on [`crate::overlay::popover_layer`], so the composer's focus ring,
@@ -14,16 +14,12 @@
 
 use std::rc::Rc;
 
-use aui_icons::{icon, IconName};
-use aui_motion::{presence, EnterExit, PresenceStyle};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_icons::IconName;
 use gpui::{div, prelude::*, px, App, ElementId, FocusHandle, IntoElement, SharedString, Window};
-use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::kbd;
+use crate::interact::{dropdown, dropdown_present, DropdownItem, DropdownSide};
 use crate::keys::{Cancel, MENU_CONTEXT};
 use crate::overlay::popover_layer;
-use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.menu{bottom:38px;left:0;padding:6px}` — measured from the
 /// bar, which has 10 px of bottom padding; the menu anchors to the `+`
@@ -34,25 +30,18 @@ const MENU_LEFT: f32 = -10.0;
 /// The ceiling: past it a single-line row ellipsizes instead of pushing the
 /// menu over the transcript. Rows fit between the floor and here.
 const MENU_W_MAX: f32 = 320.0;
-const MENU_PAD: f32 = 6.0;
-/// `.menu .it{gap:8px;height:30px;padding:0 8px;font-size:12.5px}`.
+/// FF's dropdown: a 4 px inset, rows `px-2 gap-2`, a 16 px icon.
+const MENU_PAD: f32 = 4.0;
 const ITEM_GAP: f32 = 8.0;
 const ITEM_PAD: f32 = 8.0;
-const ITEM_TEXT: f32 = 12.5;
-/// The row glyph: [`aui_icons::ICON_SIZE`].
-const ROW_ICON: f32 = 14.0;
-/// A conservative mean advance of one UI-face glyph at [`ITEM_TEXT`], and of
+const ROW_ICON: f32 = 16.0;
+/// A conservative mean advance of one UI-face glyph at body size, and of
 /// one mono glyph in the keycap, plus the keycap's own horizontal padding
 /// (`.kbd{padding:0 5px}`): the floor must clear the longest row, so the
 /// estimate errs wide rather than exact.
 const LABEL_PX_PER_CHAR: f32 = 8.0;
 const KEY_PX_PER_CHAR: f32 = 7.5;
 const KEY_PAD_X: f32 = 5.0;
-/// The enter rises 6 px from the button's corner at scale .98 — the one
-/// presence tween every composer menu shares.
-const POP_RISE: f32 = 6.0;
-const POP_FROM_SCALE: f32 = 0.98;
-
 /// One row of the menu.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlusMenuItem {
@@ -143,84 +132,47 @@ impl PlusMenu {
 
 impl RenderOnce for PlusMenu {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let p = cx.aui().colors;
         let id = self.id.clone();
-        // At rest the menu is either fully out or fully gone; `open` still
-        // decides which, or a closed menu would draw itself in static captures.
-        let style = if self.at_rest {
-            PresenceStyle { opacity: if self.open { 1.0 } else { 0.0 }, offset_y: px(0.0), scale: 1.0 }
-        } else {
-            let sample = presence((id.clone(), "enter"), self.open, EnterExit::QUICK, window, cx);
-            PresenceStyle::fade_rise_scale(sample, POP_RISE, POP_FROM_SCALE)
-        };
-        if !self.open && style.opacity <= 0.001 {
+        // The one menu panel (FF's dropdown), opening upward from the `+`.
+        // At rest a closed menu draws nothing (static captures).
+        let present = if self.at_rest { self.open } else { dropdown_present((id.clone(), "panel"), self.open, window, cx) };
+        if !present {
             return div().invisible().into_any_element();
         }
-        let mut menu = v_flex()
-            .id(id.clone())
-            .absolute()
-            .bottom(px(MENU_BOTTOM) - style.offset_y)
-            .left(px(MENU_LEFT))
-            // The menu grows with its rows between the floor that fits the
-            // longest row and the ceiling: rows stretch to the widest one
-            // (never `w_full`, which would collapse the parent to the floor
-            // the way the chip pickers document), and the label only
-            // ellipsizes past the ceiling.
-            .min_w(px(plus_menu_min_width(&self.items) * style.scale))
-            .max_w(px(MENU_W_MAX * style.scale))
-            .p(px(MENU_PAD))
-            .rounded(px(scale::R_LG))
-            .border_1()
-            .border_color(p.line_strong)
-            .bg(p.overlay)
-            .shadow(p.shadow(3))
-            .opacity(style.opacity)
-            .overflow_hidden()
-            .occlude()
-            .role(gpui::Role::Menu)
-            .aria_label(SharedString::from("Composer actions"));
+        let mut panel = dropdown((id.clone(), "panel"), "Composer actions")
+            .min_width(px(plus_menu_min_width(&self.items)))
+            .side(DropdownSide::Above)
+            .open(self.open);
+        if self.at_rest {
+            panel = panel.at_rest();
+        }
+        for item in self.items {
+            let mut row = DropdownItem::new(item.label.clone()).icon(item.icon);
+            if let Some(key) = &item.key {
+                row = row.keys(key.clone());
+            }
+            if let Some(h) = self.on_activate.clone() {
+                let key = item.id.clone();
+                row = row.on_select(move |w, cx| h(&key, w, cx));
+            }
+            panel = panel.entry(row);
+        }
         let mut scrim_close: Option<CloseHandler> = None;
         // The dismiss path, after the chip pickers (outside press) and the
         // settings dialog (`Cancel` under its key context). The menu takes
         // focus when pressed — never on open, so typing is undisturbed — and
         // from then on Escape reports here too.
+        let mut keys: Option<CloseHandler> = None;
         if let Some(close) = self.on_close.clone() {
             let focus: FocusHandle =
                 window.use_keyed_state((id.clone(), "menu-focus"), cx, |_, cx| cx.focus_handle()).read(cx).clone();
-            let close_out = close.clone();
-            menu = menu.track_focus(&focus).key_context(MENU_CONTEXT).on_action(move |_: &Cancel, w, cx| close(w, cx));
-            scrim_close = Some(close_out);
+            panel = panel.track_focus(&focus);
+            keys = Some(close.clone());
+            scrim_close = Some(close);
         }
-        for item in self.items {
-            let item_id: ElementId = (id.clone(), SharedString::from(format!("item-{}", item.id))).into();
-            let (state, flags) = interaction_flags(item_id.clone(), window, cx);
-            // The hover tint fades in and out over the hover duration, like
-            // every other list row in the library.
-            let ground = aui_motion::tint_fade((item_id.clone(), "bg"), flags.hovered, p.surface_2, aui_motion::Tween::FAST, window, cx);
-            let text = aui_motion::tween((item_id.clone(), "text"), if flags.hovered { p.ink } else { p.ink_2 }, aui_motion::Tween::FAST, window, cx);
-            let mut row = h_flex()
-                .id(item_id)
-                .h(cx.aui().metrics.row)
-                .gap(px(ITEM_GAP))
-                .px(px(ITEM_PAD))
-                .rounded(px(scale::R_SM))
-                .ui(ITEM_TEXT)
-                .text_color(text)
-                .bg(ground)
-                .cursor_pointer()
-                .role(gpui::Role::MenuItem)
-                .aria_label(item.label.clone())
-                .track_interaction(&state)
-                .child(icon(item.icon))
-                .child(div().flex_1().truncate().child(item.label.clone()));
-            if let Some(key) = &item.key {
-                row = row.child(kbd(key.clone()));
-            }
-            if let Some(h) = self.on_activate.clone() {
-                let key = item.id.clone();
-                row = row.on_click(move |_, w, cx| h(&key, w, cx));
-            }
-            menu = menu.child(row);
+        let mut menu = div().id(id.clone()).absolute().bottom(px(MENU_BOTTOM)).left(px(MENU_LEFT)).max_w(px(MENU_W_MAX)).child(panel);
+        if let Some(close) = keys {
+            menu = menu.key_context(MENU_CONTEXT).on_action(move |_: &Cancel, w, cx| close(w, cx));
         }
         // A click anywhere else closes it, through an occluding catcher that
         // is the menu's sibling in the same deferred draw — the chip pickers'

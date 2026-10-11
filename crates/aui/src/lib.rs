@@ -59,7 +59,6 @@ pub use interact::{
     ambient_surface, fluid_list, interactive, interactive_state, menu_surface, nearest, nested_radius, row, surface, Axis,
     FluidList, InteractState, Interactive, Row, Shape, Surface,
 };
-pub use nav::{account_menu, AccountMenu, AccountMenuItem};
 
 use gpui::App;
 

@@ -5,14 +5,15 @@
 //! owns the query, the sections and the selected row, and receives intents
 //! (select, hover) back. Neither knows how it is anchored — each renders at the
 //! width of its container up to the 520 px dropdown ceiling, above the
-//! composer, and enters with the 6 px rise and .98 scale of `.pop`.
+//! composer. Both sit on the one menu ground with FF's gliding highlight and
+//! the popup enter ([`crate::interact::Dropdown`]'s panel, rows of their own).
 
 use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_motion::{presence, tint_fade, tween, EnterExit, PresenceStyle, Tween};
+use aui_motion::{presence, EnterExit, PresenceStyle};
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette, TextRole};
 use gpui::{
     div, prelude::*, px, relative, App, Div, ElementId, FontWeight, HighlightStyle, IntoElement, ScrollHandle, SharedString, Stateful,
@@ -21,18 +22,11 @@ use gpui::{
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{kbd, status_dot, tag};
+use crate::interact::{dropdown_label, fluid_list, menu_surface, Axis, FluidHandle};
 use crate::util::interaction_flags;
 
-/// `.pop{padding:6px;border-radius:var(--r-lg);box-shadow:var(--shadow-3)}` on
-/// the overlay ground with a 1 px line-strong border.
-const POP_PAD: f32 = 6.0;
-const POP_SHADOW: u8 = 3;
 /// `.pop{margin-bottom:8px}` — the gap to the composer the popover sits above.
 const POP_GAP: f32 = 8.0;
-/// `@keyframes in{from{opacity:0;transform:translateY(6px) scale(.98)}}` — the
-/// popover rises out of the composer's top edge.
-const POP_RISE: f32 = 6.0;
-const POP_FROM_SCALE: f32 = 0.98;
 /// The dropdown ceiling: the caret menus never grow past the picker ceiling
 /// (`pickers::MENU_W_MAX`), so both read as one control family. The popover
 /// keeps its left edge and rows wrap inside the cap.
@@ -41,17 +35,6 @@ const MENU_W_MAX: f32 = 520.0;
 /// frame instead of growing past the transcript it occludes.
 const MENU_MAX_H: f32 = 560.0;
 
-/// `.pop .caps{padding:6px 8px 4px}`.
-const CAPS_PAD_TOP: f32 = 6.0;
-const CAPS_PAD_X: f32 = 8.0;
-const CAPS_PAD_BOTTOM: f32 = 4.0;
-
-/// `.it{height:32px;gap:10px;padding:0 8px;border-radius:var(--r-sm);
-/// font-size:12.5px}`.
-const ROW_H: f32 = 32.0;
-const ROW_GAP: f32 = 10.0;
-const ROW_PAD_X: f32 = 8.0;
-const ROW_TEXT: f32 = 12.5;
 /// `.it .c{font:500 12px var(--font-mono);width:100px}` — the command column
 /// is fixed, so a long command wraps inside it.
 const COMMAND_W: f32 = 100.0;
@@ -205,18 +188,19 @@ impl RenderOnce for CommandMenu {
         // hover: scrolling the row under the pointer into view on every
         // frame fought the wheel and read as jank.
         let scroll = menu_scroll(&id, &counts, self.selected, window, cx);
-        let mut pop = popover_frame(id.clone(), PresenceStyle::fade_rise_scale(sample, POP_RISE, POP_FROM_SCALE), &p, &scroll);
+        let fluid = fluid_handle(&id, window, cx);
+        let mut pop = popover_frame(id.clone(), &scroll);
 
         let mut index = 0usize;
         for (s, section) in self.sections.into_iter().enumerate() {
-            pop = pop.child(caps_header(&p, section.title));
+            pop = pop.child(dropdown_label(section.title, cx));
             for item in section.items {
                 let key: ElementId = (id.clone(), SharedString::from(format!("command-{s}-{index}"))).into();
-                pop = pop.child(command_row(key, &p, item, &self.query, index, index == active, &self.on_select, &self.on_hover, window, cx));
+                pop = pop.child(fluid.item(index, command_row(key, &p, item, &self.query, index, index == active, &self.on_select, &self.on_hover, window, cx)));
                 index += 1;
             }
         }
-        pop.child(footer(&p))
+        finish(id, sample, pop.child(footer(&p)), &fluid, self.selected, cx)
     }
 }
 
@@ -367,56 +351,68 @@ impl RenderOnce for MentionPicker {
         let counts: Vec<usize> = self.sections.iter().map(|s| s.items.len()).collect();
         let active = active_row(&id, "mention", &counts, self.selected, window, cx);
         let scroll = menu_scroll(&id, &counts, self.selected, window, cx);
-        let mut pop = popover_frame(id.clone(), PresenceStyle::fade_rise_scale(sample, POP_RISE, POP_FROM_SCALE), &p, &scroll);
+        let fluid = fluid_handle(&id, window, cx);
+        let mut pop = popover_frame(id.clone(), &scroll);
 
         let mut index = 0usize;
         for (s, section) in self.sections.into_iter().enumerate() {
-            pop = pop.child(caps_header(&p, section.title));
+            pop = pop.child(dropdown_label(section.title, cx));
             for item in section.items {
                 let key: ElementId = (id.clone(), SharedString::from(format!("mention-{s}-{index}"))).into();
-                pop = pop.child(mention_row(key, &p, item, &self.query, index, index == active, &self.on_select, &self.on_hover, window, cx));
+                pop = pop.child(fluid.item(index, mention_row(key, &p, item, &self.query, index, index == active, &self.on_select, &self.on_hover, window, cx)));
                 index += 1;
             }
         }
-        pop
+        finish(id, sample, pop, &fluid, self.selected, cx)
     }
 }
 
-/// `.pop`: the popover ground both menus share, at the width of its container
-/// up to the dropdown ceiling, and lifted 8 px above the composer.
-fn popover_frame(id: ElementId, style: PresenceStyle, p: &Palette, scroll: &ScrollHandle) -> Stateful<Div> {
-    v_flex()
+/// The scrolling column of rows inside the popover: past `MENU_MAX_H` the
+/// rows scroll inside the panel instead of growing over the transcript.
+/// Its direct children are the labels, the rows and the footer, in order
+/// ([`row_child_index`]).
+fn popover_frame(id: ElementId, scroll: &ScrollHandle) -> Stateful<Div> {
+    v_flex().id((id, "rows")).w_full().max_h(px(MENU_MAX_H)).overflow_y_scroll().track_scroll(scroll)
+}
+
+/// The fluid list's geometry for one caret menu: its rows register through
+/// it from inside the scrolling column.
+fn fluid_handle(id: &ElementId, window: &mut Window, cx: &mut App) -> FluidHandle {
+    window.use_keyed_state((id.clone(), "fluid"), cx, |_, _| FluidHandle::new()).read(cx).clone()
+}
+
+/// The panel around `rows`: the one menu ground (FF's dropdown — the
+/// substrate + 2, shadow-3, a 4 px inset), the gliding highlight the
+/// keyboard's `selected` and the pointer both drive, and the popup enter
+/// (fade + 4 px up out of the composer, 80 ms). It takes its container's
+/// width up to the 520 px ceiling, 8 px above the composer, and owns the
+/// wheel over it.
+fn finish(id: ElementId, sample: aui_motion::PresenceSample, rows: Stateful<Div>, fluid: &FluidHandle, selected: usize, cx: &App) -> impl IntoElement {
+    let metrics = cx.aui().metrics;
+    let style = PresenceStyle::fade_rise(sample, scale::SP_2);
+    let list = fluid_list((id.clone(), "fluid"), Axis::Y).handle(fluid).gap(px(0.0)).highlighted(Some(selected)).item_static(usize::MAX, rows);
+    div()
         .id(id)
         .relative()
-        // The CSS enters from `translateY(6px)`: the popover rises out of the
-        // composer's top edge onto its resting place.
         .top(style.offset_y)
         .opacity(style.opacity)
-        // gpui has no element transform, so the .98 enter scale is a width
-        // fraction of the container; the popover keeps its left edge, which is
-        // the CSS `transform-origin:bottom left`, and never grows past
-        // `MENU_W_MAX` however wide the composer is.
-        .w(relative(style.scale))
+        .w_full()
         .max_w(px(MENU_W_MAX))
-        // The menu is its own scroll container: past `MENU_MAX_H` the rows
-        // scroll inside this frame instead of growing over the transcript.
-        .max_h(px(MENU_MAX_H))
-        .overflow_y_scroll()
-        .track_scroll(scroll)
         .mb(px(POP_GAP))
-        .p(px(POP_PAD))
-        .rounded(px(scale::R_LG))
-        .border_1()
-        .border_color(p.line_strong)
-        .bg(p.overlay)
-        .shadow(p.shadow(POP_SHADOW))
-        // The open menu owns the wheel over it: it occludes the transcript
-        // behind (no hover/click/scroll-through, like the chip pickers) and
-        // stops the wheel on this same element — after the element's own
-        // scroll handler, which is registered later and so runs first in the
-        // bubble phase — so the menu scrolls and the transcript never does.
-        .occlude()
-        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+        .child(
+            menu_surface(
+                v_flex()
+                    .id("caret-menu-panel")
+                    .p(metrics.item_px / 2.0)
+                    .role(gpui::Role::Menu)
+                    // The open menu owns the wheel over it: it occludes the
+                    // transcript behind and stops the wheel after the rows'
+                    // own scroll handler has run.
+                    .occlude()
+                    .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                    .child(list),
+            ),
+        )
 }
 
 /// What the menu asked the scroll container for: the child index and whether
@@ -488,19 +484,6 @@ fn row_child_index(counts: &[usize], active: usize) -> usize {
     child
 }
 
-/// `.pop .caps`: a section header.
-fn caps_header(p: &Palette, title: SharedString) -> impl IntoElement {
-    div()
-        .flex_none()
-        .pt(px(CAPS_PAD_TOP))
-        .px(px(CAPS_PAD_X))
-        .pb(px(CAPS_PAD_BOTTOM))
-        .text_role(TextRole::Caps)
-        .line_height(relative(scale::LH_UI))
-        .text_color(p.ink_3)
-        .child(title.to_uppercase())
-}
-
 /// The row the menu lights: the row under the pointer while there is one,
 /// otherwise the caller's `selected`. Both menus read every row's hover flag
 /// before any row is built, so the pointer and the arrow keys drive a single
@@ -535,19 +518,18 @@ fn menu_row(
     cx: &mut App,
 ) -> Stateful<Div> {
     let (state, _) = interaction_flags(id.clone(), window, cx);
-    let ground = tint_fade((id.clone(), "bg"), on, p.accent_soft, Tween::FAST, window, cx);
-    let text = tween((id.clone(), "text"), if on { p.ink } else { p.ink_2 }, Tween::FAST, window, cx);
+    // The ground is the list's one gliding block; the row only lights its
+    // text (FF: muted at rest, foreground when lit).
+    let metrics = cx.aui().metrics;
     let mut row = h_flex()
         .id(id)
         .flex_none()
         .w_full()
-        .h(px(ROW_H))
-        .gap(px(ROW_GAP))
-        .px(px(ROW_PAD_X))
-        .rounded(px(scale::R_SM))
-        .bg(ground)
-        .ui(ROW_TEXT)
-        .text_color(text)
+        .h(metrics.control)
+        .gap(metrics.gap)
+        .px(metrics.item_px)
+        .text_role_in(TextRole::Body, aui_tokens::Density::Standard)
+        .text_color(if on { p.fg } else { p.fg_muted })
         .cursor_pointer();
 
     // gpui allows one `on_hover` per element, so the row's own hover tint and
@@ -605,7 +587,7 @@ fn command_row(
                 .text_px(COMMAND_TEXT)
                 .line_height(relative(COMMAND_LH))
                 .medium()
-                .text_color(if on { p.accent_ink } else { p.ink })
+                .text_color(if on { p.fg } else { p.fg_muted })
                 .child(highlighted(p, &item.command, &matched)),
         )
         // One line: the row is `ROW_H` tall, so a description that outgrows
@@ -669,7 +651,7 @@ fn mention_row(
             .text_px(COMMAND_TEXT)
             .line_height(relative(COMMAND_LH))
             .medium()
-            .text_color(if on { p.accent_ink } else { p.ink })
+            .text_color(if on { p.fg } else { p.fg_muted })
             .child(highlighted(p, &item.label, &matched)),
     );
 
@@ -692,7 +674,7 @@ fn mention_row(
 
 /// `.it mark`: the typed characters, in accent-ink 600.
 fn highlighted(p: &Palette, text: &SharedString, matched: &Option<Range<usize>>) -> StyledText {
-    let highlight = HighlightStyle { color: Some(p.accent_ink), font_weight: Some(FontWeight::SEMIBOLD), ..Default::default() };
+    let highlight = HighlightStyle { color: Some(p.fg), font_weight: Some(FontWeight::SEMIBOLD), ..Default::default() };
     StyledText::new(text.clone()).with_highlights(matched.iter().map(|r| (r.clone(), highlight)).collect::<Vec<_>>())
 }
 
@@ -707,7 +689,11 @@ fn footer(p: &Palette) -> impl IntoElement {
         .pb(px(FT_PAD_BOTTOM))
         .mt(px(FT_MARGIN_TOP))
         .border_t_1()
-        .border_color(p.line)
+        .border_color({
+            let mut line = p.line;
+            line.a *= 0.6;
+            line
+        })
         .ui(FT_TEXT)
         .text_color(p.ink_3)
         .child(footer_hint("↑↓", "move"))

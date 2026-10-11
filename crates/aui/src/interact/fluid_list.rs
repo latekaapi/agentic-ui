@@ -864,7 +864,11 @@ impl RenderOnce for FluidList {
         // highlighted item instead; without it, gap clicks do nothing.
         if let Some(activate) = self.on_activate {
             let fluid = fluid.clone();
-            list = list.on_click(move |_, window: &mut Window, cx: &mut App| {
+            list = list.on_click(move |event, window: &mut Window, cx: &mut App| {
+                // The click's own position is the pointer: a click that
+                // arrives with no move before it (a synthetic or first
+                // event) still lands on the row under it.
+                fluid.borrow_mut().pointer = Some(event.position());
                 let current = click_target(&fluid.borrow(), gap_click, axis);
                 if let Some(index) = current {
                     activate(index, window, cx);

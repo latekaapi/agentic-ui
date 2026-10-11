@@ -33,7 +33,10 @@ impl EnterExit {
     /// Fluid Functionalism's popup tier: enter on `spring.fast` (80 ms),
     /// exit one tier quicker (60 ms) — dropdowns, menus, tooltips
     /// (`registry/base/dropdown.tsx`).
-    pub const POPUP: EnterExit = EnterExit { enter: durations::FAST, exit: durations::FAST_EXIT, delay: Duration::ZERO };
+    ///
+    /// `durations::FAST` is the v1 120 ms hover tint, not FF's tier: the
+    /// enter is spring.fast's 80 ms (`Tier::Fast.enter()`, not const).
+    pub const POPUP: EnterExit = EnterExit { enter: Duration::from_millis(80), exit: durations::FAST_EXIT, delay: Duration::ZERO };
 
     /// Adds an enter delay.
     pub const fn with_delay(mut self, delay: Duration) -> Self {

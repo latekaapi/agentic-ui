@@ -19,14 +19,11 @@
 
 use std::rc::Rc;
 
-use aui_icons::{icon, IconName};
-use aui_motion::{presence, EnterExit, PresenceStyle};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Density, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, Pixels, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::record_ax_label;
-use crate::interact::{interactive, menu_surface, Shape};
+use crate::interact::{dropdown, Dropdown, DropdownEntry, DropdownItem, DropdownSide, DropdownTrailing, Shape};
 use crate::nav::project_mark;
 
 use super::{
@@ -35,8 +32,6 @@ use super::{
 };
 
 type IntentHandler = Rc<dyn Fn(SidebarIntent, &mut Window, &mut App)>;
-/// A row's pointer entry / exit report.
-type HoverHandler = Rc<dyn Fn(bool, &mut Window, &mut App)>;
 /// One Browse menu: its state key, accessible name, rows, and the Move to
 /// folder submenu (label + rows) when it has one.
 type MenuSpec = (String, SharedString, Vec<MenuRow>, Option<(SharedString, Vec<MenuRow>)>);
@@ -64,6 +59,8 @@ enum Trailing {
     Keys(&'static str),
     /// FF's check mark: the row is on.
     Check,
+    /// Opens a submenu: the current value (may be empty), then "›".
+    Submenu(String),
 }
 
 /// What one menu row shows and reports.
@@ -102,6 +99,11 @@ impl MenuRow {
         self
     }
 
+    fn submenu(mut self, value: impl Into<String>) -> Self {
+        self.trailing = Trailing::Submenu(value.into());
+        self
+    }
+
     fn checked(mut self, on: bool) -> Self {
         self.checked = on;
         if on {
@@ -126,111 +128,51 @@ impl MenuRow {
     }
 }
 
-/// One menu row; `on_hover` reports pointer entry and exit (a submenu
-/// trigger opens its submenu on entry).
-fn menu_row(id: &ElementId, spec: MenuRow, handler: &Option<IntentHandler>, on_hover: Option<HoverHandler>, window: &mut Window, cx: &mut App) -> AnyElement {
-    let p = cx.aui().colors;
-    let metrics = cx.aui().metrics;
-    let row_id: ElementId = (id.clone(), spec.label.clone()).into();
-    let lit = !spec.disabled && crate::interact::interactive_state(row_id.clone(), window, cx).hovered;
-    let label_color = if spec.danger {
-        p.danger
-    } else if lit || spec.checked {
-        p.fg
-    } else {
-        p.fg_muted
-    };
-    let mut body = h_flex()
-        .h(metrics.control)
-        .w_full()
-        .items_center()
-        .px(metrics.item_px)
-        .gap(metrics.gap)
-        .when(spec.current, |d| d.bg(p.selected_overlay()))
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.0))
-                .truncate()
-                .text_role_in(TextRole::Body, Density::Standard)
-                .text_color(label_color)
-                .when(spec.checked, |d| d.semibold())
-                .child(spec.label.clone()),
-        );
-    body = match &spec.trailing {
-        Trailing::None => body,
-        Trailing::Value(text) => body.child(div().flex_none().role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(text.clone())),
-        Trailing::Keys(keys) => body.child(div().flex_none().role_in(TextRole::Micro, cx).text_color(p.fg_muted).child(*keys)),
-        Trailing::Check => body.child(icon(IconName::Check).size(metrics.icon).color(p.fg).lit(true)),
-    };
-    let body = Shape::Item.rounded(body);
-    let role = match spec.trailing {
-        Trailing::Check if !spec.current => "menuitemcheckbox",
-        _ if spec.current => "menuitemradio",
-        _ => "menuitem",
-    };
-    let mut row = interactive(row_id.clone(), body).role(role).shape(Shape::Item).label(spec.label.clone()).disabled(spec.disabled);
-    let emit = handler.clone();
-    let intent = spec.intent.clone();
-    // A menu click never reaches the list beneath the menu.
-    row = row.on_click(move |_, w, cx| {
-        cx.stop_propagation();
-        if let (Some(emit), Some(intent)) = (emit.as_ref(), intent.as_ref()) {
-            emit(intent.clone(), w, cx);
-        }
-    });
-    let mut wrap = div().id((row_id, "hover")).w_full().child(row);
-    if let Some(on_hover) = on_hover {
-        wrap = wrap.on_hover(move |hovered, w, cx| on_hover(*hovered, w, cx));
+/// The [`DropdownItem`] for one sidebar row: its intent emitted on select.
+fn item(spec: MenuRow, handler: &Option<IntentHandler>) -> DropdownItem {
+    let mut item = DropdownItem::new(spec.label.clone()).checked(spec.checked).disabled(spec.disabled);
+    if spec.current {
+        item = item.current(true);
     }
-    wrap.into_any_element()
+    if spec.danger {
+        item = item.danger();
+    }
+    item = match spec.trailing {
+        Trailing::None | Trailing::Check => item,
+        Trailing::Value(text) => item.value(text),
+        Trailing::Keys(keys) => item.keys(keys),
+        Trailing::Submenu(value) => item.trailing(DropdownTrailing::Submenu(value.into())),
+    };
+    if let (Some(emit), Some(intent)) = (handler.clone(), spec.intent) {
+        item = item.on_select(move |w, cx| emit(intent.clone(), w, cx));
+    }
+    item
 }
 
-/// FF's separator: one hairline at border/60, full-bleed through the
-/// menu's 4 px inset, 4 px above and below.
-fn separator(cx: &App) -> AnyElement {
-    let metrics = cx.aui().metrics;
-    let mut line = cx.aui().colors.line;
-    line.a *= 0.6;
-    div().h(px(1.0)).mx(-(metrics.item_px / 2.0)).my(metrics.item_px / 2.0).bg(line).into_any_element()
+/// The entries for `rows` (separators where a row asks for one) and, for
+/// each row, its entry index — what the dropdown's highlight reports.
+fn entries(rows: Vec<MenuRow>, handler: &Option<IntentHandler>) -> (Vec<DropdownEntry>, Vec<usize>) {
+    let mut out = Vec::new();
+    let mut at = Vec::new();
+    for row in rows {
+        if row.sep_before {
+            out.push(DropdownEntry::Separator);
+        }
+        at.push(out.len());
+        out.push(DropdownEntry::Item(item(row, handler)));
+    }
+    (out, at)
 }
 
-/// FF's group label: Caption, muted, 28 tall.
-fn group_label(text: &'static str, cx: &App) -> AnyElement {
-    let metrics = cx.aui().metrics;
-    div().h(metrics.control_md).px(metrics.item_px).flex().items_center().role_in(TextRole::Caption, cx).text_color(cx.aui().colors.fg_muted).child(text).into_any_element()
-}
-
-/// A menu panel: the popup surface, the 4 px inset, the menu role, a click
-/// on its own surface reported as [`SidebarIntent::MenuBackdrop`], and the
-/// popup enter (fade + a 4 px slide down, FF `--popup-enter-y`).
-fn panel(id: &ElementId, label: SharedString, width: Pixels, rows: Vec<AnyElement>, on_intent: &Option<IntentHandler>, window: &mut Window, cx: &mut App) -> AnyElement {
-    let metrics = cx.aui().metrics;
-    record_ax_label(&label);
+/// A sidebar menu panel: the one [`Dropdown`], a click on its own surface
+/// reported as [`SidebarIntent::MenuBackdrop`].
+fn panel(id: &ElementId, label: SharedString, width: Pixels, entries: Vec<DropdownEntry>, on_intent: &Option<IntentHandler>) -> Dropdown {
     let backdrop = on_intent.clone();
-    let enter = PresenceStyle::fade_rise(presence((id.clone(), "enter"), true, EnterExit::POPUP, window, cx), -(scale::SP_2));
-    div()
-        .relative()
-        .top(enter.offset_y)
-        .opacity(enter.opacity)
-        .w(width)
-        .child(menu_surface(
-            v_flex()
-                .id((id.clone(), "list"))
-                .w_full()
-                .p(metrics.item_px / 2.0)
-                .role(gpui::Role::Menu)
-                .aria_label(label)
-                .occlude()
-                .on_click(move |_, w, cx| {
-                    cx.stop_propagation();
-                    if let Some(emit) = backdrop.as_ref() {
-                        emit(SidebarIntent::MenuBackdrop, w, cx);
-                    }
-                })
-                .children(rows),
-        ))
-        .into_any_element()
+    dropdown(id.clone(), label).width(width).entries(entries).on_backdrop(move |w, cx| {
+        if let Some(emit) = backdrop.as_ref() {
+            emit(SidebarIntent::MenuBackdrop, w, cx);
+        }
+    })
 }
 
 /// Which submenu of the view-options menu is open (hover-driven, kept in
@@ -249,17 +191,6 @@ pub fn view_options_menu(id: impl Into<ElementId>, options: &ViewOptions, width:
     let id: ElementId = id.into();
     let metrics = cx.aui().metrics;
     let sub = window.use_keyed_state((id.clone(), "sub"), cx, |_, _| None::<ViewSub>);
-    let hover_for = |target: Option<ViewSub>| -> HoverHandler {
-        let sub = sub.clone();
-        Rc::new(move |hovered: bool, _w: &mut Window, cx: &mut App| {
-            if hovered && *sub.read(cx) != target {
-                sub.update(cx, |s, cx| {
-                    *s = target;
-                    cx.notify();
-                });
-            }
-        })
-    };
     let hidden = if options.show_hidden || options.hidden_count == 0 { None } else { Some(options.hidden_count.to_string()) };
     let mut hidden_row = MenuRow::new("Show hidden", SidebarIntent::ViewOption(ViewOption::ToggleHidden)).checked(options.show_hidden);
     if let Some(count) = hidden {
@@ -270,48 +201,49 @@ pub fn view_options_menu(id: impl Into<ElementId>, options: &ViewOptions, width:
     } else {
         MenuRow { intent: None, ..MenuRow::new("Show PR status", SidebarIntent::MenuBackdrop) }.value("Soon").disabled(true)
     };
-    let rows: Vec<(MenuRow, Option<ViewSub>)> = vec![
-        (MenuRow::new("Group by", SidebarIntent::MenuBackdrop).value(format!("{} ›", options.group_by.label())), Some(ViewSub::Group)),
-        (MenuRow::new("Sort by", SidebarIntent::MenuBackdrop).value(format!("{} ›", options.sort_by.label())), Some(ViewSub::Sort)),
-    ];
-    let mut children: Vec<AnyElement> = Vec::new();
-    for (row, target) in rows {
-        children.push(menu_row(&id, row, &on_intent, Some(hover_for(target)), window, cx));
-    }
-    children.push(separator(cx));
-    for row in [
-        MenuRow::new("Show empty projects", SidebarIntent::ViewOption(ViewOption::ToggleEmpty)).checked(options.show_empty),
+    let rows = vec![
+        MenuRow::new("Group by", SidebarIntent::MenuBackdrop).submenu(options.group_by.label()),
+        MenuRow::new("Sort by", SidebarIntent::MenuBackdrop).submenu(options.sort_by.label()),
+        MenuRow::new("Show empty projects", SidebarIntent::ViewOption(ViewOption::ToggleEmpty)).checked(options.show_empty).after_separator(),
         hidden_row,
         MenuRow::new("Show archived", SidebarIntent::ViewOption(ViewOption::ToggleArchived)).checked(options.show_archived),
         pr_row,
-    ] {
-        children.push(menu_row(&id, row, &on_intent, Some(hover_for(None)), window, cx));
-    }
-    children.push(separator(cx));
-    for row in [
-        MenuRow::new("Search all projects", SidebarIntent::ViewOption(ViewOption::ToggleSearchAll)).checked(options.search_all_projects),
+        MenuRow::new("Search all projects", SidebarIntent::ViewOption(ViewOption::ToggleSearchAll)).checked(options.search_all_projects).after_separator(),
         MenuRow::new("Clear empty sessions", SidebarIntent::ViewOption(ViewOption::ClearEmpty)),
-    ] {
-        children.push(menu_row(&id, row, &on_intent, Some(hover_for(None)), window, cx));
-    }
-    let main = panel(&id, "View options".into(), width, children, &on_intent, window, cx);
+    ];
+    let (rows, at) = entries(rows, &on_intent);
+    // The submenu follows the highlight: open on Group by / Sort by, closed
+    // on any other row (FF opens submenus on hover, never on focus).
+    let (group_at, sort_at) = (at[0], at[1]);
+    let flag = sub.clone();
+    let main = panel(&id, "View options".into(), width, rows, &on_intent).on_highlight(move |index, _w, cx| {
+        let Some(index) = index else { return };
+        let target = if index == group_at {
+            Some(ViewSub::Group)
+        } else if index == sort_at {
+            Some(ViewSub::Sort)
+        } else {
+            None
+        };
+        if *flag.read(cx) != target {
+            flag.update(cx, |s, cx| {
+                *s = target;
+                cx.notify();
+            });
+        }
+    });
     let open = *sub.read(cx);
     let submenu = open.map(|which| {
         let sub_id: ElementId = (id.clone(), if which == ViewSub::Group { "group-by" } else { "sort-by" }).into();
-        let rows: Vec<AnyElement> = match which {
-            ViewSub::Group => GroupKey::ALL
-                .iter()
-                .map(|key| menu_row(&sub_id, MenuRow::new(key.label(), SidebarIntent::ViewOption(ViewOption::GroupBy(*key))).current(*key == options.group_by), &on_intent, None, window, cx))
-                .collect(),
-            ViewSub::Sort => SortKey::ALL
-                .iter()
-                .map(|key| menu_row(&sub_id, MenuRow::new(key.label(), SidebarIntent::ViewOption(ViewOption::SortBy(*key))).current(*key == options.sort_by), &on_intent, None, window, cx))
-                .collect(),
+        let rows: Vec<MenuRow> = match which {
+            ViewSub::Group => GroupKey::ALL.iter().map(|key| MenuRow::new(key.label(), SidebarIntent::ViewOption(ViewOption::GroupBy(*key))).current(*key == options.group_by)).collect(),
+            ViewSub::Sort => SortKey::ALL.iter().map(|key| MenuRow::new(key.label(), SidebarIntent::ViewOption(ViewOption::SortBy(*key))).current(*key == options.sort_by)).collect(),
         };
         let label = if which == ViewSub::Group { "Group by" } else { "Sort by" };
         // First row level with its trigger: the trigger's top less the 4 px inset.
         let top = if which == ViewSub::Group { px(0.0) } else { metrics.control };
-        div().absolute().left(width + px(scale::SP_1)).top(top).child(panel(&sub_id, label.into(), submenu_width(), rows, &on_intent, window, cx)).into_any_element()
+        let (rows, _) = entries(rows, &on_intent);
+        div().absolute().left(width + px(scale::SP_1)).top(top).child(panel(&sub_id, label.into(), submenu_width(), rows, &on_intent).side(DropdownSide::Beside)).into_any_element()
     });
     div().relative().w(width).child(main).children(submenu).into_any_element()
 }
@@ -371,7 +303,7 @@ fn provider_card(id: &ElementId, usage: &super::ProviderUsage, cx: &App) -> AnyE
 
 /// The account menu above the footer: identity, every provider's usage,
 /// then Settings, Providers and Sign out, as Baaz's account panel has them.
-pub fn account_menu(id: impl Into<ElementId>, account: &Account, width: Pixels, on_intent: Option<IntentHandler>, window: &mut Window, cx: &mut App) -> AnyElement {
+pub fn account_menu(id: impl Into<ElementId>, account: &Account, width: Pixels, on_intent: Option<IntentHandler>, _window: &mut Window, cx: &mut App) -> AnyElement {
     let id: ElementId = id.into();
     let p = cx.aui().colors;
     let metrics = cx.aui().metrics;
@@ -388,16 +320,20 @@ pub fn account_menu(id: impl Into<ElementId>, account: &Account, width: Pixels, 
         .when(!account.email.is_empty() && account.email != account.name, |d| {
             d.child(div().flex_shrink(1.0).min_w(px(0.0)).max_w(px(scale::SP_7 * 3.0)).truncate().role_in(TextRole::Micro, cx).text_color(p.fg_muted).child(account.email.clone()))
         });
-    let mut rows: Vec<AnyElement> = vec![identity.into_any_element(), separator(cx), group_label("Usage", cx)];
+    let mut rows: Vec<DropdownEntry> = vec![DropdownEntry::Static(identity.into_any_element()), DropdownEntry::Separator, DropdownEntry::Label("Usage".into())];
     for usage in &account.usage {
-        rows.push(provider_card(&id, usage, cx));
+        rows.push(DropdownEntry::Static(provider_card(&id, usage, cx)));
     }
-    rows.push(separator(cx));
-    rows.push(menu_row(&id, MenuRow::new("Settings…", SidebarIntent::AccountAction(AccountAction::Settings)).keys("⌘,"), &on_intent, None, window, cx));
-    rows.push(menu_row(&id, MenuRow::new("Providers…", SidebarIntent::AccountAction(AccountAction::Providers)), &on_intent, None, window, cx));
-    rows.push(separator(cx));
-    rows.push(menu_row(&id, MenuRow::new("Sign out of Muse", SidebarIntent::AccountAction(AccountAction::SignOut)).danger(), &on_intent, None, window, cx));
-    panel(&id, label, width, rows, &on_intent, window, cx)
+    let (actions, _) = entries(
+        vec![
+            MenuRow::new("Settings…", SidebarIntent::AccountAction(AccountAction::Settings)).keys("⌘,").after_separator(),
+            MenuRow::new("Providers…", SidebarIntent::AccountAction(AccountAction::Providers)),
+            MenuRow::new("Sign out of Muse", SidebarIntent::AccountAction(AccountAction::SignOut)).danger().after_separator(),
+        ],
+        &on_intent,
+    );
+    rows.extend(actions);
+    panel(&id, label, width, rows, &on_intent).side(DropdownSide::Above).into_any_element()
 }
 
 /// Browse mode's open right-click menu for `browse.menu`, with the Move to
@@ -499,42 +435,39 @@ pub fn browse_menu(id: impl Into<ElementId>, browse: &BrowseModel, on_intent: Op
     };
     let menu_id: ElementId = (id.clone(), SharedString::from(key)).into();
     let sub_open = window.use_keyed_state((menu_id.clone(), "sub"), cx, |_, _| false);
-    let mut children: Vec<AnyElement> = Vec::new();
     let trigger_index = rows.iter().position(|r| r.label.as_ref() == "Move to folder");
-    let mut separators_above_trigger = 0usize;
-    for (index, row) in rows.into_iter().enumerate() {
-        let trigger = Some(index) == trigger_index;
-        if row.sep_before {
-            children.push(separator(cx));
-            if trigger_index.is_some_and(|t| index <= t) {
-                separators_above_trigger += 1;
-            }
+    let separators_above_trigger = trigger_index.map_or(0, |t| rows.iter().take(t + 1).filter(|r| r.sep_before).count());
+    let rows: Vec<MenuRow> = rows.into_iter().map(|r| if r.label.as_ref() == "Move to folder" { r.submenu("") } else { r }).collect();
+    let (rows, at) = entries(rows, &on_intent);
+    let trigger_entry = trigger_index.map(|t| at[t]);
+    let flag = sub_open.clone();
+    let main = panel(&menu_id, label, menu_width(), rows, &on_intent).on_highlight(move |index, _w, cx| {
+        let Some(index) = index else { return };
+        let open = Some(index) == trigger_entry;
+        if *flag.read(cx) != open {
+            flag.update(cx, |o, cx| {
+                *o = open;
+                cx.notify();
+            });
         }
-        let flag = sub_open.clone();
-        let hover: HoverHandler = Rc::new(move |hovered, _w, cx| {
-            if hovered && *flag.read(cx) != trigger {
-                flag.update(cx, |open, cx| {
-                    *open = trigger;
-                    cx.notify();
-                });
-            }
-        });
-        children.push(menu_row(&menu_id, row, &on_intent, Some(hover), window, cx));
-    }
-    let main = panel(&menu_id, label, menu_width(), children, &on_intent, window, cx);
+    });
     let submenu = match (sub, trigger_index) {
-        (Some((sub_label, sub_rows)), Some(trigger)) if *sub_open.read(cx) => {
+        (Some((sub_label, mut sub_rows)), Some(trigger)) if *sub_open.read(cx) => {
             let sub_id: ElementId = (menu_id.clone(), "sub-menu").into();
             let new_folder_at = sub_rows.len().saturating_sub(1);
-            let mut sub_children: Vec<AnyElement> = Vec::new();
-            for (index, row) in sub_rows.into_iter().enumerate() {
-                if index == new_folder_at && index > 0 {
-                    sub_children.push(separator(cx));
-                }
-                sub_children.push(menu_row(&sub_id, row, &on_intent, None, window, cx));
+            if new_folder_at > 0 {
+                sub_rows[new_folder_at] = sub_rows[new_folder_at].clone().after_separator();
             }
+            let (sub_entries, _) = entries(sub_rows, &on_intent);
             let top = metrics.control * trigger as f32 + (px(1.0) + metrics.item_px) * separators_above_trigger as f32;
-            Some(div().absolute().left(menu_width() + px(scale::SP_1)).top(top).child(panel(&sub_id, sub_label, submenu_width(), sub_children, &on_intent, window, cx)).into_any_element())
+            Some(
+                div()
+                    .absolute()
+                    .left(menu_width() + px(scale::SP_1))
+                    .top(top)
+                    .child(panel(&sub_id, sub_label, submenu_width(), sub_entries, &on_intent).side(DropdownSide::Beside))
+                    .into_any_element(),
+            )
         }
         _ => None,
     };

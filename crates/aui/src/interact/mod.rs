@@ -11,11 +11,16 @@
 //! - bounded controls inset 1 px on press and never scale;
 //! - the focus-visible ring lives on controls only, never on rows.
 
+pub mod dropdown;
 pub mod fluid_list;
 pub mod interactive;
 pub mod row;
 pub mod surface;
 
+pub use dropdown::{
+    dropdown, dropdown_height, dropdown_label, dropdown_present, dropdown_separator, Dropdown, DropdownEntry, DropdownItem,
+    DropdownSide, DropdownTrailing,
+};
 pub use fluid_list::{fluid_list, nearest, Axis, FluidHandle, FluidList};
 pub use interactive::{interactive, interactive_state, press_inset, InteractState, Interactive, INTERACT_FOCUS_TAG};
 pub use row::{row, Row};

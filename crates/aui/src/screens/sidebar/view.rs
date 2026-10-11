@@ -28,8 +28,11 @@
 //! [`virtual_sidebar_view`](crate::nav::virtual_sidebar_view): after a
 //! regroup `state.reset(count)`, after an insert/remove `state.splice`.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
+
+use gpui_kit::base::ElementExt as _;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{spring_phase, SpringKind};
@@ -926,7 +929,26 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 .child(control(ctx, "new-tab-button", IconName::Plus, "New tab", BrowseIntent::NewTab, true, cx))
                 .child(div().flex_1())
                 .child(control(ctx, "ask", IconName::Sparkle, "Ask Claude about this page", BrowseIntent::Ask, true, cx))
-                .child(control(ctx, "page-menu", IconName::Dots, "Page menu", BrowseIntent::PageMenu, true, cx));
+                .child({
+                    // The page menu opens under its button, so the click
+                    // carries the button's bounds from this frame's layout.
+                    let open = browse.menu.as_ref().is_some_and(|m| matches!(m.target, BrowseMenuTarget::Page { .. }));
+                    let anchor: Rc<Cell<Option<gpui::Bounds<Pixels>>>> = Rc::new(Cell::new(None));
+                    let at = anchor.clone();
+                    let c = ctx.clone();
+                    let button = icon_button(ctx.child("browse-page-menu"), IconName::Dots)
+                        .tooltip_within(ctx.width)
+                        .ghost()
+                        .size(ButtonSize::Md)
+                        .icon_size(cx.aui().metrics.icon)
+                        .accessibility_label("Page menu")
+                        .menu_open(open)
+                        .on_click(move |_, w, cx| {
+                            cx.stop_propagation();
+                            c.emit(SidebarIntent::Browse(BrowseIntent::PageMenu(at.get())), w, cx);
+                        });
+                    div().on_prepaint(move |bounds, _, _| anchor.set(Some(bounds))).child(button)
+                });
             // A toolbar: the pointer over its buttons lights no row.
             list = list.item_toolbar(next, controls);
             next += 1;
