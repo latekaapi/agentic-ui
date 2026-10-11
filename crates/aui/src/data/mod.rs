@@ -31,4 +31,4 @@ pub use meter::{usage_meter, UsageMeter};
 pub use pill::{pill, Pill, PillVariant};
 pub use secret_field::{secret_field, SecretField};
 pub use tag::{tag, Tag};
-pub use tooltip::{tip, Tip, TIP_DELAY};
+pub use tooltip::{tip, tip_within, Tip, TIP_DELAY};

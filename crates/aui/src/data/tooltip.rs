@@ -6,7 +6,11 @@
 //! after FF's 200 ms hover delay.
 //!
 //! Adaptations: gpui seats a tooltip beside the pointer, not 8 px off the
-//! trigger's side, and has no slide-in offset; the fade is kept.
+//! trigger's side, and has no slide-in offset; the fade is kept. gpui flips
+//! a tooltip only at the window's edge, so a tooltip next to a native page
+//! (which draws above everything gpui paints) was cut by the page; a tip
+//! built with [`tip_within`] opens to the pointer's left instead when it
+//! would cross its right limit.
 
 use std::time::{Duration, Instant};
 
@@ -25,6 +29,14 @@ const TIP_FADE: Duration = Duration::from_millis(80);
 pub struct Tip {
     text: SharedString,
     born: Instant,
+    /// The x it must not cross (window coordinates), when bounded.
+    right: Option<gpui::Pixels>,
+}
+
+/// A caption-role chip's width for `text`, estimated: Inter at 12 px runs
+/// about 6.6 px a character, plus the chip's 8 px each side.
+fn estimated_width(text: &str) -> f32 {
+    text.chars().count() as f32 * 6.6 + scale::SP_3 * 2.0
 }
 
 impl gpui::Render for Tip {
@@ -35,7 +47,7 @@ impl gpui::Render for Tip {
         if opacity < 1.0 {
             window.request_animation_frame();
         }
-        Shape::Item.rounded(
+        let chip = Shape::Item.rounded(
             div()
                 .px(px(scale::SP_3))
                 .py(px(scale::SP_2))
@@ -45,7 +57,14 @@ impl gpui::Render for Tip {
                 .whitespace_nowrap()
                 .opacity(opacity)
                 .child(self.text.clone()),
-        )
+        );
+        let crosses = self.right.is_some_and(|right| window.mouse_position().x + px(1.0) + px(estimated_width(&self.text)) > right);
+        if crosses {
+            // A zero-size anchor at the pointer with the chip hung off its
+            // left: gpui places the anchor, the chip opens inward.
+            return div().relative().size(px(0.0)).child(chip.absolute().right(px(scale::SP_1)).top(px(0.0))).into_any_element();
+        }
+        chip.into_any_element()
     }
 }
 
@@ -53,5 +72,12 @@ impl gpui::Render for Tip {
 /// `.tooltip_show_delay(TIP_DELAY)`.
 pub fn tip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
     let text = text.into();
-    move |_, cx| cx.new(|_| Tip { text: text.clone(), born: Instant::now() }).into()
+    move |_, cx| cx.new(|_| Tip { text: text.clone(), born: Instant::now(), right: None }).into()
+}
+
+/// [`tip`] that opens to the pointer's left when it would cross `right`
+/// (window x): for controls beside a native page, such as the sidebar's.
+pub fn tip_within(text: impl Into<SharedString>, right: gpui::Pixels) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+    let text = text.into();
+    move |_, cx| cx.new(|_| Tip { text: text.clone(), born: Instant::now(), right: Some(right) }).into()
 }

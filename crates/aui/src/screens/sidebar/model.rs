@@ -507,6 +507,9 @@ pub enum AccountAction {
 pub enum BrowseIntent {
     /// The address field was clicked: open the Field on it.
     Address,
+    /// The site button (the shield) was clicked: open the site-information
+    /// panel — connection and certificate, like Chrome's.
+    SiteInfo,
     /// Back.
     Back,
     /// Forward.

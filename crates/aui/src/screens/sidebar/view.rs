@@ -239,6 +239,9 @@ struct Ctx {
     state: ListState,
     rename_input: Option<RenameInput>,
     on_intent: Option<IntentHandler>,
+    /// The column's width: tooltips stay inside it, since the native page
+    /// beside it draws above anything that crosses (owner 2026-10-11).
+    width: Pixels,
 }
 
 impl Ctx {
@@ -419,6 +422,7 @@ impl Ctx {
         let metrics = cx.aui().metrics;
         let ctx = self.clone();
         icon_button(self.child(key), glyph)
+            .tooltip_within(self.width)
             .ghost()
             .size(ButtonSize::Sm)
             .icon_size(metrics.icon - px(scale::SP_1))
@@ -861,7 +865,23 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 .items_center()
                 .gap(metrics.gap)
                 .pr(metrics.item_px)
-                .child(ctx.lead_icon(IconName::Shield, cx))
+                .child({
+                    // The site button: connection and certificate details.
+                    let c = ctx.clone();
+                    div()
+                        .id(ctx.child("site-info"))
+                        .flex_none()
+                        .cursor_pointer()
+                        .role(gpui::Role::Button)
+                        .aria_label("View site information")
+                        .tooltip(crate::data::tip_within("View site information", ctx.width))
+                        .tooltip_show_delay(crate::data::TIP_DELAY)
+                        .on_click(move |_, w, cx| {
+                            cx.stop_propagation();
+                            c.emit(SidebarIntent::Browse(BrowseIntent::SiteInfo), w, cx);
+                        })
+                        .child(ctx.lead_icon(IconName::Shield, cx))
+                })
                 .child(
                     h_flex()
                         .flex_1()
@@ -879,7 +899,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             // Page controls: back, forward, reload, new tab | ask, menu.
             let control = |ctx: &Ctx, key: &str, glyph: IconName, label: &str, intent: BrowseIntent, enabled: bool, cx: &App| {
                 let c = ctx.clone();
-                let mut button = icon_button(ctx.child(format!("browse-{key}")), glyph)
+                let mut button = icon_button(ctx.child(format!("browse-{key}")), glyph).tooltip_within(ctx.width)
                     .ghost()
                     .size(ButtonSize::Md)
                     .icon_size(cx.aui().metrics.icon)
@@ -1311,10 +1331,16 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                     ti += 1;
                 }
             }
+            // A title for the pane (owner 2026-10-11: "tell what it is"):
+            // the section label, fixed above its own scroll, with how many
+            // sessions hold tabs. 4 px under the divider, not a section's 12.
+            let count: SharedString = browse.task_folders.len().to_string().into();
+            let header = ctx.section("From sessions", Some(count), None, cx).mt(px(scale::SP_1)).id(ctx.child("task-head"));
             let pane = v_flex()
                 .w_full()
                 .flex_none()
                 .child(div().mx(-metrics.item_px).h(px(1.0)).bg(p.line))
+                .child(header)
                 .child(
                     div()
                         .w_full()
@@ -1494,6 +1520,7 @@ impl RenderOnce for SidebarScreen {
             rename_input: self.rename_input.clone(),
             on_intent: self.on_intent.clone(),
             state: self.state.clone(),
+            width: self.width,
         };
 
         // Title bar: traffic-light gap, the toggle at x 84, the mode switch
@@ -1501,7 +1528,7 @@ impl RenderOnce for SidebarScreen {
         // native traffic lights (`traffic_light_position` centres them in
         // the same height); the mock's 8 px below it is the body's top pad.
         let toggle_ctx = ctx.clone();
-        let toggle = icon_button(ctx.child("toggle"), IconName::Sidebar)
+        let toggle = icon_button(ctx.child("toggle"), IconName::Sidebar).tooltip_within(ctx.width)
             .ghost()
             .size(ButtonSize::Sm)
             .icon_size(metrics.icon)

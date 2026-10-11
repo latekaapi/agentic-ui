@@ -140,6 +140,7 @@ pub struct Button {
     disabled: bool,
     accessibility_label: Option<SharedString>,
     tooltip: bool,
+    tooltip_right: Option<gpui::Pixels>,
     on_click: Option<ClickHandler>,
 }
 
@@ -159,6 +160,7 @@ pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Butto
         disabled: false,
         accessibility_label: None,
         tooltip: true,
+        tooltip_right: None,
         on_click: None,
     }
 }
@@ -264,6 +266,14 @@ impl Button {
     /// icon-only button without one stays silent.
     pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
         self.accessibility_label = Some(label.into());
+        self
+    }
+
+    /// Keep the tooltip left of window x `right` (it opens toward the
+    /// pointer's left when it would cross): for controls beside a native
+    /// page, which draws above any tooltip.
+    pub fn tooltip_within(mut self, right: gpui::Pixels) -> Self {
+        self.tooltip_right = Some(right);
         self
     }
 
@@ -456,7 +466,11 @@ impl RenderOnce for Button {
         record_ax_label(effective.as_deref().unwrap_or(""));
         let icon_only = self.label.as_ref().is_none_or(|l| l.is_empty());
         if let Some(label) = self.accessibility_label.clone().filter(|_| icon_only && self.tooltip && !self.disabled) {
-            outer = outer.tooltip(super::tooltip::tip(label)).tooltip_show_delay(super::tooltip::TIP_DELAY);
+            outer = match self.tooltip_right {
+                Some(right) => outer.tooltip(super::tooltip::tip_within(label, right)),
+                None => outer.tooltip(super::tooltip::tip(label)),
+            }
+            .tooltip_show_delay(super::tooltip::TIP_DELAY);
         }
         if let Some(label) = effective {
             outer = outer.role(gpui::Role::Button).aria_label(label);
