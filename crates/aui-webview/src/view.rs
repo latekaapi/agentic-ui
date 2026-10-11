@@ -168,6 +168,10 @@ pub struct WebviewState {
     /// Set by the host while a gpui overlay covers the page; see
     /// [`Self::set_obscured`].
     obscured: bool,
+    /// The native page's corner radius ([`Self::set_corner_radius`]): the
+    /// snapshot stand-in rounds to it too, so covering the page never
+    /// squares a rounded card's corners (owner 2026-10-11).
+    corner_radius: f32,
     /// The last box pushed into a native backend, so an unchanged layout costs
     /// no `setFrame:`.
     pushed: Option<(Point<Pixels>, Size<Pixels>)>,
@@ -279,6 +283,7 @@ impl WebviewState {
             _intercept: intercept,
             focus: cx.focus_handle(),
             obscured: false,
+            corner_radius: 0.0,
             pushed: None,
             visible_box: None,
             animating: false,
@@ -692,6 +697,7 @@ impl WebviewState {
     /// Rounds the native page's corners to `radius` (0 = square): a host that
     /// sets the page inside a rounded card passes the card's radius.
     pub fn set_corner_radius(&mut self, radius: f32) {
+        self.corner_radius = radius;
         self.backend.set_corner_radius(radius);
     }
 
@@ -1199,6 +1205,7 @@ impl RenderOnce for WebviewPane {
         let preview = view.preview_pins();
         let native = view.native;
         let obscured = view.obscured;
+        let corner_radius = px(view.corner_radius);
         let focus = view.focus.clone();
         // A blank page has nothing worth standing in for: its picture is
         // WebKit's white ground, which reads as a white slab over a dark pane.
@@ -1309,9 +1316,9 @@ impl RenderOnce for WebviewPane {
         // screenshot stands in for it, and a flat surface stands in for that
         // when the page has not been captured yet.
         if native && obscured {
-            let cover = div().absolute().inset_0().overflow_hidden().bg(p.surface_2);
+            let cover = div().absolute().inset_0().overflow_hidden().rounded(corner_radius).bg(p.surface_2);
             page = page.child(match stand_in {
-                Some(image) => cover.child(img(image).size_full()).into_any_element(),
+                Some(image) => cover.child(img(image).size_full().rounded(corner_radius)).into_any_element(),
                 None => cover.into_any_element(),
             });
         }
