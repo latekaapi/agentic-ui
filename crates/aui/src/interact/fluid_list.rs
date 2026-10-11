@@ -135,6 +135,8 @@ struct FluidState {
     selected_rides: u64,
     /// A real mouse move landed since the last render.
     moved: bool,
+    /// The list's inert item ([`FluidList::inert`]), for the handlers.
+    inert: Option<usize>,
     /// The highlight held on its row while rows scroll under a still
     /// pointer, and when they last moved ([`scroll_hold`]).
     hold: Option<(usize, std::time::Instant)>,
@@ -254,6 +256,7 @@ pub struct FluidList {
     handle: Option<FluidHandle>,
     fill: bool,
     block_inset_y: Pixels,
+    inert: Option<usize>,
 }
 
 /// A [`FluidList`] over `axis` with `id`.
@@ -272,6 +275,7 @@ pub fn fluid_list(id: impl Into<ElementId>, axis: Axis) -> FluidList {
         handle: None,
         fill: false,
         block_inset_y: px(0.0),
+        inert: None,
     }
 }
 
@@ -295,6 +299,14 @@ impl FluidList {
     /// ladder passes zero so rows touch.
     pub fn gap(mut self, gap: Pixels) -> Self {
         self.gap = Some(gap);
+        self
+    }
+
+    /// An item that is measured but never lit or selected: an inline field
+    /// standing in a row (a rename) draws its own chrome, so neither block
+    /// paints under it and the pointer over it lights nothing.
+    pub fn inert(mut self, index: Option<usize>) -> Self {
+        self.inert = index;
         self
     }
 
@@ -517,7 +529,7 @@ fn state_highlight(state: &FluidState, axis: Axis) -> Option<usize> {
             rects.push(*rect);
         }
     }
-    highlight_for(&keys, &rects, state.keyboard, state.pointer, axis)
+    highlight_for(&keys, &rects, state.keyboard, state.pointer, axis).filter(|index| Some(*index) != state.inert)
 }
 
 /// Records `next` as the current highlight; true when it differs from the
@@ -556,7 +568,7 @@ impl RenderOnce for FluidList {
         let id = self.id.clone();
         let axis = self.axis;
         let keyboard = self.highlighted;
-        let selected = self.selected;
+        let selected = self.selected.filter(|index| Some(*index) != self.inert);
         let gap_click = self.gap_click;
         let inset_y = self.block_inset_y;
 
@@ -601,7 +613,10 @@ impl RenderOnce for FluidList {
         // highlight on its row until they rest (`scroll_hold`); then the
         // row beneath takes it, and the parent hears about the new row on
         // the next frame, never from inside render.
+        let inert = self.inert;
+        fluid.borrow_mut().inert = inert;
         let (highlight, holding) = scroll_hold(&mut fluid.borrow_mut(), picked, keyboard, &bounds, std::time::Instant::now());
+        let highlight = highlight.filter(|index| Some(*index) != inert);
         if holding {
             window.request_animation_frame();
         }

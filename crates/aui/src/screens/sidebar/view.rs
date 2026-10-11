@@ -19,8 +19,8 @@
 //! - row titles use the compact Body step (13/20) at both densities, so
 //!   the list reads one step quieter than the pane; bylines, counts and
 //!   ages are Caption, chips and branches Micro / compact Mono;
-//! - only the dot carries status colour; the accent appears nowhere but
-//!   the rename field's focus ring.
+//! - only the dot carries status colour; no accent anywhere (an inline
+//!   field is FF's focused InputField: surface-3 and the border ring).
 //!
 //! The screen is stateless: `model` is plain data, `state` the
 //! caller-owned [`ListState`] sized with [`screen_item_count`], `fluid`
@@ -110,6 +110,10 @@ pub fn collapsed_strip_width() -> Pixels {
 pub fn list_row_height(cx: &App) -> Pixels {
     cx.aui().metrics.control_lg
 }
+
+/// How far gpui-base's `Textarea` draws its text in from its own left edge
+/// (measured live; the inline rename field compensates for it).
+const TEXTAREA_TEXT_INSET: f32 = 10.0;
 
 /// The two-line row's height: 5 + 20 (title) + 16 (byline) + 5 = 46.
 fn two_line_row_height() -> Pixels {
@@ -491,14 +495,29 @@ impl Ctx {
             .into_any_element()
     }
 
-    /// The inline rename field: the row's own geometry on `surface-2`
-    /// with the accent ring; the live input when the host gives one.
+    /// The inline rename field (owner 2026-10-11): it stands in the row's
+    /// own pill rect — the row's height less the 1 px block inset, the full
+    /// row width — as FF's focused InputField (`bg-card` = surface-3,
+    /// `ring-border`, item radius, no focus ring), with no status dot and no
+    /// hover or selected block under it (the row is the list's `inert`
+    /// item). The text sits on the titles' axis, so nothing jumps; the live
+    /// input when the host gives one.
     fn rename_field(&self, session: &SessionSummary, draft: &SharedString, nested: bool, _window: &mut Window, cx: &mut App) -> AnyElement {
         let p = cx.aui().colors;
         let metrics = cx.aui().metrics;
+        let height = if self.second_line(session).is_some() { self.two_line_height(cx) } else { list_row_height(cx) };
+        let pill = px(scale::SP_1 / 2.0);
+        let hair = px(1.0);
+        // The titles' x: the nested indent, the lead slot, the gap.
+        let axis = if nested { metrics.inset } else { px(0.0) } + metrics.item_px + metrics.icon + metrics.gap;
         let label: SharedString = format!("Rename session {}", session.name).into();
         record_ax_label(&label);
         let body: AnyElement = match self.rename_input.as_ref() {
+            // gpui-base's textarea draws its text 10 px in from its own
+            // left edge (measured live 2026-10-11 with a marker on the
+            // container: container at the titles' axis, caret 10 px right
+            // of it); pull it back so the text sits on that axis.
+            Some(input @ RenameInput::Textarea(_)) => div().flex_1().min_w(px(0.0)).ml(-px(TEXTAREA_TEXT_INSET)).child(input.element()).into_any_element(),
             Some(input) => div().flex_1().min_w(px(0.0)).child(input.element()).into_any_element(),
             None => h_flex()
                 .flex_1()
@@ -509,24 +528,30 @@ impl Ctx {
                 .child(div().flex_none().w(px(1.0)).h(metrics.icon).bg(p.fg))
                 .into_any_element(),
         };
-        let field = h_flex()
-            .w_full()
-            .h(list_row_height(cx))
-            .items_center()
-            .gap(metrics.gap)
-            .pr(metrics.item_px)
-            .child(self.dot(session.state, cx))
-            .child(body);
+        let boxed = Shape::Item.rounded(
+            h_flex()
+                .w_full()
+                .h(height - pill * 2.0)
+                .items_center()
+                .pl(axis - hair)
+                .pr(metrics.item_px - hair)
+                .bg(p.surface(3))
+                .border_1()
+                .border_color(p.line)
+                .text_color(p.fg)
+                .text_role_in(TextRole::Body, Density::Standard)
+                .child(body),
+        );
         let ctx = self.clone();
         let commit = session.id.clone();
         let text = draft.clone();
         let live = self.rename_input.clone();
-        // The field wears the one accent in the sidebar: `accent-ring`.
-        let boxed = Shape::Item.rounded(div().w_full().bg(p.surface(2)).border_1().border_color(p.accent_ring).child(field));
         div()
             .id(self.child(format!("rename-{}", session.id)))
             .w_full()
-            .when(nested, |d| d.pl(metrics.inset))
+            .h(height)
+            .flex()
+            .items_center()
             .role(gpui::Role::TextInput)
             .aria_label(label)
             // Keys bubble up from the focused input inside; Enter commits
@@ -560,7 +585,8 @@ impl Ctx {
         record_ax_label(label);
         let body = self.field_body(draft, cx);
         let field = h_flex().w_full().h(list_row_height(cx)).items_center().gap(metrics.gap).pr(metrics.item_px).child(lead).child(body);
-        let boxed = Shape::Item.rounded(div().w_full().bg(p.surface(2)).border_1().border_color(p.accent_ring).child(field));
+        // The rename field's chrome (FF focused InputField), not the accent.
+        let boxed = Shape::Item.rounded(div().w_full().bg(p.surface(3)).border_1().border_color(p.line).child(field));
         div()
             .id(self.child(key))
             .w_full()
@@ -1346,6 +1372,9 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
     if model.mode == Mode::Sessions {
         let selected = model.selected.as_ref().and_then(|id| index_of_session.get(id).copied());
         list = list.selected(selected);
+        // A row being renamed is the field's: no block paints under it.
+        let editing = model.editing.as_ref().and_then(|e| index_of_session.get(&e.session).copied());
+        list = list.inert(editing);
     }
     let highlighted = model.highlighted.as_ref().and_then(|id| index_of_session.get(id).copied());
     if highlighted.is_some() {
