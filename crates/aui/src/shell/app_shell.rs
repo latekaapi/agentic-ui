@@ -89,6 +89,7 @@ pub struct AppShell {
     peek: Option<AnyElement>,
     animate: bool,
     on_overlay_bounds: Option<OverlayBoundsHandler>,
+    peek_open: bool,
 }
 
 /// The floating chrome's rects with their corner radii.
@@ -138,6 +139,7 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         peek: None,
         animate: true,
         on_overlay_bounds: None,
+        peek_open: false,
     }
 }
 
@@ -360,6 +362,13 @@ impl AppShell {
     /// (see [`OverlayBoundsHandler`]); an empty list when none shows.
     pub fn on_overlay_bounds(mut self, f: impl Fn(Vec<(gpui::Bounds<Pixels>, Pixels)>, &mut Window, &mut App) + 'static) -> Self {
         self.on_overlay_bounds = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// v3 only: holds the peek open while the sidebar is closed, with no
+    /// hover — a scripting and capture aid (the person opens it by hover).
+    pub fn peek_open(mut self, open: bool) -> Self {
+        self.peek_open = open;
         self
     }
 
@@ -749,6 +758,18 @@ fn painted_lights() -> Div {
     h_flex().flex_none().gap(px(8.0)).child(dot(0xFF5F57)).child(dot(0xFEBC2E)).child(dot(0x28C840))
 }
 
+/// Puts the window's own traffic lights in the v3 left pill (`in_pill`) or
+/// at the title bar's spot — once per change, remembered per window, so any
+/// layout that shows the lights in the title bar (Settings keeps the old
+/// shell) calls this with `false` and the two never disagree.
+pub fn place_native_lights(in_pill: bool, window: &mut Window, cx: &mut App) {
+    let placed = window.use_keyed_state("aui-native-lights", cx, |_, _| None::<bool>);
+    if *placed.read(cx) != Some(in_pill) {
+        window.set_traffic_light_position(lights_position(in_pill, cx));
+        placed.update(cx, |p, _| *p = Some(in_pill));
+    }
+}
+
 /// Where the macOS lights go: the open title bar, or inside the left pill.
 fn lights_position(in_pill: bool, cx: &App) -> gpui::Point<Pixels> {
     if in_pill {
@@ -762,8 +783,6 @@ fn lights_position(in_pill: bool, cx: &App) -> gpui::Point<Pixels> {
 struct SheetsState {
     /// The column's last sampled openness, so the pills can wait for it.
     column: f32,
-    /// Where the native lights were last put (None = never moved).
-    lights_in_pill: Option<bool>,
     strip_since: Option<std::time::Instant>,
     card_hovered: bool,
     left_at: Option<std::time::Instant>,
@@ -790,6 +809,12 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
     // first frame adopts the state, so a window that opens closed has its
     // pills from the start.
     let pills_wanted = closed && st.column <= 0.0005;
+    // Motion off (an instant layout) or a drag: keep the keyed runs at rest
+    // where the layout is, so turning motion back on never replays a stale run.
+    if !shell.animate || shell.resizing {
+        aui_motion::open_close_jump((id.clone(), "column"), shell.sidebar_open, window, cx);
+        aui_motion::open_close_jump((id.clone(), "pills"), closed, window, cx);
+    }
     let pills_k = if !shell.animate {
         if closed { 1.0 } else { 0.0 }
     } else { open_close_with(
@@ -817,13 +842,13 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
     // The window's own lights: into the pill on the frame the pills appear,
     // back as soon as the sidebar starts to open.
     let in_pill = closed && pills_shown;
-    if shell.native_lights && st.lights_in_pill != Some(in_pill) {
-        window.set_traffic_light_position(lights_position(in_pill, cx));
+    if shell.native_lights {
+        place_native_lights(in_pill, window, cx);
     }
 
     // The peek: armed by a 150 ms rest on the left strip, dismissed 250 ms
     // after the pointer leaves both the strip and the card.
-    let mut peeking = st.peeking && closed && pills_shown;
+    let mut peeking = (st.peeking || shell.peek_open) && closed && pills_shown;
     let mut pending = false;
     if closed && shell.peek.is_some() {
         if !peeking {
@@ -840,19 +865,27 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
     } else {
         peeking = false;
     }
+    // Hover reports stop when the strip and card unmount: clear what they
+    // left behind, so a later close never opens a peek nobody asked for.
+    if !(closed && pills_shown) && (st.strip_since.is_some() || st.card_hovered || st.left_at.is_some()) {
+        state.update(cx, |s, _| {
+            s.strip_since = None;
+            s.card_hovered = false;
+            s.left_at = None;
+        });
+    }
     if pending {
         window.request_animation_frame();
     }
-    let next = SheetsState { column, lights_in_pill: if shell.native_lights { Some(in_pill) } else { None }, peeking, ..st };
-    if next.column != st.column || next.lights_in_pill != st.lights_in_pill || next.peeking != st.peeking {
-        state.update(cx, |s, _| *s = SheetsState { column: next.column, lights_in_pill: next.lights_in_pill, peeking: next.peeking, ..*s });
+    if column != st.column || peeking != st.peeking {
+        state.update(cx, |s, _| *s = SheetsState { column, peeking, ..*s });
     }
 
     // Right sheet on the moderate tier (FF: panel width).
     let right_lo = f32::from(shell.right_min);
     let right_rest = px(f32::from(shell.right_width).clamp(right_lo, f32::from(shell.right_max).max(right_lo)));
     let right_target = if shell.right_open { right_rest + px(SHEET_INSET) } else { px(0.0) };
-    let right_w = if shell.resizing {
+    let right_w = if shell.resizing || !shell.animate {
         right_target
     } else {
         aui_motion::spring_px((id.clone(), "right-width"), right_target, aui_motion::SpringKind::Moderate, window, cx).max(px(0.0))

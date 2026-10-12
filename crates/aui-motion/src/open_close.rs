@@ -79,6 +79,21 @@ struct Curves {
     exit_easing: Easing,
 }
 
+/// Puts an [`open_close`] value at rest at `open` with no motion — for a
+/// host that turned the motion off for a while (an instant layout), so the
+/// next animated change starts from where the value really is rather than
+/// from a stale run.
+pub fn open_close_jump(id: impl Into<ElementId>, open: bool, window: &mut Window, cx: &mut App) {
+    let target = if open { 1.0 } else { 0.0 };
+    let now = cx.background_executor().now();
+    let rest = Run { open, from: target, start: now.checked_sub(Duration::from_secs(10)).unwrap_or(now) };
+    let state = window.use_keyed_state(id.into(), cx, |_, _| rest);
+    let run = *state.read(cx);
+    if run.open != open || run.from != target {
+        state.update(cx, |s, _| *s = rest);
+    }
+}
+
 /// The value of `run` at `now`, and whether it has settled.
 fn sample(run: Run, curves: Curves, now: Instant) -> (f32, bool) {
     let t = now.saturating_duration_since(run.start).as_secs_f32();

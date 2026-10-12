@@ -162,7 +162,9 @@ void aui_cef_set_holes(void *child_root_view, const double *rects, int n) {
   } else {
     cw.opaque = NO;
     cw.backgroundColor = NSColor.clearColor;
-    CGRect b = cv.layer.bounds;
+    // The view's bounds, not the layer's: the window was just placed, and the
+    // view's size is current while the layer's can trail by a frame.
+    CGRect b = cv.bounds;
     CGMutablePathRef path = CGPathCreateMutable();
     CGPathAddRect(path, NULL, b);
     for (int i = 0; i < n; i++) {

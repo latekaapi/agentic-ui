@@ -53,7 +53,7 @@ pub use check::{check_draw, CheckDraw};
 pub use collapse::{collapse, Reveal};
 pub use icon_morph::{icon_morph, IconMorph, MorphSample};
 pub use looping::{looping, Loop};
-pub use open_close::{open_close, open_close_with, spring_step, Enter, EXIT_EASING};
+pub use open_close::{open_close, open_close_jump, open_close_with, spring_step, Enter, EXIT_EASING};
 pub use presence::{presence, EnterExit, PresenceSample, PresenceStyle};
 pub use pulse::{pulse_phase, pulse_ring, PulseRing};
 pub use reveal::{stream_reveal, RevealSample};

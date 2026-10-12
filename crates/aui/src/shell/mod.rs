@@ -12,7 +12,7 @@ mod resize_handle;
 mod tab_strip;
 
 pub use app_shell::{
-    app_shell, clamp_right_width, clamp_sidebar_width, AppShell, RAIL_WIDTH, RAIL_WIDTH_WITH_LIGHTS, RIGHT_MAX_WIDTH, RIGHT_MIN_WIDTH,
+    app_shell, clamp_right_width, place_native_lights, clamp_sidebar_width, AppShell, RAIL_WIDTH, RAIL_WIDTH_WITH_LIGHTS, RIGHT_MAX_WIDTH, RIGHT_MIN_WIDTH,
     RIGHT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_WIDTH,
     OverlayBoundsHandler, PEEK_STRIP, PEEK_TOP, PILL_H, PILL_MARGIN, PILL_PAD, SHEET_FADE_CLOSED, SHEET_FADE_OPEN, SHEET_INSET, SHEET_RADIUS,
     SHEET_ROW_H, SHEET_ROW_PAD_LEFT, SHEET_ROW_PAD_RIGHT,
