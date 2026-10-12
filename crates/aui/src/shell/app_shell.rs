@@ -87,7 +87,14 @@ pub struct AppShell {
     pill_left: Option<AnyElement>,
     pill_right: Option<AnyElement>,
     peek: Option<AnyElement>,
+    animate: bool,
+    on_overlay_bounds: Option<OverlayBoundsHandler>,
 }
+
+/// Called each frame with the rects of the v3 shell's floating chrome
+/// (window coordinates: the pills and the peek card, each with its corner
+/// radius) — a host with a native surface under them cuts matching holes.
+pub type OverlayBoundsHandler = std::rc::Rc<dyn Fn(Vec<(gpui::Bounds<Pixels>, Pixels)>, &mut Window, &mut App)>;
 
 /// An empty shell with the default column widths.
 pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
@@ -126,6 +133,8 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         pill_left: None,
         pill_right: None,
         peek: None,
+        animate: true,
+        on_overlay_bounds: None,
     }
 }
 
@@ -332,6 +341,22 @@ impl AppShell {
     pub fn pills(mut self, left: impl IntoElement, right: impl IntoElement) -> Self {
         self.pill_left = Some(left.into_any_element());
         self.pill_right = Some(right.into_any_element());
+        self
+    }
+
+    /// v3 only: whether the column and the pills animate (default true).
+    /// Off, open and close are instant: a host whose native page cannot
+    /// follow a per-frame resize smoothly turns them off rather than jank
+    /// (the peek still slides — only its hole has to follow).
+    pub fn animate(mut self, on: bool) -> Self {
+        self.animate = on;
+        self
+    }
+
+    /// v3 only: reports the floating chrome's rects every frame they paint
+    /// (see [`OverlayBoundsHandler`]); an empty list when none shows.
+    pub fn on_overlay_bounds(mut self, f: impl Fn(Vec<(gpui::Bounds<Pixels>, Pixels)>, &mut Window, &mut App) + 'static) -> Self {
+        self.on_overlay_bounds = Some(std::rc::Rc::new(f));
         self
     }
 
@@ -761,7 +786,9 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
     // FF's popup timing: in 80 ms ease-out with a 4 px rise, out 60 ms. The
     // first frame adopts the state, so a window that opens closed has its
     // pills from the start.
-    let pills_k = open_close_with(
+    let pills_k = if !shell.animate {
+        if closed { 1.0 } else { 0.0 }
+    } else { open_close_with(
         (id.clone(), "pills"),
         closed && st.column <= 0.0005,
         Enter::Tween(std::time::Duration::from_millis(80), Easing::OUT),
@@ -769,9 +796,9 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
         EXIT_EASING,
         window,
         cx,
-    );
+    ) };
     let pills_shown = pills_k > 0.0;
-    let column = if shell.resizing {
+    let column = if shell.resizing || !shell.animate {
         if shell.sidebar_open { 1.0 } else { 0.0 }
     } else {
         open_close((id.clone(), "column"), shell.sidebar_open && !pills_shown, aui_motion::SpringKind::Slow, aui_motion::durations::SLOW_EXIT, window, cx)
@@ -923,6 +950,15 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
         root = root.child(painted_lights().absolute().left(at.x).top(at.y));
     }
 
+    // The floating chrome's rects, collected while it prepaints and handed
+    // to the host by the last child (see `AppShell::on_overlay_bounds`).
+    use gpui_kit::base::ElementExt as _;
+    let rects: std::rc::Rc<std::cell::RefCell<Vec<(gpui::Bounds<Pixels>, Pixels)>>> = Default::default();
+    let report = |radius: Pixels| {
+        let rects = rects.clone();
+        move |bounds: gpui::Bounds<Pixels>, _: &mut Window, _: &mut App| rects.borrow_mut().push((bounds, radius))
+    };
+
     // The pills, over everything but the peek.
     if pills_shown {
         let pill = |side: &'static str| {
@@ -945,11 +981,11 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
             None
         };
         let top = px(PILL_MARGIN) + px(4.0 * (1.0 - pills_k));
-        let left = pill("pill-left").children(lights_slot).children(shell.pill_left);
+        let left = pill("pill-left").children(lights_slot).children(shell.pill_left).on_prepaint(report(px(PILL_H / 2.0)));
         let left = if shell.draggable { drag_region((id.clone(), "pill-drag")).child(left).into_any_element() } else { left.into_any_element() };
         root = root
             .child(div().absolute().top(top).left(px(PILL_MARGIN)).child(left))
-            .child(div().absolute().top(top).right(px(PILL_MARGIN)).child(pill("pill-right").children(shell.pill_right)));
+            .child(div().absolute().top(top).right(px(PILL_MARGIN)).child(pill("pill-right").children(shell.pill_right).on_prepaint(report(px(PILL_H / 2.0)))));
     }
 
     // The peek strip and card.
@@ -1000,10 +1036,16 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
                                 cx.notify();
                             });
                         })
-                        .child(crate::interact::AmbientScope::filled(aui_tokens::Palette::FLOATING_LEVEL, peek_el)),
+                        .child(crate::interact::AmbientScope::filled(aui_tokens::Palette::FLOATING_LEVEL, peek_el))
+                        .on_prepaint(report(px(SHEET_RADIUS))),
                 );
             }
         }
+    }
+
+    if let Some(handler) = shell.on_overlay_bounds {
+        let rects = rects.clone();
+        root = root.child(div().absolute().size_0().on_prepaint(move |_, window, cx| handler(rects.take(), window, cx)));
     }
 
     let mut root = crate::keys::track_pointer(root);

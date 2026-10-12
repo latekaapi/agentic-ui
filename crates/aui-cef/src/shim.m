@@ -141,6 +141,46 @@ void aui_cef_set_corner_radius(void *child_root_view, double radius) {
   }
 }
 
+// Cuts `n` rounded holes (x, y, w, h, radius — the page's own coordinates,
+// top-left origin, points) through the page window, so host chrome drawn
+// under it shows through and takes the clicks there: the closed shell's pills
+// and its peek card float over the live page (v3, docs/31 §9). A fully
+// transparent pixel of a non-opaque window passes the click to the window
+// below. n = 0 removes the mask. No implicit animation: the mask follows the
+// host's frames exactly.
+void aui_cef_set_holes(void *child_root_view, const double *rects, int n) {
+  NSWindow *cw = window_of(child_root_view);
+  if (!cw) return;
+  NSView *cv = cw.contentView;
+  if (!cv) return;
+  cv.wantsLayer = YES;
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  if (n <= 0) {
+    cv.layer.mask = nil;
+  } else {
+    cw.opaque = NO;
+    cw.backgroundColor = NSColor.clearColor;
+    CGRect b = cv.layer.bounds;
+    CGMutablePathRef path = CGPathCreateMutable();
+    CGPathAddRect(path, NULL, b);
+    for (int i = 0; i < n; i++) {
+      double x = rects[i * 5], y = rects[i * 5 + 1], w = rects[i * 5 + 2], h = rects[i * 5 + 3], r = rects[i * 5 + 4];
+      if (w <= 0 || h <= 0) continue;
+      double fy = cv.isFlipped ? y : b.size.height - y - h;
+      double rr = fmin(r, fmin(w, h) / 2.0);
+      CGPathAddRoundedRect(path, NULL, CGRectMake(x, fy, w, h), rr, rr);
+    }
+    CAShapeLayer *mask = [cv.layer.mask isKindOfClass:[CAShapeLayer class]] ? (CAShapeLayer *)cv.layer.mask : [CAShapeLayer layer];
+    mask.frame = b;
+    mask.fillRule = kCAFillRuleEvenOdd;
+    mask.path = path;
+    CGPathRelease(path);
+    cv.layer.mask = mask;
+  }
+  [CATransaction commit];
+}
+
 // Hidden = invisible and click-through. CEF's own `Window::hide` does nothing
 // to an adopted child window (S1, shot 7); alpha does (S1, shot 6).
 void aui_cef_set_hidden(void *child_root_view, int hidden) {

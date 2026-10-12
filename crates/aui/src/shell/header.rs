@@ -63,14 +63,23 @@ pub fn traffic_light_position(cx: &App) -> gpui::Point<gpui::Pixels> {
 pub struct HeaderCell {
     id: ElementId,
     children: Vec<AnyElement>,
+    bare: bool,
 }
 
 /// An empty header cell.
 pub fn header_cell(id: impl Into<ElementId>) -> HeaderCell {
-    HeaderCell { id: id.into(), children: Vec::new() }
+    HeaderCell { id: id.into(), children: Vec::new(), bare: false }
 }
 
 impl HeaderCell {
+    /// The v3 sheet's title row ([`crate::shell::AppShell::sheets`]): the
+    /// row owns the height (32) and the side insets (16 / 10), so the cell
+    /// fills it with no padding of its own.
+    pub fn bare(mut self, bare: bool) -> Self {
+        self.bare = bare;
+        self
+    }
+
     /// Adds a child.
     pub fn child(mut self, el: impl IntoElement) -> Self {
         self.children.push(el.into_any_element());
@@ -80,6 +89,9 @@ impl HeaderCell {
 
 impl RenderOnce for HeaderCell {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        if self.bare {
+            return h_flex().id(self.id).size_full().min_w(px(0.0)).items_center().gap(px(CELL_GAP)).children(self.children);
+        }
         header_row(cx).id(self.id).children(self.children)
     }
 }

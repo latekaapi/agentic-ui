@@ -771,6 +771,14 @@ impl WebviewState {
         self.backend.set_corner_radius(radius);
     }
 
+    /// Cuts rounded holes through the native page (window coordinates,
+    /// logical pixels: x, y, w, h, radius) so host chrome drawn under the
+    /// page — the closed shell's pills, the peek card — shows through and
+    /// takes the clicks there. An empty list removes them.
+    pub fn set_holes(&mut self, holes: Vec<[f32; 5]>) {
+        self.backend.set_holes(holes);
+    }
+
     /// Pushes `frame` into the native backend and remembers it, refreshing
     /// the snapshot stand-in when the page area itself resized.
     ///

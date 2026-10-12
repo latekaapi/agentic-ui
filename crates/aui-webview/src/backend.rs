@@ -493,6 +493,14 @@ pub trait WebBackend {
         let _ = radius;
     }
 
+    /// Cuts rounded holes (x, y, w, h, radius — the host window's logical
+    /// coordinates) through the page's native surface, so host chrome drawn
+    /// under it shows through and takes the clicks there. An empty list
+    /// removes them. Engines without a native surface ignore this.
+    fn set_holes(&mut self, holes: Vec<[f32; 5]>) {
+        let _ = holes;
+    }
+
     /// The shown page's certificate, when it was served over TLS and the
     /// engine exposes one. Engines that do not answer `None`.
     fn certificate(&self) -> Option<CertificateInfo> {
