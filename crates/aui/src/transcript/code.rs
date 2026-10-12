@@ -457,7 +457,7 @@ fn block_header(p: &Palette, id: &ElementId, args: BlockHeaderArgs, window: &mut
         .gap(px(HEADER_GAP))
         .pl(px(HEADER_PAD_L))
         .pr(px(HEADER_PAD_R))
-        .bg(p.surface_2)
+        .bg(crate::util::raised_lit(p, p.surface_2))
         .border_b_1()
         .border_color(p.line)
         .mono(HEADER_TEXT)
@@ -819,13 +819,8 @@ impl RenderOnce for CodeBlock {
             body.into_any_element()
         };
 
-        let mut block = v_flex()
-            .id(id.clone())
-            .w_full()
-            .rounded(px(scale::R_MD))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.term_bg)
+        let block = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(scale::R_MD)), &p, p.term_bg);
+        let mut block = block
             .overflow_hidden()
             .track_interaction(&state)
             .child(header)
@@ -1071,13 +1066,7 @@ impl RenderOnce for DiffBlock {
             }
         }
 
-        v_flex()
-            .id(id.clone())
-            .w_full()
-            .rounded(px(scale::R_MD))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.surface_1)
+        crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(scale::R_MD)), &p, p.surface_1)
             .overflow_hidden()
             .track_interaction(&state)
             .child(header)

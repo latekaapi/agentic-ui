@@ -132,6 +132,26 @@ pub(crate) fn named_child(parent: &ElementId, prefix: &str, name: &str) -> Eleme
     (parent.clone(), gpui::SharedString::from(key)).into()
 }
 
+/// A block that sits *in* the sheet — a code block, a table, a tool card:
+/// v3 (dark) paints it **Raised** with the one edge (canvas "Baaz v3",
+/// docs/31a §0); light keeps FF's look, `light_bg` with the 1 px hairline,
+/// until light is designed.
+pub(crate) fn raised_block<E: gpui::Styled>(el: E, p: &aui_tokens::Palette, light_bg: gpui::Hsla) -> E {
+    if p.is_dark() {
+        // A transparent 1 px border keeps the box FF measured (content
+        // 1 px in); the inset edge paints over it.
+        el.border_1().border_color(gpui::transparent_black()).bg(p.surface_3).shadow(p.elevation_shadow(3))
+    } else {
+        el.border_1().border_color(p.line).bg(light_bg)
+    }
+}
+
+/// The lit band of a raised block (a code block's header, a table's head):
+/// v3's **Raised, lit** in dark; `light` in light.
+pub(crate) fn raised_lit(p: &aui_tokens::Palette, light: gpui::Hsla) -> gpui::Hsla {
+    if p.is_dark() { p.surface_4 } else { light }
+}
+
 #[cfg(test)]
 mod id_tests {
     use super::*;
@@ -162,3 +182,4 @@ mod id_tests {
         }
     }
 }
+

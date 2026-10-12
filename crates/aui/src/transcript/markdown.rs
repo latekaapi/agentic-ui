@@ -1616,7 +1616,7 @@ fn render_block(
             align,
         } => {
             let mut grid = v_flex().w_full();
-            let mut head = h_flex().w_full().bg(palette.surface_2);
+            let mut head = h_flex().w_full().bg(crate::util::raised_lit(palette, palette.surface_2));
             for (n, cell) in header.iter().enumerate() {
                 head = head.child(table_cell(
                     cell,
@@ -1655,12 +1655,7 @@ fn render_block(
             }
             // The table scrolls inside its own frame instead of squeezing
             // columns or spilling past the turn.
-            div()
-                .w_full()
-                .rounded(px(scale::R_SM))
-                .border_1()
-                .border_color(palette.line)
-                .bg(palette.surface_1)
+            crate::util::raised_block(div().w_full().rounded(px(scale::R_SM)), palette, palette.surface_1)
                 .overflow_hidden()
                 .child(div().id(block_id(id, index, "scroll")).w_full().overflow_x_scroll().child(grid))
                 .into_any_element()

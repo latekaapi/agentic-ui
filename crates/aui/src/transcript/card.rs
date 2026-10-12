@@ -90,7 +90,7 @@ impl RenderOnce for TranscriptCard {
         let header_id: ElementId = (id.clone(), "header").into();
         let (state, flags) = interaction_flags(header_id.clone(), window, cx);
         let tint = self.hover_tint && flags.hovered;
-        let bg = tint_fade((header_id.clone(), "bg"), tint, p.surface_2, Tween::FAST, window, cx);
+        let bg = tint_fade((header_id.clone(), "bg"), tint, crate::util::raised_lit(&p, p.surface_2), Tween::FAST, window, cx);
 
         let mut header = h_flex()
             .id(header_id.clone())
@@ -116,13 +116,7 @@ impl RenderOnce for TranscriptCard {
             header = header.role(gpui::Role::Button).aria_label(label).on_click(move |e, w, cx| on_toggle(e, w, cx));
         }
 
-        let mut card = v_flex()
-            .id(id.clone())
-            .w_full()
-            .rounded(px(scale::R_MD))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.surface_1)
+        let mut card = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(scale::R_MD)), &p, p.surface_1)
             .overflow_hidden()
             .child(header);
         if let Some(body) = self.body {

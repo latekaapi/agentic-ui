@@ -29,6 +29,8 @@ const USER_MAX: f32 = 0.78;
 const USER_GAP: f32 = 6.0;
 /// `.u .bub{border-radius:14px 14px 4px 14px;padding:9px 13px;font-size:13.5px;line-height:1.5}`.
 const BUBBLE_RADIUS: f32 = 14.0;
+/// v3's raised radius (composer and user turn alike).
+const BUBBLE_RADIUS_V3: f32 = 12.0;
 const BUBBLE_PAD_Y: f32 = 9.0;
 const BUBBLE_PAD_X: f32 = 13.0;
 const BUBBLE_TEXT: f32 = 13.5;
@@ -516,8 +518,10 @@ impl RenderOnce for UserTurn {
                 .overflow_hidden()
                 .py(px(BUBBLE_PAD_Y))
                 .px(px(BUBBLE_PAD_X))
-                .rounded(px(BUBBLE_RADIUS))
-                .rounded_br(px(scale::R_XS))
+                // v3 (dark): Raised with the one edge, radius 12 on every
+                // corner (canvas "Baaz v3"); light keeps the tailed bubble.
+                .when(p.is_dark(), |d| d.rounded(px(BUBBLE_RADIUS_V3)).shadow(p.elevation_shadow(3)))
+                .when(!p.is_dark(), |d| d.rounded(px(BUBBLE_RADIUS)).rounded_br(px(scale::R_XS)))
                 .bg(p.surface_3)
                 .ui(BUBBLE_TEXT)
                 .text_color(p.ink)
