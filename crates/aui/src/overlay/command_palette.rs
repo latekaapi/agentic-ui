@@ -31,10 +31,9 @@ const SCRIM_PAD_TOP: f32 = 56.0;
 use super::{SCRIM_TINT_BOTTOM, SCRIM_TINT_TOP};
 const SCRIM_ANGLE: f32 = 180.0;
 
-/// `.pal{width:560px;border-radius:var(--r-xl)}` on the overlay ground with a
-/// 1 px line-strong border and `box-shadow:var(--shadow-3)`.
+/// `.pal{width:560px;border-radius:var(--r-xl)}` on v3's Dialog level with the
+/// dialog shadow (the edge plus one deep drop), no drawn border.
 const PAL_W: f32 = 560.0;
-const PAL_SHADOW: u8 = 3;
 /// `@keyframes in{from{opacity:0;transform:translateY(-6px) scale(.985)}}` —
 /// the palette drops in from 6 px above at 98.5 % of its width.
 const PAL_DROP: f32 = 6.0;
@@ -340,10 +339,8 @@ impl RenderOnce for CommandPalette {
             .opacity(style.opacity)
             .w(px(PAL_W * style.scale))
             .rounded(px(scale::R_XL))
-            .border_1()
-            .border_color(p.line_strong)
-            .bg(p.overlay)
-            .shadow(p.shadow(PAL_SHADOW))
+            .bg(p.surface(aui_tokens::Palette::DIALOG_LEVEL))
+            .shadow(p.dialog_shadow())
             .overflow_hidden()
             .text_color(p.ink)
             // The open palette owns the wheel over it: it occludes the

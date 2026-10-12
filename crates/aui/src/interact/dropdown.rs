@@ -345,12 +345,16 @@ impl Dropdown {
     }
 }
 
-/// FF's separator: one hairline at border/60, full bleed through the
-/// panel's 4 px inset, 4 px above and below.
+/// The separator: one hairline, full bleed through the panel's 4 px inset,
+/// 4 px above and below. Dark (v3): the line inside a surface, white 7 %;
+/// light keeps FF's border/60.
 pub fn dropdown_separator(cx: &App) -> AnyElement {
     let metrics = cx.aui().metrics;
-    let mut line = cx.aui().colors.line;
-    line.a *= 0.6;
+    let colors = cx.aui().colors;
+    let mut line = colors.line;
+    if !colors.is_dark() {
+        line.a *= 0.6;
+    }
     div().h(px(1.0)).mx(-(metrics.item_px / 2.0)).my(metrics.item_px / 2.0).bg(line).into_any_element()
 }
 

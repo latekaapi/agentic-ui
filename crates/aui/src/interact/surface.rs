@@ -71,8 +71,11 @@ impl Surface {
     }
 
     /// The surface floats over other content (a menu, popover, tooltip,
-    /// hover card): its fill still follows the substrate, but its shadow is
-    /// the constant `colors.floating_shadow()` (shadow-3), FF's `shadowLevel`.
+    /// hover card): v3 paints it on [`Palette::FLOATING_LEVEL`] whatever the
+    /// substrate (FF derived the fill from the substrate instead), with the
+    /// constant `colors.floating_shadow()` — the edge plus one soft drop.
+    ///
+    /// [`Palette::FLOATING_LEVEL`]: aui_tokens::Palette::FLOATING_LEVEL
     pub fn floating(mut self) -> Self {
         self.floating = true;
         self
@@ -197,8 +200,8 @@ impl Element for AmbientScope {
     }
 }
 
-/// The one ground every dropdown, popover and tooltip adopts (FF): the
-/// substrate plus two levels, the container radius, the constant shadow-3.
+/// The one ground every dropdown, popover and tooltip adopts: v3's
+/// Floating level, the container radius, the floating shadow.
 pub fn menu_surface(child: impl IntoElement) -> Surface {
     surface(1, child).elevated(2).shape(Shape::Container).floating()
 }
@@ -215,6 +218,7 @@ impl RenderOnce for Surface {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let step = match self.offset {
+            _ if self.floating => aui_tokens::Palette::FLOATING_LEVEL,
             Some(offset) => ambient_surface(window, cx).saturating_add(offset).clamp(1, 8),
             None => self.step,
         };

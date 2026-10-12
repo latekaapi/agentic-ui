@@ -40,7 +40,6 @@ const LABEL: f32 = scale::FS_11;
 const POP_BOTTOM: f32 = 26.0;
 const POP_W: f32 = 240.0;
 const POP_PAD: f32 = 10.0;
-const POP_SHADOW: u8 = 3;
 /// `@keyframes in{from{opacity:0;transform:translateY(4px)}}`.
 const POP_RISE: f32 = 4.0;
 /// `.ctx .pop .r{height:20px}` — one name/value row of the breakdown.
@@ -261,10 +260,8 @@ fn breakdown(
         .w(px(POP_W))
         .p(px(POP_PAD))
         .rounded(px(scale::R_LG))
-        .border_1()
-        .border_color(p.line_strong)
         .bg(p.overlay)
-        .shadow(p.shadow(POP_SHADOW))
+        .shadow(p.floating_shadow())
         .opacity(style.opacity)
         .child(
             div()

@@ -325,10 +325,9 @@ impl RenderOnce for Login {
             .gap(px(CARD_GAP))
             .p(px(CARD_PAD))
             .rounded(px(scale::R_LG))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.surface_1)
-            .shadow(p.shadow(2))
+            // A card on the frame is a sheet (v3): Sheet + the one edge.
+            .bg(p.surface_2)
+            .shadow(p.elevation_shadow(2))
             .text_color(p.ink)
             .child(masthead(&p, provider, headline, subtitle));
 

@@ -277,10 +277,8 @@ impl RenderOnce for Toast {
             .px(px(TOAST_PAD_X))
             .py(px(TOAST_PAD_Y))
             .rounded(px(TOAST_RADIUS))
-            .border_1()
-            .border_color(p.line_strong)
             .bg(p.overlay)
-            .shadow(p.shadow(2))
+            .shadow(p.floating_shadow())
             .child(
                 h_flex()
                     .items_start()

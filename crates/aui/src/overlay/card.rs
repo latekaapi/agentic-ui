@@ -17,8 +17,6 @@ use gpui::{black, div, prelude::*, px, App, ElementId, Window};
 /// at 98.5 % of its width.
 pub(crate) const MODAL_DROP: f32 = 6.0;
 pub(crate) const MODAL_FROM_SCALE: f32 = 0.985;
-/// The card's elevation over the scrim.
-pub(crate) const MODAL_SHADOW: u8 = 3;
 
 /// An intent a modal overlay hands back: dismiss, primary, secondary, a flip.
 /// The caller owns the state; the component only reports.
@@ -37,8 +35,9 @@ pub(crate) fn modal_presence(
     PresenceStyle::fade_rise_scale(sample, MODAL_DROP, MODAL_FROM_SCALE)
 }
 
-/// The card shell both modals share: overlay ground, 1 px line-strong border,
-/// large radius, elevation 3, riding the shared motion. Padding, gap and
+/// The card shell both modals share: v3's Dialog level with the dialog
+/// shadow (the edge plus one deep drop), no drawn border, large radius,
+/// riding the shared motion. Padding, gap and
 /// content are the caller's.
 pub(crate) fn modal_card(p: &Palette, width: f32, style: &PresenceStyle) -> gpui::Div {
     div()
@@ -48,10 +47,8 @@ pub(crate) fn modal_card(p: &Palette, width: f32, style: &PresenceStyle) -> gpui
         .flex_none()
         .w(px(width * style.scale))
         .rounded(px(scale::R_LG))
-        .border_1()
-        .border_color(p.line_strong)
-        .bg(p.overlay)
-        .shadow(p.shadow(MODAL_SHADOW))
+        .bg(p.surface(aui_tokens::Palette::DIALOG_LEVEL))
+        .shadow(p.dialog_shadow())
         .text_color(p.ink)
 }
 
