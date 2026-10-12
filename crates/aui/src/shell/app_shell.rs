@@ -789,11 +789,12 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
     // FF's popup timing: in 80 ms ease-out with a 4 px rise, out 60 ms. The
     // first frame adopts the state, so a window that opens closed has its
     // pills from the start.
+    let pills_wanted = closed && st.column <= 0.0005;
     let pills_k = if !shell.animate {
         if closed { 1.0 } else { 0.0 }
     } else { open_close_with(
         (id.clone(), "pills"),
-        closed && st.column <= 0.0005,
+        pills_wanted,
         Enter::Tween(std::time::Duration::from_millis(80), Easing::OUT),
         aui_motion::durations::FAST_EXIT,
         EXIT_EASING,
@@ -807,6 +808,11 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
         open_close((id.clone(), "column"), shell.sidebar_open && !pills_shown, aui_motion::SpringKind::Slow, aui_motion::durations::SLOW_EXIT, window, cx)
     };
     let sidebar_w = rest * column.max(0.0);
+    // The column settled closed on this frame: the pills read it on the
+    // next, so ask for one (nothing else is moving to request it).
+    if shell.animate && closed && column <= 0.0005 && !pills_wanted {
+        window.request_animation_frame();
+    }
 
     // The window's own lights: into the pill on the frame the pills appear,
     // back as soon as the sidebar starts to open.
