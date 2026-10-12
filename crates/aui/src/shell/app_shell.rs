@@ -1234,6 +1234,32 @@ mod tests {
         assert_eq!(clamp_sidebar_width(500.0), SIDEBAR_MAX_WIDTH);
     }
 
+    /// One arm clock across the toggle, the strip and the card: moving from
+    /// the toggle onto the card keeps the peek, and the dismiss clock only
+    /// starts once the pointer has left all three.
+    #[test]
+    fn peek_hover_clocks_span_all_three_sources() {
+        let t0 = std::time::Instant::now();
+        let later = |ms: u64| t0 + std::time::Duration::from_millis(ms);
+        let mut s = SheetsState::default();
+        s.set_hover(HoverSource::Lead, true, t0);
+        assert_eq!(s.since, Some(t0), "landing on the toggle starts the arm clock");
+        assert_eq!(s.left_at, None);
+        // Onto the card (the card reports first, then the toggle releases).
+        s.set_hover(HoverSource::Card, true, later(200));
+        s.set_hover(HoverSource::Lead, false, later(201));
+        assert_eq!(s.since, Some(t0), "the arm clock is not reset by a move within the sources");
+        assert_eq!(s.left_at, None, "no dismiss while the card is hovered");
+        // Off everything: the dismiss clock starts once.
+        s.set_hover(HoverSource::Card, false, later(900));
+        assert_eq!(s.since, None);
+        assert_eq!(s.left_at, Some(later(900)));
+        // Back onto the strip before the dismiss: the dismiss clock clears.
+        s.set_hover(HoverSource::Strip, true, later(1000));
+        assert_eq!(s.left_at, None);
+        assert_eq!(s.since, Some(later(1000)));
+    }
+
     const _: () = {
         assert!(SIDEBAR_MIN_WIDTH < SIDEBAR_WIDTH);
         assert!(SIDEBAR_WIDTH < SIDEBAR_MAX_WIDTH);
