@@ -594,13 +594,10 @@ impl RenderOnce for SourcesCard {
     fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let mut card = v_flex()
+        let mut card = crate::util::raised_block(v_flex()
             .w_full()
             .overflow_hidden()
-            .rounded(px(scale::R_LG))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.surface_1)
+            .rounded(px(scale::R_LG)), &p, p.surface_1)
             .child(header(&p, id.clone(), self.cited, self.retrieved, self.on_show_all.take()));
         let mut row_index = 0usize;
         for (t, tier) in self.tiers.iter().enumerate() {

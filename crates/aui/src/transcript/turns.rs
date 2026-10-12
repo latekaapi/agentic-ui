@@ -943,9 +943,8 @@ impl RenderOnce for AssistantTurn {
             .gap(px(ACTS_GAP))
             .p(px(TOOLBAR_PAD))
             .rounded(px(scale::R_SM))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.surface_1)
+            .when(p.is_dark(), |d| d.bg(p.overlay).shadow(p.floating_shadow()))
+            .when(!p.is_dark(), |d| d.border_1().border_color(p.line).bg(p.surface_1))
             .opacity(tb_opacity);
         for (name, glyph, action) in self.actions.iter().map(|a| assistant_action_spec(*a)) {
             if action == AssistantTurnAction::Copy {

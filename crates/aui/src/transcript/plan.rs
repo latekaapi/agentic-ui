@@ -156,13 +156,10 @@ impl RenderOnce for PlanCard {
             );
         }
 
-        let mut card = v_flex()
+        let mut card = crate::util::raised_block(v_flex()
             .id(id.clone())
             .w_full()
-            .rounded(px(scale::R_LG))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.surface_1)
+            .rounded(px(scale::R_LG)), &p, p.surface_1)
             .overflow_hidden()
             .child(
                 h_flex()
@@ -202,7 +199,7 @@ impl RenderOnce for PlanCard {
                     .px(px(ACTIONS_PAD_X))
                     .border_t_1()
                     .border_color(p.line)
-                    .bg(p.surface_2)
+                    .bg(crate::util::raised_lit(&p, p.surface_2))
                     .child(
                         h_flex()
                             .flex_none()

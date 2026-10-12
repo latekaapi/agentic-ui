@@ -1692,14 +1692,11 @@ fn render_block(
             } else {
                 alt.as_str()
             };
-            h_flex()
+            crate::util::raised_block(h_flex()
                 .w_full()
                 .items_center()
                 .gap(px(CELL_PAD_X))
-                .rounded(px(scale::R_SM))
-                .border_1()
-                .border_color(palette.line)
-                .bg(palette.surface_2)
+                .rounded(px(scale::R_SM)), palette, palette.surface_2)
                 .px(px(CELL_PAD_X))
                 .py(px(CELL_PAD_Y))
                 .child(

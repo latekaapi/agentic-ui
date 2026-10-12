@@ -278,7 +278,7 @@ fn preview_body(id: impl Into<ElementId>, preview: &QuestionPreview, p: &Palette
             .px(px(PREVIEW_PAD_X))
             .py(px(PREVIEW_PAD_Y))
             .rounded(px(scale::R_MD))
-            .bg(p.surface_2)
+            .bg(crate::util::raised_lit(p, p.surface_2))
             .child(crate::transcript::prose(
                 id,
                 &preview.content,
@@ -515,7 +515,7 @@ impl RenderOnce for QuestionCard {
                 .px(px(FOOT_PAD_X))
                 .border_t_1()
                 .border_color(p.line)
-                .bg(p.surface_2)
+                .bg(crate::util::raised_lit(&p, p.surface_2))
                 .child(div().flex_none().ui(HINT_TEXT).text_color(p.ink_3).child(hint))
                 .child(div().flex_1())
                 .child(skip)
@@ -609,17 +609,14 @@ impl RenderOnce for AnsweredRow {
             QuestionOutcome::Clarified(text) => Some(text.clone()),
             _ => None,
         };
-        h_flex()
+        crate::util::raised_block(h_flex()
             .id(id.clone())
             .w_full()
             .items_center()
             .gap(px(ANSWERED_GAP))
             .py(px(ANSWERED_PAD_Y))
             .px(px(ANSWERED_PAD_X))
-            .rounded(px(scale::R_MD))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.surface_1)
+            .rounded(px(scale::R_MD)), &p, p.surface_1)
             .ui(ANSWERED_TEXT)
             .text_color(p.ink)
             .children(answered.then(glyph_ok))

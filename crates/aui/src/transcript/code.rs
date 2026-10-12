@@ -945,7 +945,7 @@ pub fn diff_note(p: &Palette, id: ElementId, note: &DiffNote, on_action: Option<
 /// round on `surface-2` at `--r-sm`. Pending and saved differ only in content.
 pub fn diff_note_inset(p: &Palette, id: ElementId, note: &DiffNote, insets: NoteInsets, on_action: Option<DiffHandler>) -> impl IntoElement {
     let (mt, mr, mb, ml) = insets.margin;
-    let mut el = v_flex()
+    let mut el = crate::util::raised_block(v_flex()
         .id(id.clone())
         .mt(px(mt))
         .mr(px(mr))
@@ -953,10 +953,7 @@ pub fn diff_note_inset(p: &Palette, id: ElementId, note: &DiffNote, insets: Note
         .ml(px(ml))
         .py(px(NOTE_PAD_Y))
         .px(px(NOTE_PAD_X))
-        .rounded(px(scale::R_SM))
-        .border_1()
-        .border_color(p.line)
-        .bg(p.surface_2)
+        .rounded(px(scale::R_SM)), p, p.surface_2)
         .ui(scale::FS_12)
         .line_height(relative(insets.line_height))
         .text_color(p.ink)

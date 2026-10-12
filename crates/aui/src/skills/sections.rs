@@ -469,17 +469,14 @@ impl RenderOnce for SkillDetail {
 
         // The 2-column stats grid.
         if !self.stats.is_empty() {
-            let mut grid = v_flex()
+            let mut grid = crate::util::raised_block(v_flex()
                 .flex_none()
                 .w_full()
                 .gap(px(STATS_GAP_Y))
                 .mt(px(20.0))
                 .p(px(STATS_PAD_Y))
                 .px(px(STATS_PAD_X))
-                .rounded(px(scale::R_MD))
-                .border_1()
-                .border_color(p.line)
-                .bg(p.surface_1);
+                .rounded(px(scale::R_MD)), &p, p.surface_1);
             for pair in self.stats.chunks(2) {
                 let mut row = h_flex().w_full().gap(px(STATS_GAP_X));
                 for (key, value) in pair {

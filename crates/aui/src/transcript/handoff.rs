@@ -506,13 +506,10 @@ impl RenderOnce for HandoffCard {
             body = body.child(pack_line(tokens));
         }
 
-        let mut card = v_flex()
+        let mut card = crate::util::raised_block(v_flex()
             .id(id.clone())
             .w_full()
-            .rounded(px(scale::R_LG))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.surface_1)
+            .rounded(px(scale::R_LG)), &p, p.surface_1)
             .overflow_hidden()
             .child(head)
             .child(div().w_full().border_t_1().border_color(p.line).child(body.into_any_element()));
@@ -530,7 +527,7 @@ impl RenderOnce for HandoffCard {
                 .px(px(HEAD_PAD_X))
                 .border_t_1()
                 .border_color(p.line)
-                .bg(p.surface_2)
+                .bg(crate::util::raised_lit(&p, p.surface_2))
                 .child(div().flex_1().min_w(px(0.0)));
             if show_cancel {
                 let mut cancel = button((id.clone(), "cancel"), "Cancel").sm();
