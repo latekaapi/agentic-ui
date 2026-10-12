@@ -76,6 +76,87 @@ pub fn traffic_light_gap() -> Pixels {
     px(scale::SP_7 * 2.0 + scale::SP_5 + scale::SP_2)
 }
 
+type SwitchHandler = Rc<dyn Fn(Mode, &mut Window, &mut App)>;
+
+/// The Sessions | Browse switch: FF tabs (`registry/base/tabs.tsx`) at the
+/// icon size — a track with a 2 px inset and ONE indicator that slides
+/// between the two glyphs on the moderate spring. v3 (dark): the track is the
+/// hover overlay (5 %), the indicator Floating with the one edge and no drop;
+/// light keeps FF (surface-2 track, surface-4 + shadow-4 indicator). The
+/// sidebar's title bar and the closed state's pill draw the same switch.
+#[derive(IntoElement)]
+pub struct ModeSwitch {
+    id: ElementId,
+    mode: Mode,
+    on_switch: Option<SwitchHandler>,
+}
+
+/// A mode switch showing `mode`.
+pub fn mode_switch(id: impl Into<ElementId>, mode: Mode) -> ModeSwitch {
+    ModeSwitch { id: id.into(), mode, on_switch: None }
+}
+
+impl ModeSwitch {
+    /// Called with the mode a click picks.
+    pub fn on_switch(mut self, f: impl Fn(Mode, &mut Window, &mut App) + 'static) -> Self {
+        self.on_switch = Some(Rc::new(f));
+        self
+    }
+}
+
+impl RenderOnce for ModeSwitch {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let p = cx.aui().colors;
+        let metrics = cx.aui().metrics;
+        let id = self.id;
+        let item_w = metrics.control_md;
+        let item_h = metrics.control_xs;
+        let browse_on = spring_phase((id.clone(), "slide"), self.mode == Mode::Browse, SpringKind::Moderate, window, cx);
+        let indicator = div()
+            .absolute()
+            .top(px(scale::SP_1))
+            .left(px(scale::SP_1) + item_w * browse_on)
+            .w(item_w)
+            .h(item_h)
+            .child(surface(if p.is_dark() { aui_tokens::Palette::FLOATING_LEVEL } else { 4 }, div().size_full()).shape(Shape::Item));
+        let mode = |key: &str, glyph: IconName, label: &str, target: Mode| {
+            let on = self.mode == target;
+            let pick = self.on_switch.clone();
+            let glyph_el = div()
+                .w(item_w)
+                .h(item_h)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(icon(glyph).size(metrics.icon).color(if on { p.fg } else { p.fg_muted }).lit(on));
+            interactive(gpui::ElementId::NamedChild(std::sync::Arc::new(id.clone()), format!("mode-{key}").into()), glyph_el)
+                .role("tab")
+                .label(label.to_string())
+                .selected(on)
+                .on_click(move |_, w, cx| {
+                    if let Some(pick) = &pick {
+                        pick(target, w, cx)
+                    }
+                })
+        };
+        record_ax_label("Sidebar mode");
+        let track = h_flex()
+            .id(id.clone())
+            .relative()
+            .p(px(scale::SP_1))
+            .role(gpui::Role::TabList)
+            .aria_label("Sidebar mode")
+            .child(indicator)
+            .child(mode("sessions", IconName::List, "Sessions", Mode::Sessions))
+            .child(mode("browse", IconName::Globe, "Browse", Mode::Browse));
+        if p.is_dark() {
+            Shape::Item.rounded(track.bg(p.hover_overlay())).into_any_element()
+        } else {
+            surface(2, track).shape(Shape::Item).shadow(false).into_any_element()
+        }
+    }
+}
+
 type IntentHandler = Rc<dyn Fn(SidebarIntent, &mut Window, &mut App)>;
 
 /// The live editor behind the rename field: a one-line input, or a
@@ -1570,51 +1651,8 @@ impl RenderOnce for SidebarScreen {
             .icon_size(metrics.icon)
             .accessibility_label("Hide sidebar")
             .on_click(move |_, w, cx| toggle_ctx.emit(SidebarIntent::Collapse, w, cx));
-        // The Sessions | Browse switch: FF tabs (`registry/base/tabs.tsx`) at
-        // the icon size — a `surface-2` track with a 2 px inset, and ONE
-        // indicator on `surface-4` with its shadow-4 that slides between the
-        // two glyphs on the moderate spring.
-        let item_w = metrics.control_md;
-        let item_h = metrics.control_xs;
-        let browse_on = spring_phase((ctx.child("modes"), "slide"), ctx.model.mode == Mode::Browse, SpringKind::Moderate, window, cx);
-        let indicator = div()
-            .absolute()
-            .top(px(scale::SP_1))
-            .left(px(scale::SP_1) + item_w * browse_on)
-            .w(item_w)
-            .h(item_h)
-            .child(surface(4, div().size_full()).shape(Shape::Item));
-        let mode = |ctx: &Ctx, key: &str, glyph: IconName, label: &str, target: Mode| {
-            let on = ctx.model.mode == target;
-            let c = ctx.clone();
-            let glyph_el = div()
-                .w(item_w)
-                .h(item_h)
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(icon(glyph).size(metrics.icon).color(if on { p.fg } else { p.fg_muted }).lit(on));
-            interactive(ctx.child(format!("mode-{key}")), glyph_el)
-                .role("tab")
-                .label(label.to_string())
-                .selected(on)
-                .on_click(move |_, w, cx| c.emit(SidebarIntent::SwitchMode(target), w, cx))
-        };
-        record_ax_label("Sidebar mode");
-        let switch = surface(
-            2,
-            h_flex()
-                .id(ctx.child("modes"))
-                .relative()
-                .p(px(scale::SP_1))
-                .role(gpui::Role::TabList)
-                .aria_label("Sidebar mode")
-                .child(indicator)
-                .child(mode(&ctx, "sessions", IconName::List, "Sessions", Mode::Sessions))
-                .child(mode(&ctx, "browse", IconName::Globe, "Browse", Mode::Browse)),
-        )
-        .shape(Shape::Item)
-        .shadow(false);
+        let switch_ctx = ctx.clone();
+        let switch = mode_switch(ctx.child("modes"), ctx.model.mode).on_switch(move |target, w, cx| switch_ctx.emit(SidebarIntent::SwitchMode(target), w, cx));
         let title_bar = h_flex()
             .w_full()
             .flex_none()
@@ -1633,7 +1671,8 @@ impl RenderOnce for SidebarScreen {
         let (rows, _targets) = build_list(&ctx, window, cx);
         let body = div().w_full().flex_1().min_h(px(0.0)).flex().flex_col().px(metrics.item_px).pt(metrics.item_px).relative().child(rows);
 
-        // Footer: hairline, then avatar · name · plan · chevron.
+        // Footer: avatar · name · plan · chevron. No rule above it (v3: the
+        // sheet's edge is the sidebar's only divider).
         let account = &self.model.account;
         let who = h_flex()
             .flex_1()
@@ -1664,7 +1703,6 @@ impl RenderOnce for SidebarScreen {
         let footer = v_flex()
             .w_full()
             .flex_none()
-            .child(div().h(px(1.0)).w_full().bg(p.line))
             .child(
                 div().p(metrics.item_px).child(
                     interactive(ctx.child("footer"), foot_row)

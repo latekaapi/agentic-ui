@@ -21,4 +21,4 @@ pub use model::{
     PageAction, ProviderUsage, SidebarIntent, SidebarModel, SortKey, SpaceAction, TabAction, TaskFolderAction, UsageLine, ViewOption,
     ViewOptions,
 };
-pub use view::{collapsed_strip_width, list_row_height, screen_item_count, sidebar_screen, traffic_light_gap, SidebarScreen, SIDEBAR_WIDTH};
+pub use view::{collapsed_strip_width, list_row_height, mode_switch, screen_item_count, sidebar_screen, traffic_light_gap, ModeSwitch, SidebarScreen, SIDEBAR_WIDTH};
