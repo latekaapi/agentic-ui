@@ -19,6 +19,10 @@ const COMPOSER_PAD_RIGHT: f32 = 10.0;
 const GAP: f32 = 5.0;
 /// The chevron inside a chip: `width:10px;height:10px`.
 const CHEVRON: f32 = 10.0;
+/// v3 text control: 8 px sides, 6 px icon-to-label, a 12 px chevron.
+const TEXT_CONTROL_PAD: f32 = 8.0;
+const TEXT_CONTROL_GAP: f32 = 6.0;
+const TEXT_CONTROL_CHEVRON: f32 = 12.0;
 /// A leading glyph inside a chip: `width:11px;height:11px`.
 const LEADING_ICON: f32 = 11.0;
 
@@ -32,6 +36,7 @@ pub struct Chip {
     trailing: Option<AnyElement>,
     chevron: bool,
     composer: bool,
+    text_control: bool,
     active: bool,
     accent: bool,
     accessibility_label: Option<SharedString>,
@@ -40,7 +45,7 @@ pub struct Chip {
 
 /// A chip with a label.
 pub fn chip(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Chip {
-    Chip { id: id.into(), label: label.into(), detail: None, leading: None, trailing: None, chevron: false, composer: false, active: false, accent: false, accessibility_label: None, on_click: None }
+    Chip { id: id.into(), label: label.into(), detail: None, leading: None, trailing: None, chevron: false, composer: false, text_control: false, active: false, accent: false, accessibility_label: None, on_click: None }
 }
 
 impl Chip {
@@ -79,6 +84,15 @@ impl Chip {
         self
     }
 
+    /// v3's composer control (canvas "Baaz v3", Composer A): text with an
+    /// optional leading mark and a chevron — no border, no fill; 28 tall,
+    /// radius 6, 8 px sides, body 13 at 400, muted at rest and lit (ink, a
+    /// 5 % hover tint) on hover or when [`Chip::active`].
+    pub fn text_control(mut self) -> Self {
+        self.text_control = true;
+        self
+    }
+
     /// Selected: ink text and the line-strong border.
     pub fn active(mut self, active: bool) -> Self {
         self.active = active;
@@ -112,6 +126,40 @@ impl RenderOnce for Chip {
         let id = self.id.clone();
         let (state, flags) = interaction_flags(id.clone(), window, cx);
         let lift = flags.hovered || self.active;
+        if self.text_control {
+            let text = tween((id.clone(), "text"), if lift { p.ink } else { p.ink_2 }, Tween::FAST, window, cx);
+            let tint = aui_motion::tint_fade((id.clone(), "tint"), flags.hovered, p.hover_overlay(), Tween::FAST, window, cx);
+            let mut el = div()
+                .id(id)
+                .flex_none()
+                .flex()
+                .items_center()
+                .h(cx.aui().metrics.control_md)
+                .px(px(TEXT_CONTROL_PAD))
+                .gap(px(TEXT_CONTROL_GAP))
+                .rounded(px(scale::R_MD))
+                .bg(tint)
+                .text_color(text)
+                .font_family(scale::FONT_UI)
+                .text_px(scale::FS_13)
+                .line_height(gpui::relative(1.0))
+                .whitespace_nowrap()
+                .cursor_pointer()
+                .track_interaction(&state)
+                .children(self.leading)
+                .child(self.label);
+            if self.chevron {
+                el = el.child(icon(IconName::ChevronDown).size(px(TEXT_CONTROL_CHEVRON)).color(text));
+            }
+            el = el.children(self.trailing);
+            if let Some(label) = self.accessibility_label {
+                el = el.role(gpui::Role::Button).aria_label(label);
+            }
+            if let Some(on_click) = self.on_click {
+                el = el.on_click(move |e, w, cx| on_click(e, w, cx));
+            }
+            return el;
+        }
         let border = tween((id.clone(), "border"), if lift { p.line_strong } else { p.line }, Tween::FAST, window, cx);
         let rest_text = if self.accent { p.accent_ink } else { p.ink_2 };
         let text = tween((id.clone(), "text"), if lift && !self.accent { p.ink } else { rest_text }, Tween::FAST, window, cx);

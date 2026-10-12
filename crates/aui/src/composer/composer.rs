@@ -59,6 +59,16 @@ const METER_H: f32 = 4.0;
 const METER_GAP: f32 = 6.0;
 /// The context percentage in the bar: `.subtle{font-size:11px;margin-left:6px}`.
 const CONTEXT_MARGIN: f32 = 6.0;
+/// v3 (Composer A, FF InputMessage): card radius 12, padding 8, 4 between
+/// regions and controls; the field 8 px in (text at 16), subtitle 14/20,
+/// one row of 20 + 16 = 36 at rest; the provider mark 14.
+const RAISED_RADIUS: f32 = 12.0;
+const RAISED_PAD: f32 = 8.0;
+const RAISED_GAP: f32 = 4.0;
+const RAISED_TEXT_PAD_X: f32 = 8.0;
+const RAISED_TEXT_LH: f32 = 20.0;
+const RAISED_TEXT_MIN_H: f32 = 36.0;
+const RAISED_MARK: f32 = 14.0;
 /// Text area rows: grows from 2 to 8 (the docked variant starts at 1).
 const MIN_ROWS: usize = 2;
 const MAX_ROWS: usize = 8;
@@ -206,6 +216,7 @@ pub struct Composer {
     can_send: bool,
     focused: bool,
     docked: bool,
+    raised: bool,
     knowledge_first: bool,
     plus_open: bool,
     meta: Option<ComposerMeta>,
@@ -248,6 +259,7 @@ pub fn composer(id: impl Into<ElementId>, state: &Entity<TextareaState>, provide
         can_send: true,
         focused: false,
         docked: false,
+        raised: false,
         knowledge_first: false,
         plus_open: false,
         meta: None,
@@ -316,6 +328,16 @@ impl Composer {
     /// Draws the focused ring (accent border + 3 px accent-ring).
     pub fn focused(mut self, focused: bool) -> Self {
         self.focused = focused;
+        self
+    }
+
+    /// v3's composer (canvas "Baaz v3", Composer A): one Raised card with
+    /// the edge, radius 12, FF InputMessage padding (8 around, the field
+    /// padded 8 so the text sits at 16, 4 between field and controls); the
+    /// controls are text with chevrons (no bordered chips); one round 28 px
+    /// send at Floating with the edge. Overrides [`Composer::docked`].
+    pub fn raised(mut self, raised: bool) -> Self {
+        self.raised = raised;
         self
     }
 
@@ -401,7 +423,10 @@ impl RenderOnce for Composer {
         };
 
         // Chips row.
-        let mut chips_row = h_flex().w_full().flex_wrap().gap(px(CHIPS_GAP)).pt(px(CHIPS_PAD_TOP)).px(px(CHIPS_PAD_X));
+        let mut chips_row = h_flex().w_full().flex_wrap().gap(px(CHIPS_GAP));
+        // v3: the card's 8 px padding already holds the row; the field's 8 px
+        // inset lines the chips up with the text.
+        chips_row = if self.raised { chips_row.px(px(RAISED_TEXT_PAD_X)).pt(px(RAISED_TEXT_PAD_X)) } else { chips_row.pt(px(CHIPS_PAD_TOP)).px(px(CHIPS_PAD_X)) };
         for c in &self.chips {
             // An image with a decoded preview wears its thumbnail: a rounded
             // tile in place of the glyph, in a pill sized to the tile.
@@ -478,25 +503,34 @@ impl RenderOnce for Composer {
         // role, the "Message" label and the live value, with SetValue /
         // ReplaceSelectedText / Focus routed into the state so dictation,
         // VoiceOver and automation write through it instead of into the void.
+        let raised = self.raised;
+        let docked = self.docked && !raised;
         let text = crate::a11y_text::a11y_text_field((id.clone(), "text"), "Message", &self.state, true, cx)
             .w_full()
-            .min_h(px(if self.docked { DOCKED_TEXT_MIN_H } else { TEXT_MIN_H }))
-            .pt(px((TEXT_PAD_TOP - KIT_EDITOR_PAD_Y).max(0.0)))
-            .pl(px((if self.docked { DOCKED_TEXT_PAD_L } else { TEXT_PAD_X }) - KIT_EDITOR_PAD_X))
-            .pr(px(TEXT_PAD_X - KIT_EDITOR_PAD_X))
-            .pb(px((TEXT_PAD_BOTTOM - KIT_EDITOR_PAD_Y).max(0.0)))
-            // The kit pads more than the CSS asks for at the bottom; pull the bar up by the difference.
-            .mb(px((TEXT_PAD_BOTTOM - KIT_EDITOR_PAD_Y).min(0.0)))
+            .min_h(px(if raised { RAISED_TEXT_MIN_H } else if docked { DOCKED_TEXT_MIN_H } else { TEXT_MIN_H }))
+            .when(!raised, |d| {
+                d.pt(px((TEXT_PAD_TOP - KIT_EDITOR_PAD_Y).max(0.0)))
+                    .pl(px((if docked { DOCKED_TEXT_PAD_L } else { TEXT_PAD_X }) - KIT_EDITOR_PAD_X))
+                    .pr(px(TEXT_PAD_X - KIT_EDITOR_PAD_X))
+                    .pb(px((TEXT_PAD_BOTTOM - KIT_EDITOR_PAD_Y).max(0.0)))
+                    // The kit pads more than the CSS asks for at the bottom; pull the bar up by the difference.
+                    .mb(px((TEXT_PAD_BOTTOM - KIT_EDITOR_PAD_Y).min(0.0)))
+            })
+            // v3: the kit's own editor padding (8 / 10) is the field's 8 /
+            // 8, less 2 px each side, so the text lands at 16 from the card.
+            .when(raised, |d| d.mx(px(RAISED_TEXT_PAD_X - KIT_EDITOR_PAD_X)))
             .ui(TEXT_SIZE)
-            .line_height(relative(TEXT_LH))
+            .line_height(if raised { relative(RAISED_TEXT_LH / TEXT_SIZE) } else { relative(TEXT_LH) })
             .text_color(p.ink)
-            .child(Textarea::new(&self.state).appearance(false).bordered(false).text_size(aui_tokens::scaled(TEXT_SIZE)).line_height(relative(TEXT_LH)));
+            .child(Textarea::new(&self.state).appearance(false).bordered(false).text_size(aui_tokens::scaled(TEXT_SIZE)).line_height(if raised { relative(RAISED_TEXT_LH / TEXT_SIZE) } else { relative(TEXT_LH) }));
 
         // Toolbar.
         let plus_turn = spring_phase((id.clone(), "plus"), self.plus_open, SpringKind::Swap, window, cx);
         let plus = icon_button((id.clone(), "plus"), IconName::Plus)
             .accessibility_label("Attach or add")
             .on_click(emit(ComposerIntent::TogglePlus));
+        // v3: the `+` is a ghost icon button on the card, like every control.
+        let plus = if raised { plus.ghost() } else { plus };
         let plus_glyph_turn = radians(plus_turn * PLUS_TURN);
         let plus_holder = div()
             .relative()
@@ -509,7 +543,7 @@ impl RenderOnce for Composer {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(icon(IconName::Plus).color(p.ink).rotate(plus_glyph_turn)),
+                    .child(icon(IconName::Plus).color(if raised { p.ink_2 } else { p.ink }).rotate(plus_glyph_turn)),
             )
             .children(self.plus_menu);
 
@@ -518,8 +552,14 @@ impl RenderOnce for Composer {
         let send_size = control * (1.0 - (1.0 - SEND_PRESS) * press);
         let sample = icon_morph((id.clone(), "send-stop"), self.streaming, window, cx);
         let enabled = self.streaming || self.can_send;
-        let glyph_color = if enabled { gpui::white() } else { p.ink_4 };
-        let send_bg = tween((id.clone(), "send-bg"), if enabled { p.accent } else { p.surface_3 }, Tween::FAST, window, cx);
+        let glyph_color = if raised {
+            if enabled { p.ink } else { p.ink_4 }
+        } else if enabled {
+            gpui::white()
+        } else {
+            p.ink_4
+        };
+        let send_bg = if raised { p.overlay } else { tween((id.clone(), "send-bg"), if enabled { p.accent } else { p.surface_3 }, Tween::FAST, window, cx) };
         let glyph = |name: IconName| icon(name).size(px(SEND_ICON)).color(glyph_color);
         let send = div()
             .flex_none()
@@ -531,7 +571,8 @@ impl RenderOnce for Composer {
                 div()
                     .id((id.clone(), "send"))
                     .size(send_size)
-                    .rounded(px(scale::R_SM))
+                    .when(raised, |d| d.rounded_full().shadow(p.edge()))
+                    .when(!raised, |d| d.rounded(px(scale::R_SM)))
                     .bg(send_bg)
                     .flex()
                     .items_center()
@@ -544,25 +585,25 @@ impl RenderOnce for Composer {
                     .child(IconMorph::new(sample, px(SEND_ICON), glyph(IconName::ArrowUp), glyph(IconName::Stop))),
             );
 
-        let mut bar = h_flex()
-            .relative()
-            .w_full()
-            .gap(px(BAR_GAP))
-            .pt(px(BAR_PAD_TOP))
-            .px(px(if self.docked { DOCKED_BAR_PAD_X } else { BAR_PAD_X }))
-            .pb(px(BAR_PAD_BOTTOM))
-            .child(plus_holder);
+        let mut bar = h_flex().relative().w_full();
+        bar = if raised {
+            bar.gap(px(RAISED_GAP))
+        } else {
+            bar.gap(px(BAR_GAP)).pt(px(BAR_PAD_TOP)).px(px(if docked { DOCKED_BAR_PAD_X } else { BAR_PAD_X })).pb(px(BAR_PAD_BOTTOM))
+        };
+        bar = bar.child(plus_holder);
+        // v3: every control is text with a chevron; the provider lit.
+        let style = |c: crate::data::Chip| if raised { c.text_control() } else { c.composer() };
         // The provider chip carries the mark; the model chip carries only the
         // model name, so the mark is never drawn twice in one row.
         let provider_label = provider_display_name(self.provider);
-        let provider_chip = chip((id.clone(), "provider"), provider_label.clone())
-            .composer()
-            .leading(provider_mark(self.provider).size(px(CHIP_MARK)))
+        let provider_chip = style(chip((id.clone(), "provider"), provider_label.clone()))
+            .active(raised)
+            .leading(provider_mark(self.provider).size(px(if raised { RAISED_MARK } else { CHIP_MARK })))
             .chevron()
             .accessibility_label(SharedString::from(format!("{provider_label}, provider")))
             .on_click(emit(ComposerIntent::Provider));
-        let mut model_chip = chip((id.clone(), "model"), self.model.clone())
-            .composer()
+        let mut model_chip = style(chip((id.clone(), "model"), self.model.clone()))
             .accessibility_label(SharedString::from(format!("{}, model", self.model)));
         if self.single_provider {
             model_chip = model_chip.leading(provider_mark(self.provider).size(px(CHIP_MARK)));
@@ -571,8 +612,7 @@ impl RenderOnce for Composer {
             model_chip = model_chip.chevron().on_click(emit(ComposerIntent::Model));
         }
         let mode_chip = {
-            let mode = chip((id.clone(), "mode"), self.mode.clone())
-                .composer()
+            let mode = style(chip((id.clone(), "mode"), self.mode.clone()))
                 .accessibility_label(SharedString::from(format!(
                     "{}, {}",
                     self.mode,
@@ -583,9 +623,14 @@ impl RenderOnce for Composer {
                 // The grounding chip: what the answer is grounded in, read left to right.
                 mode.leading(icon(IconName::Book).size(px(CHIP_GLYPH))).chevron()
             } else {
-                // The floating card's mode chip is active with a chevron; the docked one is quiet.
-                let mode = mode.active(!self.docked);
-                if self.docked { mode } else { mode.chevron() }
+                // The floating card's mode chip is active with a chevron; the
+                // docked one is quiet; v3's is muted text with a chevron.
+                if raised {
+                    mode.chevron()
+                } else {
+                    let mode = mode.active(!docked);
+                    if docked { mode } else { mode.chevron() }
+                }
             }
         };
         // Each chip sits in its own positioning holder so the picker that
@@ -607,27 +652,38 @@ impl RenderOnce for Composer {
         let provider_chip = anchored(ComposerChipAnchor::Provider, provider_chip.into_any_element());
         let model_chip = anchored(ComposerChipAnchor::Model, model_chip.into_any_element());
         let mode_chip = anchored(ComposerChipAnchor::Mode, mode_chip.into_any_element());
-        bar = match (self.knowledge_first, self.single_provider) {
-            (true, false) => bar.child(mode_chip).child(provider_chip).child(model_chip),
-            (true, true) => bar.child(mode_chip).child(model_chip),
-            (false, false) => bar.child(provider_chip).child(model_chip).child(mode_chip),
-            (false, true) => bar.child(model_chip).child(mode_chip),
-        };
-        if let Some(effort) = &self.effort {
-            let effort_chip =
-                chip((id.clone(), "effort"), effort.clone())
-                    .composer()
-                    .leading(icon(IconName::Brain).size(px(CHIP_GLYPH)))
-                    .accessibility_label(SharedString::from(format!("{effort}, reasoning effort")))
-                    .on_click(emit(ComposerIntent::Effort));
-            bar = bar.child(anchored(ComposerChipAnchor::Effort, effort_chip.into_any_element()));
+        let effort_chip = self.effort.as_ref().map(|effort| {
+            let mut c = style(chip((id.clone(), "effort"), effort.clone()))
+                .accessibility_label(SharedString::from(format!("{effort}, reasoning effort")))
+                .on_click(emit(ComposerIntent::Effort));
+            c = if raised { c.chevron() } else { c.leading(icon(IconName::Brain).size(px(CHIP_GLYPH))) };
+            anchored(ComposerChipAnchor::Effort, c.into_any_element())
+        });
+        // v3 (Composer A): left = + · provider · the count; right = model ·
+        // mode · effort · send.
+        let mut right = h_flex().flex_none().items_center().gap(px(RAISED_GAP));
+        if raised {
+            (bar, right) = match (self.knowledge_first, self.single_provider) {
+                (true, false) => (bar.child(mode_chip).child(provider_chip), right.child(model_chip)),
+                (true, true) => (bar.child(mode_chip), right.child(model_chip)),
+                (false, false) => (bar.child(provider_chip), right.child(model_chip).child(mode_chip)),
+                (false, true) => (bar, right.child(model_chip).child(mode_chip)),
+            };
+            right = right.children(effort_chip);
+        } else {
+            bar = match (self.knowledge_first, self.single_provider) {
+                (true, false) => bar.child(mode_chip).child(provider_chip).child(model_chip),
+                (true, true) => bar.child(mode_chip).child(model_chip),
+                (false, false) => bar.child(provider_chip).child(model_chip).child(mode_chip),
+                (false, true) => bar.child(model_chip).child(mode_chip),
+            };
+            bar = bar.children(effort_chip);
         }
         if self.plan {
             // Plan mode is the app's own overlay, so its pill is an active chip
             // that turns itself off rather than a status pill.
             bar = bar.child(
-                chip((id.clone(), "plan"), SharedString::from("Plan"))
-                    .composer()
+                style(chip((id.clone(), "plan"), SharedString::from("Plan")))
                     .active(true)
                     .leading(icon(IconName::List).size(px(CHIP_GLYPH)))
                     .trailing(icon(IconName::X).size(px(CHIP_X)).color(p.ink_4))
@@ -645,12 +701,18 @@ impl RenderOnce for Composer {
             if let Some(open) = self.context_open {
                 meter = meter.open(open);
             }
-            bar = bar.child(div().ml(px(CONTEXT_MARGIN)).relative().flex_none().child(meter));
+            bar = bar.child(div().ml(px(if raised { RAISED_GAP } else { CONTEXT_MARGIN })).relative().flex_none().child(meter));
         }
-        bar = bar.child(div().flex_1()).child(send);
+        bar = if raised {
+            bar.child(div().flex_1()).child(right.child(send))
+        } else {
+            bar.child(div().flex_1()).child(send)
+        };
 
         let mut card = v_flex().id(id.clone()).w_full().bg(p.surface_1);
-        card = if self.docked {
+        card = if raised {
+            card.bg(p.surface_3).rounded(px(RAISED_RADIUS)).shadow(p.elevation_shadow(3)).p(px(RAISED_PAD)).gap(px(RAISED_GAP))
+        } else if docked {
             card.border_t_1().border_color(p.line)
         } else {
             card.rounded(px(CARD_RADIUS)).border_1().border_color(if self.focused { p.accent } else { p.line_strong }).shadow(if self.focused {
