@@ -243,9 +243,13 @@ pub fn view_options_menu(id: impl Into<ElementId>, options: &ViewOptions, width:
         // First row level with its trigger: the trigger's top less the 4 px inset.
         let top = if which == ViewSub::Group { px(0.0) } else { metrics.control };
         let (rows, _) = entries(rows, &on_intent);
-        div().absolute().left(width + px(scale::SP_1)).top(top).child(panel(&sub_id, label.into(), submenu_width(), rows, &on_intent).side(DropdownSide::Beside)).into_any_element()
+        div().flex_none().ml(px(scale::SP_1)).mt(top).child(panel(&sub_id, label.into(), submenu_width(), rows, &on_intent).side(DropdownSide::Beside)).into_any_element()
     });
-    div().relative().w(width).child(main).children(submenu).into_any_element()
+    // The submenu is laid out beside the menu, not absolutely: the host's
+    // outside-press dismissal measures this box, and a submenu outside it
+    // turned every pick into an outside press (seen live 2026-10-12: Sort
+    // by → Created closed the menu and sorted nothing).
+    gpui_kit::base::h_flex().items_start().child(div().flex_none().w(width).child(main)).children(submenu).into_any_element()
 }
 
 /// One provider's usage card: mark, name, plan, then a meter per line.
@@ -462,16 +466,17 @@ pub fn browse_menu(id: impl Into<ElementId>, browse: &BrowseModel, on_intent: Op
             let top = metrics.control * trigger as f32 + (px(1.0) + metrics.item_px) * separators_above_trigger as f32;
             Some(
                 div()
-                    .absolute()
-                    .left(menu_width() + px(scale::SP_1))
-                    .top(top)
+                    .flex_none()
+                    .ml(px(scale::SP_1))
+                    .mt(top)
                     .child(panel(&sub_id, sub_label, submenu_width(), sub_entries, &on_intent).side(DropdownSide::Beside))
                     .into_any_element(),
             )
         }
         _ => None,
     };
-    Some(div().relative().w(menu_width()).child(main).children(submenu).into_any_element())
+    // Beside, in the menu's own box (see `view_options_menu`).
+    Some(gpui_kit::base::h_flex().items_start().child(div().flex_none().w(menu_width()).child(main)).children(submenu).into_any_element())
 }
 
 /// The box an overlay window needs to show [`browse_menu`] for `menu`:

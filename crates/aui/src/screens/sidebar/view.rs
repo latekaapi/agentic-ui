@@ -422,9 +422,16 @@ impl Ctx {
     /// A 22 px ghost icon button for section and row actions; clicks never
     /// reach the row beneath.
     fn action(&self, key: String, glyph: IconName, label: String, intent: SidebarIntent, cx: &App) -> AnyElement {
+        self.menu_action(key, glyph, label, intent, false, cx)
+    }
+
+    /// [`Self::action`] for a button that opens a menu: while `open` it
+    /// holds its pressed look and drops its tooltip (FF `data-popup-open`).
+    fn menu_action(&self, key: String, glyph: IconName, label: String, intent: SidebarIntent, open: bool, cx: &App) -> AnyElement {
         let metrics = cx.aui().metrics;
         let ctx = self.clone();
         icon_button(self.child(key), glyph)
+            .menu_open(open)
             .tooltip_within(self.width)
             .ghost()
             .size(ButtonSize::Sm)
@@ -1040,10 +1047,14 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             };
             // Actions appear on hover; with no projects the Add button is
             // always there (it is the only thing to do).
-            let actions = (model.hovered_projects_header || project_count == 0).then(|| {
+            // The view-options button stays while its menu is open: the
+            // pointer leaves the header for the menu (FF keeps a trigger up,
+            // pressed, while its menu is open).
+            let header_live = model.hovered_projects_header || model.view_menu_open;
+            let actions = (header_live || project_count == 0).then(|| {
                 let mut acts = h_flex().flex_none().gap(px(scale::SP_1)).child(ctx.action("add-project".into(), IconName::Plus, "Add project".into(), SidebarIntent::AddProject, cx));
-                if model.hovered_projects_header {
-                    acts = acts.child(ctx.action("view-options".into(), IconName::Sliders, "View options".into(), SidebarIntent::ViewOptions, cx));
+                if header_live {
+                    acts = acts.child(ctx.menu_action("view-options".into(), IconName::Sliders, "View options".into(), SidebarIntent::ViewOptions, model.view_menu_open, cx));
                 }
                 acts.into_any_element()
             });

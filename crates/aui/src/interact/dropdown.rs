@@ -450,9 +450,19 @@ impl RenderOnce for Dropdown {
             DropdownSide::Beside => 0.0,
         };
         let style = PresenceStyle::fade_rise(sample, slide);
-        // The lit row: what the fluid block sits on (pointer or keys).
-        let lit = window.use_keyed_state((self.id.clone(), "lit"), cx, |_, _| None::<usize>);
-        let lit_now = self.highlighted.or(*lit.read(cx));
+        // The lit row: what the fluid block sits on. FluidList's rule — the
+        // pointer takes over when it moves, a new keyboard row takes it back
+        // — so the label lights on the row the block is on (the pointer's
+        // row stayed grey under a keyboard row that was off the list).
+        let lit = window.use_keyed_state((self.id.clone(), "lit"), cx, |_, _| (None::<usize>, None::<usize>));
+        let (keys_seen, pointer) = *lit.read(cx);
+        let pointer = if keys_seen != self.highlighted {
+            lit.update(cx, |state, _| *state = (self.highlighted, None));
+            None
+        } else {
+            pointer
+        };
+        let lit_now = pointer.or(self.highlighted);
         let current = self.entries.iter().position(|e| matches!(e, DropdownEntry::Item(item) if item.current));
         let mut selects: Vec<(usize, Handler)> = Vec::new();
         let mut list = fluid_list((self.id.clone(), "rows"), Axis::Y)
@@ -495,9 +505,9 @@ impl RenderOnce for Dropdown {
         list = list
             .on_activate(move |index, window, cx| on_activate(index, window, cx))
             .on_highlight(move |index, window, cx| {
-                if *lit_state.read(cx) != index {
+                if lit_state.read(cx).1 != index {
                     lit_state.update(cx, |lit, cx| {
-                        *lit = index;
+                        lit.1 = index;
                         cx.notify();
                     });
                 }
