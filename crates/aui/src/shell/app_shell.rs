@@ -81,6 +81,12 @@ pub struct AppShell {
     edge_control: Option<(Pixels, Pixels, AnyElement)>,
     centre_header: bool,
     inset: bool,
+    sheets: bool,
+    page_sheet: bool,
+    native_lights: bool,
+    pill_left: Option<AnyElement>,
+    pill_right: Option<AnyElement>,
+    peek: Option<AnyElement>,
 }
 
 /// An empty shell with the default column widths.
@@ -114,6 +120,12 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         edge_control: None,
         centre_header: true,
         inset: false,
+        sheets: false,
+        page_sheet: false,
+        native_lights: false,
+        pill_left: None,
+        pill_right: None,
+        peek: None,
     }
 }
 
@@ -278,6 +290,60 @@ impl AppShell {
         self
     }
 
+    /// The v3 layout (canvas "Baaz v3", docs/31 §9): the sidebar sits on
+    /// the frame with no divider; the work area is a **sheet** 6 px in from
+    /// the window and the sidebar column, radius 8, on Sheet with the one
+    /// edge; the right pane is a second sheet beside it. The sheet never
+    /// moves — closing only removes the sidebar column (FF `slow` in,
+    /// `slow.exit` out, the panel sliding with the column's edge). Closed,
+    /// two floating pills carry the chrome ([`AppShell::pills`]); the
+    /// `header_centre` content becomes the sheet's own 32 px title row,
+    /// centred on the lights' line, over a 64 px fade (92 when closed).
+    /// The rail, `edge_control` and `centre_clear` are not used.
+    pub fn sheets(mut self, on: bool) -> Self {
+        self.sheets = on;
+        self
+    }
+
+    /// v3 only: the sheet is a web page (Browse) — white, its edge a 50 %
+    /// black ring (a white highlight cannot show on white), no title row and
+    /// no fade; the host's native page covers it.
+    pub fn page_sheet(mut self, on: bool) -> Self {
+        self.page_sheet = on;
+        self
+    }
+
+    /// v3 only: the window's own traffic lights. The shell moves them into
+    /// the left pill on the frame the pills appear and back to the title
+    /// bar when the sidebar starts to open (`Window::set_traffic_light_position`,
+    /// once per transition), and reserves their width in the pill. With
+    /// [`AppShell::traffic_lights`] instead, the shell paints the dots (gallery).
+    pub fn native_lights(mut self, on: bool) -> Self {
+        self.native_lights = on;
+        self
+    }
+
+    /// v3 only: the closed state's two pills — 36 tall, fully round, on
+    /// Floating with the float shadow, 18 px from the window's corners. The
+    /// left pill's content follows the lights (Show sidebar · switch · title,
+    /// Browse adds its page controls); the right pill holds the header's
+    /// actions. They fade in with a 4 px rise once the column has closed
+    /// (FF popup timing, 80 / 60 ms) and leave before the column opens.
+    pub fn pills(mut self, left: impl IntoElement, right: impl IntoElement) -> Self {
+        self.pill_left = Some(left.into_any_element());
+        self.pill_right = Some(right.into_any_element());
+        self
+    }
+
+    /// v3 only: the peek — the sidebar as a Floating card (radius 8, 6 px
+    /// from the left and bottom, under the pills) that slides in while the
+    /// pointer rests on the window's left 12 px for 150 ms and leaves 250 ms
+    /// after it goes (FF `peek="hover"`, `moderate` / `moderate.exit`).
+    pub fn peek(mut self, el: impl IntoElement) -> Self {
+        self.peek = Some(el.into_any_element());
+        self
+    }
+
     /// The sidebar header cell content.
     pub fn header_sidebar(mut self, el: impl IntoElement) -> Self {
         self.header_sidebar = Some(el.into_any_element());
@@ -338,6 +404,9 @@ impl RenderOnce for AppShell {
         let p = cx.aui().colors;
         let header_h = cx.aui().metrics.header;
         let id = self.id.clone();
+        if self.sheets {
+            return sheets(self, window, cx);
+        }
 
         let rail_width = if self.hide_rail && !self.sidebar_open {
             px(0.0)
@@ -603,6 +672,343 @@ fn full_height(shell: AppShell, g: FullHeightGeometry, cx: &App) -> gpui::Statef
     );
     if shell.framed {
         root = root.rounded(px(scale::R_LG)).border_1().border_color(p.line_strong).shadow(p.shadow(3));
+    }
+    root
+}
+
+/// v3 geometry (canvas "Baaz v3" v9): the sheet's inset from the window and
+/// from the sidebar column, its radius, the title row, the fades, the pills.
+pub const SHEET_INSET: f32 = 6.0;
+/// The sheet's corner radius.
+pub const SHEET_RADIUS: f32 = 8.0;
+/// The sheet's own title row, from the sheet's top: 32 px puts its centre on
+/// the lights' line (window y 22 = 6 + 16).
+pub const SHEET_ROW_H: f32 = 32.0;
+/// The title's inset from the sheet's left edge (mirrors the action glyphs,
+/// 10 + 6 from the right).
+pub const SHEET_ROW_PAD_LEFT: f32 = 16.0;
+/// The actions' inset from the sheet's right edge.
+pub const SHEET_ROW_PAD_RIGHT: f32 = 10.0;
+/// The fade the content scrolls under: open (under the title row) and closed
+/// (under the pills).
+pub const SHEET_FADE_OPEN: f32 = 64.0;
+/// See [`SHEET_FADE_OPEN`].
+pub const SHEET_FADE_CLOSED: f32 = 92.0;
+/// The closed state's pills: height, distance from the window's corners,
+/// inner padding.
+pub const PILL_H: f32 = 36.0;
+/// See [`PILL_H`].
+pub const PILL_MARGIN: f32 = 18.0;
+/// See [`PILL_H`].
+pub const PILL_PAD: f32 = 4.0;
+/// The lights inside the left pill: 10 px in from the pill's padding (14 from
+/// its end), 8 px to the first control.
+const PILL_LIGHTS_LEAD: f32 = 10.0;
+const PILL_LIGHTS_TRAIL: f32 = 8.0;
+/// Three 12 px lights 8 px apart.
+const LIGHTS_W: f32 = 52.0;
+/// The peek: its hover strip, arm and dismiss delays, its top (under the pills).
+pub const PEEK_STRIP: f32 = 12.0;
+const PEEK_ARM: std::time::Duration = std::time::Duration::from_millis(150);
+const PEEK_DISMISS: std::time::Duration = std::time::Duration::from_millis(250);
+/// The peek card's top: under the pills' row.
+pub const PEEK_TOP: f32 = PILL_MARGIN + PILL_H + SHEET_INSET;
+
+/// The shell paints the window controls at the open title bar's spot (the
+/// v2 sidebar's: 13, 16) or inside the left pill.
+fn painted_lights() -> Div {
+    let dot = |c: u32| div().size(px(12.0)).rounded_full().bg(gpui::rgb(c));
+    h_flex().flex_none().gap(px(8.0)).child(dot(0xFF5F57)).child(dot(0xFEBC2E)).child(dot(0x28C840))
+}
+
+/// Where the macOS lights go: the open title bar, or inside the left pill.
+fn lights_position(in_pill: bool, cx: &App) -> gpui::Point<Pixels> {
+    if in_pill {
+        gpui::point(px(PILL_MARGIN + PILL_PAD + PILL_LIGHTS_LEAD), px(PILL_MARGIN + (PILL_H - 12.0) / 2.0))
+    } else {
+        super::header::traffic_light_position(cx)
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct SheetsState {
+    /// The column's last sampled openness, so the pills can wait for it.
+    column: f32,
+    /// Where the native lights were last put (None = never moved).
+    lights_in_pill: Option<bool>,
+    strip_since: Option<std::time::Instant>,
+    card_hovered: bool,
+    left_at: Option<std::time::Instant>,
+    peeking: bool,
+}
+
+/// The v3 layout: see [`AppShell::sheets`].
+fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<gpui::Div> {
+    use aui_motion::{open_close, open_close_with, Enter, Easing, EXIT_EASING};
+    let p = cx.aui().colors;
+    let id = shell.id.clone();
+    let state = window.use_keyed_state((id.clone(), "v3"), cx, |_, _| SheetsState { column: if shell.sidebar_open { 1.0 } else { 0.0 }, ..Default::default() });
+    let st = *state.read(cx);
+    let now = cx.background_executor().now();
+
+    let lo = f32::from(shell.sidebar_min);
+    let hi = f32::from(shell.sidebar_max).max(lo);
+    let rest = px(f32::from(shell.sidebar_width).clamp(lo, hi));
+
+    // Pills first: they arrive once the column has closed and leave before
+    // it opens, so the column's target waits on them.
+    let closed = !shell.sidebar_open;
+    // FF's popup timing: in 80 ms ease-out with a 4 px rise, out 60 ms. The
+    // first frame adopts the state, so a window that opens closed has its
+    // pills from the start.
+    let pills_k = open_close_with(
+        (id.clone(), "pills"),
+        closed && st.column <= 0.0005,
+        Enter::Tween(std::time::Duration::from_millis(80), Easing::OUT),
+        aui_motion::durations::FAST_EXIT,
+        EXIT_EASING,
+        window,
+        cx,
+    );
+    let pills_shown = pills_k > 0.0;
+    let column = if shell.resizing {
+        if shell.sidebar_open { 1.0 } else { 0.0 }
+    } else {
+        open_close((id.clone(), "column"), shell.sidebar_open && !pills_shown, aui_motion::SpringKind::Slow, aui_motion::durations::SLOW_EXIT, window, cx)
+    };
+    let sidebar_w = rest * column.max(0.0);
+
+    // The window's own lights: into the pill on the frame the pills appear,
+    // back as soon as the sidebar starts to open.
+    let in_pill = closed && pills_shown;
+    if shell.native_lights && st.lights_in_pill != Some(in_pill) {
+        window.set_traffic_light_position(lights_position(in_pill, cx));
+    }
+
+    // The peek: armed by a 150 ms rest on the left strip, dismissed 250 ms
+    // after the pointer leaves both the strip and the card.
+    let mut peeking = st.peeking && closed && pills_shown;
+    let mut pending = false;
+    if closed && shell.peek.is_some() {
+        if !peeking {
+            if let Some(since) = st.strip_since {
+                if now.duration_since(since) >= PEEK_ARM { peeking = true } else { pending = true }
+            }
+        } else if st.strip_since.is_none() && !st.card_hovered {
+            match st.left_at {
+                Some(at) if now.duration_since(at) >= PEEK_DISMISS => peeking = false,
+                Some(_) => pending = true,
+                None => {}
+            }
+        }
+    } else {
+        peeking = false;
+    }
+    if pending {
+        window.request_animation_frame();
+    }
+    let next = SheetsState { column, lights_in_pill: if shell.native_lights { Some(in_pill) } else { None }, peeking, ..st };
+    if next.column != st.column || next.lights_in_pill != st.lights_in_pill || next.peeking != st.peeking {
+        state.update(cx, |s, _| *s = SheetsState { column: next.column, lights_in_pill: next.lights_in_pill, peeking: next.peeking, ..*s });
+    }
+
+    // Right sheet on the moderate tier (FF: panel width).
+    let right_lo = f32::from(shell.right_min);
+    let right_rest = px(f32::from(shell.right_width).clamp(right_lo, f32::from(shell.right_max).max(right_lo)));
+    let right_target = if shell.right_open { right_rest + px(SHEET_INSET) } else { px(0.0) };
+    let right_w = if shell.resizing {
+        right_target
+    } else {
+        aui_motion::spring_px((id.clone(), "right-width"), right_target, aui_motion::SpringKind::Moderate, window, cx).max(px(0.0))
+    };
+    let right_mounted = shell.right_open || right_w > px(0.5);
+
+    let edge_of = |page: bool| if page {
+        vec![gpui::BoxShadow { color: gpui::black().alpha(0.5), offset: gpui::point(px(0.0), px(0.0)), blur_radius: px(0.0), spread_radius: px(1.0), inset: false }]
+    } else {
+        p.elevation_shadow(2)
+    };
+    let sheet_box = |page: bool| {
+        div()
+            .relative()
+            .size_full()
+            .rounded(px(SHEET_RADIUS))
+            .overflow_hidden()
+            .bg(if page { gpui::Hsla::from(gpui::rgb(0xFAFAFA)) } else { p.surface_2 })
+            .shadow(edge_of(page))
+    };
+
+    // The sidebar column: the panel keeps its resting width and slides with
+    // the column's edge (FF: width 0 ↔ w and x −100 % ↔ 0 on one transition).
+    let show_sidebar = shell.sidebar_open || column > 0.0005;
+    let sidebar_column = div()
+        .w(sidebar_w)
+        .h_full()
+        .flex_none()
+        .relative()
+        .overflow_hidden()
+        .when(show_sidebar, |d| {
+            d.child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(sidebar_w - rest).w(rest).children(shell.sidebar))
+        });
+
+    // The centre sheet: the title row and its fade only while open (the
+    // pills carry the title when closed); a page sheet has neither.
+    let row_shown = !shell.page_sheet && !pills_shown;
+    let fade_h = if row_shown { SHEET_FADE_OPEN } else { SHEET_FADE_CLOSED };
+    let ground = p.surface_2;
+    let mut centre_sheet = sheet_box(shell.page_sheet).child(div().absolute().inset_0().children(shell.centre));
+    if !shell.page_sheet {
+        centre_sheet = centre_sheet.child(
+            div()
+                .absolute()
+                .top(px(0.0))
+                .left(px(0.0))
+                .right(px(0.0))
+                .h(px(fade_h))
+                .bg(gpui::linear_gradient(180.0, gpui::linear_color_stop(ground, 0.2), gpui::linear_color_stop(ground.alpha(0.0), 1.0))),
+        );
+    }
+    if row_shown && shell.centre_header {
+        if let Some(content) = shell.header_centre {
+            let row = h_flex()
+                .w_full()
+                .h(px(SHEET_ROW_H))
+                .pl(px(SHEET_ROW_PAD_LEFT))
+                .pr(px(SHEET_ROW_PAD_RIGHT))
+                .items_center()
+                .child(div().size_full().flex().items_center().child(content));
+            let row = if shell.draggable { drag_region((id.clone(), "row-drag")).child(row).into_any_element() } else { row.into_any_element() };
+            centre_sheet = centre_sheet.child(div().absolute().top(px(0.0)).left(px(0.0)).right(px(0.0)).h(px(SHEET_ROW_H)).child(row));
+        }
+    }
+    let centre_column = div()
+        .flex_1()
+        .h_full()
+        .min_w(px(0.0))
+        .pt(px(SHEET_INSET))
+        .pb(px(SHEET_INSET))
+        .pl(px(SHEET_INSET))
+        .pr(if right_mounted { px(0.0) } else { px(SHEET_INSET) })
+        .child(crate::interact::AmbientScope::filled(2, centre_sheet));
+
+    // The right sheet, 6 px beside the centre; its header row inside it.
+    let right_column = div().w(right_w).h_full().flex_none().overflow_hidden().when(right_mounted, |d| {
+        d.child(
+            div().w(right_rest + px(SHEET_INSET)).h_full().pl(px(SHEET_INSET)).pt(px(SHEET_INSET)).pb(px(SHEET_INSET)).pr(px(SHEET_INSET)).child(
+                sheet_box(false).child(
+                    v_flex()
+                        .size_full()
+                        .child(div().w_full().h(cx.aui().metrics.header).flex_none().flex().items_center().children(shell.header_right))
+                        .child(div().w_full().flex_1().min_h(px(0.0)).overflow_hidden().children(shell.right)),
+                ),
+            ),
+        )
+    });
+
+    let mut root = h_flex()
+        .id(id.clone())
+        .relative()
+        .size_full()
+        .items_stretch()
+        .overflow_hidden()
+        .bg(p.surface_1)
+        .text_color(p.ink)
+        .child(sidebar_column)
+        .child(centre_column)
+        .child(right_column);
+
+    // The gallery paints the lights where the window's would be.
+    if shell.traffic_lights && !in_pill {
+        let at = lights_position(false, cx);
+        root = root.child(painted_lights().absolute().left(at.x).top(at.y));
+    }
+
+    // The pills, over everything but the peek.
+    if pills_shown {
+        let pill = |side: &'static str| {
+            h_flex()
+                .id((id.clone(), side))
+                .h(px(PILL_H))
+                .px(px(PILL_PAD))
+                .items_center()
+                .rounded_full()
+                .bg(p.overlay)
+                .shadow(p.floating_shadow())
+                .opacity(pills_k)
+                .occlude()
+        };
+        let lights_slot = if shell.traffic_lights {
+            Some(painted_lights().ml(px(PILL_LIGHTS_LEAD)).mr(px(PILL_LIGHTS_TRAIL)).into_any_element())
+        } else if shell.native_lights {
+            Some(div().flex_none().w(px(PILL_LIGHTS_LEAD + LIGHTS_W + PILL_LIGHTS_TRAIL)).into_any_element())
+        } else {
+            None
+        };
+        let top = px(PILL_MARGIN) + px(4.0 * (1.0 - pills_k));
+        let left = pill("pill-left").children(lights_slot).children(shell.pill_left);
+        let left = if shell.draggable { drag_region((id.clone(), "pill-drag")).child(left).into_any_element() } else { left.into_any_element() };
+        root = root
+            .child(div().absolute().top(top).left(px(PILL_MARGIN)).child(left))
+            .child(div().absolute().top(top).right(px(PILL_MARGIN)).child(pill("pill-right").children(shell.pill_right)));
+    }
+
+    // The peek strip and card.
+    if closed && pills_shown {
+        if let Some(peek_el) = shell.peek {
+            let k = open_close((id.clone(), "peek"), peeking, aui_motion::SpringKind::Moderate, aui_motion::durations::MODERATE_EXIT, window, cx);
+            let strip_state = state.clone();
+            root = root.child(
+                div()
+                    .id((id.clone(), "peek-strip"))
+                    .absolute()
+                    .left(px(0.0))
+                    .top(px(PEEK_TOP))
+                    .bottom(px(0.0))
+                    .w(px(PEEK_STRIP))
+                    .on_hover(move |hovered, _, cx| {
+                        let hovered = *hovered;
+                        strip_state.update(cx, |s, cx| {
+                            let now = cx.background_executor().now();
+                            s.strip_since = if hovered { Some(now) } else { None };
+                            if !hovered { s.left_at = Some(now) }
+                            cx.notify();
+                        });
+                    }),
+            );
+            if k > 0.0 {
+                let card_state = state.clone();
+                // From −108 % of its width to its resting place, 6 px in.
+                let travel = (rest + px(SHEET_INSET)) * 1.08;
+                root = root.child(
+                    div()
+                        .id((id.clone(), "peek-card"))
+                        .absolute()
+                        .top(px(PEEK_TOP))
+                        .bottom(px(SHEET_INSET))
+                        .left(px(SHEET_INSET) - travel * (1.0 - k))
+                        .w(rest)
+                        .rounded(px(SHEET_RADIUS))
+                        .overflow_hidden()
+                        .bg(p.overlay)
+                        .shadow(p.floating_shadow())
+                        .occlude()
+                        .on_hover(move |hovered, _, cx| {
+                            let hovered = *hovered;
+                            card_state.update(cx, |s, cx| {
+                                s.card_hovered = hovered;
+                                if !hovered { s.left_at = Some(cx.background_executor().now()) }
+                                cx.notify();
+                            });
+                        })
+                        .child(crate::interact::AmbientScope::filled(aui_tokens::Palette::FLOATING_LEVEL, peek_el)),
+                );
+            }
+        }
+    }
+
+    let mut root = crate::keys::track_pointer(root);
+    if shell.framed {
+        root = root.rounded(px(scale::R_LG)).shadow(p.dialog_shadow());
     }
     root
 }
