@@ -2,6 +2,7 @@
 // docs/24b-spike-s1.md); the patterns come from cmux PR #10197's stock-CEF
 // embedding (a frameless Chrome-style Views window adopted as a child window).
 #import <AppKit/AppKit.h>
+#import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 
 // MARK: - NSApp conformance (CefAppProtocol) on the host's NSApplication class
