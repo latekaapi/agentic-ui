@@ -885,6 +885,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::screen_sidebar::build_newtab,
     },
     Entry {
+        id: "screens/shell-v3",
+        group: "Screens v2",
+        title: "Shell v3 · drive it",
+        subtitle: "Canvas \"Baaz v3\": Sessions and Browse, sidebar open and closed (FF slow / slow.exit), the two pills, the peek on the left edge",
+        width: 1440.0,
+        height: 900.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::shell_v3::build,
+    },
+    Entry {
         id: "screens/sidebar-collapsed",
         group: "Screens v2",
         title: "Sidebar · collapsed + peek",

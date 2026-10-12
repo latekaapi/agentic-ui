@@ -290,6 +290,20 @@ pub fn build_states(_window: &mut Window, cx: &mut App) -> AnyElement {
 /// The web page the Browse window shows: a light site inside the dark
 /// app, spanning the full height with no header of its own.
 fn site_page(cx: &App) -> AnyElement {
+    let metrics = cx.aui().metrics;
+    div()
+        .flex_1()
+        .min_w(px(0.0))
+        .h_full()
+        .pt(metrics.item_px)
+        .pr(metrics.item_px)
+        .pb(metrics.item_px)
+        .child(surface(1, site_page_content(cx)).fill().shape(Shape::Container).ring(true).shadow(true))
+        .into_any_element()
+}
+
+/// The page itself: a light site, filling its parent.
+pub(crate) fn site_page_content(cx: &App) -> gpui::Div {
     let light = aui_tokens::Palette::for_kind(aui_tokens::ThemeKind::Light);
     let metrics = cx.aui().metrics;
     let line = |width: f32| Shape::Item.rounded(div().h(px(scale::SP_3)).w(gpui::relative(width)).bg(light.surface(2)));
@@ -304,7 +318,7 @@ fn site_page(cx: &App) -> AnyElement {
                 .child(div().mt(px(scale::SP_2)).role_in(TextRole::Display, cx).text_color(light.fg).child(value)),
         )
     };
-    let page = v_flex()
+    v_flex()
         .size_full()
         .bg(light.surface(1))
         .text_color(light.fg)
@@ -333,16 +347,7 @@ fn site_page(cx: &App) -> AnyElement {
                 .child(div().role_in(TextRole::Display, cx).child("State scores 2023-24"))
                 .child(h_flex().gap(metrics.inset).child(stat("States graded", "36")).child(stat("Highest band", "Prachesta-2")).child(stat("Updated", "29 Sept 2026")))
                 .child(v_flex().gap(px(scale::SP_3)).child(line(0.92)).child(line(0.84)).child(line(0.88)).child(line(0.6))),
-        );
-    div()
-        .flex_1()
-        .min_w(px(0.0))
-        .h_full()
-        .pt(metrics.item_px)
-        .pr(metrics.item_px)
-        .pb(metrics.item_px)
-        .child(surface(1, page).fill().shape(Shape::Container).ring(true).shadow(true))
-        .into_any_element()
+        )
 }
 
 /// `screens/sidebar-browse`: Browse mode beside the full-height page.
