@@ -1,8 +1,9 @@
-//! `shell/v3`: the v3 shell (canvas "Baaz v3" v9, harness docs/31 §9) as a
-//! window the owner can drive — Sessions and Browse, sidebar open and
-//! closed, the two pills, the peek. Click the sidebar toggle (or "Show
-//! sidebar" in the pill) to close and open; the switch changes mode; with
-//! the sidebar closed, rest the pointer on the window's left edge to peek.
+//! `shell/v3`: the v3 shell (canvas "Baaz v3" v9, harness docs/31 §9; chrome
+//! revised 2026-10-12) as a window the owner can drive — Sessions and
+//! Browse, sidebar open and closed, the corner tabs, the peek. The lights,
+//! the toggle and the switch never move: click the toggle to close and
+//! open; the switch changes mode; with the sidebar closed, rest the pointer
+//! on the toggle (or the window's left edge) to peek.
 //!
 //! The transcript is the canvas's own fixture (harness
 //! `fixtures/msp/synthetic-markdown.jsonl`) through the real turn
@@ -67,6 +68,8 @@ fn sidebar(id: &'static str, mode: Mode, state: &Entity<V3>) -> AnyElement {
     sidebar_screen(id, model, list, fluid)
         .width(px(SIDEBAR_WIDTH))
         .transparent()
+        // The shell draws the chrome row (toggle, switch) in both states.
+        .title_bar(false)
         .on_intent(move |intent, _, cx| {
             state.update(cx, |s, cx| {
                 match intent {
@@ -145,7 +148,9 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     };
     let session_actions = || h_flex().gap(px(2.0)).child(action("v3-term", IconName::Terminal, "Terminal")).child(action("v3-menu", IconName::Dots, "Session menu")).child(action("v3-right", IconName::PanelRight, "Show right pane"));
 
-    let (left, right): (AnyElement, AnyElement) = if browse {
+    // The closed-only chrome: the title, or Browse's page controls and
+    // address at rest; the right tab's actions.
+    let (closed_only, right): (AnyElement, AnyElement) = if browse {
         let sep = div().w(px(1.0)).h(px(16.0)).mx(px(6.0)).bg(p.line);
         let address = h_flex()
             .h(cx.aui().metrics.control_md)
@@ -160,17 +165,12 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             .child(div().semibold().text_color(p.fg).child("Fluid Functionalism"))
             .child("www.fluidfunctionalism.com");
         (
-            h_flex().items_center().child(toggle("v3-show", "Show sidebar")).child(switch).child(sep).child(action("v3-back", IconName::ArrowLeft, "Back")).child(action("v3-fwd", IconName::ArrowRight, "Forward")).child(action("v3-reload", IconName::Refresh, "Reload")).child(address).into_any_element(),
+            h_flex().items_center().child(sep).child(action("v3-back", IconName::ArrowLeft, "Back")).child(action("v3-fwd", IconName::ArrowRight, "Forward")).child(action("v3-reload", IconName::Refresh, "Reload")).child(address).into_any_element(),
             h_flex().gap(px(2.0)).child(action("v3-ask", IconName::Sparkle, "Ask")).child(action("v3-page-menu", IconName::Dots, "Page menu")).child(action("v3-new-tab", IconName::Plus, "New tab")).into_any_element(),
         )
     } else {
         (
-            h_flex()
-                .items_center()
-                .child(toggle("v3-show", "Show sidebar"))
-                .child(switch)
-                .child(div().ml(px(8.0)).mr(px(10.0)).whitespace_nowrap().text_px(scale::FS_13).semibold().text_color(p.fg).child(TITLE))
-                .into_any_element(),
+            div().ml(px(2.0)).whitespace_nowrap().text_px(scale::FS_13).semibold().text_color(p.fg).child(TITLE).into_any_element(),
             session_actions().into_any_element(),
         )
     };
@@ -195,7 +195,10 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .sidebar(sidebar("v3-sidebar", s.mode, &state))
         .peek(sidebar("v3-peek", s.mode, &state))
         .header_centre(title_row)
-        .pills(left, right)
+        .chrome_lead(toggle("v3-toggle", if s.open { "Hide sidebar" } else { "Show sidebar" }))
+        .chrome(switch)
+        .chrome_closed(closed_only)
+        .chrome_right(right)
         .centre(centre);
     div().w(px(1440.0)).h(px(900.0)).child(shell).into_any_element()
 }

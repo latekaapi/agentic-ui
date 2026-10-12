@@ -71,10 +71,13 @@ const TASK_BASE: usize = 800;
 
 /// Space left for the traffic lights before the sidebar toggle:
 /// `SP_7 × 2 + SP_5 + SP_2` = 84, Claude Desktop's placement, so the toggle
-/// sits at the same x whether the sidebar is open or collapsed.
+/// sits at the same x whether the sidebar is open or collapsed — the v3
+/// shell's [`crate::shell::CHROME_LEAD`], which draws the toggle itself.
 pub fn traffic_light_gap() -> Pixels {
     px(scale::SP_7 * 2.0 + scale::SP_5 + scale::SP_2)
 }
+
+const _: () = assert!(scale::SP_7 * 2.0 + scale::SP_5 + scale::SP_2 == crate::shell::CHROME_LEAD);
 
 type SwitchHandler = Rc<dyn Fn(Mode, &mut Window, &mut App)>;
 
@@ -252,7 +255,7 @@ fn task_pane_max(cx: &App) -> Pixels {
 /// sidebar_screen("sidebar", model, state.clone(), fluid.clone()).on_intent(|intent, _, _| { /* host acts */ })
 /// ```
 pub fn sidebar_screen(id: impl Into<ElementId>, model: SidebarModel, state: ListState, fluid: FluidHandle) -> SidebarScreen {
-    SidebarScreen { id: id.into(), model, state, fluid, width: px(SIDEBAR_WIDTH), rename_input: None, on_intent: None, ground: true, external_menus: false }
+    SidebarScreen { id: id.into(), model, state, fluid, width: px(SIDEBAR_WIDTH), rename_input: None, on_intent: None, ground: true, external_menus: false, title_bar: true }
 }
 
 /// The sidebar screen. Build with [`sidebar_screen`].
@@ -267,9 +270,19 @@ pub struct SidebarScreen {
     on_intent: Option<IntentHandler>,
     ground: bool,
     external_menus: bool,
+    title_bar: bool,
 }
 
 impl SidebarScreen {
+    /// Draws no title bar of its own (the toggle and the mode switch): for
+    /// a host whose shell owns the chrome row (the v3 sheets shell draws it
+    /// at the window's corner in both sidebar states and in the peek card,
+    /// where the row would only repeat it). The body starts at the top.
+    pub fn title_bar(mut self, on: bool) -> Self {
+        self.title_bar = on;
+        self
+    }
+
     /// The host draws Browse's right-click menu itself
     /// ([`super::browse_menu`]), e.g. in an overlay window over a native
     /// page, so the screen does not.
@@ -1666,7 +1679,7 @@ impl RenderOnce for SidebarScreen {
             .child(switch);
         // The title bar moves the window like any title bar (press-drag), and a
         // double-click zooms; its two controls keep their clicks.
-        let title_bar = crate::shell::drag_region(ctx.child("title-drag")).child(title_bar);
+        let title_bar = self.title_bar.then(|| crate::shell::drag_region(ctx.child("title-drag")).child(title_bar));
 
         let (rows, _targets) = build_list(&ctx, window, cx);
         let body = div().w_full().flex_1().min_h(px(0.0)).flex().flex_col().px(metrics.item_px).pt(metrics.item_px).relative().child(rows);
@@ -1711,7 +1724,7 @@ impl RenderOnce for SidebarScreen {
                 ),
             );
 
-        let mut column = v_flex().w(self.width).h_full().relative().when(self.ground, |d| d.bg(p.bg)).child(title_bar).child(body).child(footer);
+        let mut column = v_flex().w(self.width).h_full().relative().when(self.ground, |d| d.bg(p.bg)).children(title_bar).child(body).child(footer);
 
         // Menus, positioned from the ladder: the view-options menu under
         // the Projects header, the account menu standing on the footer's

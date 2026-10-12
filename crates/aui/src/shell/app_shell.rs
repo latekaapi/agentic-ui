@@ -84,8 +84,10 @@ pub struct AppShell {
     sheets: bool,
     page_sheet: bool,
     native_lights: bool,
-    pill_left: Option<AnyElement>,
-    pill_right: Option<AnyElement>,
+    chrome_lead: Option<AnyElement>,
+    chrome: Option<AnyElement>,
+    chrome_closed: Option<AnyElement>,
+    chrome_right: Option<AnyElement>,
     peek: Option<AnyElement>,
     animate: bool,
     on_overlay_bounds: Option<OverlayBoundsHandler>,
@@ -95,9 +97,10 @@ pub struct AppShell {
 /// The floating chrome's rects with their corner radii.
 type OverlayRects = Vec<(gpui::Bounds<Pixels>, Pixels)>;
 
-/// Called each frame with the rects of the v3 shell's floating chrome
-/// (window coordinates: the pills and the peek card, each with its corner
-/// radius) — a host with a native surface under them cuts matching holes.
+/// Called each frame with the rects of the v3 shell's chrome over the sheet
+/// (window coordinates: the corner tabs while they have a ground, the peek
+/// card, each with its corner radius) — a host with a native surface under
+/// them cuts matching holes.
 pub type OverlayBoundsHandler = std::rc::Rc<dyn Fn(Vec<(gpui::Bounds<Pixels>, Pixels)>, &mut Window, &mut App)>;
 
 /// An empty shell with the default column widths.
@@ -134,8 +137,10 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         sheets: false,
         page_sheet: false,
         native_lights: false,
-        pill_left: None,
-        pill_right: None,
+        chrome_lead: None,
+        chrome: None,
+        chrome_closed: None,
+        chrome_right: None,
         peek: None,
         animate: true,
         on_overlay_bounds: None,
@@ -304,16 +309,20 @@ impl AppShell {
         self
     }
 
-    /// The v3 layout (canvas "Baaz v3", docs/31 §9): the sidebar sits on
-    /// the frame with no divider; the work area is a **sheet** 6 px in from
-    /// the window and the sidebar column, radius 8, on Sheet with the one
-    /// edge; the right pane is a second sheet beside it. The sheet never
-    /// moves — closing only removes the sidebar column (FF `slow` in,
-    /// `slow.exit` out, the panel sliding with the column's edge). Closed,
-    /// two floating pills carry the chrome ([`AppShell::pills`]); the
-    /// `header_centre` content becomes the sheet's own 32 px title row,
-    /// centred on the lights' line, over a 64 px fade (92 when closed).
-    /// The rail, `edge_control` and `centre_clear` are not used.
+    /// The v3 layout (canvas "Baaz v3", docs/31 §9, chrome revised
+    /// 2026-10-12): the sidebar sits on the frame with no divider; the work
+    /// area is a **sheet** 6 px in from the window and the sidebar column,
+    /// radius 8, on Sheet with the one edge; the right pane is a second
+    /// sheet beside it. The sheet never moves — closing only removes the
+    /// sidebar column (FF `slow` in, `slow.exit` out, the panel sliding with
+    /// the column's edge). The chrome row — lights, the host's toggle
+    /// ([`AppShell::chrome_lead`]) and switch ([`AppShell::chrome`]) — is
+    /// the shell's and stays put in both states; closed, its ends become
+    /// two corner tabs on the frame colour over the sheet, the left with the
+    /// title ([`AppShell::chrome_closed`]), the right with the actions
+    /// ([`AppShell::chrome_right`]). Open, the `header_centre` content is
+    /// the sheet's own 32 px title row, centred on the lights' line, over a
+    /// 64 px fade. The rail, `edge_control` and `centre_clear` are not used.
     pub fn sheets(mut self, on: bool) -> Self {
         self.sheets = on;
         self
@@ -327,29 +336,46 @@ impl AppShell {
         self
     }
 
-    /// v3 only: the window's own traffic lights. The shell moves them into
-    /// the left pill on the frame the pills appear and back to the title
-    /// bar when the sidebar starts to open (`Window::set_traffic_light_position`,
-    /// once per transition), and reserves their width in the pill. With
-    /// [`AppShell::traffic_lights`] instead, the shell paints the dots (gallery).
+    /// v3 only: the window's own traffic lights. The shell keeps them at the
+    /// title bar's spot in every state (`place_native_lights`) and starts
+    /// the chrome row past them. With [`AppShell::traffic_lights`] instead,
+    /// the shell paints the dots there (gallery).
     pub fn native_lights(mut self, on: bool) -> Self {
         self.native_lights = on;
         self
     }
 
-    /// v3 only: the closed state's two pills — 36 tall, fully round, on
-    /// Floating with the float shadow, 18 px from the window's corners. The
-    /// left pill's content follows the lights (Show sidebar · switch · title,
-    /// Browse adds its page controls); the right pill holds the header's
-    /// actions. They fade in with a 4 px rise once the column has closed
-    /// (FF popup timing, 80 / 60 ms) and leave before the column opens.
-    pub fn pills(mut self, left: impl IntoElement, right: impl IntoElement) -> Self {
-        self.pill_left = Some(left.into_any_element());
-        self.pill_right = Some(right.into_any_element());
+    /// v3 only: the chrome row's lead — the host's sidebar toggle, drawn at
+    /// x [`CHROME_LEAD`] in both states. Resting the pointer on it while the
+    /// sidebar is closed arms the peek, like the window's left strip.
+    pub fn chrome_lead(mut self, el: impl IntoElement) -> Self {
+        self.chrome_lead = Some(el.into_any_element());
         self
     }
 
-    /// v3 only: whether the column and the pills animate (default true).
+    /// v3 only: what follows the lead in both states — the mode switch.
+    pub fn chrome(mut self, el: impl IntoElement) -> Self {
+        self.chrome = Some(el.into_any_element());
+        self
+    }
+
+    /// v3 only: the left tab's closed-only content — the title (600), or
+    /// Browse's page controls and address at rest. It fades in with a 4 px
+    /// rise once the column has closed (FF popup timing, 80 / 60 ms) and
+    /// leaves before the column opens.
+    pub fn chrome_closed(mut self, el: impl IntoElement) -> Self {
+        self.chrome_closed = Some(el.into_any_element());
+        self
+    }
+
+    /// v3 only: the right tab's content — the header's actions, drawn while
+    /// the column is not fully open at the spot the sheet row draws them.
+    pub fn chrome_right(mut self, el: impl IntoElement) -> Self {
+        self.chrome_right = Some(el.into_any_element());
+        self
+    }
+
+    /// v3 only: whether the column and the closed-only chrome animate (default true).
     /// Off, open and close are instant: a host whose native page cannot
     /// follow a per-frame resize smoothly turns them off rather than jank
     /// (the peek still slides — only its hole has to follow).
@@ -372,10 +398,11 @@ impl AppShell {
         self
     }
 
-    /// v3 only: the peek — the sidebar as a Floating card (radius 8, 6 px
-    /// from the left and bottom, under the pills) that slides in while the
-    /// pointer rests on the window's left 12 px for 150 ms and leaves 250 ms
-    /// after it goes (FF `peek="hover"`, `moderate` / `moderate.exit`).
+    /// v3 only: the peek — the sidebar (without its title bar) as a Floating
+    /// card (radius 8, 6 px from the left and bottom, under the chrome row)
+    /// that slides in while the pointer rests on the toggle or the window's
+    /// left 12 px for 150 ms and leaves 250 ms after it goes (FF
+    /// `peek="hover"`, `moderate` / `moderate.exit`).
     pub fn peek(mut self, el: impl IntoElement) -> Self {
         self.peek = Some(el.into_any_element());
         self
@@ -727,66 +754,97 @@ pub const SHEET_ROW_PAD_LEFT: f32 = 16.0;
 /// The actions' inset from the sheet's right edge.
 pub const SHEET_ROW_PAD_RIGHT: f32 = 10.0;
 /// The fade the content scrolls under: open (under the title row) and closed
-/// (under the pills).
+/// (under the chrome row's tabs).
 pub const SHEET_FADE_OPEN: f32 = 64.0;
 /// See [`SHEET_FADE_OPEN`].
-pub const SHEET_FADE_CLOSED: f32 = 92.0;
-/// The closed state's pills: height, distance from the window's corners,
-/// inner padding.
-pub const PILL_H: f32 = 36.0;
-/// See [`PILL_H`].
-pub const PILL_MARGIN: f32 = 18.0;
-/// See [`PILL_H`].
-pub const PILL_PAD: f32 = 4.0;
-/// The lights inside the left pill: 10 px in from the pill's padding (14 from
-/// its end), 8 px to the first control.
-const PILL_LIGHTS_LEAD: f32 = 10.0;
-const PILL_LIGHTS_TRAIL: f32 = 8.0;
-/// Three 12 px lights 8 px apart.
-const LIGHTS_W: f32 = 52.0;
-/// The peek: its hover strip, arm and dismiss delays, its top (under the pills).
+pub const SHEET_FADE_CLOSED: f32 = 64.0;
+/// The chrome row (`metrics.header` tall, 44 at the standard density): the
+/// host's toggle starts here, past the window's lights — the v2 sidebar's
+/// title bar put it at the same x, so nothing moved when the row became the
+/// shell's. The sidebar's `traffic_light_gap` equals it (asserted below).
+pub const CHROME_LEAD: f32 = 84.0;
+/// Toggle to mode switch, and between the switch and what follows.
+pub const CHROME_GAP: f32 = 6.0;
+/// A corner tab's end cap: its content ends 14 px before the rounded corner.
+pub const CHROME_PAD_END: f32 = 14.0;
+/// The right tab's actions end where the sheet row drew them: the sheet's
+/// inset plus the row's right padding from the window's edge.
+pub const CHROME_ACTIONS_PAD: f32 = SHEET_INSET + SHEET_ROW_PAD_RIGHT;
+/// The peek: its hover strip, arm and dismiss delays. Its card sits
+/// `SHEET_INSET` under the chrome row.
 pub const PEEK_STRIP: f32 = 12.0;
 const PEEK_ARM: std::time::Duration = std::time::Duration::from_millis(150);
 const PEEK_DISMISS: std::time::Duration = std::time::Duration::from_millis(250);
-/// The peek card's top: under the pills' row.
-pub const PEEK_TOP: f32 = PILL_MARGIN + PILL_H + SHEET_INSET;
 
-/// The shell paints the window controls at the open title bar's spot (the
-/// v2 sidebar's: 13, 16) or inside the left pill.
+/// The shell paints the window controls at the title bar's spot (the v2
+/// sidebar's: 12, 16) for a gallery card.
 fn painted_lights() -> Div {
     let dot = |c: u32| div().size(px(12.0)).rounded_full().bg(gpui::rgb(c));
     h_flex().flex_none().gap(px(8.0)).child(dot(0xFF5F57)).child(dot(0xFEBC2E)).child(dot(0x28C840))
 }
 
-/// Puts the window's own traffic lights in the v3 left pill (`in_pill`) or
-/// at the title bar's spot — once per change, remembered per window, so any
-/// layout that shows the lights in the title bar (Settings keeps the old
-/// shell) calls this with `false` and the two never disagree.
-pub fn place_native_lights(in_pill: bool, window: &mut Window, cx: &mut App) {
-    let placed = window.use_keyed_state("aui-native-lights", cx, |_, _| None::<bool>);
-    if *placed.read(cx) != Some(in_pill) {
-        window.set_traffic_light_position(lights_position(in_pill, cx));
-        placed.update(cx, |p, _| *p = Some(in_pill));
+/// Puts the window's own traffic lights at the title bar's spot — once per
+/// window (the position is remembered), so every layout agrees on it. The
+/// v3 shell never moves them: the chrome row they sit in stays put in both
+/// sidebar states (owner, 2026-10-12: the lights and the toggle must not
+/// jump between states).
+pub fn place_native_lights(window: &mut Window, cx: &mut App) {
+    let placed = window.use_keyed_state("aui-native-lights", cx, |_, _| false);
+    if !*placed.read(cx) {
+        window.set_traffic_light_position(lights_position(cx));
+        placed.update(cx, |p, _| *p = true);
     }
 }
 
-/// Where the macOS lights go: the open title bar, or inside the left pill.
-fn lights_position(in_pill: bool, cx: &App) -> gpui::Point<Pixels> {
-    if in_pill {
-        gpui::point(px(PILL_MARGIN + PILL_PAD + PILL_LIGHTS_LEAD), px(PILL_MARGIN + (PILL_H - 12.0) / 2.0))
-    } else {
-        super::header::traffic_light_position(cx)
-    }
+/// Where the macOS lights go: the title bar's spot, centred on the chrome row.
+fn lights_position(cx: &App) -> gpui::Point<Pixels> {
+    super::header::traffic_light_position(cx)
 }
 
 #[derive(Clone, Copy, Default)]
 struct SheetsState {
-    /// The column's last sampled openness, so the pills can wait for it.
+    /// The column's last sampled openness, so the closed-only chrome can
+    /// wait for it.
     column: f32,
-    strip_since: Option<std::time::Instant>,
-    card_hovered: bool,
+    /// What the pointer rests on: the window's left strip, the toggle (the
+    /// chrome lead), the peek card.
+    strip: bool,
+    lead: bool,
+    card: bool,
+    /// When the pointer arrived on any of the three, and when it left them all.
+    since: Option<std::time::Instant>,
     left_at: Option<std::time::Instant>,
     peeking: bool,
+}
+
+#[derive(Clone, Copy)]
+enum HoverSource {
+    Strip,
+    Lead,
+    Card,
+}
+
+impl SheetsState {
+    /// One hover report: the arm clock starts when the pointer first lands
+    /// on any peek source and the dismiss clock when it has left them all,
+    /// so moving between the toggle, the strip and the card never resets
+    /// either (two sources each clearing one shared time did).
+    fn set_hover(&mut self, source: HoverSource, hovered: bool, now: std::time::Instant) {
+        let before = self.strip || self.lead || self.card;
+        match source {
+            HoverSource::Strip => self.strip = hovered,
+            HoverSource::Lead => self.lead = hovered,
+            HoverSource::Card => self.card = hovered,
+        }
+        let after = self.strip || self.lead || self.card;
+        if !before && after {
+            self.since = Some(now);
+            self.left_at = None;
+        } else if before && !after {
+            self.since = None;
+            self.left_at = Some(now);
+        }
+    }
 }
 
 /// The v3 layout: see [`AppShell::sheets`].
@@ -802,60 +860,76 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
     let hi = f32::from(shell.sidebar_max).max(lo);
     let rest = px(f32::from(shell.sidebar_width).clamp(lo, hi));
 
-    // Pills first: they arrive once the column has closed and leave before
-    // it opens, so the column's target waits on them.
+    // The chrome row — the lights, the host's toggle and its mode switch —
+    // never moves: it is drawn by the shell at the window's top-left in
+    // both states (the open sidebar has no title bar of its own; the shell
+    // pads the column by the row's height). Closed, the row's two ends become
+    // corner tabs on the frame colour over the sheet: the left one gains the
+    // title (or Browse's page controls), the right one takes the sheet row's
+    // actions at the very spot the row drew them. The tabs' ground shows
+    // whenever the column is not fully open, so the sheet slides under it
+    // during a close and back out during an open.
     let closed = !shell.sidebar_open;
-    // FF's popup timing: in 80 ms ease-out with a 4 px rise, out 60 ms. The
-    // first frame adopts the state, so a window that opens closed has its
-    // pills from the start.
-    let pills_wanted = closed && st.column <= 0.0005;
+    let header_h = cx.aui().metrics.header;
+    // Opening out of a peek: the sidebar is already in view as the card, so
+    // the column starts at rest instead of sliding in from the left.
+    if shell.sidebar_open && st.peeking {
+        aui_motion::open_close_jump((id.clone(), "column"), true, window, cx);
+    }
     // Motion off (an instant layout) or a drag: keep the keyed runs at rest
     // where the layout is, so turning motion back on never replays a stale run.
     if !shell.animate || shell.resizing {
         aui_motion::open_close_jump((id.clone(), "column"), shell.sidebar_open, window, cx);
-        aui_motion::open_close_jump((id.clone(), "pills"), closed, window, cx);
+        aui_motion::open_close_jump((id.clone(), "closed-only"), closed, window, cx);
     }
-    let pills_k = if !shell.animate {
-        if closed { 1.0 } else { 0.0 }
-    } else { open_close_with(
-        (id.clone(), "pills"),
-        pills_wanted,
-        Enter::Tween(std::time::Duration::from_millis(80), Easing::OUT),
-        aui_motion::durations::FAST_EXIT,
-        EXIT_EASING,
-        window,
-        cx,
-    ) };
-    let pills_shown = pills_k > 0.0;
     let column = if shell.resizing || !shell.animate {
         if shell.sidebar_open { 1.0 } else { 0.0 }
     } else {
-        open_close((id.clone(), "column"), shell.sidebar_open && !pills_shown, aui_motion::SpringKind::Slow, aui_motion::durations::SLOW_EXIT, window, cx)
+        open_close((id.clone(), "column"), shell.sidebar_open, aui_motion::SpringKind::Slow, aui_motion::durations::SLOW_EXIT, window, cx)
     };
     let sidebar_w = rest * column.max(0.0);
-    // The column settled closed on this frame: the pills read it on the
+    let settled_closed = closed && column <= 0.0005;
+    // The closed-only content (the title, Browse's page controls) fades in
+    // with a 4 px rise once the column has settled closed (FF popup timing,
+    // 80 ms ease-out) and leaves before the column opens (60 ms).
+    let closed_only_wanted = closed && st.column <= 0.0005;
+    let closed_k = if !shell.animate {
+        if closed { 1.0 } else { 0.0 }
+    } else {
+        open_close_with(
+            (id.clone(), "closed-only"),
+            closed_only_wanted,
+            Enter::Tween(std::time::Duration::from_millis(80), Easing::OUT),
+            aui_motion::durations::FAST_EXIT,
+            EXIT_EASING,
+            window,
+            cx,
+        )
+    };
+    // The column settled closed on this frame: the fade reads it on the
     // next, so ask for one (nothing else is moving to request it).
-    if shell.animate && closed && column <= 0.0005 && !pills_wanted {
+    if shell.animate && settled_closed && !closed_only_wanted {
         window.request_animation_frame();
     }
+    let in_motion = column > 0.0005 && column < 0.9995;
+    let tabs_grounded = closed || in_motion;
 
-    // The window's own lights: into the pill on the frame the pills appear,
-    // back as soon as the sidebar starts to open.
-    let in_pill = closed && pills_shown;
+    // The window's own lights stay at the title bar's spot in every state.
     if shell.native_lights {
-        place_native_lights(in_pill, window, cx);
+        place_native_lights(window, cx);
     }
 
-    // The peek: armed by a 150 ms rest on the left strip, dismissed 250 ms
-    // after the pointer leaves both the strip and the card.
-    let mut peeking = (st.peeking || shell.peek_open) && closed && pills_shown;
+    // The peek: armed by a 150 ms rest on the toggle or the window's left
+    // strip, dismissed 250 ms after the pointer has left those and the card.
+    let any_hovered = st.strip || st.lead || st.card;
+    let mut peeking = (st.peeking || shell.peek_open) && settled_closed;
     let mut pending = false;
-    if closed && shell.peek.is_some() {
+    if settled_closed && shell.peek.is_some() {
         if !peeking {
-            if let Some(since) = st.strip_since {
+            if let (Some(since), true) = (st.since, st.strip || st.lead) {
                 if now.duration_since(since) >= PEEK_ARM { peeking = true } else { pending = true }
             }
-        } else if st.strip_since.is_none() && !st.card_hovered {
+        } else if !any_hovered {
             match st.left_at {
                 Some(at) if now.duration_since(at) >= PEEK_DISMISS => peeking = false,
                 Some(_) => pending = true,
@@ -867,10 +941,11 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
     }
     // Hover reports stop when the strip and card unmount: clear what they
     // left behind, so a later close never opens a peek nobody asked for.
-    if !(closed && pills_shown) && (st.strip_since.is_some() || st.card_hovered || st.left_at.is_some()) {
+    if !settled_closed && (st.strip || st.card || st.since.is_some() || st.left_at.is_some()) {
         state.update(cx, |s, _| {
-            s.strip_since = None;
-            s.card_hovered = false;
+            s.strip = false;
+            s.card = false;
+            s.since = if s.lead { Some(now) } else { None };
             s.left_at = None;
         });
     }
@@ -880,7 +955,6 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
     if column != st.column || peeking != st.peeking {
         state.update(cx, |s, _| *s = SheetsState { column, peeking, ..*s });
     }
-
     // Right sheet on the moderate tier (FF: panel width).
     let right_lo = f32::from(shell.right_min);
     let right_rest = px(f32::from(shell.right_width).clamp(right_lo, f32::from(shell.right_max).max(right_lo)));
@@ -917,12 +991,13 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
         .relative()
         .overflow_hidden()
         .when(show_sidebar, |d| {
-            d.child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(sidebar_w - rest).w(rest).children(shell.sidebar))
+            d.child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(sidebar_w - rest).w(rest).pt(header_h).children(shell.sidebar))
         });
 
-    // The centre sheet: the title row and its fade only while open (the
-    // pills carry the title when closed); a page sheet has neither.
-    let row_shown = !shell.page_sheet && !pills_shown;
+    // The centre sheet: the title row and its fade only while fully open
+    // (the corner tabs carry the title and the actions otherwise); a page
+    // sheet has neither.
+    let row_shown = !shell.page_sheet && !tabs_grounded;
     let fade_h = if row_shown { SHEET_FADE_OPEN } else { SHEET_FADE_CLOSED };
     let ground = p.surface_2;
     let mut centre_sheet = sheet_box(shell.page_sheet).child(div().absolute().inset_0().children(shell.centre));
@@ -986,12 +1061,6 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
         .child(centre_column)
         .child(right_column);
 
-    // The gallery paints the lights where the window's would be.
-    if shell.traffic_lights && !in_pill {
-        let at = lights_position(false, cx);
-        root = root.child(painted_lights().absolute().left(at.x).top(at.y));
-    }
-
     // The floating chrome's rects, collected while it prepaints and handed
     // to the host by the last child (see `AppShell::on_overlay_bounds`).
     use gpui_kit::base::ElementExt as _;
@@ -1001,38 +1070,80 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
         move |bounds: gpui::Bounds<Pixels>, _: &mut Window, _: &mut App| rects.borrow_mut().push((bounds, radius))
     };
 
-    // The pills, over everything but the peek.
-    if pills_shown {
-        let pill = |side: &'static str| {
-            h_flex()
-                .id((id.clone(), side))
-                .h(px(PILL_H))
-                .px(px(PILL_PAD))
+    // A corner tab's rect, grown by its radius on the sides that meet the
+    // window's edges, so the hole shows only the one rounded corner.
+    let report_corner = |rects: std::rc::Rc<std::cell::RefCell<OverlayRects>>, left: bool| {
+        move |bounds: gpui::Bounds<Pixels>, _: &mut Window, _: &mut App| {
+            let r = px(SHEET_RADIUS);
+            let grown = gpui::Bounds {
+                origin: gpui::point(if left { bounds.origin.x - r } else { bounds.origin.x }, bounds.origin.y - r),
+                size: gpui::size(bounds.size.width + r, bounds.size.height + r),
+            };
+            rects.borrow_mut().push((grown, r))
+        }
+    };
+
+    // The chrome row's two ends, over everything but the peek. The ends'
+    // rects reach the host as holes with their rounding pushed outside the
+    // window, so a native page shows the one rounded corner each tab has.
+    let edge_line = if p.is_dark() { gpui::white().alpha(0.06) } else { gpui::black().alpha(0.06) };
+    let hover_state = state.clone();
+    let lead = div()
+        .id((id.clone(), "chrome-lead"))
+        .flex_none()
+        .on_hover(move |hovered, _, cx| {
+            let hovered = *hovered;
+            hover_state.update(cx, |s, cx| {
+                s.set_hover(HoverSource::Lead, hovered, cx.background_executor().now());
+                cx.notify();
+            });
+        })
+        .children(shell.chrome_lead);
+    let rise = px(4.0 * (1.0 - closed_k));
+    let left_tab = h_flex()
+        .id((id.clone(), "chrome-left"))
+        .h(header_h)
+        .min_w(sidebar_w)
+        .pl(px(CHROME_LEAD))
+        .pr(px(CHROME_PAD_END))
+        .gap(px(CHROME_GAP))
+        .items_center()
+        .when(tabs_grounded, |d| d.bg(p.surface_1).rounded_br(px(SHEET_RADIUS)).border_b_1().border_r_1().border_color(edge_line))
+        .child(lead)
+        .children(shell.chrome)
+        .when(closed_k > 0.0, |d| d.children(shell.chrome_closed.map(|el| div().flex_none().opacity(closed_k).mt(rise).child(el))));
+    let left_tab = if tabs_grounded { left_tab.on_prepaint(report_corner(rects.clone(), true)) } else { left_tab };
+    let left_tab = if shell.draggable { drag_region((id.clone(), "chrome-drag")).child(left_tab).into_any_element() } else { left_tab.into_any_element() };
+    root = root.child(div().absolute().top(px(0.0)).left(px(0.0)).child(left_tab));
+    if tabs_grounded {
+        if let Some(actions) = shell.chrome_right {
+            let right_tab = h_flex()
+                .id((id.clone(), "chrome-right"))
+                .h(header_h)
+                .pl(px(CHROME_PAD_END))
+                .pr(px(CHROME_ACTIONS_PAD))
                 .items_center()
-                .rounded_full()
-                .bg(p.overlay)
-                .shadow(p.floating_shadow())
-                .opacity(pills_k)
-                .occlude()
-        };
-        let lights_slot = if shell.traffic_lights {
-            Some(painted_lights().ml(px(PILL_LIGHTS_LEAD)).mr(px(PILL_LIGHTS_TRAIL)).into_any_element())
-        } else if shell.native_lights {
-            Some(div().flex_none().w(px(PILL_LIGHTS_LEAD + LIGHTS_W + PILL_LIGHTS_TRAIL)).into_any_element())
-        } else {
-            None
-        };
-        let top = px(PILL_MARGIN) + px(4.0 * (1.0 - pills_k));
-        let left = pill("pill-left").children(lights_slot).children(shell.pill_left).on_prepaint(report(px(PILL_H / 2.0)));
-        let left = if shell.draggable { drag_region((id.clone(), "pill-drag")).child(left).into_any_element() } else { left.into_any_element() };
-        root = root
-            .child(div().absolute().top(top).left(px(PILL_MARGIN)).child(left))
-            .child(div().absolute().top(top).right(px(PILL_MARGIN)).child(pill("pill-right").children(shell.pill_right).on_prepaint(report(px(PILL_H / 2.0)))));
+                .bg(p.surface_1)
+                .rounded_bl(px(SHEET_RADIUS))
+                .border_b_1()
+                .border_l_1()
+                .border_color(edge_line)
+                .child(actions)
+                .on_prepaint(report_corner(rects.clone(), false));
+            root = root.child(div().absolute().top(px(0.0)).right(right_w).child(right_tab));
+        }
     }
 
-    // The peek strip and card.
-    if closed && pills_shown {
+    // The gallery paints the lights where the window's would be, over the tab.
+    if shell.traffic_lights {
+        let at = lights_position(cx);
+        root = root.child(painted_lights().absolute().left(at.x).top(at.y));
+    }
+
+    // The peek strip and card, under the chrome row.
+    if settled_closed {
         if let Some(peek_el) = shell.peek {
+            let peek_top = header_h + px(SHEET_INSET);
             let k = open_close((id.clone(), "peek"), peeking, aui_motion::SpringKind::Moderate, aui_motion::durations::MODERATE_EXIT, window, cx);
             let strip_state = state.clone();
             root = root.child(
@@ -1040,15 +1151,13 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
                     .id((id.clone(), "peek-strip"))
                     .absolute()
                     .left(px(0.0))
-                    .top(px(PEEK_TOP))
+                    .top(peek_top)
                     .bottom(px(0.0))
                     .w(px(PEEK_STRIP))
                     .on_hover(move |hovered, _, cx| {
                         let hovered = *hovered;
                         strip_state.update(cx, |s, cx| {
-                            let now = cx.background_executor().now();
-                            s.strip_since = if hovered { Some(now) } else { None };
-                            if !hovered { s.left_at = Some(now) }
+                            s.set_hover(HoverSource::Strip, hovered, cx.background_executor().now());
                             cx.notify();
                         });
                     }),
@@ -1061,7 +1170,7 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
                     div()
                         .id((id.clone(), "peek-card"))
                         .absolute()
-                        .top(px(PEEK_TOP))
+                        .top(peek_top)
                         .bottom(px(SHEET_INSET))
                         .left(px(SHEET_INSET) - travel * (1.0 - k))
                         .w(rest)
@@ -1073,8 +1182,7 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
                         .on_hover(move |hovered, _, cx| {
                             let hovered = *hovered;
                             card_state.update(cx, |s, cx| {
-                                s.card_hovered = hovered;
-                                if !hovered { s.left_at = Some(cx.background_executor().now()) }
+                                s.set_hover(HoverSource::Card, hovered, cx.background_executor().now());
                                 cx.notify();
                             });
                         })
@@ -1084,7 +1192,6 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
             }
         }
     }
-
     if let Some(handler) = shell.on_overlay_bounds {
         let rects = rects.clone();
         root = root.child(div().absolute().size_0().on_prepaint(move |_, window, cx| handler(rects.take(), window, cx)));
