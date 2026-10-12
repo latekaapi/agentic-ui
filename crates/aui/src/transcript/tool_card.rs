@@ -586,13 +586,16 @@ fn browser_body(p: &Palette, id: &ElementId, caption: Option<&str>, live: bool, 
                     .opacity(1.0 - 0.7 * phase),
             )
             .children(caption.map(|caption| {
-                crate::util::raised_block(div()
+                div()
                     .absolute()
                     .left(px(SHOT_LABEL_LEFT))
                     .bottom(px(SHOT_LABEL_BOTTOM))
                     .py(px(SHOT_LABEL_PAD_Y))
                     .px(px(SHOT_LABEL_PAD_X))
-                    .rounded(px(scale::R_XS)), p, p.surface_1)
+                    .rounded(px(scale::R_XS))
+                    .border_1()
+                    .border_color(p.line)
+                    .bg(p.surface_1)
                     .mono(scale::FS_11)
                     .line_height(relative(scale::LH_UI))
                     .text_color(p.ink_2)
