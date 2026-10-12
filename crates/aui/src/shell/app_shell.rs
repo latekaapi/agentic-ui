@@ -1032,18 +1032,11 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
         .relative()
         .overflow_hidden()
         .when(show_sidebar, |d| {
-            d.child(
-                div()
-                    .absolute()
-                    .top(px(0.0))
-                    .bottom(px(0.0))
-                    .left(sidebar_w - rest)
-                    .w(rest)
-                    .pt(header_h)
-                    .relative()
-                    .children(shell.sidebar)
-                    .child(list_fade(p.surface_1).top(header_h)),
-            )
+            // The panel stays absolute (a positioned panel with no insets
+            // has no height, and the virtual list under it never settles);
+            // the fade is its sibling.
+            d.child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(sidebar_w - rest).w(rest).pt(header_h).children(shell.sidebar))
+                .child(list_fade(p.surface_1).top(header_h).left(sidebar_w - rest).w(rest))
         });
     // The sheet's contact shadow onto the frame (docs/37 G1): the sheet is
     // the lighter surface, so where it meets the sidebar it casts one soft
