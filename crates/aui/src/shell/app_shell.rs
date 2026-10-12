@@ -91,6 +91,9 @@ pub struct AppShell {
     on_overlay_bounds: Option<OverlayBoundsHandler>,
 }
 
+/// The floating chrome's rects with their corner radii.
+type OverlayRects = Vec<(gpui::Bounds<Pixels>, Pixels)>;
+
 /// Called each frame with the rects of the v3 shell's floating chrome
 /// (window coordinates: the pills and the peek card, each with its corner
 /// radius) — a host with a native surface under them cuts matching holes.
@@ -953,7 +956,7 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
     // The floating chrome's rects, collected while it prepaints and handed
     // to the host by the last child (see `AppShell::on_overlay_bounds`).
     use gpui_kit::base::ElementExt as _;
-    let rects: std::rc::Rc<std::cell::RefCell<Vec<(gpui::Bounds<Pixels>, Pixels)>>> = Default::default();
+    let rects: std::rc::Rc<std::cell::RefCell<OverlayRects>> = Default::default();
     let report = |radius: Pixels| {
         let rects = rects.clone();
         move |bounds: gpui::Bounds<Pixels>, _: &mut Window, _: &mut App| rects.borrow_mut().push((bounds, radius))
