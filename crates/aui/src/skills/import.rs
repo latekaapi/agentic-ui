@@ -371,16 +371,13 @@ impl RenderOnce for ImportPreview {
         card = card.child(div().flex_none().h(px(12.0))).child(list);
         if let Some(summary) = self.summary {
             card = card.child(
-                div()
+                crate::util::raised_block(div()
                     .flex_none()
                     .mx(px(24.0))
                     .mt(px(12.0))
                     .px(px(12.0))
                     .py(px(10.0))
-                    .rounded(px(scale::R_SM))
-                    .border_1()
-                    .border_color(p.line)
-                    .bg(p.surface_1)
+                    .rounded(px(scale::R_SM)), &p, p.surface_1)
                     .ui(SUBTITLE_TEXT)
                     .line_height(relative(scale::LH_UI))
                     .text_color(p.ink_2)
