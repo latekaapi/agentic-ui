@@ -770,11 +770,40 @@ pub const CHROME_PAD_END: f32 = 14.0;
 /// The right tab's actions end where the sheet row drew them: the sheet's
 /// inset plus the row's right padding from the window's edge.
 pub const CHROME_ACTIONS_PAD: f32 = SHEET_INSET + SHEET_ROW_PAD_RIGHT;
+/// Depth (docs/37): the sheet's contact shadow onto the frame beside the
+/// open sidebar — width, and its strength at the sheet's edge per theme
+/// (Claude Desktop measures 25 % over 20 pt; the v3 ladder is cooler and
+/// already carries the edge highlight, so a touch quieter).
+pub const CONTACT_W: f32 = 20.0;
+const CONTACT_ALPHA_DARK: f32 = 0.16;
+const CONTACT_ALPHA_LIGHT: f32 = 0.06;
+/// The fade a list scrolls under at the sidebar's top (frame → clear) and
+/// at the peek card's top (floating → clear).
+pub const LIST_FADE: f32 = 24.0;
 /// The peek: its hover strip, arm and dismiss delays. Its card sits
 /// `SHEET_INSET` under the chrome row.
 pub const PEEK_STRIP: f32 = 12.0;
 const PEEK_ARM: std::time::Duration = std::time::Duration::from_millis(150);
 const PEEK_DISMISS: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// The peek card's shadow (docs/37 G2): the edge plus one drop cast to the
+/// right, so the card's edge over the sheet reads like Claude Desktop's
+/// hover panel; light keeps FF's float recipe.
+fn peek_shadow(p: &aui_tokens::Palette) -> Vec<gpui::BoxShadow> {
+    if p.is_dark() {
+        let mut layers = p.edge();
+        layers.push(gpui::BoxShadow {
+            color: gpui::black().alpha(0.45),
+            offset: gpui::point(px(8.0), px(0.0)),
+            blur_radius: px(24.0),
+            spread_radius: px(-8.0),
+            inset: false,
+        });
+        layers
+    } else {
+        p.floating_shadow()
+    }
+}
 
 /// The shell paints the window controls at the title bar's spot (the v2
 /// sidebar's: 12, 16) for a gallery card.
@@ -984,6 +1013,18 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
     // The sidebar column: the panel keeps its resting width and slides with
     // the column's edge (FF: width 0 ↔ w and x −100 % ↔ 0 on one transition).
     let show_sidebar = shell.sidebar_open || column > 0.0005;
+    // Depth (docs/37, 2026-10-12): rows scrolling under the chrome row fade
+    // into the frame over `LIST_FADE`, like the transcript under the title
+    // row — the one gradient Claude Desktop draws under its bar.
+    let list_fade = |ground: gpui::Hsla| {
+        div()
+            .absolute()
+            .top(px(0.0))
+            .left(px(0.0))
+            .right(px(0.0))
+            .h(px(LIST_FADE))
+            .bg(gpui::linear_gradient(180.0, gpui::linear_color_stop(ground, 0.0), gpui::linear_color_stop(ground.alpha(0.0), 1.0)))
+    };
     let sidebar_column = div()
         .w(sidebar_w)
         .h_full()
@@ -991,8 +1032,40 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
         .relative()
         .overflow_hidden()
         .when(show_sidebar, |d| {
-            d.child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(sidebar_w - rest).w(rest).pt(header_h).children(shell.sidebar))
+            d.child(
+                div()
+                    .absolute()
+                    .top(px(0.0))
+                    .bottom(px(0.0))
+                    .left(sidebar_w - rest)
+                    .w(rest)
+                    .pt(header_h)
+                    .relative()
+                    .children(shell.sidebar)
+                    .child(list_fade(p.surface_1).top(header_h)),
+            )
         });
+    // The sheet's contact shadow onto the frame (docs/37 G1): the sheet is
+    // the lighter surface, so where it meets the sidebar it casts one soft
+    // shadow leftwards — `CONTACT_W` wide, darkest at the sheet's edge, gone
+    // at the strip's left — beside the sheet only (never into the 6 px gaps,
+    // where it would read as a border). It rides the column's edge and fades
+    // with the column, so a closed window has none.
+    let contact = if show_sidebar {
+        let a = if p.is_dark() { CONTACT_ALPHA_DARK } else { CONTACT_ALPHA_LIGHT };
+        Some(
+            div()
+                .absolute()
+                .top(px(SHEET_INSET))
+                .bottom(px(SHEET_INSET))
+                .left(sidebar_w + px(SHEET_INSET) - px(CONTACT_W))
+                .w(px(CONTACT_W))
+                .opacity(column.clamp(0.0, 1.0))
+                .bg(gpui::linear_gradient(90.0, gpui::linear_color_stop(gpui::black().alpha(0.0), 0.0), gpui::linear_color_stop(gpui::black().alpha(a), 1.0))),
+        )
+    } else {
+        None
+    };
 
     // The centre sheet: the title row and its fade only while fully open
     // (the corner tabs carry the title and the actions otherwise); a page
@@ -1058,6 +1131,7 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
         .bg(p.surface_1)
         .text_color(p.ink)
         .child(sidebar_column)
+        .children(contact)
         .child(centre_column)
         .child(right_column);
 
@@ -1177,7 +1251,7 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
                         .rounded(px(SHEET_RADIUS))
                         .overflow_hidden()
                         .bg(p.overlay)
-                        .shadow(p.floating_shadow())
+                        .shadow(peek_shadow(&p))
                         .occlude()
                         .on_hover(move |hovered, _, cx| {
                             let hovered = *hovered;
@@ -1187,6 +1261,7 @@ fn sheets(shell: AppShell, window: &mut Window, cx: &mut App) -> gpui::Stateful<
                             });
                         })
                         .child(crate::interact::AmbientScope::filled(aui_tokens::Palette::FLOATING_LEVEL, peek_el))
+                        .child(list_fade(p.overlay))
                         .on_prepaint(report(px(SHEET_RADIUS))),
                 );
             }
