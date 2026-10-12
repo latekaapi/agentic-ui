@@ -69,15 +69,6 @@ const BROWSE_BASE: usize = 500;
 /// sessions): their own clip range.
 const TASK_BASE: usize = 800;
 
-/// Space left for the traffic lights before the sidebar toggle:
-/// `SP_7 × 2 + SP_5 + SP_2` = 84, Claude Desktop's placement, so the toggle
-/// sits at the same x whether the sidebar is open or collapsed — the v3
-/// shell's [`crate::shell::CHROME_LEAD`], which draws the toggle itself.
-pub fn traffic_light_gap() -> Pixels {
-    px(scale::SP_7 * 2.0 + scale::SP_5 + scale::SP_2)
-}
-
-const _: () = assert!(scale::SP_7 * 2.0 + scale::SP_5 + scale::SP_2 == crate::shell::CHROME_LEAD);
 
 type SwitchHandler = Rc<dyn Fn(Mode, &mut Window, &mut App)>;
 
@@ -187,11 +178,6 @@ impl RenameInput {
     }
 }
 
-/// The collapsed sidebar's width: the `SP_4` edge strip the host keeps
-/// as the collapsed column.
-pub fn collapsed_strip_width() -> Pixels {
-    px(scale::SP_4)
-}
 
 /// The list row height at the active density: `control_lg` (32 / 28).
 pub fn list_row_height(cx: &App) -> Pixels {
@@ -255,7 +241,7 @@ fn task_pane_max(cx: &App) -> Pixels {
 /// sidebar_screen("sidebar", model, state.clone(), fluid.clone()).on_intent(|intent, _, _| { /* host acts */ })
 /// ```
 pub fn sidebar_screen(id: impl Into<ElementId>, model: SidebarModel, state: ListState, fluid: FluidHandle) -> SidebarScreen {
-    SidebarScreen { id: id.into(), model, state, fluid, width: px(SIDEBAR_WIDTH), rename_input: None, on_intent: None, ground: true, external_menus: false, title_bar: true }
+    SidebarScreen { id: id.into(), model, state, fluid, width: px(SIDEBAR_WIDTH), rename_input: None, on_intent: None, ground: true, external_menus: false }
 }
 
 /// The sidebar screen. Build with [`sidebar_screen`].
@@ -270,18 +256,9 @@ pub struct SidebarScreen {
     on_intent: Option<IntentHandler>,
     ground: bool,
     external_menus: bool,
-    title_bar: bool,
 }
 
 impl SidebarScreen {
-    /// Draws no title bar of its own (the toggle and the mode switch): for
-    /// a host whose shell owns the chrome row (the v3 sheets shell draws it
-    /// at the window's corner in both sidebar states and in the peek card,
-    /// where the row would only repeat it). The body starts at the top.
-    pub fn title_bar(mut self, on: bool) -> Self {
-        self.title_bar = on;
-        self
-    }
 
     /// The host draws Browse's right-click menu itself
     /// ([`super::browse_menu`]), e.g. in an overlay window over a native
@@ -1640,9 +1617,6 @@ impl RenderOnce for SidebarScreen {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let metrics = cx.aui().metrics;
-        if self.model.collapsed {
-            return collapsed_strip(&self, cx).into_any_element();
-        }
         let ctx = Ctx {
             id: self.id.clone(),
             model: Rc::new(self.model.clone()),
@@ -1653,34 +1627,8 @@ impl RenderOnce for SidebarScreen {
             width: self.width,
         };
 
-        // Title bar: traffic-light gap, the toggle at x 84, the mode switch
-        // at the right. Exactly `header` tall, so its controls centre on the
-        // native traffic lights (`traffic_light_position` centres them in
-        // the same height); the mock's 8 px below it is the body's top pad.
-        let toggle_ctx = ctx.clone();
-        let toggle = icon_button(ctx.child("toggle"), IconName::Sidebar).tooltip_within(ctx.width)
-            .ghost()
-            .size(ButtonSize::Sm)
-            .icon_size(metrics.icon)
-            .accessibility_label("Hide sidebar")
-            .on_click(move |_, w, cx| toggle_ctx.emit(SidebarIntent::Collapse, w, cx));
-        let switch_ctx = ctx.clone();
-        let switch = mode_switch(ctx.child("modes"), ctx.model.mode).on_switch(move |target, w, cx| switch_ctx.emit(SidebarIntent::SwitchMode(target), w, cx));
-        let title_bar = h_flex()
-            .w_full()
-            .flex_none()
-            .h(metrics.header)
-            .items_center()
-            .pl(traffic_light_gap())
-            .pr(px(scale::SP_4))
-            .gap(px(scale::SP_2 + scale::SP_1))
-            .child(toggle)
-            .child(div().flex_1())
-            .child(switch);
-        // The title bar moves the window like any title bar (press-drag), and a
-        // double-click zooms; its two controls keep their clicks.
-        let title_bar = self.title_bar.then(|| crate::shell::drag_region(ctx.child("title-drag")).child(title_bar));
-
+        // The bar above the column (the shell's) carries the toggle and the
+        // mode switch; the column starts with its rows.
         let (rows, _targets) = build_list(&ctx, window, cx);
         let body = div().w_full().flex_1().min_h(px(0.0)).flex().flex_col().px(metrics.item_px).pt(metrics.item_px).relative().child(rows);
 
@@ -1724,7 +1672,7 @@ impl RenderOnce for SidebarScreen {
                 ),
             );
 
-        let mut column = v_flex().w(self.width).h_full().relative().when(self.ground, |d| d.bg(p.bg)).children(title_bar).child(body).child(footer);
+        let mut column = v_flex().w(self.width).h_full().relative().when(self.ground, |d| d.bg(p.bg)).child(body).child(footer);
 
         // Menus, positioned from the ladder: the view-options menu under
         // the Projects header, the account menu standing on the footer's
@@ -1803,20 +1751,6 @@ fn projects_header_bottom(model: &SidebarModel, cx: &App) -> Pixels {
         }
     }
     y + px(scale::SP_4) + metrics.control_md
-}
-
-/// The collapsed state: only the 12 px edge strip, one labelled control
-/// that expands the sidebar. The toggle itself lives in the window's
-/// title strip beside the traffic lights, drawn by the host.
-fn collapsed_strip(screen: &SidebarScreen, cx: &App) -> impl IntoElement {
-    let p = cx.aui().colors;
-    let handler = screen.on_intent.clone();
-    let strip = div().w(px(scale::SP_4)).h_full().bg(p.bg);
-    let mut control = interactive((screen.id.clone(), "strip"), strip).label("Show sidebar").pressable(false);
-    if let Some(emit) = handler {
-        control = control.on_click(move |_, w, cx| emit(SidebarIntent::Collapse, w, cx));
-    }
-    div().h_full().flex().child(control)
 }
 
 #[cfg(test)]

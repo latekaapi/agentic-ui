@@ -76,9 +76,6 @@ fn sessions_mode_labels_every_interactive_element(cx: &mut TestAppContext) {
     assert_has(
         &labels,
         &[
-            "Hide sidebar",
-            "Sessions",
-            "Browse",
             "Search",
             "New session",
             "Skills",
@@ -141,18 +138,6 @@ fn empty_state_says_no_projects_yet(cx: &mut TestAppContext) {
     assert!(!labels.iter().any(|l| l.starts_with("Open session")), "{labels:?}");
 }
 
-#[gpui::test]
-fn collapsed_state_is_only_the_show_sidebar_strip(cx: &mut TestAppContext) {
-    init(cx);
-    let mut model = sample_model();
-    model.collapsed = true;
-    let labels = labels_of(cx, model);
-    assert!(has(&labels, "Show sidebar"), "{labels:?}");
-    assert!(!has(&labels, "Search"), "{labels:?}");
-    // `interactive` may record its label more than once; the strip must
-    // carry no other label.
-    assert!(labels.iter().all(|l| l == "Show sidebar"), "{labels:?}");
-}
 
 #[gpui::test]
 fn view_options_menu_opens_with_its_rows(cx: &mut TestAppContext) {
@@ -280,7 +265,9 @@ fn clicking_new_session_reports_new_session(cx: &mut TestAppContext) {
         |_, _| Host::new(sample_model(), log)
     });
     let vcx: &mut VisualTestContext = vcx;
-    let at = point(px(100.0), px(100.0));
+    // The column has no title bar (the shell's bar sits above it): Search is
+    // the first row, New session the second, at the 32 px row height.
+    let at = point(px(100.0), px(56.0));
     vcx.simulate_mouse_move(at, None, Modifiers::none());
     vcx.simulate_click(at, Modifiers::none());
     vcx.run_until_parked();
@@ -325,7 +312,7 @@ fn date_grouping_shows_bucket_labels_session_rows_and_sessions_header(cx: &mut T
     let labels = labels_of(cx, date_model(two_buckets()));
     // Date bucket headers are plain section text with no AX label, so "Today" /
     // "Yesterday" are not observable here; the rows under them are.
-    assert_has(&labels, &["Open session Alpha task", "Open session Beta task", "Open session Gamma task", "Sessions"]);
+    assert_has(&labels, &["Open session Alpha task", "Open session Beta task", "Open session Gamma task"]);
 }
 
 #[gpui::test]

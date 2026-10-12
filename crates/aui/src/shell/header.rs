@@ -20,21 +20,12 @@ const TITLE_GAP: f32 = 7.0;
 const TABS_PAD_LEFT: f32 = 6.0;
 const TABS_PAD_RIGHT: f32 = 4.0;
 const TABS_GAP: f32 = 2.0;
-/// `.lights{gap:7px;margin:0 8px 0 2px} .lights i{width:11px;height:11px}`.
-const LIGHT_SIZE: f32 = 11.0;
-const LIGHT_GAP: f32 = 7.0;
-const LIGHTS_MARGIN_LEFT: f32 = 2.0;
 const LIGHTS_MARGIN_RIGHT: f32 = 8.0;
-/// macOS traffic-light colours, drawn only when the shell paints its own
-/// (the gallery card); real windows show the native ones.
-const LIGHT_CLOSE: u32 = 0xFF5F57;
-const LIGHT_MIN: u32 = 0xFEBC2E;
-const LIGHT_ZOOM: u32 = 0x28C840;
 /// Native traffic-light geometry (macOS metrics: each light is 12 pt across,
 /// centres 20 pt apart, the first light's left edge 12 pt from the window's
 /// left edge). A host that keeps the system's own lights reserves
 /// [`NATIVE_LIGHTS_WIDTH`] at the header's leading edge via
-/// [`SidebarHeader::native_lights`] and positions the window with
+/// the shell's bar (`CHROME_LEAD`) and positions the window with
 /// [`traffic_light_position`]. The reservation lands on the shell's collapsed
 /// rail with lights, so the two must never drift (see the unit test below).
 pub const NATIVE_LIGHT_DIAM: f32 = 12.0;
@@ -53,7 +44,7 @@ const XS_GLYPH: f32 = 12.0;
 /// centre is the header's centre at every density: pass this to
 /// `TitlebarOptions.traffic_light_position` when the window keeps the native
 /// lights and the sidebar header reserves their footprint with
-/// [`SidebarHeader::native_lights`].
+/// the shell's bar.
 pub fn traffic_light_position(cx: &App) -> gpui::Point<gpui::Pixels> {
     gpui::Point::new(px(NATIVE_LIGHTS_X), (cx.aui().metrics.header - px(NATIVE_LIGHT_DIAM)) * 0.5)
 }
@@ -100,145 +91,14 @@ fn header_row(cx: &App) -> gpui::Div {
     h_flex().w_full().h(cx.aui().metrics.header).gap(px(CELL_GAP)).px(px(CELL_PAD)).min_w(px(0.0))
 }
 
-/// Sidebar header cell. Build with [`sidebar_header`].
-#[derive(IntoElement)]
-pub struct SidebarHeader {
-    id: ElementId,
-    traffic_lights: bool,
-    native_lights: bool,
-    collapsed: bool,
-    can_go_back: bool,
-    can_go_forward: bool,
-    on_back: Option<ClickHandler>,
-    on_forward: Option<ClickHandler>,
-    on_search: Option<ClickHandler>,
-    on_toggle_sidebar: Option<ClickHandler>,
-}
 
-/// The sidebar header: lights, back, forward, spacer, search, sidebar toggle.
-pub fn sidebar_header(id: impl Into<ElementId>) -> SidebarHeader {
-    SidebarHeader {
-        id: id.into(),
-        traffic_lights: false,
-        native_lights: false,
-        collapsed: false,
-        can_go_back: true,
-        can_go_forward: false,
-        on_back: None,
-        on_forward: None,
-        on_search: None,
-        on_toggle_sidebar: None,
-    }
-}
-
-impl SidebarHeader {
-    /// Paints the three traffic lights (for the gallery; real windows have native ones).
-    pub fn traffic_lights(mut self, on: bool) -> Self {
-        self.traffic_lights = on;
-        self
-    }
-
-    /// Reserves the footprint of macOS's own traffic lights: a leading spacer
-    /// [`NATIVE_LIGHTS_WIDTH`] wide with nothing painted in it. For host
-    /// windows that keep the native lights (positioned with
-    /// [`traffic_light_position`]) so the back/forward buttons clear them.
-    /// Mutually exclusive with [`SidebarHeader::traffic_lights`].
-    pub fn native_lights(mut self, on: bool) -> Self {
-        self.native_lights = on;
-        self
-    }
-
-    /// The sidebar is collapsed to the rail: the cell is only as wide as the
-    /// rail, so it keeps the window controls (the top-left of a macOS window is
-    /// theirs whether or not the shell paints them) and drops the navigation
-    /// actions, which move to the leading edge of the centre header
-    /// ([`CentreHeader::on_expand_sidebar`]). Nothing is clipped.
-    pub fn collapsed(mut self, collapsed: bool) -> Self {
-        self.collapsed = collapsed;
-        self
-    }
-
-    /// Enables the back arrow.
-    pub fn can_go_back(mut self, on: bool) -> Self {
-        self.can_go_back = on;
-        self
-    }
-
-    /// Enables the forward arrow (disabled at 45 % otherwise).
-    pub fn can_go_forward(mut self, on: bool) -> Self {
-        self.can_go_forward = on;
-        self
-    }
-
-    /// Back arrow click.
-    pub fn on_back(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.on_back = Some(Box::new(f));
-        self
-    }
-
-    /// Forward arrow click.
-    pub fn on_forward(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.on_forward = Some(Box::new(f));
-        self
-    }
-
-    /// Search click (opens the command palette).
-    pub fn on_search(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.on_search = Some(Box::new(f));
-        self
-    }
-
-    /// Sidebar toggle click (⌘B).
-    pub fn on_toggle_sidebar(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.on_toggle_sidebar = Some(Box::new(f));
-        self
-    }
-}
-
+/// A muted ghost icon button in a header cell, wired to an optional handler.
 fn ghost(id: ElementId, name: &'static str, glyph: IconName, handler: Option<ClickHandler>) -> crate::data::Button {
     let mut b = icon_button((id, name), glyph).ghost().muted().size(ButtonSize::Sm);
     if let Some(h) = handler {
         b = b.on_click(move |e, w, cx| h(e, w, cx));
     }
     b
-}
-
-impl RenderOnce for SidebarHeader {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        debug_assert!(
-            !(self.traffic_lights && self.native_lights),
-            "SidebarHeader: traffic_lights and native_lights are mutually exclusive"
-        );
-        let id = self.id.clone();
-        let mut row = header_row(cx).id(id.clone());
-        if self.collapsed && !self.traffic_lights && !self.native_lights {
-            // A rail-wide cell with native window controls above it: leave it empty.
-            return row;
-        }
-        if self.native_lights {
-            row = row.child(div().flex_none().w(px(NATIVE_LIGHTS_WIDTH)));
-        } else if self.traffic_lights {
-            let light = |rgb: u32| div().flex_none().size(px(LIGHT_SIZE)).rounded_full().bg(gpui::rgb(rgb));
-            row = row.child(
-                h_flex()
-                    .flex_none()
-                    .gap(px(LIGHT_GAP))
-                    .ml(px(LIGHTS_MARGIN_LEFT))
-                    .mr(px(LIGHTS_MARGIN_RIGHT) - px(CELL_GAP))
-                    .child(light(LIGHT_CLOSE))
-                    .child(light(LIGHT_MIN))
-                    .child(light(LIGHT_ZOOM)),
-            );
-        }
-        if self.collapsed {
-            return row;
-        }
-        row.child(ghost(id.clone(), "back", IconName::ArrowLeft, self.on_back).disabled(!self.can_go_back))
-            .child(ghost(id.clone(), "forward", IconName::ArrowRight, self.on_forward).disabled(!self.can_go_forward))
-            .child(div().flex_1())
-            .child(ghost(id.clone(), "search", IconName::Search, self.on_search))
-            .child(ghost(id, "toggle-sidebar", IconName::Sidebar, self.on_toggle_sidebar))
-    }
 }
 
 /// Centre header cell. Build with [`centre_header`].
@@ -477,18 +337,17 @@ impl RenderOnce for RightHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shell::{tab_strip, TabItem, RAIL_WIDTH_WITH_LIGHTS};
+    use crate::shell::{tab_strip, TabItem};
     use aui_icons::IconName;
 
     #[test]
-    fn native_lights_reservation_matches_rail_with_lights() {
+    fn native_lights_reservation_is_the_bar_lead_minus_the_gap() {
         // 12 pt offset + two 20 pt strides + 12 pt light + the 8 pt trailing
         // margin shared with the painted lights.
         assert_eq!(NATIVE_LIGHT_DIAM, 12.0);
         assert_eq!(NATIVE_LIGHT_STRIDE, 20.0);
         assert_eq!(NATIVE_LIGHTS_X, 12.0);
         assert_eq!(NATIVE_LIGHTS_WIDTH, 72.0);
-        assert_eq!(NATIVE_LIGHTS_WIDTH, RAIL_WIDTH_WITH_LIGHTS);
     }
 
     fn right_pane_tabs(active: usize) -> TabStrip {

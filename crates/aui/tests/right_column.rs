@@ -45,7 +45,6 @@ impl gpui::Render for Host {
             .right(pane)
             .centre(div().size_full())
             .sidebar(div().size_full())
-            .rail(div().size_full())
     }
 }
 

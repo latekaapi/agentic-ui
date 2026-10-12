@@ -10,13 +10,13 @@
 use std::time::Duration;
 
 use aui::composer::{composer, composer_state_rows, plus_menu, ComposerIntent, PlusMenuItem};
-use aui::data::status_dot;
+use aui::data::{icon_button, status_dot, ButtonSize};
 use aui::feedback::{toast_stack, ToastData};
 use aui::keys::{ApproveAlways, ApproveOnce, Cancel, Confirm, Deny as DenyAction, FocusNext, FocusPrev, SelectNext, SelectPrev, ToggleRightPane, ToggleSidebar, TogglePalette};
-use aui::nav::{rail, role_section, sidebar_footer, Project, RailItem, Role, RoleSession, SessionKind};
+use aui::nav::{role_section, sidebar_footer, Project, Role, RoleSession, SessionKind};
 use aui::overlay::{command_palette, popover_layer, PaletteIcon, PaletteItem, PaletteSection};
 use aui::protocol::{ApprovalDecision, ApprovalState};
-use aui::shell::{app_shell, centre_header, right_header, sidebar_header, tab_strip, TabItem};
+use aui::shell::{app_shell, centre_header, right_header, tab_strip, TabItem};
 use aui::transcript::{activity_group, answered_row, approval_card, question_card, user_turn, ProseStyle};
 use aui::util::{interaction_flags, TrackInteraction};
 use aui::workbench::{
@@ -211,7 +211,7 @@ impl AssistantMock {
         Self {
             screen,
             right_open: true,
-            sidebar_open: !crate::cards::app_shell::collapsed_by_default(),
+            sidebar_open: !std::env::var("AUI_GALLERY_STEPS").map(|v| v.split(',').any(|s| s.trim() == "collapse")).unwrap_or(false),
             right_tab: screen.right_tab(),
             open_roles: [true, false, false],
             active_session: screen.session().into(),
@@ -277,28 +277,6 @@ impl AssistantMock {
             );
         }
         col.child(div().flex_1()).child(sidebar_footer("assistant-footer", "A", "Alex Rivera").meter(Provider::Claude, 0.78).pad_y(8.0))
-    }
-
-    /// The collapsed sidebar: one cell per role, then the open project's
-    /// sessions by kind. No sliver of the expanded sidebar is drawn here.
-    fn render_rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let roles = self.roles();
-        let mut items: Vec<RailItem> = roles
-            .iter()
-            .enumerate()
-            .map(|(i, role)| RailItem::nav(role.id.clone(), role.icon.icon()).current(self.open_roles[i]))
-            .collect();
-        items.push(RailItem::separator());
-        for project in roles.first().map(|r| r.projects.as_slice()).unwrap_or_default() {
-            for session in &project.sessions {
-                items.push(RailItem::nav(session.id.clone(), session.kind.icon()).current(session.id == self.active_session));
-            }
-        }
-        let select = cx.listener(|this, id: &str, _, cx| {
-            this.active_session = id.to_string().into();
-            cx.notify();
-        });
-        rail("assistant-rail", items).flat(true).avatar("B").on_action(move |id, w, cx| select(id, w, cx))
     }
 
     /// The sources card's two tiers, as the `assistant-Sources` screen groups them.
@@ -884,7 +862,6 @@ impl Render for AssistantMock {
             cx.notify();
         }));
         let sidebar = self.render_sidebar(cx);
-        let rail = self.render_rail(cx);
         let transcript = self.render_transcript(window, cx);
         let composer = self.render_composer(cx);
         let right = self.render_right(cx);
@@ -926,30 +903,25 @@ impl Render for AssistantMock {
                     .traffic_lights(true)
                     .right_open(self.right_open)
                     .sidebar_open(self.sidebar_open)
-                    .header_sidebar(
-                        sidebar_header("assistant-hd-side").traffic_lights(true).collapsed(!self.sidebar_open).on_toggle_sidebar(cx.listener(
-                            |this, _, _, cx| {
+                    .chrome_lead(
+                        icon_button("assistant-hd-toggle", IconName::Sidebar)
+                            .ghost()
+                            .size(ButtonSize::Sm)
+                            .accessibility_label(if self.sidebar_open { "Hide sidebar" } else { "Show sidebar" })
+                            .on_click(cx.listener(|this, _, _, cx| {
                                 this.sidebar_open = !this.sidebar_open;
                                 cx.notify();
-                            },
-                        )),
+                            })),
                     )
-                    .header_centre({
-                        let mut centre = centre_header("assistant-hd-centre", "Teacher recruitment RFP")
+                    .chrome_title(
+                        centre_header("assistant-hd-centre", "Teacher recruitment RFP")
                             .glyph(IconName::GradCap)
                             .branch(self.screen.branch())
                             .on_toggle_right(cx.listener(|this, _, _, cx| {
                                 this.right_open = !this.right_open;
                                 cx.notify();
-                            }));
-                        if !self.sidebar_open {
-                            centre = centre.on_expand_sidebar(cx.listener(|this, _, _, cx| {
-                                this.sidebar_open = true;
-                                cx.notify();
-                            }));
-                        }
-                        centre
-                    })
+                            })),
+                    )
                     .header_right(
                         right_header("assistant-hd-right")
                             .tabs(strip)
@@ -960,7 +932,6 @@ impl Render for AssistantMock {
                             })),
                     )
                     .sidebar(sidebar)
-                    .rail(rail)
                     .centre(v_flex().size_full().child(transcript).child(composer))
                     .right(right),
             )

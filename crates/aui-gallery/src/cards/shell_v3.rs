@@ -21,7 +21,7 @@ use aui::composer::{composer, composer_state_rows};
 use aui::data::{icon_button, ButtonSize};
 use aui::interact::FluidHandle;
 use aui::nav::sidebar_list_state;
-use aui::screens::sidebar::{mode_switch, sample_model, screen_item_count, sidebar_screen, Mode, SidebarIntent, SIDEBAR_WIDTH};
+use aui::screens::sidebar::{mode_switch, sample_model, screen_item_count, sidebar_screen, Mode, SIDEBAR_WIDTH};
 use aui::shell::app_shell;
 use aui::transcript::{assistant_turn, user_turn};
 use aui_icons::{icon, IconName, Provider};
@@ -68,15 +68,10 @@ fn sidebar(id: &'static str, mode: Mode, state: &Entity<V3>) -> AnyElement {
     sidebar_screen(id, model, list, fluid)
         .width(px(SIDEBAR_WIDTH))
         .transparent()
-        // The shell draws the chrome row (toggle, switch) in both states.
-        .title_bar(false)
         .on_intent(move |intent, _, cx| {
             state.update(cx, |s, cx| {
-                match intent {
-                    SidebarIntent::Collapse => s.open = !s.open,
-                    SidebarIntent::SwitchMode(mode) => s.mode = mode,
-                    _ => return,
-                }
+                let _ = intent;
+                let _ = s;
                 cx.notify();
             })
         })
@@ -180,23 +175,18 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     } else {
         sessions_centre(s.open, &composer_state)
     };
-    let title_row = h_flex()
-        .w_full()
-        .items_center()
-        .child(div().flex_1().min_w(px(0.0)).truncate().text_px(scale::FS_13).semibold().text_color(p.fg).child(TITLE))
-        .child(session_actions());
+    let title_row = div().truncate().text_px(scale::FS_13).semibold().text_color(p.fg).child(TITLE);
 
     let shell = app_shell("v3-shell")
-        .sheets(true)
         .traffic_lights(true)
         .page_sheet(browse)
         .sidebar_open(s.open)
         .right_open(false)
         .sidebar(sidebar("v3-sidebar", s.mode, &state))
         .peek(sidebar("v3-peek", s.mode, &state))
-        .header_centre(title_row)
         .chrome_lead(toggle("v3-toggle", if s.open { "Hide sidebar" } else { "Show sidebar" }))
-        .chrome(switch)
+        .chrome_switch(switch)
+        .chrome_title(title_row)
         .chrome_closed(closed_only)
         .chrome_right(right)
         .centre(centre);

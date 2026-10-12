@@ -28,7 +28,7 @@ use aui::data::{ContextMeterState, ContextPressure};
 use aui::keys::{ApproveAlways, ApproveOnce, Cancel, Deny as DenyAction, FocusNext, FocusPrev, ToggleRightPane, ToggleSidebar};
 use aui::nav::{group_header, nav_item, sidebar_footer};
 use aui::protocol::{ApprovalDecision, ApprovalScope, ApprovalState, Block, Delta, PermissionMode, Provider, Session, Turn, TurnMeta};
-use aui::shell::{app_shell, centre_header, right_header, sidebar_header};
+use aui::shell::{app_shell, centre_header, right_header};
 use aui::transcript::{approval_card, user_turn, ProseStyle};
 use aui::workbench::cited_answer;
 use aui_icons::{IconName, Provider as ProviderMark};
@@ -381,13 +381,14 @@ impl Render for MinimalApp {
                     .traffic_lights(true)
                     .sidebar_open(self.sidebar_open)
                     .right_open(self.right_open)
-                    .header_sidebar(
-                        sidebar_header("hd-side")
-                            .traffic_lights(true)
-                            .collapsed(!self.sidebar_open)
-                            .on_toggle_sidebar(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
+                    .chrome_lead(
+                        aui::data::icon_button("hd-toggle", IconName::Sidebar)
+                            .ghost()
+                            .size(aui::data::ButtonSize::Sm)
+                            .accessibility_label(if self.sidebar_open { "Hide sidebar" } else { "Show sidebar" })
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
                     )
-                    .header_centre(
+                    .chrome_title(
                         centre_header("hd-centre", "Teacher recruitment RFP")
                             .glyph(IconName::GradCap)
                             .branch("main")

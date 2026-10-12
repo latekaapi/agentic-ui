@@ -59,8 +59,6 @@ fn apply_steps(mut model: SidebarModel) -> SidebarModel {
             model.mode = Mode::Browse;
         } else if step == "mode:sessions" {
             model.mode = Mode::Sessions;
-        } else if step == "collapse" {
-            model.collapsed = true;
         } else if step == "menus" {
             model.view_menu_open = true;
             model.account.menu_open = true;
@@ -433,82 +431,6 @@ pub fn build_newtab(_window: &mut Window, cx: &mut App) -> AnyElement {
     window_frame(sidebar_column("screens-sidebar-newtab", model, SIDEBAR_W, WINDOW_H), page, cx)
 }
 
-/// `screens/sidebar-collapsed`: the pane fills the window; the toggle
-/// stays beside the traffic lights; the peek floats the sidebar in as an
-/// elevated surface inset 8 px.
-pub fn build_collapsed(_window: &mut Window, cx: &mut App) -> AnyElement {
-    let p = cx.aui().colors;
-    let metrics = cx.aui().metrics;
-    let mut collapsed = sample_model();
-    collapsed.collapsed = true;
-    let collapsed = apply_steps(collapsed);
-    let peek = apply_steps(sample_model());
-    let toggle = aui::data::icon_button("collapsed-toggle", IconName::Sidebar)
-        .ghost()
-        .size(aui::data::ButtonSize::Sm)
-        .icon_size(metrics.icon)
-        .accessibility_label("Show sidebar");
-    let title_strip = metrics.bar + metrics.item_px;
-    let pane_full = div()
-        .flex_1()
-        .min_w(px(0.0))
-        .h_full()
-        .pt(title_strip)
-        .pl(metrics.item_px)
-        .pr(metrics.item_px)
-        .pb(metrics.item_px)
-        .child(
-            surface(
-                1,
-                v_flex()
-                    .size_full()
-                    .child(
-                        h_flex()
-                            .h(metrics.bar)
-                            .flex_none()
-                            .items_center()
-                            .px(metrics.inset)
-                            .gap(metrics.gap)
-                            .border_b_1()
-                            .border_color(p.line)
-                            .text_role_in(TextRole::Body, Density::Standard)
-                            .child(div().text_color(p.fg).child("Design v2 tokens"))
-                            .child(icon(IconName::ChevronDown).size(metrics.icon).color(p.fg_muted)),
-                    )
-                    .child(div().flex_1()),
-            )
-            .fill()
-            .shape(Shape::Container)
-            .ring(true)
-            .shadow(true),
-        );
-    let peek_h = px(WINDOW_H) - title_strip - metrics.item_px;
-    let peek_card = div()
-        .absolute()
-        .left(metrics.item_px)
-        .top(title_strip)
-        .bottom(metrics.item_px)
-        .w(px(SIDEBAR_W))
-        .child(
-            surface(2, div().size_full().child(sidebar_column_on("screens-sidebar-peek", peek, SIDEBAR_W, peek_h, false)))
-                .fill()
-                .shape(Shape::Container)
-                .ring(true)
-                .shadow(true),
-        );
-    h_flex()
-        .w(px(WINDOW_W))
-        .h(px(WINDOW_H))
-        .bg(p.bg)
-        .relative()
-        .child(traffic_lights())
-        .child(div().absolute().left(px(scale::SP_7 * 2.0 + scale::SP_5 + scale::SP_2)).top(px(scale::SP_5 - scale::SP_1)).child(toggle))
-        // The 12 px strip is a hover region over the pane's edge, not a column.
-        .child(div().absolute().left(px(0.0)).top(title_strip).bottom(px(0.0)).child(sidebar_column_on("screens-sidebar-collapsed", collapsed, scale::SP_4, px(WINDOW_H) - title_strip, true)))
-        .child(pane_full)
-        .child(peek_card)
-        .into_any_element()
-}
 
 /// `screens/sidebar-compact`: the populated sidebar under the compact
 /// density. The density is a global the card flips when it builds; the

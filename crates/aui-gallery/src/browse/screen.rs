@@ -19,11 +19,11 @@ use aui::browse::{
     TabRowData, TaskFace, BROWSE_SIDEBAR_WIDTH,
 };
 use aui::composer::{composer_state_rows, ComposerChip, ComposerChipKind};
-use aui::data::{button, icon_button, record_ax_label};
+use aui::data::{button, icon_button, record_ax_label, ButtonSize};
 use aui::keys::{Cancel, Confirm, SelectNext, SelectPrev, MENU_CONTEXT};
 use aui_icons::IconName;
 use aui::overlay::popover_layer;
-use aui::shell::{app_shell, sidebar_header};
+use aui::shell::app_shell;
 use aui::util::{interaction_flags, TrackInteraction};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
@@ -2111,34 +2111,32 @@ impl Render for BrowseView {
         let centre = self.render_centre(cx);
         let right_open = self.docked && self.card_open;
         let right = self.docked.then(|| self.render_column(cx));
-        // SidebarHeader paints the lights but owns no trailing slot for the
-        // nav cluster, so the cluster sits beside it in the header cell.
         let can_back = !self.back.is_empty();
         let can_forward = !self.forward.is_empty();
-        let header_sidebar = h_flex()
-            .w_full()
-            .h_full()
-            .items_center()
-            .child(div().flex_none().child(sidebar_header("browse-hd-side").traffic_lights(true).collapsed(true)))
-            .child(div().flex_1())
-            .child(
-                browse_nav_cluster("browse-nav")
-                    .can_go_back(can_back)
-                    .can_go_forward(can_forward)
-                    .on_back(cx.listener(|this, _: &ClickEvent, _, cx| this.go_back(cx)))
-                    .on_forward(cx.listener(|this, _: &ClickEvent, _, cx| this.go_forward(cx)))
-                    .on_reload(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.reload_page(cx);
-                    })),
-            );
+        let toggle = icon_button("browse-hd-toggle", IconName::Sidebar)
+            .ghost()
+            .size(ButtonSize::Sm)
+            .accessibility_label(if self.sidebar_open { "Hide sidebar" } else { "Show sidebar" })
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.sidebar_open = !this.sidebar_open;
+                cx.notify();
+            }));
+        let nav = browse_nav_cluster("browse-nav")
+            .can_go_back(can_back)
+            .can_go_forward(can_forward)
+            .on_back(cx.listener(|this, _: &ClickEvent, _, cx| this.go_back(cx)))
+            .on_forward(cx.listener(|this, _: &ClickEvent, _, cx| this.go_forward(cx)))
+            .on_reload(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.reload_page(cx);
+            }));
         let shell = app_shell("browse-shell")
             .sidebar_width(px(BROWSE_SIDEBAR_WIDTH))
             .resizing(self.scripted)
             .sidebar_open(self.sidebar_open)
-            .hide_rail(true)
             .traffic_lights(true)
-            .header_sidebar(header_sidebar)
-            .header_centre(div())
+            .page_sheet(true)
+            .chrome_lead(toggle)
+            .chrome_title(nav)
             .sidebar(sidebar)
             .centre(centre)
             .right_width(px(RIGHT_W))
@@ -2874,12 +2872,12 @@ mod tests {
         let whites: Vec<(f32, f32)> =
             quads.iter().filter(|q| q.background == white).map(|q| (q.bounds.origin.x.0, q.bounds.size.width.0)).collect();
         let page = whites.iter().max_by_key(|(_, w)| w.to_bits()).expect("the page paints its white ground");
-        // Device px back to logical: the collapsed shell keeps its 1 px
-        // right divider, so the settled page starts 1 px in, not at 0 —
-        // the sidebar column itself is gone (a mid-spring sidebar would
-        // sit ~240 px out).
+        // Device px back to logical: the page sheet sits 6 px in from the
+        // window, so the settled page starts at the sheet's inset — the
+        // sidebar column itself is gone (a mid-motion sidebar would sit
+        // ~240 px out).
         let x_logical = page.0 / scale;
-        assert!(x_logical <= 1.5, "the collapsed page starts at the shell divider (≤1 px), got {x_logical}, whites: {whites:?}");
+        assert!(x_logical <= 7.5, "the collapsed page starts at the sheet's inset (≤ 6 px), got {x_logical}, whites: {whites:?}");
     }
 
     /// P4e: after `ask;send;run:3` exactly one task tab row carries the

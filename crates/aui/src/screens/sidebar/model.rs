@@ -507,8 +507,6 @@ pub struct SidebarModel {
     pub editing: Option<EditingState>,
     /// Whether sessions are still loading: skeleton rows, no text.
     pub loading: bool,
-    /// Whether the sidebar is collapsed: only the edge strip renders.
-    pub collapsed: bool,
     /// Whether the view-options menu is open under the Projects header.
     pub view_menu_open: bool,
     /// The view-options menu's current values.
@@ -605,11 +603,6 @@ pub enum SidebarIntent {
     NewSession,
     /// A nav row was clicked; the argument is the nav id.
     Nav(SharedString),
-    /// The title-bar switch changed lists.
-    SwitchMode(Mode),
-    /// The title-bar toggle: collapse the sidebar (or, from the collapsed
-    /// strip, expand it).
-    Collapse,
     /// A session row was activated; the argument is the session id.
     Select(SharedString),
     /// A project head was clicked: open or close it.
@@ -705,7 +698,6 @@ pub fn sample_model() -> SidebarModel {
         highlighted: None,
         editing: None,
         loading: false,
-        collapsed: false,
         view_menu_open: false,
         view_options: ViewOptions::default(),
         bylines: Bylines::All,
