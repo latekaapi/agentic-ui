@@ -1,25 +1,27 @@
-//! The app shell (canvas "Baaz v3", chrome revised 2026-10-13): one horizontal
-//! **bar** across the window's top on the frame colour, the **sidebar column**
-//! under it on the frame, and the work area as a **sheet** 6 px in from the
-//! bar, the column and the window, radius 8; the right pane is a second sheet
-//! beside it.
+//! The app shell (canvas "Baaz v3", chrome revised 2026-10-13, round 3): the
+//! **sidebar column** full height on the frame, its top row the chrome row
+//! (the window's lights, the host's toggle at x 84, the mode switch ending
+//! 12 px before the column's right edge), and the work area as a **sheet**
+//! 6 px in from the window and the column, radius 8, with its own 32 px
+//! title row (title at 16, actions at the right) centred on the lights'
+//! line; the right pane is a second sheet beside it.
 //!
-//! The bar never moves between states: the window's lights at (12, 16), the
-//! host's sidebar toggle at x 84 ([`AppShell::chrome_lead`]), the mode
-//! switch at the sidebar's right edge ([`AppShell::chrome_switch`]), the
-//! title where the sheet's text starts ([`AppShell::chrome_title`]) and the
-//! actions at the bar's right ([`AppShell::chrome_right`]). Closing only
-//! removes the sidebar column; the sheet grows into the space.
+//! Closing removes the column; the sheet grows into the space. What stays is
+//! the chrome row, now a **pill**: 32 tall, 6 px in from the corner, on
+//! Floating with the one edge, holding exactly lights · toggle · switch at
+//! the x and y they had open. Resting the pointer on it extends it to the
+//! right with the title (Browse: the page controls and address) on FF
+//! `moderate`, and brings the actions in as a second pill at the top right;
+//! both go 250 ms after the pointer leaves. A 150 ms rest on the toggle (or
+//! the window's left strip) peeks the sidebar as a Floating card behind the
+//! pill.
 //!
 //! Motion (Emil Kowalski's rules, owner 2026-10-13: smooth or none): the
-//! column opens and closes on an ease-out tween, 260 / 220 ms, with the
-//! panel sliding with the column's edge. While the column moves, the sheet's
-//! content is laid out once at the width it will have at rest and slides
-//! with the sheet's edge, so no frame re-lays out the transcript — the
-//! previous build re-measured everything per frame and managed four frames
-//! per close. The peek (the sidebar as a Floating card behind the lights,
-//! from a rest on the toggle or the window's left strip) slides on FF
-//! `moderate`.
+//! column opens and closes on an ease-out tween, 260 / 220 ms, the panel
+//! sliding with the column's edge; while it moves, the sheet's content is
+//! laid out once at the width it will have at rest and slides with the
+//! sheet's edge, so no frame re-lays out the transcript (the build before
+//! re-measured per frame and managed four frames per close).
 
 use aui_motion::{open_close, open_close_with, spring_px, Enter, SpringKind, EXIT_EASING};
 use aui_tokens::{ActiveAui, Easing};
@@ -60,23 +62,42 @@ pub fn clamp_right_width(width: f32) -> f32 {
     width.clamp(RIGHT_MIN_WIDTH, RIGHT_MAX_WIDTH)
 }
 
-/// The sheet's inset from the bar, the window and the sidebar column.
+/// The sheet's inset from the window and the sidebar column.
 pub const SHEET_INSET: f32 = 6.0;
 /// The sheet's corner radius.
 pub const SHEET_RADIUS: f32 = 8.0;
-/// The scroll fade at the sheet's top (sheet → clear).
-pub const SHEET_FADE: f32 = 32.0;
-/// The bar: the host's toggle starts here, past the window's lights (the
-/// v2 sidebar's title bar put it at the same x). The sidebar's
-/// `traffic_light_gap` equals it.
+/// The sheet's own title row (open): height, the title's inset from the
+/// sheet's left, the actions' from its right; its centre is the lights'
+/// line (window y 22 = 6 + 16).
+pub const SHEET_ROW_H: f32 = 32.0;
+/// See [`SHEET_ROW_H`].
+pub const SHEET_ROW_PAD_LEFT: f32 = 16.0;
+/// See [`SHEET_ROW_H`].
+pub const SHEET_ROW_PAD_RIGHT: f32 = 10.0;
+/// The scroll fade at the sheet's top: under the title row (open) and under
+/// the pill (closed).
+pub const SHEET_FADE_OPEN: f32 = 64.0;
+/// See [`SHEET_FADE_OPEN`].
+pub const SHEET_FADE_CLOSED: f32 = 92.0;
+/// The chrome row: the host's toggle starts here, past the window's lights
+/// (the v2 sidebar's title bar put it at the same x).
 pub const CHROME_LEAD: f32 = 84.0;
 /// The mode switch ends this far before the sidebar's right edge.
 pub const CHROME_SWITCH_INSET: f32 = 12.0;
-/// The title starts this far past the sidebar's edge: the sheet's inset plus
-/// the sheet's text inset, so it stands where the transcript's text does.
-pub const CHROME_TITLE_INSET: f32 = SHEET_INSET + 16.0;
-/// The actions end this far from the window's right edge.
-pub const CHROME_ACTIONS_PAD: f32 = 16.0;
+/// The closed pill: height (centred on the lights' line), inner padding of
+/// the actions pill, how far the hovered pill extends for the title, the gap
+/// between the switch and the revealed title, and the title's end cap.
+pub const PILL_H: f32 = 32.0;
+/// See [`PILL_H`].
+pub const PILL_PAD: f32 = 4.0;
+/// See [`PILL_H`].
+pub const PILL_REVEAL_W: f32 = 420.0;
+/// See [`PILL_H`].
+pub const PILL_REVEAL_GAP: f32 = 10.0;
+/// See [`PILL_H`].
+pub const PILL_END_INSET: f32 = 14.0;
+/// The pill keeps its reveal this long after the pointer leaves it.
+const PILL_LINGER: std::time::Duration = std::time::Duration::from_millis(250);
 /// Depth (docs/37): the sheet's contact shadow onto the frame beside the
 /// open sidebar — width, and its strength at the sheet's edge per theme.
 pub const CONTACT_W: f32 = 20.0;
@@ -94,11 +115,9 @@ const PEEK_DISMISS: std::time::Duration = std::time::Duration::from_millis(250);
 pub const COLUMN_EASE: Easing = Easing([0.22, 1.0, 0.36, 1.0]);
 const COLUMN_OPEN: std::time::Duration = std::time::Duration::from_millis(260);
 const COLUMN_CLOSE: std::time::Duration = std::time::Duration::from_millis(220);
-/// The closed-only chrome fades in once the column has closed (FF popup
-/// timing) and leaves before it opens.
-const CLOSED_ONLY_IN: std::time::Duration = std::time::Duration::from_millis(80);
-/// The title slot keeps this much room for the actions at the bar's right.
-const CHROME_ACTIONS_ROOM: f32 = 160.0;
+/// The pill's ground fades in once the column has closed (FF popup timing)
+/// and leaves before it opens.
+const PILL_IN: std::time::Duration = std::time::Duration::from_millis(80);
 
 /// The shell. Build with [`app_shell`].
 #[derive(IntoElement)]
@@ -119,6 +138,7 @@ pub struct AppShell {
     page_sheet: bool,
     animate: bool,
     peek_open: bool,
+    pill_revealed: bool,
     header_right: Option<AnyElement>,
     sidebar: Option<AnyElement>,
     centre: Option<AnyElement>,
@@ -159,6 +179,7 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         page_sheet: false,
         animate: true,
         peek_open: false,
+        pill_revealed: false,
         header_right: None,
         sidebar: None,
         centre: None,
@@ -273,6 +294,13 @@ impl AppShell {
         self
     }
 
+    /// Holds the closed pill's reveal (the title and the actions pill) open
+    /// with no hover — a scripting and capture aid.
+    pub fn pill_revealed(mut self, on: bool) -> Self {
+        self.pill_revealed = on;
+        self
+    }
+
     /// Reports the chrome's rects over the sheet every frame they paint
     /// (see [`OverlayBoundsHandler`]); an empty list when none shows.
     pub fn on_overlay_bounds(mut self, f: impl Fn(Vec<(gpui::Bounds<Pixels>, Pixels)>, &mut Window, &mut App) + 'static) -> Self {
@@ -288,30 +316,30 @@ impl AppShell {
         self
     }
 
-    /// The mode switch, at the sidebar's right edge (its resting width,
-    /// whether or not the column shows, so it never moves).
+    /// The mode switch, ending [`CHROME_SWITCH_INSET`] before the sidebar's
+    /// right edge (its resting width, whether or not the column shows, so
+    /// it never moves).
     pub fn chrome_switch(mut self, el: impl IntoElement) -> Self {
         self.chrome_switch = Some(el.into_any_element());
         self
     }
 
-    /// The title, where the sheet's text starts ([`CHROME_TITLE_INSET`] past
-    /// the sidebar's resting edge), in both states.
+    /// The title: open, the sheet's own title row (at 16 from the sheet's
+    /// left); closed, revealed when the pointer rests on the pill.
     pub fn chrome_title(mut self, el: impl IntoElement) -> Self {
         self.chrome_title = Some(el.into_any_element());
         self
     }
 
     /// Closed-only content in the title's slot — Browse's page controls and
-    /// address at rest. Fades in once the column has closed (80 ms, 4 px
-    /// rise) and leaves before it opens (60 ms).
+    /// address at rest, revealed when the pointer rests on the pill.
     pub fn chrome_closed(mut self, el: impl IntoElement) -> Self {
         self.chrome_closed = Some(el.into_any_element());
         self
     }
 
-    /// The bar's actions, ending [`CHROME_ACTIONS_PAD`] from the window's
-    /// right edge in both states.
+    /// The actions: open, at the sheet row's right; closed, the second pill
+    /// at the top right that the first pill's reveal brings in.
     pub fn chrome_right(mut self, el: impl IntoElement) -> Self {
         self.chrome_right = Some(el.into_any_element());
         self
@@ -406,8 +434,13 @@ struct ShellState {
     peeking: bool,
     /// The lead's last painted rect: the toggle is the host's element, so
     /// its hover is read from the pointer's position, not from a handler it
-    /// may never surface.
+    /// may never surface. The pills likewise.
     lead_bounds: Option<gpui::Bounds<Pixels>>,
+    pill_bounds: Option<gpui::Bounds<Pixels>>,
+    actions_bounds: Option<gpui::Bounds<Pixels>>,
+    /// The pointer rests on the pill or the actions pill; when it last left.
+    pill: bool,
+    pill_left_at: Option<std::time::Instant>,
 }
 
 #[derive(Clone, Copy)]
@@ -444,7 +477,7 @@ impl RenderOnce for AppShell {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let shell = self;
         let p = cx.aui().colors;
-        let bar_h = cx.aui().metrics.header;
+        let row_h = cx.aui().metrics.header;
         let id = shell.id.clone();
         let state = window.use_keyed_state((id.clone(), "shell"), cx, |_, _| ShellState { column: if shell.sidebar_open { 1.0 } else { 0.0 }, ..Default::default() });
         let mut st = *state.read(cx);
@@ -455,16 +488,29 @@ impl RenderOnce for AppShell {
         let hi = f32::from(shell.sidebar_max).max(lo);
         let rest = px(f32::from(shell.sidebar_width).clamp(lo, hi));
 
-        // The toggle's hover, from the pointer against its last rect (the
-        // host's button re-renders on its own hover, which is when this runs;
-        // frames keep coming while the pointer is on it, so leaving is seen).
+        // Hover by geometry: the toggle and the pills are the host's
+        // elements, which re-render on their own hover (when this runs);
+        // frames keep coming while the pointer is on them, so leaving is
+        // seen too.
         let mouse = window.mouse_position();
         let over_lead = st.lead_bounds.is_some_and(|b| b.contains(&mouse));
+        let over_pill = st.pill_bounds.is_some_and(|b| b.contains(&mouse)) || st.actions_bounds.is_some_and(|b| b.contains(&mouse));
+        let mut changed = false;
         if over_lead != st.lead {
             st.set_hover(HoverSource::Lead, over_lead, now);
+            changed = true;
+        }
+        if over_pill != st.pill {
+            st.pill = over_pill;
+            if !over_pill {
+                st.pill_left_at = Some(now);
+            }
+            changed = true;
+        }
+        if changed {
             state.update(cx, |s, _| *s = st);
         }
-        if st.lead {
+        if st.lead || st.pill {
             window.request_animation_frame();
         }
 
@@ -477,7 +523,7 @@ impl RenderOnce for AppShell {
         }
         if !shell.animate || shell.resizing {
             aui_motion::open_close_jump((id.clone(), "column"), shell.sidebar_open, window, cx);
-            aui_motion::open_close_jump((id.clone(), "closed-only"), closed, window, cx);
+            aui_motion::open_close_jump((id.clone(), "pill"), closed, window, cx);
         }
         let column = if shell.resizing || !shell.animate {
             if shell.sidebar_open { 1.0 } else { 0.0 }
@@ -486,15 +532,37 @@ impl RenderOnce for AppShell {
         };
         let sidebar_w = rest * column.clamp(0.0, 1.0);
         let settled_closed = closed && column <= 0.0005;
-        let closed_only_wanted = closed && st.column <= 0.0005;
-        let closed_k = if !shell.animate {
+        let settled_open = shell.sidebar_open && column >= 0.9995;
+        // The pill's ground arrives once the column has settled closed (FF
+        // popup timing, 80 ms, a 4 px rise) and leaves before it opens.
+        let pill_wanted = closed && st.column <= 0.0005;
+        let pill_k = if !shell.animate {
             if closed { 1.0 } else { 0.0 }
         } else {
-            open_close_with((id.clone(), "closed-only"), closed_only_wanted, Enter::Tween(CLOSED_ONLY_IN, Easing::OUT), aui_motion::durations::FAST_EXIT, EXIT_EASING, window, cx)
+            open_close_with((id.clone(), "pill"), pill_wanted, Enter::Tween(PILL_IN, Easing::OUT), aui_motion::durations::FAST_EXIT, EXIT_EASING, window, cx)
         };
-        if shell.animate && settled_closed && !closed_only_wanted {
+        if shell.animate && settled_closed && !pill_wanted {
             window.request_animation_frame();
         }
+        // The pill's reveal: hovered, it extends to show the title (or
+        // Browse's page controls) on `moderate` and the actions pill fades in;
+        // it lingers 250 ms after the pointer leaves, then closes on the
+        // exit tweens.
+        let linger = st.pill_left_at.is_some_and(|at| now.duration_since(at) < PILL_LINGER);
+        let reveal_wanted = settled_closed && (st.pill || linger || shell.pill_revealed);
+        if linger && !st.pill {
+            window.request_animation_frame();
+        }
+        // The scripted hold lands at once (captures and tests); a hover springs.
+        if shell.pill_revealed && settled_closed {
+            aui_motion::open_close_jump((id.clone(), "reveal"), true, window, cx);
+        }
+        let reveal_k = if settled_closed {
+            open_close((id.clone(), "reveal"), reveal_wanted, SpringKind::Moderate, aui_motion::durations::MODERATE_EXIT, window, cx)
+        } else {
+            aui_motion::open_close_jump((id.clone(), "reveal"), false, window, cx);
+            0.0
+        };
 
         if shell.native_lights {
             place_native_lights(window, cx);
@@ -582,8 +650,10 @@ impl RenderOnce for AppShell {
                 .bg(gpui::linear_gradient(180.0, gpui::linear_color_stop(ground, 0.0), gpui::linear_color_stop(ground.alpha(0.0), 1.0)))
         };
 
-        // The sidebar column: the panel keeps its resting width and slides
-        // with the column's edge; rows fade under the bar.
+        // The sidebar column, full height: its top row is the chrome row
+        // (drawn by the shell over everything, below); the panel keeps its
+        // resting width and slides with the column's edge; rows fade under
+        // the row.
         let show_sidebar = shell.sidebar_open || column > 0.0005;
         let sidebar_column = div()
             .w(sidebar_w)
@@ -592,15 +662,37 @@ impl RenderOnce for AppShell {
             .relative()
             .overflow_hidden()
             .when(show_sidebar, |d| {
-                d.child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(sidebar_w - rest).w(rest).children(shell.sidebar))
-                    .child(fade(p.surface_1, LIST_FADE).left(sidebar_w - rest).w(rest))
+                d.child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(sidebar_w - rest).w(rest).pt(row_h).children(shell.sidebar))
+                    .child(fade(p.surface_1, LIST_FADE).top(row_h).left(sidebar_w - rest).w(rest))
             });
 
-        // The centre sheet, its content at the resting width.
+        // The centre sheet, its content at the resting width; fully open it
+        // carries its own title row (title at 16, the actions at the right)
+        // over a fade; closed, the content runs under the pill through a
+        // taller fade and the title and actions wait for the pill's reveal.
+        let row_shown = settled_open && !shell.page_sheet;
+        let fade_h = if row_shown { SHEET_FADE_OPEN } else { SHEET_FADE_CLOSED };
         let mut centre_sheet = sheet_box(shell.page_sheet).child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(px(0.0)).w(content_w).children(shell.centre));
         if !shell.page_sheet {
-            centre_sheet = centre_sheet.child(fade(p.surface_2, SHEET_FADE));
+            centre_sheet = centre_sheet.child(fade(p.surface_2, fade_h));
         }
+        // Closed, the reveal shows the closed-only content when the host
+        // gave some (Browse's page controls), else the title.
+        let (title_el, right_el) = if row_shown {
+            let row = h_flex()
+                .w_full()
+                .h(px(SHEET_ROW_H))
+                .pl(px(SHEET_ROW_PAD_LEFT))
+                .pr(px(SHEET_ROW_PAD_RIGHT))
+                .items_center()
+                .child(div().flex_1().min_w(px(0.0)).overflow_hidden().flex().items_center().children(shell.chrome_title))
+                .child(div().flex_none().flex().items_center().children(shell.chrome_right));
+            let row = if shell.draggable { drag_region((id.clone(), "row-drag")).child(row).into_any_element() } else { row.into_any_element() };
+            centre_sheet = centre_sheet.child(div().absolute().top(px(0.0)).left(px(0.0)).right(px(0.0)).h(px(SHEET_ROW_H)).child(row));
+            (None, None)
+        } else {
+            (shell.chrome_closed.or(shell.chrome_title), shell.chrome_right)
+        };
         let centre_column = div()
             .flex_1()
             .h_full()
@@ -620,7 +712,7 @@ impl RenderOnce for AppShell {
                             .size_full()
                             .flex()
                             .flex_col()
-                            .child(div().w_full().h(bar_h).flex_none().flex().items_center().children(shell.header_right))
+                            .child(div().w_full().h(row_h).flex_none().flex().items_center().children(shell.header_right))
                             .child(div().w_full().flex_1().min_h(px(0.0)).overflow_hidden().children(shell.right)),
                     ),
                 ),
@@ -633,7 +725,7 @@ impl RenderOnce for AppShell {
             let a = if p.is_dark() { CONTACT_ALPHA_DARK } else { CONTACT_ALPHA_LIGHT };
             div()
                 .absolute()
-                .top(bar_h + px(SHEET_INSET))
+                .top(px(SHEET_INSET))
                 .bottom(px(SHEET_INSET))
                 .left(sidebar_w + px(SHEET_INSET) - px(CONTACT_W))
                 .w(px(CONTACT_W))
@@ -641,16 +733,16 @@ impl RenderOnce for AppShell {
                 .bg(gpui::linear_gradient(90.0, gpui::linear_color_stop(gpui::black().alpha(0.0), 0.0), gpui::linear_color_stop(gpui::black().alpha(a), 1.0)))
         });
 
-        let body = h_flex().absolute().top(bar_h).bottom(px(0.0)).left(px(0.0)).right(px(0.0)).items_stretch().child(sidebar_column).child(centre_column).child(right_column);
+        let body = h_flex().absolute().inset_0().items_stretch().child(sidebar_column).child(centre_column).child(right_column);
 
         let mut root = div().id(id.clone()).relative().size_full().overflow_hidden().bg(p.surface_1).text_color(p.ink).child(body).children(contact);
 
-        // The chrome's rects, collected while it prepaints and handed to the
-        // host by the last child (see `AppShell::on_overlay_bounds`).
+        // The chrome's rects over the sheet, collected while it prepaints and
+        // handed to the host by the last child (see `AppShell::on_overlay_bounds`).
         use gpui_kit::base::ElementExt as _;
         let rects: std::rc::Rc<std::cell::RefCell<OverlayRects>> = Default::default();
 
-        // The peek strip and card, under the bar's controls.
+        // The peek strip and card, under the chrome row.
         if settled_closed {
             if let Some(peek_el) = shell.peek {
                 let k = open_close((id.clone(), "peek"), peeking, SpringKind::Moderate, aui_motion::durations::MODERATE_EXIT, window, cx);
@@ -660,7 +752,7 @@ impl RenderOnce for AppShell {
                         .id((id.clone(), "peek-strip"))
                         .absolute()
                         .left(px(0.0))
-                        .top(bar_h)
+                        .top(row_h)
                         .bottom(px(0.0))
                         .w(px(PEEK_STRIP))
                         .on_hover(move |hovered, _, cx| {
@@ -675,7 +767,7 @@ impl RenderOnce for AppShell {
                     let card_state = state.clone();
                     let report = rects.clone();
                     // From −108 % of its width to its resting place, 6 px in;
-                    // its rows start under the bar.
+                    // its rows start under the chrome row.
                     let travel = (rest + px(SHEET_INSET)) * 1.08;
                     root = root.child(
                         div()
@@ -697,43 +789,106 @@ impl RenderOnce for AppShell {
                                     cx.notify();
                                 });
                             })
-                            .child(div().absolute().top(bar_h - px(SHEET_INSET)).bottom(px(0.0)).left(px(0.0)).right(px(0.0)).child(crate::interact::AmbientScope::filled(aui_tokens::Palette::FLOATING_LEVEL, peek_el)))
-                            .child(fade(p.overlay, LIST_FADE).top(bar_h - px(SHEET_INSET)))
+                            .child(div().absolute().top(row_h - px(SHEET_INSET)).bottom(px(0.0)).left(px(0.0)).right(px(0.0)).child(crate::interact::AmbientScope::filled(aui_tokens::Palette::FLOATING_LEVEL, peek_el)))
+                            .child(fade(p.overlay, LIST_FADE).top(row_h - px(SHEET_INSET)))
                             .on_prepaint(move |bounds, _, _| report.borrow_mut().push((bounds, px(SHEET_RADIUS)))),
                     );
                 }
             }
         }
 
-        // The bar's controls, over everything: lights, lead, switch at the
-        // sidebar's edge, the title (or the closed-only content) where the
-        // sheet's text starts, the actions at the right. No ground of their
-        // own, so the peek card shows through behind them.
+        // The chrome row: lights, the host's toggle at CHROME_LEAD, the mode
+        // switch ending CHROME_SWITCH_INSET before the sidebar's right edge —
+        // at the same x and the same line (y 22) in both states. Open it is
+        // the sidebar column's title row, on the frame; closed it is the
+        // pill: PILL_H tall, 6 px in from the corner, on Floating with the
+        // one edge, which hovered extends to the right with the title (or
+        // Browse's page controls) and brings the actions pill in.
         let lead_state = state.clone();
         let lead = div()
             .absolute()
             .left(px(CHROME_LEAD))
             .top(px(0.0))
-            .h(bar_h)
+            .h(row_h)
             .flex()
             .items_center()
             .children(shell.chrome_lead)
             .on_prepaint(move |bounds, _, cx| {
                 lead_state.update(cx, |s, _| s.lead_bounds = Some(bounds));
             });
-        let switch = div().absolute().left(px(0.0)).top(px(0.0)).w(rest).h(bar_h).flex().items_center().justify_end().pr(px(CHROME_SWITCH_INSET)).children(shell.chrome_switch);
-        let slot_left = rest + px(CHROME_TITLE_INSET);
-        let title = div().absolute().left(slot_left).right(px(CHROME_ACTIONS_PAD + CHROME_ACTIONS_ROOM)).top(px(0.0)).h(bar_h).flex().items_center().overflow_hidden().children(shell.chrome_title);
-        let rise = px(4.0 * (1.0 - closed_k));
-        let closed_only = (closed_k > 0.0).then(|| div().absolute().left(slot_left).top(rise).h(bar_h).flex().items_center().opacity(closed_k).children(shell.chrome_closed));
-        let actions = div().absolute().right(px(CHROME_ACTIONS_PAD)).top(px(0.0)).h(bar_h).flex().items_center().children(shell.chrome_right);
-        let mut bar = div().absolute().top(px(0.0)).left(px(0.0)).right(px(0.0)).h(bar_h).child(switch).child(title).children(closed_only).child(actions).child(lead);
+        let switch = div().absolute().left(px(0.0)).top(px(0.0)).w(rest).h(row_h).flex().items_center().justify_end().pr(px(CHROME_SWITCH_INSET)).children(shell.chrome_switch);
+        let mut row = div().absolute().top(px(0.0)).left(px(0.0)).w(rest).h(row_h).child(switch).child(lead);
+        if pill_k > 0.0 {
+            // The pill's ground: inset so its ends sit 6 px from the window
+            // and its right end PILL_END_INSET past the switch; it rises 4 px
+            // as it fades in. The reveal widens it past the sidebar's width.
+            let reveal_w = px(PILL_REVEAL_W) * reveal_k;
+            let pill_state = state.clone();
+            let report = rects.clone();
+            let ground = div()
+                .absolute()
+                .left(px(SHEET_INSET))
+                .top(px(SHEET_INSET) + px(4.0 * (1.0 - pill_k)))
+                .w(rest - px(SHEET_INSET) + reveal_w)
+                .h(px(PILL_H))
+                .rounded(px(PILL_H / 2.0))
+                .bg(p.overlay)
+                .shadow(p.floating_shadow())
+                .opacity(pill_k)
+                .on_prepaint(move |bounds, _, cx| {
+                    pill_state.update(cx, |s, _| s.pill_bounds = Some(bounds));
+                    report.borrow_mut().push((bounds, px(PILL_H / 2.0)));
+                });
+            row = div().absolute().top(px(0.0)).left(px(0.0)).w(rest).h(row_h).child(ground).child(switch_placeholder()).child(row);
+            if reveal_k > 0.0 {
+                // The title, after the switch, clipped to the reveal's width.
+                let revealed = div()
+                    .absolute()
+                    .left(rest - px(SHEET_INSET) + px(PILL_REVEAL_GAP))
+                    .top(px(0.0))
+                    .h(row_h)
+                    .w((reveal_w - px(PILL_REVEAL_GAP + PILL_END_INSET)).max(px(0.0)))
+                    .overflow_hidden()
+                    .flex()
+                    .items_center()
+                    .whitespace_nowrap()
+                    .opacity(reveal_k)
+                    .children(title_el);
+                row = row.child(revealed);
+            }
+        }
+        let row = if shell.draggable { drag_region((id.clone(), "row-drag")).child(row).into_any_element() } else { row.into_any_element() };
+        root = root.child(row);
+        if pill_k > 0.0 && reveal_k > 0.0 {
+            let actions_state = state.clone();
+            let report = rects.clone();
+            let actions = h_flex()
+                .absolute()
+                .top(px(SHEET_INSET) + px(4.0 * (1.0 - reveal_k)))
+                .right(px(SHEET_INSET))
+                .h(px(PILL_H))
+                .px(px(PILL_PAD))
+                .items_center()
+                .rounded(px(PILL_H / 2.0))
+                .bg(p.overlay)
+                .shadow(p.floating_shadow())
+                .opacity(reveal_k * pill_k)
+                .children(right_el)
+                .on_prepaint(move |bounds, _, cx| {
+                    actions_state.update(cx, |s, _| s.actions_bounds = Some(bounds));
+                    report.borrow_mut().push((bounds, px(PILL_H / 2.0)));
+                });
+            root = root.child(actions);
+        } else if st.actions_bounds.is_some() {
+            state.update(cx, |s, _| s.actions_bounds = None);
+        }
+        if pill_k <= 0.0 && st.pill_bounds.is_some() {
+            state.update(cx, |s, _| s.pill_bounds = None);
+        }
         if shell.traffic_lights {
             let at = super::header::traffic_light_position(cx);
-            bar = bar.child(painted_lights().absolute().left(at.x).top(at.y));
+            root = root.child(painted_lights().absolute().left(at.x).top(at.y));
         }
-        let bar: AnyElement = if shell.draggable { drag_region((id.clone(), "bar-drag")).child(bar).into_any_element() } else { bar.into_any_element() };
-        root = root.child(bar);
 
         if let Some(handler) = shell.on_overlay_bounds {
             let rects = rects.clone();
@@ -742,6 +897,11 @@ impl RenderOnce for AppShell {
 
         crate::keys::track_pointer(root)
     }
+}
+
+/// Nothing: the pill's ground paints under the row's own children.
+fn switch_placeholder() -> Div {
+    div()
 }
 
 #[cfg(test)]
