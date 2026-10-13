@@ -21,7 +21,6 @@ pub mod folder_drop;
 pub mod git_pr;
 pub mod gutter;
 pub mod handoff;
-pub mod host_actions;
 pub mod icons;
 pub mod interact;
 pub mod login;

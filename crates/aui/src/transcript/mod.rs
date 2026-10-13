@@ -28,21 +28,23 @@ mod tool_card;
 mod tool_group;
 mod turn_fold;
 mod prose;
+mod quiet_row;
 mod turns;
 
 pub use crate::data::{arm_ax_probe, record_ax_label, take_ax_labels};
 pub use activity::{activity_group, ActivityGroup};
-pub use card::{transcript_card, TranscriptCard};
+pub use card::{attention_edge, transcript_card, TranscriptCard, ATTENTION_RING_ALPHA, CARD_HEADER_H};
+pub use quiet_row::{quiet_row, quiet_status_row, status_check, status_cross, QuietLead, QuietRow, QUIET_ROW_BLEED, QUIET_ROW_H, STATUS_GLYPH};
 pub use thinking::{thinking_block, ThinkingBlock};
 pub use prose::{caret_top_in_line, caret_visible, prose, ProseStyle, CARET_BASELINE_DROP, CARET_H, CARET_MARGIN_LEFT, CARET_W};
 pub use markdown::{last_block_runs, markdown, markdown_fences, markdown_fences_settled, markdown_selected_text, markdown_selected_text_settled, markdown_span_selected_text, message_select_all, message_select_all_settled, message_selected_text, message_selected_text_settled, parse_markdown, parse_markdown_settled, parsed_markdown, span_runs, Block, Block as MarkdownBlock, LinkHandler, LinkRange, LinkTarget, Markdown, MarkdownFence, Span, Span as MarkdownSpan, TableAlign};
 pub use selectable::{selectable_text, MessageSelection, SelectableText, SelectionEndpoint, SelectionHandler, SelectionKey, SpanEvent, SpanHandler, SpanSession, TextSelection};
 pub use marker::{marker_row, HandOff, MarkerRow};
-pub use turns::{assistant_turn, footer_items, format_age, turn_selected_text, turn_selected_text_settled, turn_span_selected_text, turn_span_selected_text_settled, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction, COPY_HOLD};
+pub use turns::{assistant_turn, file_meta, footer_items, format_age, is_video, AnnotationBatch, AnnotationNote, turn_selected_text, turn_selected_text_settled, turn_span_selected_text, turn_span_selected_text_settled, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction, COPY_HOLD};
 pub use ansi::{ansi_runs, parse_ansi, AnsiSpan};
 pub use tool_card::{
     arm_chip_probe, format_duration, mcp_visible_text, search_capped_snippet, search_visible_hits,
-    shell_visible_lines, take_drawn_chips, tool_card, ToolCard, ToolCardAction, ToolCardIntent,
+    shell_visible_lines, take_drawn_chips, tool_card, ToolCard, ToolCardIntent,
     MCP_BODY_CAP, SEARCH_BODY_CAP, SHELL_FOLD,
 };
 pub use tool_group::{
@@ -72,7 +74,7 @@ pub use item::{
 };
 pub use plan::{plan_card, PlanCard};
 pub use todo::{todo_list, TodoList};
-pub use code::{code_block, diff_block, diff_note, diff_note_inset, runnable_command, CodeBlock, CodeBlockAction, CodeBlockHostButton, DiffBlock, DiffBlockAction, DiffNote, NoteInsets};
+pub use code::{code_block, diff_block, diff_note, diff_note_inset, runnable_command, CodeBlock, CodeBlockAction, DiffBlock, DiffBlockAction, DiffNote, NoteInsets};
 pub use syntax::{syntax_runs, syntax_runs_in, token_color, tokenize_line, tokenize_line_in, ts_language, TokenKind};
 pub use summary::{summary_card, SummaryAction, SummaryCard};
 pub use status::{error_card, jump_pill, needs_you_banner, retry_row, status_row, ErrorCard, JumpPill, NeedsYouBanner, StatusLead, StatusRow};

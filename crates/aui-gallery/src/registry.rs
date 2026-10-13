@@ -371,16 +371,6 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::tool_cards::build,
     },
     Entry {
-        id: "transcript/host-actions",
-        group: "Transcript",
-        title: "Host actions",
-        subtitle: "The L5 host hooks: a tool card with a trailing action, and a fenced block with its run-this header action",
-        width: 760.0,
-        height: 560.0,
-        theme: CardTheme::Dark,
-        build: crate::cards::host_actions::build,
-    },
-    Entry {
         id: "transcript/tool-group",
         group: "Transcript",
         title: "Tool-call group",

@@ -2,7 +2,7 @@
 //! `design/src/cards/transcript/31-turns.html` at 760×680.
 
 use aui::protocol::{Attachment, AttachmentKind, TurnMeta, UploadState};
-use aui::transcript::{assistant_turn, format_age, user_turn, AssistantTurnAction, UserTurnAction, COPY_HOLD, TextSelection};
+use aui::transcript::{assistant_turn, format_age, user_turn, AnnotationBatch, AnnotationNote, AssistantTurnAction, UserTurnAction, COPY_HOLD, TextSelection};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::v_flex;
@@ -125,28 +125,26 @@ fn track_selection(
     }
 }
 
+/// A picture the repo carries, for the tiles and the annotation strip.
+const PICTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/reference/cards/10-app-shell.png");
+
+fn sent(name: &str, kind: AttachmentKind, size: Option<u64>, meta: Option<&str>, path: Option<&str>) -> Attachment {
+    Attachment { name: name.into(), kind, size_bytes: size, meta: meta.map(Into::into), state: UploadState::Ready, path: path.map(Into::into), quote_of: None }
+}
+
 /// Builds the card content.
 pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
-    let attachments = vec![
-        Attachment { name: "validators.ts".into(), kind: AttachmentKind::File, size_bytes: None, meta: Some("180 lines".into()), state: UploadState::Ready },
-        Attachment { name: "checkout-form.png".into(), kind: AttachmentKind::Image, size_bytes: None, meta: None, state: UploadState::Ready },
-    ];
     // The card owns the selection, like an app would: one
     // `Option<TextSelection>` wired through every turn.
     let selection = window.use_keyed_state("card31-selection", cx, |_, _| None::<TextSelection>);
     let current = selection.read(cx).clone();
     // The card owns the copy confirmations too, one flag per demo turn: the
-    // Copy intent sets it, a `COPY_HOLD` timer clears it. The library never
-    // timers anything itself, and the same hold drives the code block header.
+    // Copy intent sets it, a `COPY_HOLD` timer clears it.
     let user_copied = window.use_keyed_state("card31-user-copied", cx, |_, _| false);
     let assistant_copied = window.use_keyed_state("card31-assistant-copied", cx, |_, _| false);
-    let arm_user = {
-        let flag = user_copied.clone();
-        move |action: UserTurnAction, _: &mut Window, cx: &mut App| {
-            if action != UserTurnAction::Copy {
-                return;
-            }
+    let hold = |flag: Entity<bool>| {
+        move |cx: &mut App| {
             flag.update(cx, |c, cx| {
                 *c = true;
                 cx.notify();
@@ -160,94 +158,82 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 });
             })
             .detach();
+        }
+    };
+    let arm_user = {
+        let arm = hold(user_copied.clone());
+        move |action: UserTurnAction, _: &mut Window, cx: &mut App| {
+            if action == UserTurnAction::Copy {
+                arm(cx)
+            }
         }
     };
     let arm_assistant = {
-        let flag = assistant_copied.clone();
-        move |action: AssistantTurnAction, _: &mut Window, cx: &mut App| {
-            if action != AssistantTurnAction::Copy {
-                return;
-            }
-            flag.update(cx, |c, cx| {
-                *c = true;
-                cx.notify();
-            });
-            let flag = flag.clone();
-            cx.spawn(async move |cx| {
-                cx.background_executor().timer(COPY_HOLD).await;
-                flag.update(cx, |c, cx| {
-                    *c = false;
-                    cx.notify();
-                });
-            })
-            .detach();
-        }
+        let arm = hold(assistant_copied.clone());
+        move |_: AssistantTurnAction, _: &mut Window, cx: &mut App| arm(cx)
     };
+    let picture = std::path::Path::new(PICTURE).is_file().then_some(PICTURE);
+    let quote = Attachment {
+        name: "the provider closed the stream before the reply finished".into(),
+        kind: AttachmentKind::Quote,
+        size_bytes: None,
+        meta: None,
+        state: UploadState::Ready,
+        path: None,
+        quote_of: Some("card31-assistant".into()),
+    };
+    let batch = AnnotationBatch {
+        screenshot: picture.map(Into::into),
+        size: (1520.0, 900.0),
+        address: "localhost:3000/pricing".into(),
+        notes: vec![
+            AnnotationNote { index: 1, at: (300.0, 40.0), selector: "h1 · “Simple pricing”".into(), note: "Headline is fine; subtitle needs the free-trial length.".into() },
+            AnnotationNote { index: 2, at: (700.0, 70.0), selector: "div.card.starter".into(), note: "Make the Starter card stand out; it is the plan most people pick.".into() },
+            AnnotationNote { index: 3, at: (1180.0, 70.0), selector: "div.card.enterprise".into(), note: "Drop the “Contact us” button here; link the text instead.".into() },
+        ],
+    };
+    let note = |text: &'static str| div().max_w(px(NOTE_MEASURE)).ui(scale::FS_12).text_color(p.ink_3).child(text);
     v_flex()
         .w_full()
         .gap(px(TURN_GAP))
-        .child(div().w_full().flex().justify_end().child(
+        .child(
             user_turn("card31-user", USER_TEXT)
-                .attachments(attachments)
                 .age(format_age(USER_SENT_MS, NOW_MS))
-                .selection(current.as_ref())
-                .on_selection_change(track_selection(selection.clone())),
-        ))
-        .child(
-            assistant_turn("card31-assistant", ASSISTANT_TEXT)
-                .streaming(true)
-                .meta(TurnMeta { model: "opus 4.6".into(), duration_ms: 3100, tokens_in: 1800, tokens_out: 600, reasoning_tokens: 0, cost_usd: 0.04, ..TurnMeta::default() })
-                .age(format_age(ASSISTANT_SENT_MS, NOW_MS))
-                .selection(current.as_ref())
-                .on_selection_change(track_selection(selection.clone())),
-        )
-        .child(div().w_full().flex().justify_end().child(
-            user_turn("card31-user-bottom", USER_TEXT)
-                .actions_bottom(true)
-                .age(format_age(NOW_MS, NOW_MS))
-                .selection(current.as_ref())
-                .on_selection_change(track_selection(selection.clone())),
-        ))
-        .child(
-            assistant_turn("card31-assistant-bottom", ASSISTANT_TEXT)
-                .meta(TurnMeta { model: "opus 4.6".into(), duration_ms: 3100, tokens_in: 1800, tokens_out: 600, reasoning_tokens: 0, cost_usd: 0.04, ..TurnMeta::default() })
-                .actions_bottom(true)
-                .selection(current.as_ref())
-                .on_selection_change(track_selection(selection.clone())),
-        )
-        .child(
-            assistant_turn("card31-assistant-reduced", "Validator patched — running the focused tests now.")
-                .actions(&[AssistantTurnAction::Copy, AssistantTurnAction::Retry])
-                .actions_bottom(true)
-                .selection(current.as_ref())
-                .on_selection_change(track_selection(selection.clone())),
-        )
-        .child(div().w_full().flex().justify_end().child(
-            user_turn("card31-user-copied", "Copy this prompt with the row below.")
-                .actions_bottom(true)
                 .copied(*user_copied.read(cx))
                 .on_action(arm_user)
                 .selection(current.as_ref())
                 .on_selection_change(track_selection(selection.clone())),
-        ))
+        )
         .child(
-            assistant_turn("card31-assistant-copied", "Copy this reply with the row below — the check holds 1.2 s, the code block's hold.")
-                .actions_bottom(true)
+            user_turn("card31-user-sent", "Here is the capture and the fixture.")
+                .attachments(vec![
+                    sent("transcript-real.png", AttachmentKind::Image, Some(240_000), None, picture),
+                    sent("capture.mov", AttachmentKind::File, Some(3_400_000), Some("0:42"), None),
+                    sent("synthetic-markdown.jsonl", AttachmentKind::File, Some(2_458), None, None),
+                ])
+                .on_attachment(|_, _, _| {}),
+        )
+        .child(user_turn("card31-user-quote", "Try that again.").attachments(vec![quote]).on_quote(|_, _, _| {}))
+        .child(user_turn("card31-user-annotations", "").annotations(Some(batch)))
+        .child(
+            assistant_turn("card31-assistant", ASSISTANT_TEXT)
+                .meta(TurnMeta { model: "opus 4.6".into(), duration_ms: 3100, tokens_in: 1800, tokens_out: 600, reasoning_tokens: 120, cost_usd: 0.04, ..TurnMeta::default() })
+                .age(format_age(ASSISTANT_SENT_MS, NOW_MS))
                 .copied(*assistant_copied.read(cx))
                 .on_action(arm_assistant)
                 .selection(current.as_ref())
                 .on_selection_change(track_selection(selection.clone())),
         )
-        .child(div().w_full().flex().justify_end().child(
+        .child(
+            assistant_turn("card31-streaming", "CA and GB now branch per country, with focused tests over both. The GB regex accepts the space form as of")
+                .streaming(true)
+                .selection(current.as_ref())
+                .on_selection_change(track_selection(selection.clone())),
+        )
+        .child(
             user_turn("card31-user-long", LONG_TEXT)
                 .selection(current.as_ref())
                 .on_selection_change(track_selection(selection.clone())),
-        ))
-        .child(
-            div()
-                .ui(scale::FS_12)
-                .text_color(p.ink_3)
-                .child("Long prompt above: eighty lines of markdown wrap inside the bubble, which never passes 78% of the column. The short prompts sit in short bubbles hugging the right."),
         )
         .child(
             v_flex()
@@ -256,66 +242,9 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .aria_label("User bubble width: default 78 percent stacked above full width")
                 .w_full()
                 .gap(px(TURN_GAP))
-                .child(
-                    div()
-                        .id("card31-width-default")
-                        .role(Role::Group)
-                        .aria_label("User turn at the default 78 percent width")
-                        .w_full()
-                        .child(
-                            user_turn("card31-user-default78", WIDTH_TEXT)
-                                .selection(current.as_ref())
-                                .on_selection_change(track_selection(selection.clone())),
-                        ),
-                )
-                .child(
-                    div()
-                        .id("card31-width-full")
-                        .role(Role::Group)
-                        .aria_label("User turn at full width through max width fraction")
-                        .w_full()
-                        .child(
-                            user_turn("card31-user-full", WIDTH_TEXT)
-                                .max_width_fraction(1.0)
-                                .selection(current.as_ref())
-                                .on_selection_change(track_selection(selection.clone())),
-                        ),
-                ),
+                .child(div().id("card31-width-default").role(Role::Group).aria_label("User turn at the default 78 percent width").w_full().child(user_turn("card31-user-default78", WIDTH_TEXT)))
+                .child(div().id("card31-width-full").role(Role::Group).aria_label("User turn at full width through max width fraction").w_full().child(user_turn("card31-user-full", WIDTH_TEXT).max_width_fraction(1.0))),
         )
-        .child(
-            div()
-                .id("card31-width-caption")
-                .role(Role::Paragraph)
-                .aria_label("Caption: the user bubble width cap is the caller's choice")
-                .ui(scale::FS_12)
-                .text_color(p.ink_3)
-                .child("Reading width above: the same paste twice, stacked — the default bubble stops at 78% of the column while the full-width turn reaches the right edge through max_width_fraction(1.0). The width cap is the caller's choice, default 78%. Fenced code and tables keep their own scrolling frames."),
-        )
-        .child(
-            div()
-                .ui(scale::FS_12)
-                .text_color(p.ink_3)
-                .child("Reduced action set: this turn passes .actions(&[Copy, Retry]), so Fork and Pin stay hidden — the same filter drives the hover toolbar and the bottom row."),
-        )
-        .child(
-            div()
-                .ui(scale::FS_12)
-                .text_color(p.ink_3)
-                .child("How-long-ago captions: the user bubble carries one underneath (5m ago, now), the assistant footer one as its last cell (2m ago). Both format once per card with format_age against the card's clock; a turn with no reported timestamp draws no caption at all."),
-        )
-        .child(
-            div()
-                .ui(scale::FS_12)
-                .text_color(p.ink_3)
-                .child("Copy confirmations: the two bottom rows above are live — press copy and the rail's copy glyph morphs to a success check for 1.2 s (COPY_HOLD, the code block's hold and colour), then returns. The card owns the flag and the timer per turn; the hover rails run the same morph but stay hidden until hover, so the bottom rows carry the demo."),
-        )
-        .child(
-            div()
-                .mt(px(scale::SP_4) - px(TURN_GAP))
-                .max_w(px(NOTE_MEASURE))
-                .ui(scale::FS_12)
-                .text_color(p.ink_3)
-                .child("User turns sit right in a soft bubble; assistant turns are full-width text with no bubble, so the transcript reads like a document. Streamed chunks fade and rise 3 px; the caret blinks on the accent. The toolbar appears on hover above the turn and never shifts layout. The bottom-row variant pins the same actions in-flow under the prose, muted until hover. Drag inside any turn to select (double-click a word, triple-click a paragraph): the card holds one Option<TextSelection> wired through each turn's selection/on_selection_change, and copies it out with turn_selected_text."),
-        )
+        .child(note("D4 (docs/41 §2.2): nothing shows under a turn at rest. Hover the person's turn for edit · copy · age in its 24 px rail; hover an answer for one copy button and the footer (model · time · tokens · reasoning · age). Both rails keep their height while hidden, so nothing shifts. Pictures and videos sent with a turn are 64 px tiles (a video adds the play glyph and its length), files 30 px chips; a quotation sits at the top of the bubble with \"from the reply above\"; a Browse annotation batch is one turn with the page strip, pins and notes. The streaming answer ends in a solid 2 px caret."))
         .into_any_element()
 }

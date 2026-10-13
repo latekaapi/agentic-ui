@@ -12,7 +12,19 @@ use gpui::{
     Style, Window, px, relative, size,
 };
 
+use std::time::Duration;
+
+use aui_tokens::Easing;
+
+use crate::open_close::open_close;
 use crate::spring::{spring_phase, SpringKind};
+use crate::tween::{tween, Tween};
+
+/// The exit of a [`collapse_fluid`]: 0.12 s (FF `spring.moderate.exit`).
+pub const COLLAPSE_EXIT: Duration = Duration::from_millis(120);
+/// How long a [`collapse_fluid`] body waits after the height starts before
+/// it fades in, and how long the fade takes (FF ThinkingStep `delay: 0.08`).
+pub const COLLAPSE_CONTENT_DELAY: Duration = Duration::from_millis(80);
 
 /// Wraps `child` in a measured, clipped reveal whose height follows the
 /// layout spring from 0 (closed) to the child's natural height (open). The
@@ -25,6 +37,31 @@ pub fn collapse(id: impl Into<ElementId>, open: bool, child: AnyElement, window:
     let id: ElementId = id.into();
     let progress = spring_phase((id.clone(), "collapse"), open, SpringKind::Layout, window, cx).clamp(0.0, 1.0);
     (Reveal::new((id, "reveal"), progress, child), progress)
+}
+
+/// One fold's motion as the D4 spec draws it (docs/41 §3): the height opens
+/// on `spring.moderate` (bounce 0) and closes on a 0.12 s exit tween; the
+/// body fades in over 80 ms, 80 ms after the height starts, and out in
+/// 60 ms. Returns the reveal, the height progress (0..=1, for the chevron's
+/// quarter turn) and the body's opacity, which the caller applies to the
+/// child it passed in — the reveal itself only clips.
+pub fn collapse_fluid(id: impl Into<ElementId>, open: bool, child: AnyElement, window: &mut Window, cx: &mut App) -> (Reveal, f32) {
+    let id: ElementId = id.into();
+    let progress = open_close((id.clone(), "fold"), open, SpringKind::Moderate, COLLAPSE_EXIT, window, cx).clamp(0.0, 1.0);
+    (Reveal::new((id, "reveal"), progress, child), progress)
+}
+
+/// The body opacity that goes with a [`collapse_fluid`] keyed by the same
+/// `id`: 0 → 1 over 80 ms after an 80 ms delay when opening, 1 → 0 in 60 ms
+/// when closing. Call it before building the child so the child carries it.
+pub fn collapse_fluid_opacity(id: impl Into<ElementId>, open: bool, window: &mut Window, cx: &mut App) -> f32 {
+    let id: ElementId = id.into();
+    let policy = if open {
+        Tween::new(COLLAPSE_CONTENT_DELAY, Easing::OUT).with_delay(COLLAPSE_CONTENT_DELAY)
+    } else {
+        Tween::new(Duration::from_millis(60), Easing::OUT)
+    };
+    tween((id, "fold-fade"), if open { 1.0_f32 } else { 0.0 }, policy, window, cx)
 }
 
 /// A measured, clipped vertical reveal driven by normalized progress.

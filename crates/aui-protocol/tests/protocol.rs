@@ -316,7 +316,7 @@ fn tool_output_delta_ignores_bodies_with_nowhere_to_put_it() {
             target: "src/main.rs".into(),
             status: ToolStatus::Success,
             duration_ms: Some(4),
-            body: ToolBody::Read { lines: 12 },
+            body: ToolBody::Read { lines: 12, output_lines: Vec::new() },
             diff_stat: None,
         }],
         meta: TurnMeta::default(),
@@ -484,7 +484,7 @@ fn tool_group_reuses_the_tool_call_shape() {
         target: "src/main.rs".into(),
         status: ToolStatus::Success,
         duration_ms: Some(4),
-        body: ToolBody::Read { lines: 12 },
+        body: ToolBody::Read { lines: 12, output_lines: Vec::new() },
         diff_stat: Some(DiffStat { added: 20, removed: 7, files: 4 }),
     };
     // The struct and the lone-call variant carry the same data both ways.

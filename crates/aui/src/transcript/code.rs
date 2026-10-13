@@ -1,7 +1,7 @@
-//! Card 37: the code block (terminal ground, 30 px header with filename,
-//! language and quiet actions, copy morphing to a check, numbered lines,
-//! fold row) and the unified diff block with the per-line note affordance
-//! and the note editor.
+//! The fenced code block (D4, docs/41 §2.3: Raised, a 32 px Raised-lit
+//! header with copy on hover, numbered lines, folding past twelve lines in
+//! place) and — card 37 — the unified diff block with the per-line note
+//! affordance and the note editor.
 
 
 use std::ops::Range;
@@ -13,7 +13,7 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::{div, prelude::*, px, relative, uniform_list, App, ClipboardItem, ElementId, Hsla, IntoElement, ListSizingBehavior, Pixels, ScrollStrategy, SharedString, StyledText, UniformListScrollHandle, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{button, icon_button, pill, record_ax_label, ButtonSize, PillVariant};
+use crate::data::{button, pill, record_ax_label, PillVariant};
 use crate::icons::{icon, IconName};
 use crate::transcript::selectable::{
     SelectionEndpoint, intersect_range, selectable_text, MessageSelection, SelectionHandler,
@@ -24,6 +24,13 @@ use crate::util::{indexed_child, interaction_flags, TrackInteraction};
 
 /// `.cb .hd{height:30px;gap:8px;padding:0 6px 0 12px;font:500 11.5px mono}`.
 const HEADER_H: f32 = 30.0;
+/// The fenced code block's header (D4).
+const CODE_HEADER_H: f32 = 32.0;
+/// A fenced block past this many lines folds (docs/41 §2.3).
+pub const CODE_FOLD_AT: usize = 12;
+/// Hover reveals: 80 ms in, 60 ms out, no translation (docs/41 §3).
+const HOVER_IN: Tween = Tween::new(std::time::Duration::from_millis(80), aui_tokens::Easing::OUT);
+const HOVER_OUT: Tween = Tween::new(std::time::Duration::from_millis(60), aui_tokens::Easing::OUT);
 const HEADER_GAP: f32 = 8.0;
 const HEADER_PAD_L: f32 = 12.0;
 const HEADER_PAD_R: f32 = 6.0;
@@ -144,48 +151,11 @@ pub fn line_cache_key(code: &str) -> (u64, usize) {
     (hasher.finish(), code.len())
 }
 
-/// Actions on a code block header.
+/// Actions on a code block (D4: copy is the only one; docs/41 §2.3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodeBlockAction {
-    /// Toggle soft wrap.
-    Wrap,
-    /// Open in the editor.
-    Open,
     /// Copy the code.
     Copy,
-    /// Show the folded lines.
-    Unfold,
-    /// The host-supplied header action was pressed. It carries everything
-    /// the host needs to act on the block — its index, language and code —
-    /// without the library knowing why.
-    HostAction {
-        /// The block's index in the host's list, as passed to
-        /// [`CodeBlock::host_action`].
-        index: usize,
-        /// The fence language, when the block is tagged.
-        language: Option<SharedString>,
-        /// The block text.
-        code: SharedString,
-    },
-}
-
-/// The description of a [`CodeBlock::host_action`] control.
-///
-/// Tokens and the shared button component draw it; the host owns what a
-/// press does.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodeBlockHostButton {
-    /// The button label.
-    pub label: SharedString,
-    /// The leading glyph.
-    pub icon: IconName,
-}
-
-impl CodeBlockHostButton {
-    /// A header action with `label` and a leading `icon`.
-    pub fn new(label: impl Into<SharedString>, icon: IconName) -> Self {
-        Self { label: label.into(), icon }
-    }
 }
 
 type CodeHandler = std::rc::Rc<dyn Fn(CodeBlockAction, &mut Window, &mut App)>;
@@ -198,13 +168,11 @@ pub struct CodeBlock {
     language: Option<SharedString>,
     code: SharedString,
     start_line: u32,
-    hidden_lines: usize,
     highlight: Option<Range<u32>>,
     scroll_to_line: Option<u32>,
     scroll_token: u64,
     fill: bool,
     max_height: Option<Pixels>,
-    host_action: Option<(usize, CodeBlockHostButton)>,
     on_action: Option<CodeHandler>,
     selection_key: Option<SelectionKey>,
     selection: Option<Range<usize>>,
@@ -215,7 +183,7 @@ pub struct CodeBlock {
 
 /// A block showing `code` from `path`.
 pub fn code_block(id: impl Into<ElementId>, path: impl Into<SharedString>, code: impl Into<SharedString>) -> CodeBlock {
-    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, hidden_lines: 0, highlight: None, scroll_to_line: None, scroll_token: 0, fill: false, max_height: None, host_action: None, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None, on_span: None }
+    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, highlight: None, scroll_to_line: None, scroll_token: 0, fill: false, max_height: None, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None, on_span: None }
 }
 
 /// The command a fenced block carries, if it is runnable.
@@ -266,12 +234,6 @@ impl CodeBlock {
         self
     }
 
-    /// How many more lines the fold row offers.
-    pub fn hidden_lines(mut self, count: usize) -> Self {
-        self.hidden_lines = count;
-        self
-    }
-
     /// Paints a calm band behind the displayed lines in `range` (`start`
     /// inclusive, `end` exclusive — `40..45` bands lines 40 through 44).
     /// Unset by default; without it every line renders exactly as before.
@@ -314,17 +276,6 @@ impl CodeBlock {
     /// [`fill`](Self::fill) is set.
     pub fn max_height(mut self, max: Option<Pixels>) -> Self {
         self.max_height = max;
-        self
-    }
-
-    /// An optional host-supplied action at the end of the header row, after
-    /// the Copy control. `index` is the block's index in the host's list;
-    /// pressing the control emits [`CodeBlockAction::HostAction`] with that
-    /// index and the block's language and code, so the host can act on the
-    /// block without the library knowing why. Unset by default; without it
-    /// the header renders exactly as before.
-    pub fn host_action(mut self, index: usize, button: CodeBlockHostButton) -> Self {
-        self.host_action = Some((index, button));
         self
     }
 
@@ -400,7 +351,7 @@ fn copy_button(id: &ElementId, p: &Palette, code: SharedString, on_copy: Option<
     div()
         .id((id.clone(), "copy"))
         .flex_none()
-        .size(cx.aui().metrics.control_xs)
+        .size(cx.aui().metrics.control_sm)
         .rounded(px(scale::R_SM))
         .flex()
         .items_center()
@@ -738,30 +689,37 @@ impl RenderOnce for CodeBlock {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let emit = |action: CodeBlockAction| {
-            let h = self.on_action.clone();
-            move |_: &gpui::ClickEvent, w: &mut Window, cx: &mut App| {
-                if let Some(h) = &h {
-                    h(action.clone(), w, cx)
-                }
-            }
+        // D4 (docs/41 §2.3): a 32 px header on Raised-lit — the file glyph,
+        // `code <lang>` (or the file name) in mono muted — and one copy
+        // button at the right that shows only while the block is hovered.
+        let label: SharedString = match &self.language {
+            Some(language) if !language.is_empty() => format!("{} {}", self.path, language).into(),
+            _ => self.path.clone(),
         };
-        let ghost = |name: &'static str, glyph: IconName, label: &'static str| {
-            icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(HEADER_GLYPH)).accessibility_label(label)
-        };
-        let mut actions: Vec<gpui::AnyElement> = vec![
-            ghost("wrap", IconName::List, "Toggle soft wrap").on_click(emit(CodeBlockAction::Wrap)).into_any_element(),
-            ghost("open", IconName::Edit, "Open in editor").on_click(emit(CodeBlockAction::Open)).into_any_element(),
-            copy_button(&id, &p, self.code.clone(), self.on_action.clone(), window, cx).into_any_element(),
-        ];
-        // The host action trails Copy. With none set the header builds
-        // exactly as before.
-        if let Some((index, host)) = &self.host_action {
-            let press = CodeBlockAction::HostAction { index: *index, language: self.language.clone(), code: self.code.clone() };
-            actions.push(button((id.clone(), "host-action"), host.label.clone()).xs().ghost().icon(host.icon).on_click(emit(press)).into_any_element());
-        }
-        let after: Vec<gpui::AnyElement> = self.language.iter().map(|l| div().text_color(p.ink_3).child(l.clone()).into_any_element()).collect();
-        let header = block_header(&p, &id, BlockHeaderArgs { glyph: IconName::File, name: self.path.clone(), after, actions, hovered: flags.hovered }, window, cx);
+        let copy_opacity = tween((id.clone(), "copy-reveal"), if flags.hovered { 1.0f32 } else { 0.0 }, if flags.hovered { HOVER_IN } else { HOVER_OUT }, window, cx);
+        let header = h_flex()
+            .w_full()
+            .h(px(CODE_HEADER_H))
+            .flex_none()
+            .gap(px(HEADER_GAP))
+            .pl(px(HEADER_PAD_L))
+            .pr(px(HEADER_PAD_R))
+            .bg(crate::util::raised_lit(&p, p.surface_2))
+            .mono(HEADER_TEXT)
+            .line_height(relative(1.0))
+            .text_color(p.ink_2)
+            .child(icon(IconName::File).size(px(HEADER_GLYPH)))
+            .child(div().min_w(px(0.0)).truncate().child(label))
+            .child(div().flex_1())
+            .child(div().flex_none().opacity(copy_opacity).child(copy_button(&id, &p, self.code.clone(), self.on_action.clone(), window, cx)));
+
+        // Past twelve lines a block folds: the first twelve, then a 24 px
+        // "N more lines" row that expands it in place. The fold is the
+        // block's own (keyed state), never the host's; the header never
+        // toggles. Virtualised blocks keep their own scroller instead.
+        let total = self.code.lines().count();
+        let unfolded = window.use_keyed_state((id.clone(), "unfolded"), cx, |_, _| false);
+        let folds = total > CODE_FOLD_AT && total <= CODE_VIRTUALIZE_AT && !*unfolded.read(cx);
 
         let language = self.language.clone();
         let select = self.selection_key.clone().map(|key| LineSelect {
@@ -797,9 +755,10 @@ impl RenderOnce for CodeBlock {
                 cx,
             )
         } else {
-            let mut body = v_flex().w_full().py(px(CODE_PAD_Y)).px(px(CODE_PAD_X)).mono(scale::FS_12).line_height(relative(CODE_LH)).text_color(p.term_fg).whitespace_nowrap();
+            let mut body = v_flex().w_full().py(px(CODE_PAD_Y)).px(px(CODE_PAD_X)).mono(scale::FS_12).line_height(relative(CODE_LH)).text_color(p.ink).whitespace_nowrap();
             let mut base = 0usize;
-            for (i, line) in self.code.lines().enumerate() {
+            let shown = if folds { CODE_FOLD_AT } else { total };
+            for (i, line) in self.code.lines().take(shown).enumerate() {
                 let line_start = base;
                 base += line.len() + 1;
                 let line_no = self.start_line + i as u32;
@@ -819,7 +778,7 @@ impl RenderOnce for CodeBlock {
             body.into_any_element()
         };
 
-        let block = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(scale::R_MD)), &p, p.term_bg);
+        let block = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.term_bg);
         let mut block = block
             .overflow_hidden()
             .track_interaction(&state)
@@ -830,25 +789,31 @@ impl RenderOnce for CodeBlock {
             // inside is the pane's only scroller.
             block = block.flex_1().min_h(px(0.0));
         }
-        if self.hidden_lines > 0 {
-            let fold_label = format!("Show {} more lines", self.hidden_lines);
-            record_ax_label(&fold_label);
+        if folds {
+            let more = total - CODE_FOLD_AT;
+            let fold_label = format!("{more} more lines");
+            let name = format!("Show {fold_label}");
+            record_ax_label(&name);
+            let state = unfolded.clone();
             block = block.child(
                 h_flex()
                     .id((id.clone(), "fold"))
                     .w_full()
                     .h(px(FOLD_H))
-                    .justify_center()
+                    .px(px(CODE_PAD_X))
                     .gap(px(FOLD_GAP))
-                    .bg(p.surface_2)
                     .border_t_1()
                     .border_color(p.line)
-                    .ui(scale::FS_11)
-                    .text_color(p.ink_3)
+                    .ui(scale::FS_12)
+                    .text_color(p.ink_2)
                     .cursor_pointer()
+                    .hover(|d| d.text_color(p.ink))
                     .role(gpui::Role::Button)
-                    .aria_label(fold_label.clone())
-                    .on_click(emit(CodeBlockAction::Unfold))
+                    .aria_label(name)
+                    .on_click(move |_, _, cx| state.update(cx, |u, cx| {
+                        *u = true;
+                        cx.notify();
+                    }))
                     .child(icon(IconName::ChevronDown).size(px(FOLD_GLYPH)))
                     .child(fold_label),
             );

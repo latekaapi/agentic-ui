@@ -5,7 +5,6 @@
 
 use std::sync::{Arc, LazyLock};
 
-use aui_motion::{looping, Loop};
 use aui_tokens::AuiStyled;
 #[cfg(test)]
 use aui_tokens::scale;
@@ -28,21 +27,16 @@ const LIST_MARGIN: f32 = 6.0;
 /// caret's geometry, shared by every turn that can stream.
 pub const CARET_W: f32 = 2.0;
 /// The caret's height.
-pub const CARET_H: f32 = 15.0;
+pub const CARET_H: f32 = 16.0;
 /// The caret's gap from the last glyph.
 pub const CARET_MARGIN_LEFT: f32 = 1.0;
 /// `vertical-align:-3px`: the caret's box hangs 3 px below the text baseline.
 pub const CARET_BASELINE_DROP: f32 = 3.0;
-/// One blink.
-const CARET_PERIOD: std::time::Duration = std::time::Duration::from_millis(1000);
-
-/// Whether the streaming caret is on this frame. `blink 1s steps(2)` is on for
-/// the first half of every second; reduced motion holds it on.
-pub fn caret_visible(id: impl Into<gpui_kit::base::TransitionId>, window: &mut Window, cx: &mut App) -> bool {
-    if cx.reduce_motion() {
-        return true;
-    }
-    looping(id, Loop::linear(CARET_PERIOD), window, cx) < 0.5
+/// Whether the streaming caret is on this frame: always — D4's caret is
+/// solid (docs/41 §3, nothing animates in prose), so it never asks for a
+/// frame of its own.
+pub fn caret_visible(_id: impl Into<gpui_kit::base::TransitionId>, _window: &mut Window, _cx: &mut App) -> bool {
+    true
 }
 
 /// The caret's offset from the top of the line box it closes: centred in the

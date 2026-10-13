@@ -50,7 +50,7 @@ mod tween;
 
 pub use aui_tokens::{durations, springs, Easing, Tier};
 pub use check::{check_draw, CheckDraw};
-pub use collapse::{collapse, Reveal};
+pub use collapse::{collapse, collapse_fluid, collapse_fluid_opacity, Reveal, COLLAPSE_CONTENT_DELAY, COLLAPSE_EXIT};
 pub use icon_morph::{icon_morph, IconMorph, MorphSample};
 pub use looping::{looping, Loop};
 pub use open_close::{open_close, open_close_jump, open_close_with, spring_step, Enter, EXIT_EASING};

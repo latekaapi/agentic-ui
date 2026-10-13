@@ -373,6 +373,8 @@ fn user_turn() -> Turn {
                 size_bytes: Some(6_144),
                 meta: Some("180 lines".into()),
                 state: UploadState::Ready,
+                path: None,
+                quote_of: None,
             },
             Attachment {
                 name: "checkout-form.png".into(),
@@ -380,6 +382,8 @@ fn user_turn() -> Turn {
                 size_bytes: Some(184_320),
                 meta: None,
                 state: UploadState::Ready,
+                path: None,
+                quote_of: None,
             },
         ],
         mentions: vec![Mention { kind: MentionKind::File, label: "@src/checkout".into() }],
@@ -767,7 +771,7 @@ fn read_call() -> Block {
         target: "src/checkout/validators.ts".into(),
         status: ToolStatus::Success,
         duration_ms: Some(120),
-        body: ToolBody::Read { lines: 180 },
+        body: ToolBody::Read { lines: 180, output_lines: Vec::new() },
         diff_stat: None,
     }
 }

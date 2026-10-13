@@ -9,7 +9,6 @@
 
 use std::rc::Rc;
 
-use aui::icons::IconName;
 use aui::protocol::{
     sample, ApprovalBodyKind, ApprovalState, Block, Diff, HandoffItem, HandoffState, Provider,
     ToolBody, ToolStatus,
@@ -18,8 +17,8 @@ use aui::transcript::{
     activity_group, answered_row, approval_card, arm_ax_probe, assistant_turn, code_block,
     diff_block, error_card, generic_item_card, goal_card, handoff_card, jump_pill, marker_row,
     needs_you_banner, plan_card, question_card, summary_card, take_ax_labels, thinking_block,
-    todo_list, tool_card, tool_group, user_turn, CodeBlockHostButton, DiffNote, ProseStyle,
-    QuestionOutcome, ToolCardAction, ToolGroupData,
+    todo_list, tool_card, tool_group, user_turn, DiffNote, ProseStyle,
+    QuestionOutcome, ToolGroupData,
 };
 use aui_tokens::scale;
 use gpui::{div, AnyElement, IntoElement, ParentElement, SharedString, TestAppContext, Window};
@@ -87,11 +86,10 @@ fn block_element(block: &Block, n: usize) -> AnyElement {
         )
         .on_toggle(|_, _, _| {})
         .into_any_element(),
-        Block::ToolCall { id: call_id, verb, target, status, duration_ms, body, diff_stat, .. } => {
+        Block::ToolCall { verb, target, status, duration_ms, body, diff_stat, .. } => {
             tool_card(id("tool"), verb.clone(), target.clone(), *status, body.clone())
                 .duration_ms(*duration_ms)
                 .diff_stat(*diff_stat)
-                .action(ToolCardAction::new(format!("{call_id}-open"), "Open"))
                 .on_intent(|_, _, _| {})
                 .into_any_element()
         }
@@ -276,10 +274,9 @@ fn entries(window: &mut Window, cx: &mut gpui::App) -> AnyElement {
             .into_any_element(),
     );
     col.push(
-        code_block("ax-code", "src/checkout.ts", "export const total = 42;\n")
+        // Past twelve lines the block draws its "N more lines" fold row.
+        code_block("ax-code", "src/checkout.ts", (0..14).map(|i| format!("export const n{i} = {i};\n")).collect::<String>())
             .language("typescript")
-            .hidden_lines(3)
-            .host_action(0, CodeBlockHostButton::new("Run", IconName::Edit))
             .on_action(|_, _, _| {})
             .into_any_element(),
     );
@@ -297,8 +294,7 @@ fn entries(window: &mut Window, cx: &mut gpui::App) -> AnyElement {
         .on_action(|_, _, _| {})
         .into_any_element(),
     );
-    // A shell body past the fold draws the unfold control and "open in
-    // terminal".
+    // A shell body past the fold draws the unfold control.
     col.push(
         tool_card(
             "ax-shell",
@@ -342,7 +338,6 @@ fn every_transcript_control_has_an_accessibility_label(cx: &mut TestAppContext) 
         "Send",
         "Cancel",
         "Copy reply",
-        "Retry turn",
         "Copy code",
         "Expand section",
         "Show preview for notes.txt",

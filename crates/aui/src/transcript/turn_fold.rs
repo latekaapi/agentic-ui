@@ -14,13 +14,14 @@
 //! fold's children with [`TurnFold::child`] — expanded, they render in
 //! order. Either way the open state lives with the host.
 
+use aui_motion::shimmer_text;
 use aui_protocol::DiffStat;
-use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
+use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{glyph_ok, record_ax_label, spinner, tag};
-use crate::transcript::transcript_card;
+use crate::data::{record_ax_label, spinner};
+use crate::transcript::quiet_row::{quiet_row, quiet_status_row, status_check};
 use crate::util::ClickHandler;
 
 /// `read 12 files, edited 3, ran 5 commands`: zero counts are omitted, so a
@@ -148,42 +149,51 @@ impl RenderOnce for TurnFold {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let title = turn_fold_title(self.elapsed_ms, self.reads, self.edits, self.commands);
-        let mut card = transcript_card(id.clone(), self.open)
-            .header(div().medium().whitespace_nowrap().child(title))
-            .header(div().flex_1());
+        let mut row = quiet_row(id.clone(), self.open).part(div().flex_none().child(title));
         if let Some(stat) = &self.diff_stat {
+            // The `+N −M` chip, 4 after the title: the only action a quiet
+            // row carries (docs/41 §4) — it opens the turn's diff.
             let open = self.on_intent.clone();
             let label = "Open diff for this turn";
             record_ax_label(label);
-            card = card.header(
+            row = row.part(
                 h_flex()
                     .flex_none()
                     .id((id.clone(), "diff"))
+                    .ml(px(-4.0))
                     .gap(px(scale::SP_2))
                     .cursor_pointer()
                     .role(gpui::Role::Button)
                     .aria_label(label)
+                    .mono(scale::FS_12)
                     .on_click(move |_, w, cx| {
+                        cx.stop_propagation();
                         if let Some(h) = &open {
                             h(TurnFoldIntent::OpenDiff, w, cx);
                         }
                     })
-                    .child(tag(format!("+{}", stat.added)).color(p.success))
-                    .child(tag(format!("−{}", stat.removed)).color(p.danger)),
+                    .child(div().text_color(p.success).child(format!("+{}", stat.added)))
+                    .child(div().text_color(p.danger).child(format!("−{}", stat.removed))),
             );
         }
         if !self.children.is_empty() {
-            let mut list = v_flex().w_full().gap(px(scale::SP_3)).p(px(scale::SP_3));
-            for child in self.children {
-                list = list.child(child);
-            }
-            card = card.body(list);
+            row = row.body(fold_body(self.children));
         }
         if let Some(on_intent) = self.on_intent {
-            card = card.on_toggle(move |_, w, cx| on_intent(TurnFoldIntent::Toggle, w, cx));
+            row = row.on_toggle(move |_, w, cx| on_intent(TurnFoldIntent::Toggle, w, cx));
         }
-        card
+        row
     }
+}
+
+/// The open fold's content: the turn's cards on the measure, 8 apart, no
+/// indent, 8 under the row.
+fn fold_body(children: Vec<AnyElement>) -> impl IntoElement {
+    let mut list = v_flex().w_full().gap(px(scale::SP_3)).pt(px(scale::SP_3));
+    for child in children {
+        list = list.child(child);
+    }
+    list
 }
 
 /// One line for an in-progress run of tool calls. Build with
@@ -246,27 +256,42 @@ impl RenderOnce for LiveActivityRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let mut card = transcript_card(id.clone(), self.open)
-            .header(if self.running { spinner((id.clone(), "spinner")).into_any_element() } else { glyph_ok().into_any_element() })
-            .header(div().medium().whitespace_nowrap().child(self.verb))
-            .header(div().flex_1().min_w(px(0.0)).truncate().mono(scale::FS_12).text_color(p.ink_2).child(self.target));
+        // Spinner 12 while a call runs, the done check once the run settles;
+        // the verb shimmers (muted → foreground → muted, 1.6 s) only while
+        // it runs (docs/41 §2.4).
+        let lead = if self.running {
+            spinner((id.clone(), "spinner")).size(px(LIVE_GLYPH)).fluid(cx).into_any_element()
+        } else {
+            status_check(p.success).into_any_element()
+        };
+        let verb = if self.running {
+            shimmer_text((id.clone(), "verb"), self.verb, cx).duration(LIVE_SHIMMER).into_any_element()
+        } else {
+            div().child(self.verb).into_any_element()
+        };
+        let mut row = quiet_status_row(id.clone(), lead)
+            .part(div().flex_none().child(verb))
+            .part(div().min_w(px(0.0)).truncate().mono(scale::FS_12).child(self.target));
         if let Some(earlier) = earlier_label(self.earlier) {
-            card = card.header(div().flex_none().ui(scale::FS_12).text_color(p.ink_3).child(earlier));
+            row = row.part(div().flex_none().text_color(p.ink_4).child(earlier));
         }
-        card = card.header(div().flex_none().text_role(TextRole::MonoSmall).font_weight(gpui::FontWeight::MEDIUM).text_color(p.ink_3).child(turn_fold_elapsed(self.elapsed_ms)));
+        row = row.part(div().flex_none().mono(scale::FS_12).text_color(p.ink_4).child(turn_fold_elapsed(self.elapsed_ms)));
         if !self.children.is_empty() {
-            let mut list = v_flex().w_full().gap(px(scale::SP_3)).p(px(scale::SP_3));
-            for child in self.children {
-                list = list.child(child);
-            }
-            card = card.body(list);
+            row = row.body(fold_body(self.children));
         }
         if let Some(on_toggle) = self.on_toggle {
-            card = card.on_toggle(move |e, w, cx| on_toggle(e, w, cx));
+            row = row.on_toggle(move |e, w, cx| on_toggle(e, w, cx));
         }
-        card
+        // A status row has no open state of its own; the run's cards are
+        // the body, shown while the host says so.
+        row.open_body(self.open)
     }
 }
+
+/// The live row's spinner and check: 12 px.
+const LIVE_GLYPH: f32 = 12.0;
+/// One sweep of the live verb's shimmer.
+const LIVE_SHIMMER: std::time::Duration = std::time::Duration::from_millis(1600);
 
 #[cfg(test)]
 mod tests {

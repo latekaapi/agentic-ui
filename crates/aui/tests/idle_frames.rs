@@ -197,8 +197,9 @@ fn browser_card(status: ToolStatus) -> impl IntoElement {
 // card keeps the frames it needs, the settled one asks for none.
 // ---------------------------------------------------------------------------
 
-/// The caret's `blink 1s steps(2)` loop: on while the turn streams, gone when
-/// the turn is finished prose.
+/// The caret is solid (D4, docs/41 §3: nothing animates in prose), so a
+/// streaming turn asks for no frames of its own once its caret is placed,
+/// and neither does finished prose.
 #[gpui::test]
 fn the_streaming_caret_stops_when_the_turn_does(cx: &mut TestAppContext) {
     let streaming = frames_at_rest(cx, "transcript/assistant-turn (streaming)", |_, _| {
@@ -206,10 +207,7 @@ fn the_streaming_caret_stops_when_the_turn_does(cx: &mut TestAppContext) {
             .streaming(true)
             .into_any_element()
     });
-    assert!(
-        streaming > 0,
-        "a streaming turn should keep blinking its caret"
-    );
+    assert_eq!(streaming, 0, "a solid caret must not keep the window redrawing");
 
     let settled = frames_at_rest(cx, "transcript/assistant-turn (not streaming)", |_, _| {
         assistant_turn("stream-off", "Writing the answer out")

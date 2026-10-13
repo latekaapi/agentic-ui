@@ -1,31 +1,34 @@
-//! Tool-call group: consecutive tool calls folded into one card — one header
-//! (status glyph, summary, muted count, chevron) with a collapsed preview of
-//! the first two calls plus `+k more`, and every call as a full tool card
-//! once open.
+//! Tool-call group (D4, docs/41 §2.5): consecutive tool calls as ONE
+//! surface. Closed: the header (status glyph, summary, chevron) over a
+//! caption preview of the first two calls plus `+k more`. Open: every call
+//! is a row in the same card — the tool header's layout over a 7 % rule,
+//! its output opening on the Well right under it. Nothing nests: no card
+//! inside a card.
 
-use aui_protocol::{ActivityState, Block, ToolCall};
+use aui_motion::{open_close, SpringKind, COLLAPSE_EXIT};
+use aui_protocol::{ActivityState, Block, ToolCall, ToolStatus};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
-use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, radians, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{glyph_err, glyph_ok, spinner};
-use crate::nav::chevron;
-use crate::transcript::{tool_card, transcript_card, ToolCardAction, ToolCardIntent};
+use crate::data::spinner;
+use crate::icons::{icon, IconName};
+use crate::transcript::quiet_row::{status_check, status_cross, STATUS_GLYPH};
+use crate::transcript::{tool_card, transcript_card, ToolCardIntent};
 
 /// Collapsed preview rows before the `+k more` row (the image3 idiom: two
 /// rows, then the overflow count).
 pub const GROUP_PREVIEW: usize = 2;
 /// `.tg-h{gap:8px}`; header text is the card frame's shared 12.5 px.
 const HEADER_GAP: f32 = 8.0;
-/// `.tg-p{padding:6px 10px 8px}` preview rows read like the activity timeline.
+/// The closed preview: padding 6 / 10 / 8, caption.
 const PREVIEW_PAD_TOP: f32 = 6.0;
 const PREVIEW_PAD_X: f32 = 10.0;
 const PREVIEW_PAD_BOTTOM: f32 = 8.0;
-const PREVIEW_TEXT: f32 = 12.5;
+const PREVIEW_TEXT: f32 = 12.0;
 const PREVIEW_GAP: f32 = 6.0;
-/// `.tg-o{gap:8px;padding:10px}` — open calls stack as full cards.
-const OPEN_GAP: f32 = 8.0;
-const OPEN_PAD: f32 = 10.0;
+/// The preview rows' glyph.
+const PREVIEW_GLYPH: f32 = 12.0;
 
 /// What a tool group asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,7 +39,7 @@ pub enum ToolGroupIntent {
     Call {
         /// Index into the group's calls.
         index: usize,
-        /// The call's own intent (toggle, unfold, open in pane).
+        /// The call's own intent (toggle, unfold).
         intent: ToolCardIntent,
     },
 }
@@ -73,7 +76,7 @@ pub struct ToolGroup {
     group: ToolGroupData,
     open: bool,
     calls_open: Vec<bool>,
-    card_actions: Vec<Vec<ToolCardAction>>,
+    calls_unfolded: Vec<bool>,
     on_intent: Option<IntentHandler>,
 }
 
@@ -85,8 +88,8 @@ pub struct ToolGroup {
 /// the clone the card itself needs (finding `library-hotpaths-8`).
 pub fn tool_group(id: impl Into<ElementId>, group: &ToolGroupData, open: bool) -> ToolGroup {
     let calls_open = vec![true; group.calls.len()];
-    let card_actions = vec![Vec::new(); group.calls.len()];
-    ToolGroup { id: id.into(), group: group.clone(), open, calls_open, card_actions, on_intent: None }
+    let calls_unfolded = vec![false; group.calls.len()];
+    ToolGroup { id: id.into(), group: group.clone(), open, calls_open, calls_unfolded, on_intent: None }
 }
 
 impl ToolGroup {
@@ -98,24 +101,11 @@ impl ToolGroup {
         self
     }
 
-    /// Trailing header actions on one call's inner card, drawn exactly as a
-    /// lone [`tool_card`]'s: after the duration, in the order given. A press
-    /// reports [`ToolGroupIntent::Call`] with the call's index and
-    /// [`ToolCardIntent::Action`]'s action index, so the host can tell card
-    /// 2's action 0 from card 3's action 0. Calls with no actions render
-    /// exactly as before.
-    pub fn card_actions(mut self, index: usize, actions: Vec<ToolCardAction>) -> Self {
-        if let Some(slot) = self.card_actions.get_mut(index) {
-            *slot = actions;
-        }
-        self
-    }
-
-    /// One trailing header action on one call's inner card after any already
-    /// set. See [`Self::card_actions`].
-    pub fn card_action(mut self, index: usize, action: ToolCardAction) -> Self {
-        if let Some(slot) = self.card_actions.get_mut(index) {
-            slot.push(action);
+    /// Whether one call's long output shows in full (its "N more lines"
+    /// row was pressed).
+    pub fn call_unfolded(mut self, index: usize, unfolded: bool) -> Self {
+        if let Some(slot) = self.calls_unfolded.get_mut(index) {
+            *slot = unfolded;
         }
         self
     }
@@ -179,33 +169,36 @@ impl RenderOnce for ToolGroup {
         let count = self.group.calls.len();
 
         let glyph: gpui::AnyElement = match self.group.state {
-            ActivityState::Working => spinner((id.clone(), "spinner")).into_any_element(),
-            ActivityState::Done => glyph_ok().into_any_element(),
-            ActivityState::Failed => glyph_err().into_any_element(),
+            ActivityState::Working => spinner((id.clone(), "spinner")).size(px(STATUS_GLYPH)).fluid(cx).into_any_element(),
+            ActivityState::Done => status_check(p.success).into_any_element(),
+            ActivityState::Failed => status_cross(p.danger).into_any_element(),
         };
-        // The card frame stays expanded: collapsed means preview rows, not an
-        // empty card, so the chevron is drawn by hand from the group state.
-        // The muted count is dropped when the summary already states the
-        // number (`Read 2 files · 2 calls` said it twice).
+        // The card frame stays expanded: closed means the preview, not an
+        // empty card, so the chevron turns from the group's own state on the
+        // fold's curve. The muted count is dropped when the summary already
+        // states the number (`Read 2 files · 2 calls` said it twice).
+        let turn = open_close((id.clone(), "chevron"), self.open, SpringKind::Moderate, COLLAPSE_EXIT, window, cx);
         let mut card = transcript_card(id.clone(), true)
             .chevron(false)
             .header(glyph)
-            .header(div().medium().whitespace_nowrap().child(self.group.summary.clone()));
+            .header(div().whitespace_nowrap().child(self.group.summary.clone()));
         if !summary_has_count(&self.group.summary, count) {
-            card = card.header(div().text_color(p.ink_3).child(count_label(count)));
+            card = card.header(div().text_color(p.ink_2).child(count_label(count)));
         }
-        card = card
-            .header(div().flex_1())
-            .header(chevron((id.clone(), "chevron"), self.open, p.ink_3, window, cx));
+        card = card.header(div().flex_1()).header(
+            div()
+                .flex_none()
+                .ml(px(4.0))
+                .child(icon(IconName::Chev).size(px(12.0)).color(p.ink_3).rotate(radians(turn * std::f32::consts::FRAC_PI_2))),
+        );
 
         if self.open {
-            let mut list = v_flex().w_full().gap(px(OPEN_GAP)).p(px(OPEN_PAD));
+            // Every call is a row of this one card: the tool header's layout
+            // over a 7 % rule, its output on the Well under it.
+            let mut list = v_flex().w_full();
             for (index, call) in self.group.calls.iter().enumerate() {
                 let call_open = self.calls_open.get(index).copied().unwrap_or(true);
-                // No actions registered and the inner card builds exactly as
-                // before; otherwise the actions ride the lone card's own
-                // slot, reported under this call's index.
-                let actions = self.card_actions.get(index).cloned().unwrap_or_default();
+                let unfolded = self.calls_unfolded.get(index).copied().unwrap_or(false);
                 let handler = self.on_intent.clone();
                 list = list.child(
                     tool_card(
@@ -215,12 +208,13 @@ impl RenderOnce for ToolGroup {
                         call.status,
                         call.body.clone(),
                     )
+                    .flat(true)
                     .duration_ms(call.duration_ms)
                     // The server's whole-patch summary rides along with no
                     // caller opt-in, exactly as a lone card draws it.
                     .diff_stat(call.diff_stat)
                     .open(call_open)
-                    .actions(actions)
+                    .unfolded(unfolded)
                     .on_intent(move |intent, w, cx| {
                         if let Some(h) = &handler {
                             h(ToolGroupIntent::Call { index, intent }, w, cx);
@@ -228,7 +222,7 @@ impl RenderOnce for ToolGroup {
                     }),
                 );
             }
-            card = card.body(list);
+            card = card.body_border(false).body(list);
         } else {
             let mut preview = v_flex()
                 .w_full()
@@ -237,31 +231,31 @@ impl RenderOnce for ToolGroup {
                 .pb(px(PREVIEW_PAD_BOTTOM))
                 .gap(px(PREVIEW_GAP))
                 .ui(PREVIEW_TEXT)
-                .text_color(p.ink);
-            for call in self.group.calls.iter().take(GROUP_PREVIEW) {
+                .text_color(p.ink_2);
+            for (index, call) in self.group.calls.iter().take(GROUP_PREVIEW).enumerate() {
+                let glyph: gpui::AnyElement = match call.status {
+                    ToolStatus::Pending | ToolStatus::Running => {
+                        spinner((id.clone(), SharedString::from(format!("preview-{index}")))).size(px(PREVIEW_GLYPH)).fluid(cx).into_any_element()
+                    }
+                    ToolStatus::Success => div().flex_none().child(icon(IconName::Check).size(px(PREVIEW_GLYPH)).color(p.success).lit(true)).into_any_element(),
+                    ToolStatus::Error | ToolStatus::Cancelled => {
+                        div().flex_none().child(icon(IconName::X).size(px(PREVIEW_GLYPH)).color(p.danger).lit(true)).into_any_element()
+                    }
+                };
                 preview = preview.child(
                     h_flex()
                         .w_full()
                         .gap(px(HEADER_GAP))
-                        .child(div().medium().whitespace_nowrap().child(call.verb.clone()))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w(px(0.0))
-                                .truncate()
-                                .mono(scale::FS_12)
-                                .text_color(p.ink_2)
-                                .child(call.target.clone()),
-                        ),
+                        .child(glyph)
+                        .child(div().whitespace_nowrap().child(call.verb.clone()))
+                        .child(div().flex_1().min_w(px(0.0)).truncate().mono(scale::FS_12).child(call.target.clone())),
                 );
             }
             let hidden = preview_hidden(count);
             if hidden > 0 {
-                preview = preview.child(
-                    div().ui(scale::FS_11).text_color(p.ink_3).child(more_label(hidden)),
-                );
+                preview = preview.child(div().text_color(p.ink_4).child(more_label(hidden)));
             }
-            card = card.body(preview);
+            card = card.body_border(true).body(preview);
         }
         if let Some(on_intent) = self.on_intent {
             card = card.on_toggle(move |_, w, cx| on_intent(ToolGroupIntent::Toggle, w, cx));
@@ -283,7 +277,7 @@ mod tests {
             target: "src/main.rs".into(),
             status: ToolStatus::Success,
             duration_ms: Some(4),
-            body: aui_protocol::ToolBody::Read { lines: 12 },
+            body: aui_protocol::ToolBody::Read { lines: 12, output_lines: Vec::new() },
             diff_stat: None,
         }
     }
@@ -358,39 +352,11 @@ mod tests {
     }
 
     #[test]
-    fn grouped_cards_tell_their_actions_apart() {
-        let group = tool_group("g", &grouped(3), true)
-            .card_action(1, ToolCardAction::new("retry", "Retry"))
-            .card_action(2, ToolCardAction::new("retry", "Retry"));
-        assert!(group.card_actions[0].is_empty());
-        assert_eq!(group.card_actions[1].len(), 1);
-        assert_eq!(group.card_actions[2].len(), 1);
-        // The intent names both the card and the action: card 1's action 0
-        // is a different press from card 2's action 0.
-        let first = ToolGroupIntent::Call {
-            index: 1,
-            intent: ToolCardIntent::Action(0),
-        };
-        let second = ToolGroupIntent::Call {
-            index: 2,
-            intent: ToolCardIntent::Action(0),
-        };
+    fn grouped_calls_tell_their_intents_apart() {
+        let group = tool_group("g", &grouped(3), true).call_unfolded(1, true);
+        assert_eq!(group.calls_unfolded, vec![false, true, false]);
+        let first = ToolGroupIntent::Call { index: 1, intent: ToolCardIntent::Unfold };
+        let second = ToolGroupIntent::Call { index: 2, intent: ToolCardIntent::Unfold };
         assert_ne!(first, second);
-        assert!(matches!(
-            first,
-            ToolGroupIntent::Call {
-                index: 1,
-                intent: ToolCardIntent::Action(0),
-            }
-        ));
-    }
-
-    #[test]
-    fn a_group_with_no_card_actions_stays_empty() {
-        // Nothing registered: every inner card builds exactly as before.
-        let group = tool_group("g", &grouped(2), true);
-        assert!(group.card_actions.iter().all(|actions| actions.is_empty()));
-        let group = tool_group("g", &grouped(2), true).card_actions(5, vec![]);
-        assert!(group.card_actions.iter().all(|actions| actions.is_empty()));
     }
 }

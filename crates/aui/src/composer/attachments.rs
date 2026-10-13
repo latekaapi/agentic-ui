@@ -181,6 +181,7 @@ impl RenderOnce for AttachmentRow {
             (AttachmentRowState::Failed(_), _) => IconName::X,
             (_, AttachmentKind::Image) => IconName::Image,
             (_, AttachmentKind::File | AttachmentKind::Text) => IconName::File,
+            (_, AttachmentKind::Quote) => IconName::Edit,
         });
         let thumb: gpui::AnyElement = match (&self.kind, &self.thumbnail) {
             // A decoded preview replaces the glyph tile, like the composer

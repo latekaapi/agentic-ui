@@ -46,14 +46,13 @@ use gpui::{
 use gpui_kit::base::{h_flex, v_flex};
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd};
 
-use super::code::{CodeBlockAction, CodeBlockHostButton, code_block};
+use super::code::{CodeBlockAction, code_block};
 use super::memo::Memo;
 use super::selectable::{
     clamp_range, selectable_text, MessageSelection, SelectableText, SelectionEndpoint, SelectionHandler,
     SelectionKey, SpanEvent, SpanHandler, TextSelection,
 };
 use super::ProseStyle;
-use crate::data::tag;
 use crate::util::push_usize;
 
 /// How many parsed sources the memo holds before evicting the least recently
@@ -66,18 +65,18 @@ const PARSED_CACHE_CAP: usize = 128;
 /// Markdown from a model never nests this deep; the cap turns adversarial
 /// input into flat text instead of a stack overflow.
 const MAX_NESTING: u8 = 32;
-/// `.a ul{padding-left:18px}` — list markers align with [`prose`](super::prose).
-const LIST_INDENT: f32 = 18.0;
+/// List indent (docs/41 §2.3, the answer boards): the marker column.
+const LIST_INDENT: f32 = 22.0;
 /// Gap after a list block: prose gives lists a 6 px trailing margin where
 /// paragraphs get the full paragraph gap, and the markdown renderer keeps
 /// both so turns that only ever held prose do not move a pixel.
 /// Quote rail inset from the rail.
 const LIST_AFTER_GAP: f32 = 6.0;
-const QUOTE_INDENT: f32 = 12.0;
-/// Table cell padding.
-const CELL_PAD_X: f32 = 12.0;
+const QUOTE_INDENT: f32 = 14.0;
+/// Table cell padding (docs/41 §2.3: 10 / 14, header and body alike).
+const CELL_PAD_X: f32 = 14.0;
 /// Table cell vertical padding.
-const CELL_PAD_Y: f32 = 6.0;
+const CELL_PAD_Y: f32 = 10.0;
 /// Narrowest a table column gets before the table's own horizontal scroll
 /// takes over instead of squeezing the text further.
 const TABLE_MIN_COL: f32 = 96.0;
@@ -85,16 +84,40 @@ const TABLE_MIN_COL: f32 = 96.0;
 const IMAGE_GLYPH: f32 = 16.0;
 /// Link underline thickness.
 const LINK_UNDERLINE: f32 = 1.0;
+/// The underline's alpha over the link ink: the faint step (docs/41 §2.3).
+const LINK_UNDERLINE_ALPHA: f32 = 0.42;
+/// Headings (docs/41 §2.3): h2 is the title role, 20 above and 8 below; h3
+/// the subtitle size, 16 above and 6 below. A heading that opens the answer
+/// has nothing above it.
+const H2_ABOVE: f32 = 20.0;
+const H2_BELOW: f32 = 8.0;
+const H3_ABOVE: f32 = 16.0;
+const H3_BELOW: f32 = 6.0;
+/// A rule keeps 16 above and below.
+const RULE_GAP: f32 = 16.0;
+/// List items sit 2 apart.
+const LIST_ITEM_GAP: f32 = 2.0;
+/// The quote: a 2 px rule at white 12 %, padded 2 / 0 / 2 / 14.
+const QUOTE_RULE: f32 = 2.0;
+const QUOTE_RULE_ALPHA: f32 = 0.12;
+const QUOTE_PAD_Y: f32 = 2.0;
+/// An image: edge to edge in a Raised block, at most 480 tall, its caption
+/// inside at 8 / 12.
+const IMAGE_MAX_H: f32 = 480.0;
+const IMAGE_CAPTION_PAD_Y: f32 = 8.0;
+const IMAGE_CAPTION_PAD_X: f32 = 12.0;
 /// Heading sizes walk down the token ramp so H1 stays under dialog-title
 /// scale; H5/H6 stay at body size and read as headings through weight alone.
 const HEADING_SIZES: [f32; 6] = [
     scale::FS_20,
-    scale::FS_18,
     scale::FS_16,
     scale::FS_14,
     scale::FS_13,
     scale::FS_13,
+    scale::FS_13,
 ];
+/// Heading line heights, px at the design size: h2 24 on 16, h3 22 on 14.
+const HEADING_LH: [f32; 6] = [1.25, 1.5, 22.0 / 14.0, 1.5, 1.5, 1.5];
 /// Extensions that make a `slash/path` token a workspace-path link.
 const PATH_EXTENSIONS: &[&str] = &[
     "rs", "md", "toml", "json", "jsonl", "txt", "py", "ts", "tsx", "js", "css", "html", "yaml",
@@ -987,9 +1010,7 @@ pub(super) fn parsed_blocks(source: &str) -> Arc<Vec<Block>> {
 ///
 /// `index` numbers every fenced or indented code block from 0 in the order
 /// the renderer paints them — quoted fences included — while tables, lists
-/// and inline code never take a number. It is the same index
-/// [`Markdown::fence_action`] takes and [`CodeBlockAction::HostAction`]
-/// reports, so both sides mean the same fence; see [`markdown_fences`].
+/// and inline code never take a number; see [`markdown_fences`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkdownFence {
     /// The fence's number in document order, from 0.
@@ -1000,10 +1021,9 @@ pub struct MarkdownFence {
     pub code: String,
 }
 
-/// Lists `source`'s fenced code blocks in document order for
-/// [`Markdown::fence_action`]: the host reads the fence it cares about here
-/// and hands its button back with the listed index. Memoised through the same
-/// parse the renderer paints, so the list cannot disagree with what is shown.
+/// Lists `source`'s fenced code blocks in document order. Memoised through
+/// the same parse the renderer paints, so the list cannot disagree with what
+/// is shown.
 pub fn markdown_fences(source: &str) -> Vec<MarkdownFence> {
     let mut out = Vec::new();
     collect_fences(&parsed_blocks(source), &mut out);
@@ -1131,9 +1151,12 @@ pub fn span_runs(
                 font: ui.clone(),
                 color: link_ink,
                 background_color: None,
+                // D4: the link in the foreground, its underline faint —
+                // the foreground at 42 % lands on the faint step (#6E6E78)
+                // over the sheet, and stays right in light.
                 underline: Some(UnderlineStyle {
                     thickness: px(LINK_UNDERLINE),
-                    color: Some(link_ink),
+                    color: Some(link_ink.alpha(LINK_UNDERLINE_ALPHA)),
                     wavy: false,
                 }),
                 strikethrough: None,
@@ -1195,6 +1218,8 @@ pub fn last_block_runs(
 #[derive(Clone)]
 struct SelCtx {
     link_ink: Hsla,
+    /// Where relative image paths resolve ([`Markdown::image_root`]).
+    image_root: Option<SharedString>,
     selection: Option<TextSelection>,
     on_change: Option<SelectionHandler>,
     on_link: Option<LinkHandler>,
@@ -1203,19 +1228,14 @@ struct SelCtx {
     span: Option<SpanCtx>,
 }
 
-/// Code-block intents arriving from fences: [`CodeBlockAction`], including
-/// [`HostAction`](CodeBlockAction::HostAction) presses from fence buttons.
+/// Code-block intents arriving from fences ([`CodeBlockAction::Copy`]).
 type FenceCodeHandler = Rc<dyn Fn(CodeBlockAction, &mut Window, &mut App)>;
 
-/// Host actions on fenced code blocks, threaded through block rendering
-/// alongside [`SelCtx`]: the buttons by fence index, and the handler that
-/// receives the fences' [`CodeBlockAction`]s. Empty by default, in which case
-/// every fence renders exactly as before.
+/// Fence state threaded through block rendering alongside [`SelCtx`]: the
+/// handler that receives the fences' [`CodeBlockAction`]s and the running
+/// fence number.
 #[derive(Clone, Default)]
 struct FenceCtx {
-    /// `(fence index, button)` pairs in the order [`Markdown::fence_action`]
-    /// received them; a repeated index resolves to its latest button.
-    buttons: Rc<Vec<(usize, CodeBlockHostButton)>>,
     /// The handler for fence code actions, if the host set one.
     on_action: Option<FenceCodeHandler>,
     /// The next fence number: incremented for every code block in render
@@ -1328,6 +1348,19 @@ fn list_item(
     key: SelectionKey,
     sel: &SelCtx,
 ) -> gpui::AnyElement {
+    list_item_marked(marker, style.ink, spans, style, id, key, sel)
+}
+
+/// [`list_item`] with the marker in `marker_ink` (ordered markers are muted).
+fn list_item_marked(
+    marker: String,
+    marker_ink: Hsla,
+    spans: &[Span],
+    style: &ProseStyle,
+    id: ElementId,
+    key: SelectionKey,
+    sel: &SelCtx,
+) -> gpui::AnyElement {
     h_flex()
         .w_full()
         .items_start()
@@ -1337,7 +1370,7 @@ fn list_item(
                 .w(px(LIST_INDENT))
                 .flex()
                 .justify_center()
-                .text_color(style.ink)
+                .text_color(marker_ink)
                 .child(marker),
         )
         .child(
@@ -1459,14 +1492,35 @@ fn render_blocks(
         if index + 1 == count {
             out.push(child);
         } else {
-            let gap = match block {
-                Block::BulletList(_) | Block::OrderedList { .. } => LIST_AFTER_GAP,
-                _ => style.paragraph_gap,
-            };
-            out.push(div().w_full().mb(px(gap)).child(child).into_any_element());
+            out.push(div().w_full().mb(px(block_gap(block, &blocks[index + 1], style))).child(child).into_any_element());
         }
     }
     out
+}
+
+/// The space between two consecutive blocks (docs/41 §2.3): a heading
+/// keeps its own above and below, a rule 16 each side, a list its short
+/// trailing gap, everything else the paragraph gap.
+fn block_gap(block: &Block, next: &Block, style: &ProseStyle) -> f32 {
+    let above = |b: &Block| match b {
+        Block::Heading { level: 2, .. } => Some(H2_ABOVE),
+        Block::Heading { level: 3, .. } => Some(H3_ABOVE),
+        Block::Rule => Some(RULE_GAP),
+        _ => None,
+    };
+    let below = match block {
+        Block::Heading { level: 2, .. } => Some(H2_BELOW),
+        Block::Heading { level: 3, .. } => Some(H3_BELOW),
+        Block::Rule => Some(RULE_GAP),
+        Block::BulletList(_) | Block::OrderedList { .. } => Some(LIST_AFTER_GAP),
+        _ => None,
+    };
+    match (below, above(next)) {
+        (Some(b), Some(a)) => a.max(b),
+        (Some(b), None) => b,
+        (None, Some(a)) => a,
+        (None, None) => style.paragraph_gap,
+    }
 }
 
 /// Renders one block. `index` keys element ids within the turn; selection
@@ -1489,8 +1543,8 @@ fn render_block(
             sel,
         ),
         Block::Heading { level, spans } => {
-            let size =
-                HEADING_SIZES[(level.saturating_sub(1) as usize).min(HEADING_SIZES.len() - 1)];
+            let step = (level.saturating_sub(1) as usize).min(HEADING_SIZES.len() - 1);
+            let size = HEADING_SIZES[step];
             let (text, mut runs, links) = span_runs(spans, style, sel.link_ink);
             // Headings are uniformly semibold; code spans keep the mono
             // face at its own weight so code still reads as code.
@@ -1515,13 +1569,13 @@ fn render_block(
             div()
                 .w_full()
                 .ui(size)
-                .line_height(relative(scale::LH_TIGHT))
+                .line_height(relative(HEADING_LH[step]))
                 .text_color(style.ink)
                 .child(body)
                 .into_any_element()
         }
         Block::BulletList(items) => {
-            let mut list = v_flex().w_full();
+            let mut list = v_flex().w_full().gap(px(LIST_ITEM_GAP));
             for (n, item) in items.iter().enumerate() {
                 list = list.child(list_item(
                     "•".to_string(),
@@ -1535,10 +1589,13 @@ fn render_block(
             list.into_any_element()
         }
         Block::OrderedList { start, items } => {
-            let mut list = v_flex().w_full();
+            let mut list = v_flex().w_full().gap(px(LIST_ITEM_GAP));
+            let mut muted = *style;
+            muted.ink = palette.ink_2;
             for (n, item) in items.iter().enumerate() {
-                list = list.child(list_item(
+                list = list.child(list_item_marked(
                     format!("{}.", start + n as u64),
+                    muted.ink,
                     item,
                     style,
                     block_item_id(id, index, "li", n),
@@ -1559,18 +1616,8 @@ fn render_block(
             }
             // The counter numbers every code block in render order, so this
             // index is the one `markdown_fences` reports for the same fence:
-            // tables, lists and inline code never touch it. With no button
-            // registered the fence builds exactly as before.
-            let fence_index = fence.next;
+            // tables, lists and inline code never touch it.
             fence.next += 1;
-            if let Some(button) = fence
-                .buttons
-                .iter()
-                .rfind(|(i, _)| *i == fence_index)
-                .map(|(_, button)| button.clone())
-            {
-                fenced = fenced.host_action(fence_index, button);
-            }
             if let Some(on_code) = &fence.on_action {
                 let on_code = on_code.clone();
                 fenced =
@@ -1636,7 +1683,7 @@ fn render_block(
                     .child(head),
             );
             for (r, row) in rows.iter().enumerate() {
-                let mut line = h_flex().w_full();
+                let mut line = h_flex().id(block_cell_id(id, index, Some(r), usize::MAX)).w_full().hover(|d| d.bg(palette.hover_overlay()));
                 for (n, cell) in row.iter().enumerate() {
                     line = line.child(table_cell(
                         cell,
@@ -1655,7 +1702,7 @@ fn render_block(
             }
             // The table scrolls inside its own frame instead of squeezing
             // columns or spilling past the turn.
-            crate::util::raised_block(div().w_full().rounded(px(scale::R_SM)), palette, palette.surface_1)
+            crate::util::raised_block(div().w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), palette, palette.surface_1)
                 .overflow_hidden()
                 .child(div().id(block_id(id, index, "scroll")).w_full().overflow_x_scroll().child(grid))
                 .into_any_element()
@@ -1675,8 +1722,9 @@ fn render_block(
             };
             div()
                 .w_full()
-                .border_l_1()
-                .border_color(palette.line)
+                .border_l(px(QUOTE_RULE))
+                .border_color(if palette.is_dark() { gpui::white().alpha(QUOTE_RULE_ALPHA) } else { gpui::black().alpha(QUOTE_RULE_ALPHA) })
+                .py(px(QUOTE_PAD_Y))
                 .pl(px(QUOTE_INDENT))
                 .children(render_blocks(&nested, inner, &dimmed, palette, &quoted, fence))
                 .into_any_element()
@@ -1686,37 +1734,75 @@ fn render_block(
             .h(px(1.0))
             .bg(palette.line)
             .into_any_element(),
-        Block::Image { alt, url } => {
-            let caption = if alt.is_empty() {
-                "Image"
-            } else {
-                alt.as_str()
-            };
-            crate::util::raised_block(h_flex()
-                .w_full()
-                .items_center()
-                .gap(px(CELL_PAD_X))
-                .rounded(px(scale::R_SM)), palette, palette.surface_2)
-                .px(px(CELL_PAD_X))
-                .py(px(CELL_PAD_Y))
-                .child(
-                    icon(IconName::Image)
-                        .size(px(IMAGE_GLYPH))
-                        .color(palette.ink_3),
-                )
+        Block::Image { alt, url } => image_block(block_id(id, index, "img"), alt, url, sel.image_root.as_deref(), palette),
+    }
+}
+
+/// Where an image's picture comes from: an `http(s)` URL as given, an
+/// absolute path that exists, or a relative path under `root` that exists.
+/// `None` is a picture that cannot be shown, which draws the missing block.
+pub fn resolve_image(url: &str, root: Option<&str>) -> Option<gpui::ImageSource> {
+    if url.starts_with("http://") || url.starts_with("https://") {
+        return Some(gpui::ImageSource::from(SharedString::from(url.to_owned())));
+    }
+    let path = std::path::Path::new(url);
+    let full = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::path::Path::new(root?).join(path)
+    };
+    full.is_file().then(|| gpui::ImageSource::from(full))
+}
+
+/// The image block (docs/41 §2.3): a Raised block, radius 8, the picture
+/// edge to edge (at most 480 tall, cover) with its caption inside in caption
+/// muted. A picture that cannot be loaded keeps the place: the file glyph,
+/// the alt text, the path in faint mono — never a broken image.
+fn image_block(id: ElementId, alt: &str, url: &str, root: Option<&str>, palette: &aui_tokens::Palette) -> gpui::AnyElement {
+    let frame = || {
+        crate::util::raised_block(v_flex().w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), palette, palette.surface_2).overflow_hidden()
+    };
+    let missing = {
+        let (alt, url) = (alt.to_owned(), url.to_owned());
+        let p = *palette;
+        move || -> gpui::AnyElement {
+            crate::util::raised_block(h_flex().w_full().items_start().gap(px(CELL_PAD_X)).rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
+                .px(px(IMAGE_CAPTION_PAD_X + 2.0))
+                .py(px(IMAGE_CAPTION_PAD_X))
+                .child(div().pt(px(2.0)).child(icon(IconName::File).size(px(IMAGE_GLYPH)).color(p.ink_2)))
                 .child(
                     v_flex()
                         .flex_1()
                         .min_w(px(0.0))
-                        .ui(scale::FS_12)
-                        .line_height(relative(scale::LH_UI))
-                        .text_color(palette.ink_2)
-                        .child(div().w_full().truncate().child(caption.to_string()))
-                        .child(tag(url.clone())),
+                        .child(div().w_full().truncate().ui(scale::FS_13).text_color(p.ink).child(if alt.is_empty() { "Image".to_owned() } else { alt.clone() }))
+                        .child(div().w_full().truncate().mono(scale::FS_11).text_color(p.ink_4).child(format!("{url} · not available"))),
                 )
                 .into_any_element()
         }
+    };
+    let Some(source) = resolve_image(url, root) else {
+        return missing();
+    };
+    let fallback = missing.clone();
+    let mut block = frame().id(id).child(
+        gpui::img(source)
+            .object_fit(gpui::ObjectFit::Cover)
+            .w_full()
+            .max_h(px(IMAGE_MAX_H))
+            .with_fallback(move || fallback()),
+    );
+    if !alt.is_empty() {
+        block = block.child(
+            div()
+                .w_full()
+                .px(px(IMAGE_CAPTION_PAD_X))
+                .py(px(IMAGE_CAPTION_PAD_Y))
+                .ui(scale::FS_12)
+                .text_color(palette.ink_2)
+                .child(alt.to_owned()),
+        );
     }
+    block.into_any_element()
 }
 
 /// A markdown block column. Build with [`markdown`].
@@ -1730,8 +1816,8 @@ pub struct Markdown {
     on_selection_change: Option<SelectionHandler>,
     span: Option<MessageSelection>,
     on_span: Option<SpanHandler>,
-    fence_buttons: Vec<(usize, CodeBlockHostButton)>,
     on_code_action: Option<FenceCodeHandler>,
+    image_root: Option<SharedString>,
     settled: bool,
 }
 
@@ -1750,8 +1836,8 @@ pub fn markdown(
         on_selection_change: None,
         span: None,
         on_span: None,
-        fence_buttons: Vec::new(),
         on_code_action: None,
+        image_root: None,
         settled: false,
     }
 }
@@ -1815,23 +1901,15 @@ impl Markdown {
         self
     }
 
-    /// Puts the host's button on fence `index` — the fence's number in
-    /// document order from 0, as [`markdown_fences`] lists them — after the
-    /// fence's Copy control. Which fences get a button is the host's call;
-    /// the library only offers the slot. A repeated index keeps its latest
-    /// button. Fences with no button render exactly as before.
-    pub fn fence_action(mut self, index: usize, button: CodeBlockHostButton) -> Self {
-        if let Some(slot) = self.fence_buttons.iter_mut().rfind(|(i, _)| *i == index) {
-            *slot = (index, button);
-        } else {
-            self.fence_buttons.push((index, button));
-        }
+    /// Where relative image paths resolve: the session's workspace. Without
+    /// one only absolute paths and URLs can show a picture.
+    pub fn image_root(mut self, root: Option<SharedString>) -> Self {
+        self.image_root = root;
         self
     }
 
-    /// Code-block intents from the fences: pressing a fence button emits
-    /// [`CodeBlockAction::HostAction`] with the fence's index, language and
-    /// code, so the host can tell which fence was pressed and act on it.
+    /// Code-block intents from the fences: a copy reports
+    /// [`CodeBlockAction::Copy`] after the clipboard write.
     pub fn on_code_action(
         mut self,
         f: impl Fn(CodeBlockAction, &mut Window, &mut App) + 'static,
@@ -2268,6 +2346,7 @@ impl RenderOnce for Markdown {
         });
         let sel = SelCtx {
             link_ink: palette.accent,
+            image_root: self.image_root.clone(),
             selection: self.selection.clone(),
             on_change: self.on_selection_change.clone(),
             on_link: self.on_link.clone(),
@@ -2276,7 +2355,6 @@ impl RenderOnce for Markdown {
             span,
         };
         let mut fence = FenceCtx {
-            buttons: Rc::new(self.fence_buttons.clone()),
             on_action: self.on_code_action.clone(),
             next: 0,
         };
@@ -2737,26 +2815,6 @@ mod tests {
                 code: "print('two')".to_string(),
             }
         );
-        // The press intent the renderer builds for fence 1 carries that same
-        // fence's language and code, so the host knows which fence was hit.
-        let pressed = CodeBlockAction::HostAction {
-            index: fences[1].index,
-            language: fences[1].language.clone().map(SharedString::from),
-            code: SharedString::from(fences[1].code.clone()),
-        };
-        let CodeBlockAction::HostAction {
-            index,
-            language,
-            code,
-        } = pressed
-        else {
-            panic!("expected a host action");
-        };
-        assert_eq!(index, 1);
-        assert_eq!(language.map(|l| l.to_string()).as_deref(), Some("python"));
-        assert_eq!(code.to_string(), "print('two')");
-        assert_ne!(index, fences[0].index);
-        assert_ne!(index, fences[2].index);
     }
 
     #[test]
@@ -2839,15 +2897,4 @@ mod tests {
         assert!(markdown_fences_settled(source, false).is_empty());
     }
 
-    #[test]
-    fn a_fence_with_no_button_carries_none() {
-        // No fence action registered: the view holds no buttons and no code
-        // handler, so every fence builds exactly as before.
-        let view = markdown("fence-default", "```sh\necho hi\n```\n", style());
-        assert!(view.fence_buttons.is_empty());
-        assert!(view.on_code_action.is_none());
-        let view = view.fence_action(1, CodeBlockHostButton::new("Press", IconName::Copy));
-        assert_eq!(view.fence_buttons.len(), 1);
-        assert!(view.fence_buttons.iter().all(|(i, _)| *i != 0));
-    }
 }

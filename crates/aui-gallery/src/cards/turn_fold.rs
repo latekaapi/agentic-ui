@@ -28,7 +28,7 @@ fn read_call(id: &str, target: &str) -> ToolCall {
         target: target.into(),
         status: ToolStatus::Success,
         duration_ms: Some(120),
-        body: ToolBody::Read { lines: 180 },
+        body: ToolBody::Read { lines: 180, output_lines: Vec::new() },
         diff_stat: None,
     }
 }
@@ -116,7 +116,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             turn_fold("qf-fold", 134_000, 12, 3, 5)
                 .diff_stat(Some(DiffStat { added: 48, removed: 12, files: 3 }))
                 .open(current[0])
-                .child(tool_card("qf-fold-call", "Read", "src/checkout/validators.ts", ToolStatus::Success, ToolBody::Read { lines: 180 }).open(false))
+                .child(tool_card("qf-fold-call", "Read", "src/checkout/validators.ts", ToolStatus::Success, ToolBody::Read { lines: 180, output_lines: Vec::new() }).open(false))
                 .on_intent(move |intent, _, cx| {
                     if intent == TurnFoldIntent::Toggle {
                         toggle_fold(cx);
@@ -127,7 +127,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             turn_fold("qf-fold-open", 74_000, 6, 1, 2)
                 .open(current[1])
                 .child(div().ui(scale::FS_12).text_color(p.ink_2).child("Checking the existing form flow, then patching the validator."))
-                .child(tool_card("qf-fold-call2", "Read", "src/checkout/validators.ts", ToolStatus::Success, ToolBody::Read { lines: 180 }).open(false))
+                .child(tool_card("qf-fold-call2", "Read", "src/checkout/validators.ts", ToolStatus::Success, ToolBody::Read { lines: 180, output_lines: Vec::new() }).open(false))
                 .on_intent(move |intent, _, cx| {
                     if intent == TurnFoldIntent::Toggle {
                         toggle_fold_open(cx);
@@ -137,7 +137,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(
             live_activity_row("qf-live", "Reading", "crates/baaz/src/app.rs", 4, 14_000)
                 .open(current[2])
-                .child(tool_card("qf-live-call", "Read", "crates/baaz/src/app.rs", ToolStatus::Running, ToolBody::Read { lines: 40 }).open(false))
+                .child(tool_card("qf-live-call", "Read", "crates/baaz/src/app.rs", ToolStatus::Running, ToolBody::Read { lines: 40, output_lines: Vec::new() }).open(false))
                 .on_toggle(move |_, _, cx| toggle_live(cx)),
         )
         .child(

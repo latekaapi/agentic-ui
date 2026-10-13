@@ -150,9 +150,22 @@ pub struct Attachment {
     pub meta: Option<String>,
     /// Upload progress for the chip's overlay.
     pub state: UploadState,
+    /// Where the file is on disk: an image's or video's picture for the
+    /// 64 px tile, a file to reveal on click. `None` when the host kept no
+    /// path (a chip drawn from a name alone).
+    ///
+    /// Additive: defaults to `None` when absent from serialized data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// For a [`AttachmentKind::Quote`]: the id of the turn the words were
+    /// quoted from, so a click on the quote can scroll back to its source.
+    ///
+    /// Additive: defaults to `None` when absent from serialized data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote_of: Option<String>,
 }
 
-/// The three attachment shapes the composer accepts.
+/// The attachment shapes the composer accepts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttachmentKind {
@@ -162,6 +175,10 @@ pub enum AttachmentKind {
     File,
     /// A pasted text snippet promoted to an attachment.
     Text,
+    /// Words quoted from an answer (D4 quotation): `name` holds the quoted
+    /// text, [`Attachment::quote_of`] the turn it came from. Sent, it draws
+    /// as the quote block at the top of the person's bubble.
+    Quote,
 }
 
 /// Where an attachment is in its upload.

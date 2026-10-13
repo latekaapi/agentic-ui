@@ -120,10 +120,16 @@ pub enum ToolBody {
         /// `true` while output is still arriving, which shows the "live" pill.
         live: bool,
     },
-    /// A file read; the header alone carries the information.
+    /// A file read: the header carries the count; opened, the card shows
+    /// what was read on the Well (D4, docs/41 §2.5).
     Read {
         /// Number of lines read.
         lines: usize,
+        /// What the read returned, as the wire showed it (`visibleOutput`),
+        /// oldest first. Empty when the provider sent no text: the card is
+        /// then a header alone.
+        #[serde(default)]
+        output_lines: Vec<String>,
     },
     /// A unified diff of an edit or a new file.
     Edit {
@@ -250,7 +256,7 @@ mod tests {
             target: "src/main.rs".into(),
             status: ToolStatus::Success,
             duration_ms: Some(4),
-            body: ToolBody::Read { lines: 12 },
+            body: ToolBody::Read { lines: 12, output_lines: Vec::new() },
             diff_stat: None,
         }
     }
