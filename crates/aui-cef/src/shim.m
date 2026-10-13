@@ -144,11 +144,17 @@ void aui_cef_set_corner_radius(void *child_root_view, double radius) {
 
 // Cuts `n` rounded holes (x, y, w, h, radius — the page's own coordinates,
 // top-left origin, points) through the page window, so host chrome drawn
-// under it shows through and takes the clicks there: the closed shell's pills
+// under it shows through and takes the clicks there: the closed shell's strip
 // and its peek card float over the live page (v3, docs/31 §9). A fully
 // transparent pixel of a non-opaque window passes the click to the window
 // below. n = 0 removes the mask. No implicit animation: the mask follows the
 // host's frames exactly.
+//
+// One mask layer per hole, chained through each layer's own `mask`: masks
+// multiply, so the cut is the UNION of the holes. A single even-odd path
+// cannot do that — where two holes overlap the parity flips back to filled,
+// and the strip's hole nested inside the peek card's hole showed the page
+// through the strip (owner screenshot 2026-10-13).
 void aui_cef_set_holes(void *child_root_view, const double *rects, int n) {
   NSWindow *cw = window_of(child_root_view);
   if (!cw) return;
@@ -165,21 +171,29 @@ void aui_cef_set_holes(void *child_root_view, const double *rects, int n) {
     // The view's bounds, not the layer's: the window was just placed, and the
     // view's size is current while the layer's can trail by a frame.
     CGRect b = cv.bounds;
-    CGMutablePathRef path = CGPathCreateMutable();
-    CGPathAddRect(path, NULL, b);
+    CALayer *parent = cv.layer;
+    int cut = 0;
     for (int i = 0; i < n; i++) {
       double x = rects[i * 5], y = rects[i * 5 + 1], w = rects[i * 5 + 2], h = rects[i * 5 + 3], r = rects[i * 5 + 4];
       if (w <= 0 || h <= 0) continue;
       double fy = cv.isFlipped ? y : b.size.height - y - h;
       double rr = fmin(r, fmin(w, h) / 2.0);
+      CGMutablePathRef path = CGPathCreateMutable();
+      CGPathAddRect(path, NULL, b);
       CGPathAddRoundedRect(path, NULL, CGRectMake(x, fy, w, h), rr, rr);
+      // Reuse the layer already at this link of the chain, else make one.
+      CAShapeLayer *mask = [parent.mask isKindOfClass:[CAShapeLayer class]] ? (CAShapeLayer *)parent.mask : [CAShapeLayer layer];
+      mask.frame = b;
+      mask.fillRule = kCAFillRuleEvenOdd;
+      mask.path = path;
+      CGPathRelease(path);
+      parent.mask = mask;
+      parent = mask;
+      cut++;
     }
-    CAShapeLayer *mask = [cv.layer.mask isKindOfClass:[CAShapeLayer class]] ? (CAShapeLayer *)cv.layer.mask : [CAShapeLayer layer];
-    mask.frame = b;
-    mask.fillRule = kCAFillRuleEvenOdd;
-    mask.path = path;
-    CGPathRelease(path);
-    cv.layer.mask = mask;
+    // Drop the links a shorter list no longer needs; none cut at all means
+    // no mask.
+    if (cut == 0) cv.layer.mask = nil; else parent.mask = nil;
   }
   [CATransaction commit];
 }
