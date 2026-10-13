@@ -54,12 +54,13 @@ pub struct ToastChip {
     action: Option<(SharedString, ClickHandler)>,
     on_close: Option<ClickHandler>,
     present: bool,
+    at_rest: bool,
 }
 
 /// A toast: the dot (8, in its tone), the title 600, the body muted
 /// (truncating), `+n` when more wait, an optional text action and ✕.
 pub fn toast_chip(id: impl Into<ElementId>, tone: ToastTone, title: impl Into<SharedString>, body: impl Into<SharedString>) -> ToastChip {
-    ToastChip { id: id.into(), tone, title: title.into(), body: body.into(), queued: 0, action: None, on_close: None, present: true }
+    ToastChip { id: id.into(), tone, title: title.into(), body: body.into(), queued: 0, action: None, on_close: None, present: true, at_rest: false }
 }
 
 impl ToastChip {
@@ -84,6 +85,12 @@ impl ToastChip {
     /// Whether it is on screen; `false` plays the 0.12 s leave.
     pub fn present(mut self, present: bool) -> Self {
         self.present = present;
+        self
+    }
+
+    /// Drawn settled, without the enter (deterministic captures).
+    pub fn at_rest(mut self, at_rest: bool) -> Self {
+        self.at_rest = at_rest;
         self
     }
 }
@@ -111,7 +118,11 @@ impl RenderOnce for ToastChip {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let style = PresenceStyle::fade_rise(presence((id.clone(), "enter"), self.present, TOAST_TIMING, window, cx), TOAST_RISE);
+        let style = if self.at_rest {
+            PresenceStyle { opacity: 1.0, offset_y: px(0.0), scale: 1.0 }
+        } else {
+            PresenceStyle::fade_rise(presence((id.clone(), "enter"), self.present, TOAST_TIMING, window, cx), TOAST_RISE)
+        };
         let dot = match self.tone {
             ToastTone::Success => p.success,
             ToastTone::Warning => p.warning,

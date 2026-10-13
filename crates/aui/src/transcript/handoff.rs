@@ -158,6 +158,24 @@ pub fn handoff_pill_text(state: &HandoffState) -> SharedString {
     }
 }
 
+/// The hand-off marker (D4, docs/41 §2.8; the owner retired the hand-off
+/// card, 2026-10-13): both provider marks with an arrow, then where the move
+/// is. A host that can open the new session adds the link with
+/// [`MarkerRow::link`](crate::transcript::MarkerRow::link) ("Open the new
+/// session") once it exists.
+pub fn handoff_marker(id: impl Into<ElementId>, from: WireProvider, to: WireProvider, to_model: &str, state: &HandoffState) -> crate::transcript::MarkerRow {
+    let name = |p: WireProvider| crate::composer::provider_display_name(mark(p));
+    let row = crate::transcript::marker_row(id).hand_off(crate::transcript::HandOff { from: (mark(from), name(from)), to: (mark(to), name(to)) });
+    let to_name = name(to);
+    let model = if to_model.trim().is_empty() { String::new() } else { format!(" · {to_model}") };
+    match state {
+        HandoffState::Activated => row.text(format!("Handed off to {to_name}{model} ·")),
+        HandoffState::Refused { reason } | HandoffState::Failed { reason } => row.text(format!("Hand-off to {to_name} failed · {reason}")),
+        HandoffState::Cancelled => row.text(format!("Hand-off to {to_name} cancelled")),
+        _ => row.text(format!("Handing off to {to_name}{model}…")),
+    }
+}
+
 /// Maps the wire provider onto its coloured mark.
 fn mark(provider: WireProvider) -> IconProvider {
     match provider {

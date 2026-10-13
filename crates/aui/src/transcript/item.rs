@@ -39,13 +39,9 @@ pub const GENERIC_BODY_CAP: usize = 40;
 pub enum GenericItemIntent {
     /// Toggle the body between preview and capped full text.
     Toggle,
-    /// Show the whole text elsewhere (the host's pane/doc view): the
-    /// `Open full text` control in the expanded fold row.
-    OpenFull,
 }
 
 type IntentHandler = std::rc::Rc<dyn Fn(GenericItemIntent, &mut Window, &mut App)>;
-type OpenFullHandler = std::rc::Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// The fallback card for an unknown item kind. Build with
 /// [`generic_item_card`].
@@ -57,7 +53,6 @@ pub struct GenericItemCard {
     text: SharedString,
     open: bool,
     on_intent: Option<IntentHandler>,
-    on_open_full: Option<OpenFullHandler>,
 }
 
 /// The kind name, the item's status and the server's `fallbackText`.
@@ -66,10 +61,9 @@ pub struct GenericItemCard {
 /// for a kind it does not model would be guessing at the provider's meaning.
 /// Collapsed by default (chevron, header + [`GENERIC_PREVIEW_LINES`] preview
 /// lines); expanded the body is capped at [`GENERIC_BODY_CAP`] lines with an
-/// `N more lines` row and an `Open full text` control the host wires with
-/// [`GenericItemCard::on_open_full`].
+/// `N more lines` row that unfolds the rest in place.
 pub fn generic_item_card(id: impl Into<ElementId>, kind: impl Into<SharedString>, status: impl Into<SharedString>, text: impl Into<SharedString>) -> GenericItemCard {
-    GenericItemCard { id: id.into(), kind: kind.into(), status: status.into(), text: text.into(), open: false, on_intent: None, on_open_full: None }
+    GenericItemCard { id: id.into(), kind: kind.into(), status: status.into(), text: text.into(), open: false, on_intent: None }
 }
 
 impl GenericItemCard {
@@ -80,20 +74,9 @@ impl GenericItemCard {
         self
     }
 
-    /// Intent handler: [`GenericItemIntent::Toggle`] for the header, and
-    /// [`GenericItemIntent::OpenFull`] for the fold row's `Open full text`.
+    /// Intent handler: [`GenericItemIntent::Toggle`] for the header.
     pub fn on_intent(mut self, f: impl Fn(GenericItemIntent, &mut Window, &mut App) + 'static) -> Self {
         self.on_intent = Some(std::rc::Rc::new(f));
-        self
-    }
-
-    /// The `Open full text` hook: called with the window and app context when
-    /// the expanded fold row's control is pressed, so the host can show the
-    /// whole text in its own pane. Takes precedence over [`Self::on_intent`]
-    /// for [`GenericItemIntent::OpenFull`]; the header toggle always reports
-    /// [`GenericItemIntent::Toggle`] through `on_intent`.
-    pub fn on_open_full(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.on_open_full = Some(std::rc::Rc::new(f));
         self
     }
 }

@@ -152,7 +152,6 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(
             generic_item_card("qf-generic-open", "Artifact", "completed", long_text(50, "quickstart"))
                 .open(current[4])
-                .on_open_full(|_, _| {})
                 .on_intent(move |intent, _, cx| {
                     if intent == GenericItemIntent::Toggle {
                         toggle_generic_open(cx);

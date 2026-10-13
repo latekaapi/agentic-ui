@@ -664,7 +664,7 @@ impl RenderOnce for UserTurn {
             bubble = bubble.w_full().child(annotation_body(&p, &id, batch, 600.0));
         } else {
             bubble = bubble.child({
-                let mut body = markdown((id.clone(), "text"), self.markdown.clone(), prose_style(&p, BUBBLE_TEXT, scale::LH_UI, p.surface_3, p.accent_ink));
+                let mut body = markdown((id.clone(), "text"), self.markdown.clone(), prose_style(&p, BUBBLE_TEXT, scale::LH_UI, p.line, p.accent_ink));
                 // A user message is complete by definition: a settled
                 // whole-JSON message draws its `json` code block.
                 body = body.settled(true);
@@ -1001,7 +1001,7 @@ impl RenderOnce for AssistantTurn {
         let (state, flags) = interaction_flags(id.clone(), window, cx);
         let rail_opacity = reveal(&id, "rail", flags.hovered, window, cx);
 
-        let style = prose_style(&p, BODY_TEXT, BODY_LH, p.selected_overlay(), p.ink);
+        let style = prose_style(&p, BODY_TEXT, BODY_LH, p.line, p.ink);
         // gpui text hosts no inline elements, so the caret is an absolutely
         // positioned sibling of the prose: last frame's prose bounds give the
         // wrap width, the last paragraph is re-shaped with the same runs the

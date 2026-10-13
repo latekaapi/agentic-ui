@@ -102,6 +102,13 @@ pub enum WebviewIntent {
         screenshot: Option<Vec<u8>>,
         /// The page they were taken on.
         url: String,
+        /// Where each pin sits on the page (its element's top-right), in
+        /// the page's own points, in annotation order; `None` for an
+        /// element the page could not locate.
+        pins: Vec<Option<(f32, f32)>>,
+        /// The page's size in the same points, which places the pins on the
+        /// screenshot.
+        page_size: (f32, f32),
     },
 }
 
@@ -1181,6 +1188,8 @@ impl WebviewState {
                 annotations: self.annotations.clone(),
                 screenshot: self.screenshot.clone(),
                 url: self.url.to_string(),
+                pins: self.elements.iter().map(|info| info.as_ref().map(|info| (info.origin.0 + info.size.0, info.origin.1))).collect(),
+                page_size: (f32::from(self.page_size.width), f32::from(self.page_size.height)),
             }),
         }
     }

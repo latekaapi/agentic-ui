@@ -65,8 +65,9 @@ const PARSED_CACHE_CAP: usize = 128;
 /// Markdown from a model never nests this deep; the cap turns adversarial
 /// input into flat text instead of a stack overflow.
 const MAX_NESTING: u8 = 32;
-/// List indent (docs/41 §2.3, the answer boards): the marker column.
-const LIST_INDENT: f32 = 22.0;
+/// List indent (docs/41 §2.3): the marker column — 24, the owner's one
+/// answer rhythm (line 23 / paragraph 12 / indent 24, 2026-10-14).
+const LIST_INDENT: f32 = 24.0;
 /// Gap after a list block: prose gives lists a 6 px trailing margin where
 /// paragraphs get the full paragraph gap, and the markdown renderer keeps
 /// both so turns that only ever held prose do not move a pixel.

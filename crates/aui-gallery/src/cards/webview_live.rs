@@ -181,7 +181,7 @@ mod real {
                 // host. `SendAnnotations` carries the PNG, so it is summarised
                 // rather than debug-printed.
                 match &intent {
-                    WebviewIntent::SendAnnotations { annotations, screenshot, url } => eprintln!(
+                    WebviewIntent::SendAnnotations { annotations, screenshot, url, .. } => eprintln!(
                         "aui-gallery: send {} annotation(s) from {url} with {}",
                         annotations.len(),
                         match screenshot {

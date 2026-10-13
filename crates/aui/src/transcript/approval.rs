@@ -300,8 +300,14 @@ impl ApprovalCard {
     fn choices_row(self, id: ElementId, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let count = self.choices.len();
-        let hints = if count > 1 { format!("1–{} choose · ⎋ deny", count.min(9)) } else { "1 choose · ⎋ deny".to_owned() };
         let primary = self.choices.iter().position(|c| matches!(c.decision, ApprovalDecision::Once | ApprovalDecision::ApprovedForSession));
+        // ⏎ takes the approving choice where there is one; the digits pick
+        // any.
+        let hints = match primary {
+            Some(_) => "⏎ allow · ⎋ deny".to_owned(),
+            None if count > 1 => format!("1–{} choose · ⎋ deny", count.min(9)),
+            None => "1 choose · ⎋ deny".to_owned(),
+        };
         let mut buttons: Vec<AnyElement> = Vec::new();
         for (index, choice) in self.choices.iter().enumerate() {
             let kind = if Some(index) == primary { ControlKind::Primary } else { ControlKind::Text };
