@@ -1,9 +1,9 @@
 //! `shell/v3`: the v3 shell (canvas "Baaz v3" v9, harness docs/31 §9; chrome
 //! revised 2026-10-12) as a window the owner can drive — Sessions and
-//! Browse, sidebar open and closed, the corner tabs, the peek. The lights,
-//! the toggle and the switch never move: click the toggle to close and
-//! open; the switch changes mode; with the sidebar closed, rest the pointer
-//! on the toggle (or the window's left edge) to peek.
+//! Browse, sidebar open and closed, the pill, the peek. The lights, the
+//! toggle and the switch never move: click the toggle to close and open;
+//! the switch changes mode; with the sidebar closed, rest the pointer on
+//! the pill (or the window's left edge) to peek the sidebar.
 //!
 //! The transcript is the canvas's own fixture (harness
 //! `fixtures/msp/synthetic-markdown.jsonl`) through the real turn
@@ -24,7 +24,7 @@ use aui::nav::sidebar_list_state;
 use aui::screens::sidebar::{mode_switch, sample_model, screen_item_count, sidebar_screen, Mode, SIDEBAR_WIDTH};
 use aui::shell::app_shell;
 use aui::transcript::{assistant_turn, user_turn};
-use aui_icons::{icon, IconName, Provider};
+use aui_icons::{IconName, Provider};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, AnyElement, App, Entity, IntoElement, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -143,31 +143,10 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     };
     let session_actions = || h_flex().gap(px(2.0)).child(action("v3-term", IconName::Terminal, "Terminal")).child(action("v3-menu", IconName::Dots, "Session menu")).child(action("v3-right", IconName::PanelRight, "Show right pane"));
 
-    // The closed-only chrome: the title, or Browse's page controls and
-    // address at rest; the right tab's actions.
-    let (closed_only, right): (AnyElement, AnyElement) = if browse {
-        let sep = div().w(px(1.0)).h(px(16.0)).mx(px(6.0)).bg(p.line);
-        let address = h_flex()
-            .h(cx.aui().metrics.control_md)
-            .pl(px(8.0))
-            .pr(px(10.0))
-            .gap(px(8.0))
-            .items_center()
-            .whitespace_nowrap()
-            .text_px(scale::FS_13)
-            .text_color(p.fg_muted)
-            .child(icon(IconName::Shield).size(px(14.0)).color(p.fg_muted))
-            .child(div().semibold().text_color(p.fg).child("Fluid Functionalism"))
-            .child("www.fluidfunctionalism.com");
-        (
-            h_flex().items_center().child(sep).child(action("v3-back", IconName::ArrowLeft, "Back")).child(action("v3-fwd", IconName::ArrowRight, "Forward")).child(action("v3-reload", IconName::Refresh, "Reload")).child(address).into_any_element(),
-            h_flex().gap(px(2.0)).child(action("v3-ask", IconName::Sparkle, "Ask")).child(action("v3-page-menu", IconName::Dots, "Page menu")).child(action("v3-new-tab", IconName::Plus, "New tab")).into_any_element(),
-        )
+    let right: AnyElement = if browse {
+        h_flex().gap(px(2.0)).child(action("v3-ask", IconName::Sparkle, "Ask")).child(action("v3-page-menu", IconName::Dots, "Page menu")).child(action("v3-new-tab", IconName::Plus, "New tab")).into_any_element()
     } else {
-        (
-            div().ml(px(2.0)).whitespace_nowrap().text_px(scale::FS_13).semibold().text_color(p.fg).child(TITLE).into_any_element(),
-            session_actions().into_any_element(),
-        )
+        session_actions().into_any_element()
     };
 
     let centre = if browse {
@@ -187,7 +166,6 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .chrome_lead(toggle("v3-toggle", if s.open { "Hide sidebar" } else { "Show sidebar" }))
         .chrome_switch(switch)
         .chrome_title(title_row)
-        .chrome_closed(closed_only)
         .chrome_right(right)
         .centre(centre);
     div().w(px(1440.0)).h(px(900.0)).child(shell).into_any_element()

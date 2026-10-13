@@ -7,14 +7,12 @@
 //! line; the right pane is a second sheet beside it.
 //!
 //! Closing removes the column; the sheet grows into the space. What stays is
-//! the chrome row, now a **pill**: 32 tall, 6 px in from the corner, on
-//! Floating with the one edge, holding exactly lights · toggle · switch at
-//! the x and y they had open. Resting the pointer on it extends it to the
-//! right with the title (Browse: the page controls and address) on FF
-//! `moderate`, and brings the actions in as a second pill at the top right;
-//! both go 250 ms after the pointer leaves. A 150 ms rest on the toggle (or
-//! the window's left strip) peeks the sidebar as a Floating card behind the
-//! pill.
+//! the chrome row, now a **pill**: 32 tall, 6 px in from the corner, the
+//! frame's own colour with no edge and no drop (a surface under everything
+//! else), holding exactly lights · toggle · switch at the x and y they had
+//! open. A 150 ms rest on the pill, the toggle or the window's left strip
+//! peeks the whole sidebar as a Floating card behind the pill; after a
+//! toggle the peek waits for the pointer to leave and come back.
 //!
 //! Motion (Emil Kowalski's rules, owner 2026-10-13: smooth or none): the
 //! column opens and closes on an ease-out tween, 260 / 220 ms, the panel
@@ -84,20 +82,8 @@ pub const SHEET_FADE_CLOSED: f32 = 92.0;
 pub const CHROME_LEAD: f32 = 84.0;
 /// The mode switch ends this far before the sidebar's right edge.
 pub const CHROME_SWITCH_INSET: f32 = 12.0;
-/// The closed pill: height (centred on the lights' line), inner padding of
-/// the actions pill, how far the hovered pill extends for the title, the gap
-/// between the switch and the revealed title, and the title's end cap.
+/// The closed pill's height, centred on the lights' line.
 pub const PILL_H: f32 = 32.0;
-/// See [`PILL_H`].
-pub const PILL_PAD: f32 = 4.0;
-/// See [`PILL_H`].
-pub const PILL_REVEAL_W: f32 = 420.0;
-/// See [`PILL_H`].
-pub const PILL_REVEAL_GAP: f32 = 10.0;
-/// See [`PILL_H`].
-pub const PILL_END_INSET: f32 = 14.0;
-/// The pill keeps its reveal this long after the pointer leaves it.
-const PILL_LINGER: std::time::Duration = std::time::Duration::from_millis(250);
 /// Depth (docs/37): the sheet's contact shadow onto the frame beside the
 /// open sidebar — width, and its strength at the sheet's edge per theme.
 pub const CONTACT_W: f32 = 20.0;
@@ -138,7 +124,6 @@ pub struct AppShell {
     page_sheet: bool,
     animate: bool,
     peek_open: bool,
-    pill_revealed: bool,
     header_right: Option<AnyElement>,
     sidebar: Option<AnyElement>,
     centre: Option<AnyElement>,
@@ -147,7 +132,6 @@ pub struct AppShell {
     chrome_lead: Option<AnyElement>,
     chrome_switch: Option<AnyElement>,
     chrome_title: Option<AnyElement>,
-    chrome_closed: Option<AnyElement>,
     chrome_right: Option<AnyElement>,
     on_overlay_bounds: Option<OverlayBoundsHandler>,
 }
@@ -179,7 +163,6 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         page_sheet: false,
         animate: true,
         peek_open: false,
-        pill_revealed: false,
         header_right: None,
         sidebar: None,
         centre: None,
@@ -188,7 +171,6 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         chrome_lead: None,
         chrome_switch: None,
         chrome_title: None,
-        chrome_closed: None,
         chrome_right: None,
         on_overlay_bounds: None,
     }
@@ -294,13 +276,6 @@ impl AppShell {
         self
     }
 
-    /// Holds the closed pill's reveal (the title and the actions pill) open
-    /// with no hover — a scripting and capture aid.
-    pub fn pill_revealed(mut self, on: bool) -> Self {
-        self.pill_revealed = on;
-        self
-    }
-
     /// Reports the chrome's rects over the sheet every frame they paint
     /// (see [`OverlayBoundsHandler`]); an empty list when none shows.
     pub fn on_overlay_bounds(mut self, f: impl Fn(Vec<(gpui::Bounds<Pixels>, Pixels)>, &mut Window, &mut App) + 'static) -> Self {
@@ -324,22 +299,14 @@ impl AppShell {
         self
     }
 
-    /// The title: open, the sheet's own title row (at 16 from the sheet's
-    /// left); closed, revealed when the pointer rests on the pill.
+    /// The title, in the sheet's own title row (at 16 from the sheet's
+    /// left) while the sidebar is open.
     pub fn chrome_title(mut self, el: impl IntoElement) -> Self {
         self.chrome_title = Some(el.into_any_element());
         self
     }
 
-    /// Closed-only content in the title's slot — Browse's page controls and
-    /// address at rest, revealed when the pointer rests on the pill.
-    pub fn chrome_closed(mut self, el: impl IntoElement) -> Self {
-        self.chrome_closed = Some(el.into_any_element());
-        self
-    }
-
-    /// The actions: open, at the sheet row's right; closed, the second pill
-    /// at the top right that the first pill's reveal brings in.
+    /// The actions, at the sheet row's right while the sidebar is open.
     pub fn chrome_right(mut self, el: impl IntoElement) -> Self {
         self.chrome_right = Some(el.into_any_element());
         self
@@ -437,16 +404,20 @@ struct ShellState {
     /// may never surface. The pills likewise.
     lead_bounds: Option<gpui::Bounds<Pixels>>,
     pill_bounds: Option<gpui::Bounds<Pixels>>,
-    actions_bounds: Option<gpui::Bounds<Pixels>>,
-    /// The pointer rests on the pill or the actions pill; when it last left.
+    /// The pointer rests on the pill.
     pill: bool,
-    pill_left_at: Option<std::time::Instant>,
+    /// The host's open flag as last seen, and whether a close happened with
+    /// the pointer still on the toggle / pill / strip: the peek then waits
+    /// for the pointer to leave and come back.
+    open_seen: bool,
+    wait_for_leave: bool,
 }
 
 #[derive(Clone, Copy)]
 enum HoverSource {
     Strip,
     Lead,
+    Pill,
     Card,
 }
 
@@ -456,13 +427,14 @@ impl ShellState {
     /// so moving between the toggle, the strip and the card never resets
     /// either.
     fn set_hover(&mut self, source: HoverSource, hovered: bool, now: std::time::Instant) {
-        let before = self.strip || self.lead || self.card;
+        let before = self.strip || self.lead || self.pill || self.card;
         match source {
             HoverSource::Strip => self.strip = hovered,
             HoverSource::Lead => self.lead = hovered,
+            HoverSource::Pill => self.pill = hovered,
             HoverSource::Card => self.card = hovered,
         }
-        let after = self.strip || self.lead || self.card;
+        let after = self.strip || self.lead || self.pill || self.card;
         if !before && after {
             self.since = Some(now);
             self.left_at = None;
@@ -479,7 +451,7 @@ impl RenderOnce for AppShell {
         let p = cx.aui().colors;
         let row_h = cx.aui().metrics.header;
         let id = shell.id.clone();
-        let state = window.use_keyed_state((id.clone(), "shell"), cx, |_, _| ShellState { column: if shell.sidebar_open { 1.0 } else { 0.0 }, ..Default::default() });
+        let state = window.use_keyed_state((id.clone(), "shell"), cx, |_, _| ShellState { column: if shell.sidebar_open { 1.0 } else { 0.0 }, open_seen: shell.sidebar_open, ..Default::default() });
         let mut st = *state.read(cx);
         let now = cx.background_executor().now();
         let win_w = window.viewport_size().width;
@@ -494,17 +466,25 @@ impl RenderOnce for AppShell {
         // seen too.
         let mouse = window.mouse_position();
         let over_lead = st.lead_bounds.is_some_and(|b| b.contains(&mouse));
-        let over_pill = st.pill_bounds.is_some_and(|b| b.contains(&mouse)) || st.actions_bounds.is_some_and(|b| b.contains(&mouse));
+        let over_pill = st.pill_bounds.is_some_and(|b| b.contains(&mouse));
         let mut changed = false;
         if over_lead != st.lead {
             st.set_hover(HoverSource::Lead, over_lead, now);
             changed = true;
         }
         if over_pill != st.pill {
-            st.pill = over_pill;
-            if !over_pill {
-                st.pill_left_at = Some(now);
-            }
+            st.set_hover(HoverSource::Pill, over_pill, now);
+            changed = true;
+        }
+        // A toggle leaves the pointer on the button it just pressed: the peek
+        // waits until the pointer has gone and come back (owner 2026-10-13).
+        if shell.sidebar_open != st.open_seen {
+            st.open_seen = shell.sidebar_open;
+            st.wait_for_leave = !shell.sidebar_open && (st.lead || st.pill || st.strip);
+            changed = true;
+        }
+        if st.wait_for_leave && !(st.lead || st.pill || st.strip) {
+            st.wait_for_leave = false;
             changed = true;
         }
         if changed {
@@ -544,38 +524,18 @@ impl RenderOnce for AppShell {
         if shell.animate && settled_closed && !pill_wanted {
             window.request_animation_frame();
         }
-        // The pill's reveal: hovered, it extends to show the title (or
-        // Browse's page controls) on `moderate` and the actions pill fades in;
-        // it lingers 250 ms after the pointer leaves, then closes on the
-        // exit tweens.
-        let linger = st.pill_left_at.is_some_and(|at| now.duration_since(at) < PILL_LINGER);
-        let reveal_wanted = settled_closed && (st.pill || linger || shell.pill_revealed);
-        if linger && !st.pill {
-            window.request_animation_frame();
-        }
-        // The scripted hold lands at once (captures and tests); a hover springs.
-        if shell.pill_revealed && settled_closed {
-            aui_motion::open_close_jump((id.clone(), "reveal"), true, window, cx);
-        }
-        let reveal_k = if settled_closed {
-            open_close((id.clone(), "reveal"), reveal_wanted, SpringKind::Moderate, aui_motion::durations::MODERATE_EXIT, window, cx)
-        } else {
-            aui_motion::open_close_jump((id.clone(), "reveal"), false, window, cx);
-            0.0
-        };
-
         if shell.native_lights {
             place_native_lights(window, cx);
         }
 
         // The peek: armed by a 150 ms rest on the toggle or the strip,
         // dismissed 250 ms after the pointer has left those and the card.
-        let any_hovered = st.strip || st.lead || st.card;
+        let any_hovered = st.strip || st.lead || st.pill || st.card;
         let mut peeking = (st.peeking || shell.peek_open) && settled_closed;
         let mut pending = false;
         if settled_closed && shell.peek.is_some() {
             if !peeking {
-                if let (Some(since), true) = (st.since, st.strip || st.lead) {
+                if let (Some(since), true, false) = (st.since, st.strip || st.lead || st.pill, st.wait_for_leave) {
                     if now.duration_since(since) >= PEEK_ARM { peeking = true } else { pending = true }
                 }
             } else if !any_hovered {
@@ -592,7 +552,7 @@ impl RenderOnce for AppShell {
             state.update(cx, |s, _| {
                 s.strip = false;
                 s.card = false;
-                s.since = if s.lead { Some(now) } else { None };
+                s.since = if s.lead || s.pill { Some(now) } else { None };
                 s.left_at = None;
             });
         }
@@ -669,16 +629,14 @@ impl RenderOnce for AppShell {
         // The centre sheet, its content at the resting width; fully open it
         // carries its own title row (title at 16, the actions at the right)
         // over a fade; closed, the content runs under the pill through a
-        // taller fade and the title and actions wait for the pill's reveal.
-        let row_shown = settled_open && !shell.page_sheet;
-        let fade_h = if row_shown { SHEET_FADE_OPEN } else { SHEET_FADE_CLOSED };
+        // taller fade and the pill alone stays.
+        let fade_h = if settled_open && !shell.page_sheet { SHEET_FADE_OPEN } else { SHEET_FADE_CLOSED };
         let mut centre_sheet = sheet_box(shell.page_sheet).child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(px(0.0)).w(content_w).children(shell.centre));
         if !shell.page_sheet {
             centre_sheet = centre_sheet.child(fade(p.surface_2, fade_h));
         }
-        // Closed, the reveal shows the closed-only content when the host
-        // gave some (Browse's page controls), else the title.
-        let (title_el, right_el) = if row_shown {
+        let row_shown = settled_open && !shell.page_sheet;
+        if row_shown {
             let row = h_flex()
                 .w_full()
                 .h(px(SHEET_ROW_H))
@@ -689,10 +647,7 @@ impl RenderOnce for AppShell {
                 .child(div().flex_none().flex().items_center().children(shell.chrome_right));
             let row = if shell.draggable { drag_region((id.clone(), "row-drag")).child(row).into_any_element() } else { row.into_any_element() };
             centre_sheet = centre_sheet.child(div().absolute().top(px(0.0)).left(px(0.0)).right(px(0.0)).h(px(SHEET_ROW_H)).child(row));
-            (None, None)
-        } else {
-            (shell.chrome_closed.or(shell.chrome_title), shell.chrome_right)
-        };
+        }
         let centre_column = div()
             .flex_1()
             .h_full()
@@ -819,72 +774,32 @@ impl RenderOnce for AppShell {
         let switch = div().absolute().left(px(0.0)).top(px(0.0)).w(rest).h(row_h).flex().items_center().justify_end().pr(px(CHROME_SWITCH_INSET)).children(shell.chrome_switch);
         let mut row = div().absolute().top(px(0.0)).left(px(0.0)).w(rest).h(row_h).child(switch).child(lead);
         if pill_k > 0.0 {
-            // The pill's ground: inset so its ends sit 6 px from the window
-            // and its right end PILL_END_INSET past the switch; it rises 4 px
-            // as it fades in. The reveal widens it past the sidebar's width.
-            let reveal_w = px(PILL_REVEAL_W) * reveal_k;
+            // The pill's ground: the frame's own colour — the surface under
+            // everything else (owner 2026-10-13), no edge, no drop — inset so
+            // its ends sit 6 px from the window and 6 px past the switch; it
+            // rises 4 px as it fades in. Over a native page the host cuts it
+            // as a hole.
             let pill_state = state.clone();
             let report = rects.clone();
             let ground = div()
                 .absolute()
                 .left(px(SHEET_INSET))
                 .top(px(SHEET_INSET) + px(4.0 * (1.0 - pill_k)))
-                .w(rest - px(SHEET_INSET) + reveal_w)
+                .w(rest - px(SHEET_INSET))
                 .h(px(PILL_H))
                 .rounded(px(PILL_H / 2.0))
-                .bg(p.overlay)
-                .shadow(p.floating_shadow())
+                .bg(p.surface_1)
                 .opacity(pill_k)
                 .on_prepaint(move |bounds, _, cx| {
                     pill_state.update(cx, |s, _| s.pill_bounds = Some(bounds));
                     report.borrow_mut().push((bounds, px(PILL_H / 2.0)));
                 });
-            row = div().absolute().top(px(0.0)).left(px(0.0)).w(rest).h(row_h).child(ground).child(switch_placeholder()).child(row);
-            if reveal_k > 0.0 {
-                // The title, after the switch, clipped to the reveal's width.
-                let revealed = div()
-                    .absolute()
-                    .left(rest - px(SHEET_INSET) + px(PILL_REVEAL_GAP))
-                    .top(px(0.0))
-                    .h(row_h)
-                    .w((reveal_w - px(PILL_REVEAL_GAP + PILL_END_INSET)).max(px(0.0)))
-                    .overflow_hidden()
-                    .flex()
-                    .items_center()
-                    .whitespace_nowrap()
-                    .opacity(reveal_k)
-                    .children(title_el);
-                row = row.child(revealed);
-            }
+            row = div().absolute().top(px(0.0)).left(px(0.0)).w(rest).h(row_h).child(ground).child(row);
+        } else if st.pill_bounds.is_some() {
+            state.update(cx, |s, _| s.pill_bounds = None);
         }
         let row = if shell.draggable { drag_region((id.clone(), "row-drag")).child(row).into_any_element() } else { row.into_any_element() };
         root = root.child(row);
-        if pill_k > 0.0 && reveal_k > 0.0 {
-            let actions_state = state.clone();
-            let report = rects.clone();
-            let actions = h_flex()
-                .absolute()
-                .top(px(SHEET_INSET) + px(4.0 * (1.0 - reveal_k)))
-                .right(px(SHEET_INSET))
-                .h(px(PILL_H))
-                .px(px(PILL_PAD))
-                .items_center()
-                .rounded(px(PILL_H / 2.0))
-                .bg(p.overlay)
-                .shadow(p.floating_shadow())
-                .opacity(reveal_k * pill_k)
-                .children(right_el)
-                .on_prepaint(move |bounds, _, cx| {
-                    actions_state.update(cx, |s, _| s.actions_bounds = Some(bounds));
-                    report.borrow_mut().push((bounds, px(PILL_H / 2.0)));
-                });
-            root = root.child(actions);
-        } else if st.actions_bounds.is_some() {
-            state.update(cx, |s, _| s.actions_bounds = None);
-        }
-        if pill_k <= 0.0 && st.pill_bounds.is_some() {
-            state.update(cx, |s, _| s.pill_bounds = None);
-        }
         if shell.traffic_lights {
             let at = super::header::traffic_light_position(cx);
             root = root.child(painted_lights().absolute().left(at.x).top(at.y));
@@ -897,11 +812,6 @@ impl RenderOnce for AppShell {
 
         crate::keys::track_pointer(root)
     }
-}
-
-/// Nothing: the pill's ground paints under the row's own children.
-fn switch_placeholder() -> Div {
-    div()
 }
 
 #[cfg(test)]
