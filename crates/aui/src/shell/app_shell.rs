@@ -640,7 +640,7 @@ impl RenderOnce for AppShell {
                 .items_center()
                 .child(div().flex_1().min_w(px(0.0)).overflow_hidden().flex().items_center().children(shell.chrome_title))
                 .child(div().flex_none().flex().items_center().children(shell.chrome_right));
-            let row = if shell.draggable { drag_region((id.clone(), "row-drag")).child(row).into_any_element() } else { row.into_any_element() };
+            let row = if shell.draggable { drag_region((id.clone(), "title-drag")).child(row).into_any_element() } else { row.into_any_element() };
             centre_sheet = centre_sheet.child(div().absolute().top(px(0.0)).left(px(0.0)).right(px(0.0)).h(px(SHEET_ROW_H)).child(row));
         }
         let centre_column = div()
@@ -787,9 +787,13 @@ impl RenderOnce for AppShell {
                     lead_state.update(cx, |s, _| s.lead_bounds = Some(bounds));
                 });
             let switch = div().absolute().left(px(0.0)).top(px(0.0)).w(rest).h(row_h).flex().items_center().justify_end().pr(px(CHROME_SWITCH_INSET)).children(shell.chrome_switch);
-            let row = div().absolute().top(px(0.0)).left(row_left).w(rest).h(row_h).child(switch).child(lead);
-            let row = if shell.draggable { drag_region((id.clone(), "row-drag")).child(row).into_any_element() } else { row.into_any_element() };
-            root = root.child(row);
+            // The drag region wraps a row with a real box: around an absolutely
+            // placed row it had no height, so a press or a double-click on the
+            // row's empty ground never reached it and the window could not be
+            // moved or zoomed from it (owner 2026-10-13).
+            let inner = div().relative().w(rest).h(row_h).child(switch).child(lead);
+            let inner = if shell.draggable { drag_region((id.clone(), "row-drag")).child(inner).into_any_element() } else { inner.into_any_element() };
+            root = root.child(div().absolute().top(px(0.0)).left(row_left).w(rest).h(row_h).child(inner));
         } else if st.lead_bounds.is_some() {
             // No toggle on screen: its last rect must not keep arming the peek.
             state.update(cx, |s, _| s.lead_bounds = None);

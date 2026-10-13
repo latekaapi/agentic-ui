@@ -1435,7 +1435,12 @@ impl RenderOnce for WebviewPane {
         if native && obscured {
             let cover = div().absolute().inset_0().overflow_hidden().rounded(corner_radius).bg(p.surface_2);
             page = page.child(match stand_in {
-                Some(image) => cover.child(img(image).size_full().rounded(corner_radius)).into_any_element(),
+                // Never stretched: the page's rect can change while it is
+                // covered (the window resized, the sidebar toggled), and a
+                // picture filled to the new box read as the page itself
+                // squashed sideways (owner 2026-10-13). Cover keeps the
+                // proportions; the live page replaces it once uncovered.
+                Some(image) => cover.child(img(image).size_full().object_fit(gpui::ObjectFit::Cover).rounded(corner_radius)).into_any_element(),
                 None => cover.into_any_element(),
             });
         }

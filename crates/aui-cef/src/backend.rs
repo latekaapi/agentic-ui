@@ -284,6 +284,9 @@ fn current_download_dir() -> PathBuf {
 
 // ------------------------------------------------------------------ actions (lock released before acting)
 
+/// The page's opaque ground (ARGB): white, as Chrome paints under a page.
+const PAGE_GROUND: u32 = 0xFFFF_FFFF;
+
 /// Puts the page window over the host's rect, shown or hidden.
 fn place(page: &Page) {
     let (parent, child, ((x, y), (w, h)), visible, radius, holes, zones) = {
@@ -1886,6 +1889,13 @@ wrap_window_delegate! {
             let view = self.browser_view.borrow().clone();
             let (Some(window), Some(view)) = (window, view) else { return };
             let mut child = View::from(&view);
+            // The page's ground is opaque white, Chrome's own canvas: the page
+            // window is non-opaque (rounded corners, holes), and with no colour
+            // of its own Chromium let a page without a background of its own
+            // (Hacker News' body) show whatever sits under the window — the
+            // host's dark ground in the margins (owner 2026-10-13).
+            window.set_background_color(PAGE_GROUND);
+            child.set_background_color(PAGE_GROUND);
             window.add_child_view(Some(&mut child));
             let (parent, child) = {
                 let mut s = locked(&self.shared);
