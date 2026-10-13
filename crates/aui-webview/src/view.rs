@@ -914,7 +914,8 @@ impl WebviewState {
     /// answering whether anything changed and whether a screenshot arrived.
     /// Draws nothing: [`Self::drain`] is what turns a change into a
     /// re-render.
-    fn apply_pending(&mut self) -> (bool, bool) {
+    fn apply_pending(&mut self) -> (bool, bool, bool) {
+        let url_before = self.url.clone();
         let events = self.backend.poll_events();
         let eval_results = self.backend.take_eval_results();
         let hovered = self.backend.hovered();
@@ -1006,7 +1007,7 @@ impl WebviewState {
             self.eval_results.extend(eval_results);
             changed = true;
         }
-        (changed, screenshot)
+        (changed, screenshot, self.url != url_before)
     }
 
     /// The poll timer's tick: fold and, if anything moved, re-render.
@@ -1019,7 +1020,7 @@ impl WebviewState {
     /// once any webview existed. A visible page notifies only when the fold
     /// changed something, never merely because the backend is native.
     fn drain(&mut self, cx: &mut Context<Self>) {
-        let (changed, screenshot) = self.apply_pending();
+        let (changed, screenshot, url_moved) = self.apply_pending();
         // A cover's picture that never came: give up on it at the deadline.
         if self.cover_capture_until.is_some_and(|until| std::time::Instant::now() >= until) {
             self.cover_capture_until = None;
@@ -1029,7 +1030,13 @@ impl WebviewState {
         let hidden = self.is_hidden();
         let became_visible = !hidden && self.was_hidden;
         self.was_hidden = hidden;
-        if screenshot || became_visible || (changed && !hidden) {
+        // A hidden page still tells its host when its address moved: the
+        // host decides whether to cover the page from the address (a blank
+        // tab stays covered), so a page that committed its first navigation
+        // while covered stayed dark until some unrelated event re-rendered
+        // the host (seen live 2026-10-13: Browse dark at launch until the
+        // pointer moved).
+        if screenshot || became_visible || url_moved || (changed && !hidden) {
             cx.notify();
         }
     }
@@ -1792,6 +1799,23 @@ mod tests {
     fn a_phrase_is_a_search_rather_than_a_host() {
         assert_eq!(normalize_url("simple pricing page"), "https://duckduckgo.com/?q=simple+pricing+page");
         assert_eq!(normalize_url("worktrees"), "https://duckduckgo.com/?q=worktrees");
+    }
+
+    /// A page's address moving is reported even when nothing else is: the
+    /// host decides whether to cover the page from the address, so a hidden
+    /// page that commits its first navigation must still wake the host.
+    #[gpui::test]
+    fn a_moved_address_is_reported_to_the_host(cx: &mut gpui::TestAppContext) {
+        use gpui::AppContext as _;
+        let state = cx.new(|cx| WebviewState::new(Box::new(FakeWebBackend::new()), cx));
+        state.update(cx, |state, _| {
+            let _ = state.apply_pending();
+            state.backend.navigate("https://news.ycombinator.com/");
+            let (_, _, url_moved) = state.apply_pending();
+            assert!(url_moved, "a new address is reported");
+            let (_, _, url_moved) = state.apply_pending();
+            assert!(!url_moved, "nothing new, nothing reported");
+        });
     }
 
     /// The state forwards the script to the backend and hands the drained
