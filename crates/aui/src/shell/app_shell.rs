@@ -7,14 +7,15 @@
 //! line; the right pane is a second sheet beside it.
 //!
 //! Closing removes the column; the sheet grows into the space. What stays is
-//! the chrome row, now a **pill**: the sidebar's own top strip — flush with
-//! the window's top and left, the sidebar's width, the row's height, the
-//! frame's own colour with no edge and no drop, square on top and rounded
-//! 8 at the bottom — holding exactly lights · toggle · switch at the x and y
-//! they had open. A 150 ms rest on the pill, the toggle or the window's left
-//! strip peeks the whole sidebar as a Floating card flush with the window's
-//! left, top and bottom behind the pill; after a toggle the peek waits for
-//! the pointer to leave and come back.
+//! the chrome row, now a **pill**: the sidebar's own top strip — a plain
+//! rectangle flush with the window's top and left, the sidebar's width, the
+//! row's height, the frame's own colour with no edge and no drop — holding
+//! exactly lights · toggle · switch at the x and y they had open. A 150 ms
+//! rest on the pill, the toggle or the window's left strip peeks the whole
+//! sidebar as the frame-coloured column flush with the window's left, top
+//! and bottom behind the pill (one surface with it, rounded 8 at the bottom
+//! right, a drop to its right); after a toggle the peek waits for the
+//! pointer to leave and come back.
 //!
 //! Motion (Emil Kowalski's rules, owner 2026-10-13: smooth or none): the
 //! column opens and closes on an ease-out tween, 260 / 220 ms, the panel
@@ -366,20 +367,19 @@ pub fn place_native_lights(window: &mut Window, cx: &mut App) {
     }
 }
 
-/// The peek card's shadow (docs/37 G2): the edge plus one drop cast to the
-/// right, so the card's edge over the sheet reads like Claude Desktop's
-/// hover panel; light keeps FF's float recipe.
+/// The peek card's shadow (docs/37 G2): one drop cast to the right, so the
+/// card's edge over the sheet reads like Claude Desktop's hover panel (no
+/// edge ring: the card is the frame's own surface); light keeps FF's float
+/// recipe.
 fn peek_shadow(p: &aui_tokens::Palette) -> Vec<gpui::BoxShadow> {
     if p.is_dark() {
-        let mut layers = p.edge();
-        layers.push(gpui::BoxShadow {
+        vec![gpui::BoxShadow {
             color: gpui::black().alpha(0.45),
             offset: gpui::point(px(8.0), px(0.0)),
             blur_radius: px(24.0),
             spread_radius: px(-8.0),
             inset: false,
-        });
-        layers
+        }]
     } else {
         p.floating_shadow()
     }
@@ -722,9 +722,12 @@ impl RenderOnce for AppShell {
                     let card_state = state.clone();
                     let report = rects.clone();
                     // From −108 % of its width to its resting place: the
-                    // sidebar's own column, flush with the window's left, top
-                    // and bottom, the sidebar's width, rounded at the bottom
-                    // right like the pill; its rows start under the pill.
+                    // sidebar's own column in the frame's colour, flush with
+                    // the window's left, top and bottom, the sidebar's width,
+                    // rounded 8 at the bottom right, one surface with the pill
+                    // above it (owner 2026-10-13); its rows start under the
+                    // pill. Its drop to the right is what lifts it off the
+                    // sheet.
                     let travel = rest * 1.08;
                     root = root.child(
                         div()
@@ -736,7 +739,7 @@ impl RenderOnce for AppShell {
                             .w(rest)
                             .rounded_br(px(SHEET_RADIUS))
                             .overflow_hidden()
-                            .bg(p.overlay)
+                            .bg(p.surface_1)
                             .shadow(peek_shadow(&p))
                             .occlude()
                             .on_hover(move |hovered, _, cx| {
@@ -746,8 +749,8 @@ impl RenderOnce for AppShell {
                                     cx.notify();
                                 });
                             })
-                            .child(div().absolute().top(row_h).bottom(px(0.0)).left(px(0.0)).right(px(0.0)).child(crate::interact::AmbientScope::filled(aui_tokens::Palette::FLOATING_LEVEL, peek_el)))
-                            .child(fade(p.overlay, LIST_FADE).top(row_h))
+                            .child(div().absolute().top(row_h).bottom(px(0.0)).left(px(0.0)).right(px(0.0)).child(peek_el))
+                            .child(fade(p.surface_1, LIST_FADE).top(row_h))
                             .on_prepaint(move |bounds, _, _| report.borrow_mut().push((bounds, px(SHEET_RADIUS)))),
                     );
                 }
@@ -775,10 +778,10 @@ impl RenderOnce for AppShell {
         let mut row = div().absolute().top(px(0.0)).left(px(0.0)).w(rest).h(row_h).child(switch).child(lead);
         if pill_k > 0.0 {
             // The pill's ground: the frame's own colour — the surface under
-            // everything else (owner 2026-10-13) — flush with the window's
-            // top and left, exactly the sidebar's width and the row's height,
-            // square on top and rounded at the bottom like the sidebar's
-            // peek card; it rises 4 px as it fades in. Over a native page the
+            // everything else (owner 2026-10-13) — a plain strip flush with
+            // the window's top and left, exactly the sidebar's width and the
+            // row's height, so the peek card below it continues it as one
+            // surface; it rises 4 px as it fades in. Over a native page the
             // host cuts it as a hole.
             let pill_state = state.clone();
             let report = rects.clone();
@@ -788,13 +791,11 @@ impl RenderOnce for AppShell {
                 .top(px(4.0 * (1.0 - pill_k)))
                 .w(rest)
                 .h(row_h)
-                .rounded_bl(px(SHEET_RADIUS))
-                .rounded_br(px(SHEET_RADIUS))
                 .bg(p.surface_1)
                 .opacity(pill_k)
                 .on_prepaint(move |bounds, _, cx| {
                     pill_state.update(cx, |s, _| s.pill_bounds = Some(bounds));
-                    report.borrow_mut().push((bounds, px(SHEET_RADIUS)));
+                    report.borrow_mut().push((bounds, px(0.0)));
                 });
             row = div().absolute().top(px(0.0)).left(px(0.0)).w(rest).h(row_h).child(ground).child(row);
         } else if st.pill_bounds.is_some() {
