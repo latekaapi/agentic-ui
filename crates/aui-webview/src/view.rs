@@ -775,7 +775,7 @@ impl WebviewState {
     /// logical pixels: x, y, w, h, radius) so host chrome drawn under the
     /// page — the closed shell's pills, the peek card — shows through and
     /// takes the clicks there. An empty list removes them.
-    pub fn set_holes(&mut self, holes: Vec<[f32; 5]>) {
+    pub fn set_holes(&mut self, holes: Vec<[f32; 6]>) {
         self.backend.set_holes(holes);
     }
 

@@ -493,11 +493,13 @@ pub trait WebBackend {
         let _ = radius;
     }
 
-    /// Cuts rounded holes (x, y, w, h, radius — the host window's logical
-    /// coordinates) through the page's native surface, so host chrome drawn
-    /// under it shows through and takes the clicks there. An empty list
-    /// removes them. Engines without a native surface ignore this.
-    fn set_holes(&mut self, holes: Vec<[f32; 5]>) {
+    /// Cuts rounded holes (x, y, w, h, radius, cut — the host window's
+    /// logical coordinates; `cut` 1 removes the page there, less leaves it
+    /// that much visible, so chrome can cross-fade with the page) through
+    /// the page's native surface, so host chrome drawn under it shows
+    /// through and takes the clicks there. An empty list removes them.
+    /// Engines without a native surface ignore this.
+    fn set_holes(&mut self, holes: Vec<[f32; 6]>) {
         let _ = holes;
     }
 
