@@ -154,6 +154,16 @@ static const void *kAuiCefHolesKey = &kAuiCefHolesKey;
 // re-sends the event to the parent (host) window in its own coordinates and
 // swallows the original. Scroll events are left alone: they cannot be rebuilt
 // with a new window, and a scroll over the card is not a control.
+// Chromium hangs its link-status bubble off the page window as a child
+// window of its own. It is hidden with the page (below) and while the pointer
+// is inside a hole, where the page is not what the pointer is over.
+static void aui_cef_set_bubbles_hidden(NSWindow *cw, BOOL hidden) {
+  for (NSWindow *child in cw.childWindows) {
+    CGFloat alpha = hidden ? 0.0 : 1.0;
+    if (child.alphaValue != alpha) child.alphaValue = alpha;
+  }
+}
+
 static id aui_cef_hole_monitor = nil;
 static void aui_cef_install_hole_monitor(void) {
   if (aui_cef_hole_monitor) return;
@@ -174,6 +184,7 @@ static void aui_cef_install_hole_monitor(void) {
     for (NSValue *v in holes) {
       if (NSPointInRect(inView, v.rectValue)) { inside = YES; break; }
     }
+    aui_cef_set_bubbles_hidden(cw, inside);
     if (!inside) return event;
     NSPoint onScreen = [cw convertPointToScreen:event.locationInWindow];
     NSPoint inParent = [pw convertPointFromScreen:onScreen];
@@ -258,6 +269,9 @@ void aui_cef_set_hidden(void *child_root_view, int hidden) {
   if (!cw) return;
   cw.alphaValue = hidden ? 0.0 : 1.0;
   cw.ignoresMouseEvents = hidden ? YES : NO;
+  // Its own children (Chromium's link-status bubble) go with it: the bubble
+  // stayed over the Sessions screen after a mode switch (seen live 2026-10-13).
+  aui_cef_set_bubbles_hidden(cw, hidden);
 }
 
 int aui_cef_is_key(void *child_root_view) {

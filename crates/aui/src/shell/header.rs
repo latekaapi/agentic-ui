@@ -46,8 +46,13 @@ const XS_GLYPH: f32 = 12.0;
 /// lights and the sidebar header reserves their footprint with
 /// the shell's bar.
 pub fn traffic_light_position(cx: &App) -> gpui::Point<gpui::Pixels> {
-    gpui::Point::new(px(NATIVE_LIGHTS_X), (cx.aui().metrics.header - px(NATIVE_LIGHT_DIAM)) * 0.5)
+    gpui::Point::new(px(NATIVE_LIGHTS_X), cx.aui().metrics.header * 0.5 - px(NATIVE_BUTTON_FRAME * 0.5))
 }
+
+/// The standard window button's frame is 14 pt square (the 12 pt light sits
+/// inside it); gpui places that frame's origin at the position, so a light's
+/// centre lands at y + 7. Measured through the live frame 2026-10-13.
+pub const NATIVE_BUTTON_FRAME: f32 = 14.0;
 
 /// A plain header cell: 44 px row, gap 6, padding 0 10. Build with [`header_cell`].
 #[derive(IntoElement)]
