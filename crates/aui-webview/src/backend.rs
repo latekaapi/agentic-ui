@@ -502,6 +502,15 @@ pub trait WebBackend {
         let _ = holes;
     }
 
+    /// Regions (x, y, w, h — the host window's logical coordinates) where a
+    /// pointer move over the page is also handed to the host window, so a
+    /// hover-armed control under the page (the shell's peek corner) can
+    /// arm. The page keeps the event. Engines without a native surface
+    /// ignore this.
+    fn set_hover_zones(&mut self, zones: Vec<[f32; 4]>) {
+        let _ = zones;
+    }
+
     /// The shown page's certificate, when it was served over TLS and the
     /// engine exposes one. Engines that do not answer `None`.
     fn certificate(&self) -> Option<CertificateInfo> {

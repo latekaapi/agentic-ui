@@ -129,6 +129,7 @@ pub struct AppShell {
     chrome_title: Option<AnyElement>,
     chrome_right: Option<AnyElement>,
     on_overlay_bounds: Option<OverlayBoundsHandler>,
+    on_hover_zones: Option<HoverZonesHandler>,
 }
 
 /// The chrome over the sheet's rects with their corner radii.
@@ -138,6 +139,11 @@ type OverlayRects = Vec<(gpui::Bounds<Pixels>, Pixels)>;
 /// (window coordinates: the peek card while it shows, with its corner
 /// radius) — a host with a native surface under it cuts matching holes.
 pub type OverlayBoundsHandler = std::rc::Rc<dyn Fn(Vec<(gpui::Bounds<Pixels>, Pixels)>, &mut Window, &mut App)>;
+/// The host's handler for the shell's hover zones (window coordinates): the
+/// regions where a pointer should reach the shell even over a native page
+/// that otherwise takes every event — the peek's corner. See
+/// [`AppShell::on_hover_zones`].
+pub type HoverZonesHandler = std::rc::Rc<dyn Fn(Vec<gpui::Bounds<Pixels>>, &mut Window, &mut App)>;
 
 /// An empty shell with the default column widths.
 pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
@@ -168,6 +174,7 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         chrome_title: None,
         chrome_right: None,
         on_overlay_bounds: None,
+        on_hover_zones: None,
     }
 }
 
@@ -275,6 +282,16 @@ impl AppShell {
     /// (see [`OverlayBoundsHandler`]); an empty list when none shows.
     pub fn on_overlay_bounds(mut self, f: impl Fn(Vec<(gpui::Bounds<Pixels>, Pixels)>, &mut Window, &mut App) + 'static) -> Self {
         self.on_overlay_bounds = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Reports the shell's hover zones each frame: the rects (window
+    /// coordinates) where a resting pointer arms the peek while the sidebar
+    /// is closed. A host with a native page over the sheet forwards pointer
+    /// moves inside them to its own window, so the peek still arms there.
+    /// An empty list when the sidebar is open.
+    pub fn on_hover_zones(mut self, f: impl Fn(Vec<gpui::Bounds<Pixels>>, &mut Window, &mut App) + 'static) -> Self {
+        self.on_hover_zones = Some(std::rc::Rc::new(f));
         self
     }
 
@@ -558,11 +575,11 @@ impl RenderOnce for AppShell {
         let right_at_rest = if shell.right_open { right_rest + px(2.0 * SHEET_INSET) } else { px(SHEET_INSET) };
         let content_w = (win_w - left_at_rest - px(SHEET_INSET) - right_at_rest).max(px(0.0));
 
-        let edge_of = |page: bool| if page {
-            vec![gpui::BoxShadow { color: gpui::black().alpha(0.5), offset: gpui::point(px(0.0), px(0.0)), blur_radius: px(0.0), spread_radius: px(1.0), inset: false }]
-        } else {
-            p.elevation_shadow(2)
-        };
+        // The page sheet carries no ring: the native page covers it to the
+        // edge, and the 1 px black ring the canvas gave the white sheet only
+        // ever showed through the page's anti-aliased corners as a fringe
+        // (owner 2026-10-13: "a slight weird border at all 4 rounded edges").
+        let edge_of = |page: bool| if page { Vec::new() } else { p.elevation_shadow(2) };
         let sheet_box = |page: bool| {
             div()
                 .relative()
@@ -572,6 +589,10 @@ impl RenderOnce for AppShell {
                 .bg(if page { gpui::Hsla::from(gpui::rgb(0xFAFAFA)) } else { p.surface_2 })
                 .shadow(edge_of(page))
         };
+        // The fade's top corners follow the sheet's radius: `overflow_hidden`
+        // clips to a rectangle, so a square fade painted the sheet's rounded
+        // top corners back in (owner 2026-10-13: "the top corners are not
+        // rounded properly compared to the bottom").
         let fade = |ground: gpui::Hsla, h: f32| {
             div()
                 .absolute()
@@ -579,6 +600,8 @@ impl RenderOnce for AppShell {
                 .left(px(0.0))
                 .right(px(0.0))
                 .h(px(h))
+                .rounded_tl(px(SHEET_RADIUS))
+                .rounded_tr(px(SHEET_RADIUS))
                 .bg(gpui::linear_gradient(180.0, gpui::linear_color_stop(ground, 0.0), gpui::linear_color_stop(ground.alpha(0.0), 1.0)))
         };
 
@@ -668,6 +691,7 @@ impl RenderOnce for AppShell {
         // handed to the host by the last child (see `AppShell::on_overlay_bounds`).
         use gpui_kit::base::ElementExt as _;
         let rects: std::rc::Rc<std::cell::RefCell<OverlayRects>> = Default::default();
+        let hover_zones: std::rc::Rc<std::cell::RefCell<Vec<gpui::Bounds<Pixels>>>> = Default::default();
 
         // The peek: closed, nothing is drawn (owner 2026-10-13: not even the
         // lights); a rest on the window's top edge (the frame band above the
@@ -678,7 +702,15 @@ impl RenderOnce for AppShell {
             if let Some(peek_el) = shell.peek {
                 let k = open_close((id.clone(), "peek"), peeking, SpringKind::Moderate, aui_motion::durations::MODERATE_EXIT, window, cx);
                 peek_k = k;
+                // The peek's sources: the window's top-left corner at the row's
+                // size (owner 2026-10-13: the 6 px band alone needed the pointer
+                // "all the way to the top corner"), the top band across the
+                // window and the left strip down it.
+                let corner = div().absolute().left(px(0.0)).top(px(0.0)).w(rest).h(row_h);
+                let zones = hover_zones.clone();
+                let corner = corner.on_prepaint(move |bounds, _, _| zones.borrow_mut().push(bounds));
                 for (name, el) in [
+                    ("peek-corner", corner),
                     ("peek-top", div().absolute().left(px(0.0)).top(px(0.0)).right(px(0.0)).h(px(SHEET_INSET))),
                     ("peek-left", div().absolute().left(px(0.0)).top(px(SHEET_INSET)).bottom(px(0.0)).w(px(PEEK_STRIP))),
                 ] {
@@ -770,6 +802,10 @@ impl RenderOnce for AppShell {
         if let Some(handler) = shell.on_overlay_bounds {
             let rects = rects.clone();
             root = root.child(div().absolute().size_0().on_prepaint(move |_, window, cx| handler(rects.take(), window, cx)));
+        }
+        if let Some(handler) = shell.on_hover_zones {
+            let zones = hover_zones.clone();
+            root = root.child(div().absolute().size_0().on_prepaint(move |_, window, cx| handler(zones.take(), window, cx)));
         }
 
         crate::keys::track_pointer(root)

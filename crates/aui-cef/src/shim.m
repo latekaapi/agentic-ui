@@ -145,6 +145,10 @@ void aui_cef_set_corner_radius(void *child_root_view, double radius) {
 // The holes, kept on the page window for the event monitor below (an array of
 // NSValue rects in the content view's coordinates).
 static const void *kAuiCefHolesKey = &kAuiCefHolesKey;
+// The hover zones likewise: inside one, a pointer MOVE is also handed to the
+// host window (the page keeps it), so a hover-armed control under the page
+// — the shell's peek corner — arms without a hole.
+static const void *kAuiCefZonesKey = &kAuiCefZonesKey;
 
 // A hole makes the page's pixels transparent, but AppKit still routes every
 // mouse event over the page window to the page window — the host under it
@@ -175,7 +179,8 @@ static void aui_cef_install_hole_monitor(void) {
     NSWindow *cw = event.window;
     if (!cw) return event;
     NSArray *holes = objc_getAssociatedObject(cw, kAuiCefHolesKey);
-    if (holes.count == 0) return event;
+    NSArray *zones = objc_getAssociatedObject(cw, kAuiCefZonesKey);
+    if (holes.count == 0 && zones.count == 0) return event;
     NSWindow *pw = cw.parentWindow;
     NSView *cv = cw.contentView;
     if (!pw || !cv) return event;
@@ -185,9 +190,21 @@ static void aui_cef_install_hole_monitor(void) {
       if (NSPointInRect(inView, v.rectValue)) { inside = YES; break; }
     }
     aui_cef_set_bubbles_hidden(cw, inside);
-    if (!inside) return event;
     NSPoint onScreen = [cw convertPointToScreen:event.locationInWindow];
     NSPoint inParent = [pw convertPointFromScreen:onScreen];
+    if (!inside) {
+      // A move inside a hover zone goes to both: a copy to the host, the
+      // original on to the page.
+      if (event.type != NSEventTypeMouseMoved) return event;
+      BOOL zoned = NO;
+      for (NSValue *v in zones) {
+        if (NSPointInRect(inView, v.rectValue)) { zoned = YES; break; }
+      }
+      if (!zoned) return event;
+      NSEvent *copy = [NSEvent mouseEventWithType:NSEventTypeMouseMoved location:inParent modifierFlags:event.modifierFlags timestamp:event.timestamp windowNumber:pw.windowNumber context:nil eventNumber:event.eventNumber clickCount:0 pressure:0];
+      if (copy) [pw sendEvent:copy];
+      return event;
+    }
     NSEvent *forwarded = [NSEvent mouseEventWithType:event.type
                                             location:inParent
                                        modifierFlags:event.modifierFlags
@@ -259,6 +276,25 @@ void aui_cef_set_holes(void *child_root_view, const double *rects, int n) {
   }
   [CATransaction commit];
   objc_setAssociatedObject(cw, kAuiCefHolesKey, kept.count ? kept : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  if (kept.count) aui_cef_install_hole_monitor();
+}
+
+// The hover zones (x, y, w, h — the page's own coordinates): see the monitor
+// above. n = 0 clears them.
+void aui_cef_set_hover_zones(void *child_root_view, const double *rects, int n) {
+  NSWindow *cw = window_of(child_root_view);
+  if (!cw) return;
+  NSView *cv = cw.contentView;
+  if (!cv) return;
+  CGRect b = cv.bounds;
+  NSMutableArray *kept = [NSMutableArray arrayWithCapacity:(NSUInteger)(n > 0 ? n : 0)];
+  for (int i = 0; i < n; i++) {
+    double x = rects[i * 4], y = rects[i * 4 + 1], w = rects[i * 4 + 2], h = rects[i * 4 + 3];
+    if (w <= 0 || h <= 0) continue;
+    double fy = cv.isFlipped ? y : b.size.height - y - h;
+    [kept addObject:[NSValue valueWithRect:NSMakeRect(x, fy, w, h)]];
+  }
+  objc_setAssociatedObject(cw, kAuiCefZonesKey, kept.count ? kept : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   if (kept.count) aui_cef_install_hole_monitor();
 }
 

@@ -779,6 +779,13 @@ impl WebviewState {
         self.backend.set_holes(holes);
     }
 
+    /// Regions (window coordinates) where a pointer move over the page is
+    /// also handed to the host window, so a hover-armed control under the
+    /// page can arm; see [`WebBackend::set_hover_zones`].
+    pub fn set_hover_zones(&mut self, zones: Vec<[f32; 4]>) {
+        self.backend.set_hover_zones(zones);
+    }
+
     /// Pushes `frame` into the native backend and remembers it, refreshing
     /// the snapshot stand-in when the page area itself resized.
     ///
@@ -1358,8 +1365,12 @@ impl RenderOnce for WebviewPane {
         // A native backend draws its own document over this rectangle, so the
         // rectangle itself is left as bare ground; only the scripted page is a
         // gpui document.
+        // Rounded to the page's own radius: gpui's `overflow_hidden` clips to
+        // a rectangle, so a square ground showed in the four corners around a
+        // rounded page (owner 2026-10-13: "a slight weird border at all the 4
+        // rounded edges").
         let base = if native {
-            div().relative().flex_1().min_w(px(0.0)).overflow_hidden().bg(p.surface_2)
+            div().relative().flex_1().min_w(px(0.0)).overflow_hidden().rounded(corner_radius).bg(p.surface_2)
         } else {
             page_body()
         };

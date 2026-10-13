@@ -72,6 +72,7 @@ unsafe extern "C" {
     fn aui_cef_set_hidden(child: *mut c_void, hidden: i32);
     fn aui_cef_set_corner_radius(child: *mut c_void, radius: f64);
     fn aui_cef_set_holes(child: *mut c_void, rects: *const f64, n: i32);
+    fn aui_cef_set_hover_zones(child: *mut c_void, rects: *const f64, n: i32);
     fn aui_cef_is_key(child: *mut c_void) -> i32;
     fn aui_cef_focus_parent(parent: *mut c_void);
     fn aui_cef_focus_child(child: *mut c_void);
@@ -127,6 +128,7 @@ struct Shared {
     /// Holes through the page (x, y, w, h, radius) in the host view's
     /// coordinates, converted against `bounds` each time the page is placed.
     holes: Vec<[f32; 5]>,
+    hover_zones: Vec<[f32; 4]>,
     /// Set once the setup scripts are registered.
     ready: bool,
     /// The URL to load once ready (the latest `navigate` wins).
@@ -284,10 +286,12 @@ fn current_download_dir() -> PathBuf {
 
 /// Puts the page window over the host's rect, shown or hidden.
 fn place(page: &Page) {
-    let (parent, child, ((x, y), (w, h)), visible, radius, holes) = {
+    let (parent, child, ((x, y), (w, h)), visible, radius, holes, zones) = {
         let s = locked(page);
-        (s.parent_view, s.child_view, s.bounds, s.visible, s.corner_radius, s.holes.clone())
+        (s.parent_view, s.child_view, s.bounds, s.visible, s.corner_radius, s.holes.clone(), s.hover_zones.clone())
     };
+    // The hover zones in the page's own coordinates.
+    let local_zones: Vec<f64> = zones.iter().flat_map(|[zx, zy, zw, zh]| [(zx - x) as f64, (zy - y) as f64, *zw as f64, *zh as f64]).collect();
     // The holes in the page's own coordinates.
     let local: Vec<f64> = holes
         .iter()
@@ -301,6 +305,7 @@ fn place(page: &Page) {
         aui_cef_place(parent as *mut c_void, child as *mut c_void, x as f64, y as f64, w as f64, h as f64);
         aui_cef_set_corner_radius(child as *mut c_void, radius as f64);
         aui_cef_set_holes(child as *mut c_void, local.as_ptr(), (local.len() / 5) as i32);
+        aui_cef_set_hover_zones(child as *mut c_void, local_zones.as_ptr(), (local_zones.len() / 4) as i32);
         aui_cef_set_hidden(child as *mut c_void, if visible { 0 } else { 1 });
     }
 }
@@ -2156,6 +2161,18 @@ impl WebBackend for CefBackend {
             let mut s = locked(&self.page);
             let changed = s.holes != holes;
             s.holes = holes;
+            changed
+        };
+        if changed {
+            place(&self.page);
+        }
+    }
+
+    fn set_hover_zones(&mut self, zones: Vec<[f32; 4]>) {
+        let changed = {
+            let mut s = locked(&self.page);
+            let changed = s.hover_zones != zones;
+            s.hover_zones = zones;
             changed
         };
         if changed {
