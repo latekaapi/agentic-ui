@@ -7,12 +7,14 @@
 //! line; the right pane is a second sheet beside it.
 //!
 //! Closing removes the column; the sheet grows into the space. What stays is
-//! the chrome row, now a **pill**: 32 tall, 6 px in from the corner, the
-//! frame's own colour with no edge and no drop (a surface under everything
-//! else), holding exactly lights · toggle · switch at the x and y they had
-//! open. A 150 ms rest on the pill, the toggle or the window's left strip
-//! peeks the whole sidebar as a Floating card behind the pill; after a
-//! toggle the peek waits for the pointer to leave and come back.
+//! the chrome row, now a **pill**: the sidebar's own top strip — flush with
+//! the window's top and left, the sidebar's width, the row's height, the
+//! frame's own colour with no edge and no drop, square on top and rounded
+//! 8 at the bottom — holding exactly lights · toggle · switch at the x and y
+//! they had open. A 150 ms rest on the pill, the toggle or the window's left
+//! strip peeks the whole sidebar as a Floating card flush with the window's
+//! left, top and bottom behind the pill; after a toggle the peek waits for
+//! the pointer to leave and come back.
 //!
 //! Motion (Emil Kowalski's rules, owner 2026-10-13: smooth or none): the
 //! column opens and closes on an ease-out tween, 260 / 220 ms, the panel
@@ -82,8 +84,6 @@ pub const SHEET_FADE_CLOSED: f32 = 92.0;
 pub const CHROME_LEAD: f32 = 84.0;
 /// The mode switch ends this far before the sidebar's right edge.
 pub const CHROME_SWITCH_INSET: f32 = 12.0;
-/// The closed pill's height, centred on the lights' line.
-pub const PILL_H: f32 = 32.0;
 /// Depth (docs/37): the sheet's contact shadow onto the frame beside the
 /// open sidebar — width, and its strength at the sheet's edge per theme.
 pub const CONTACT_W: f32 = 20.0;
@@ -721,18 +721,20 @@ impl RenderOnce for AppShell {
                 if k > 0.0 {
                     let card_state = state.clone();
                     let report = rects.clone();
-                    // From −108 % of its width to its resting place, 6 px in;
-                    // its rows start under the chrome row.
-                    let travel = (rest + px(SHEET_INSET)) * 1.08;
+                    // From −108 % of its width to its resting place: the
+                    // sidebar's own column, flush with the window's left, top
+                    // and bottom, the sidebar's width, rounded at the bottom
+                    // right like the pill; its rows start under the pill.
+                    let travel = rest * 1.08;
                     root = root.child(
                         div()
                             .id((id.clone(), "peek-card"))
                             .absolute()
-                            .top(px(SHEET_INSET))
-                            .bottom(px(SHEET_INSET))
-                            .left(px(SHEET_INSET) - travel * (1.0 - k))
+                            .top(px(0.0))
+                            .bottom(px(0.0))
+                            .left(px(0.0) - travel * (1.0 - k))
                             .w(rest)
-                            .rounded(px(SHEET_RADIUS))
+                            .rounded_br(px(SHEET_RADIUS))
                             .overflow_hidden()
                             .bg(p.overlay)
                             .shadow(peek_shadow(&p))
@@ -744,8 +746,8 @@ impl RenderOnce for AppShell {
                                     cx.notify();
                                 });
                             })
-                            .child(div().absolute().top(row_h - px(SHEET_INSET)).bottom(px(0.0)).left(px(0.0)).right(px(0.0)).child(crate::interact::AmbientScope::filled(aui_tokens::Palette::FLOATING_LEVEL, peek_el)))
-                            .child(fade(p.overlay, LIST_FADE).top(row_h - px(SHEET_INSET)))
+                            .child(div().absolute().top(row_h).bottom(px(0.0)).left(px(0.0)).right(px(0.0)).child(crate::interact::AmbientScope::filled(aui_tokens::Palette::FLOATING_LEVEL, peek_el)))
+                            .child(fade(p.overlay, LIST_FADE).top(row_h))
                             .on_prepaint(move |bounds, _, _| report.borrow_mut().push((bounds, px(SHEET_RADIUS)))),
                     );
                 }
@@ -755,10 +757,8 @@ impl RenderOnce for AppShell {
         // The chrome row: lights, the host's toggle at CHROME_LEAD, the mode
         // switch ending CHROME_SWITCH_INSET before the sidebar's right edge —
         // at the same x and the same line (y 22) in both states. Open it is
-        // the sidebar column's title row, on the frame; closed it is the
-        // pill: PILL_H tall, 6 px in from the corner, on Floating with the
-        // one edge, which hovered extends to the right with the title (or
-        // Browse's page controls) and brings the actions pill in.
+        // the sidebar column's title row, on the frame; closed, its ground is
+        // the pill: the sidebar's own top strip on the frame's colour.
         let lead_state = state.clone();
         let lead = div()
             .absolute()
@@ -775,24 +775,26 @@ impl RenderOnce for AppShell {
         let mut row = div().absolute().top(px(0.0)).left(px(0.0)).w(rest).h(row_h).child(switch).child(lead);
         if pill_k > 0.0 {
             // The pill's ground: the frame's own colour — the surface under
-            // everything else (owner 2026-10-13), no edge, no drop — inset so
-            // its ends sit 6 px from the window and 6 px past the switch; it
-            // rises 4 px as it fades in. Over a native page the host cuts it
-            // as a hole.
+            // everything else (owner 2026-10-13) — flush with the window's
+            // top and left, exactly the sidebar's width and the row's height,
+            // square on top and rounded at the bottom like the sidebar's
+            // peek card; it rises 4 px as it fades in. Over a native page the
+            // host cuts it as a hole.
             let pill_state = state.clone();
             let report = rects.clone();
             let ground = div()
                 .absolute()
-                .left(px(SHEET_INSET))
-                .top(px(SHEET_INSET) + px(4.0 * (1.0 - pill_k)))
-                .w(rest - px(SHEET_INSET))
-                .h(px(PILL_H))
-                .rounded(px(PILL_H / 2.0))
+                .left(px(0.0))
+                .top(px(4.0 * (1.0 - pill_k)))
+                .w(rest)
+                .h(row_h)
+                .rounded_bl(px(SHEET_RADIUS))
+                .rounded_br(px(SHEET_RADIUS))
                 .bg(p.surface_1)
                 .opacity(pill_k)
                 .on_prepaint(move |bounds, _, cx| {
                     pill_state.update(cx, |s, _| s.pill_bounds = Some(bounds));
-                    report.borrow_mut().push((bounds, px(PILL_H / 2.0)));
+                    report.borrow_mut().push((bounds, px(SHEET_RADIUS)));
                 });
             row = div().absolute().top(px(0.0)).left(px(0.0)).w(rest).h(row_h).child(ground).child(row);
         } else if st.pill_bounds.is_some() {
