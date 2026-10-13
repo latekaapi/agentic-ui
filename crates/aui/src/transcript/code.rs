@@ -173,6 +173,7 @@ pub struct CodeBlock {
     scroll_token: u64,
     fill: bool,
     max_height: Option<Pixels>,
+    fold_long: bool,
     on_action: Option<CodeHandler>,
     selection_key: Option<SelectionKey>,
     selection: Option<Range<usize>>,
@@ -183,7 +184,7 @@ pub struct CodeBlock {
 
 /// A block showing `code` from `path`.
 pub fn code_block(id: impl Into<ElementId>, path: impl Into<SharedString>, code: impl Into<SharedString>) -> CodeBlock {
-    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, highlight: None, scroll_to_line: None, scroll_token: 0, fill: false, max_height: None, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None, on_span: None }
+    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, highlight: None, scroll_to_line: None, scroll_token: 0, fill: false, max_height: None, fold_long: false, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None, on_span: None }
 }
 
 /// The command a fenced block carries, if it is runnable.
@@ -276,6 +277,14 @@ impl CodeBlock {
     /// [`fill`](Self::fill) is set.
     pub fn max_height(mut self, max: Option<Pixels>) -> Self {
         self.max_height = max;
+        self
+    }
+
+    /// Folds a block past twelve lines behind an in-place "N more lines"
+    /// row (docs/41 §2.3) — the transcript's fences. A file view leaves it
+    /// off and shows every line.
+    pub fn fold_long(mut self, fold: bool) -> Self {
+        self.fold_long = fold;
         self
     }
 
@@ -719,7 +728,7 @@ impl RenderOnce for CodeBlock {
         // toggles. Virtualised blocks keep their own scroller instead.
         let total = self.code.lines().count();
         let unfolded = window.use_keyed_state((id.clone(), "unfolded"), cx, |_, _| false);
-        let folds = total > CODE_FOLD_AT && total <= CODE_VIRTUALIZE_AT && !*unfolded.read(cx);
+        let folds = self.fold_long && total > CODE_FOLD_AT && total <= CODE_VIRTUALIZE_AT && !*unfolded.read(cx);
 
         let language = self.language.clone();
         let select = self.selection_key.clone().map(|key| LineSelect {

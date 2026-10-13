@@ -44,8 +44,9 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         .child(marker_row("card30-mk-1").glyph(IconName::Clock, None).text("Today · 09:14 · session started · Claude Code v2.1.174"))
         .child(
             marker_row("card30-mk-2")
-                .hand_off(HandOff { from: (Provider::Claude, "Claude Code".into()), to: (Provider::Codex, "Codex".into()) })
-                .text("handed off with full context"),
+                .hand_off(HandOff { from: (Provider::Muse, "Muse".into()), to: (Provider::Claude, "Claude Code".into()) })
+                .text("Handed off to Claude Code · opus 4.6 ·")
+                .link("Open the new session", |_, _, _| {}),
         )
         .child(marker_row("card30-mk-3").glyph(IconName::Refresh, None).text("Context compacted · 41k → 12k tokens ·").link("view summary", |_, _, _| {}))
         .child(marker_row("card30-mk-4").glyph(IconName::Shield, Some(p.warning)).text("Permission mode changed to").strong("Bypass").text("for this session"))

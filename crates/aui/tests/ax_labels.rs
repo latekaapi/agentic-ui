@@ -102,8 +102,6 @@ fn block_element(block: &Block, n: usize) -> AnyElement {
             command,
             reason,
             cwd,
-            capabilities,
-            scope,
             body_kind,
             state,
             rule,
@@ -119,8 +117,6 @@ fn block_element(block: &Block, n: usize) -> AnyElement {
                 .body_kind(*body_kind)
                 .reason(reason.clone())
                 .cwd(cwd.clone())
-                .capabilities(capabilities.clone())
-                .scope(*scope)
                 .choices(choices.clone())
                 .stages(stages.clone(), *current_stage)
                 .badges(*badges)
@@ -129,7 +125,7 @@ fn block_element(block: &Block, n: usize) -> AnyElement {
                 .on_decide(|_, _, _| {})
                 .on_choose(|_, _, _, _| {})
                 .on_feedback_toggle(|_, _, _| {})
-                .on_manage_rules(|_, _| {});
+                ;
             if let Some(rule) = rule {
                 el = el.rule(rule.clone());
             }
@@ -270,13 +266,13 @@ fn entries(window: &mut Window, cx: &mut gpui::App) -> AnyElement {
     col.push(
         answered_row("ax-answered", vec!["README.md".into()])
             .outcome(QuestionOutcome::Answered)
-            .on_change(|_, _, _| {})
             .into_any_element(),
     );
     col.push(
         // Past twelve lines the block draws its "N more lines" fold row.
         code_block("ax-code", "src/checkout.ts", (0..14).map(|i| format!("export const n{i} = {i};\n")).collect::<String>())
             .language("typescript")
+            .fold_long(true)
             .on_action(|_, _, _| {})
             .into_any_element(),
     );

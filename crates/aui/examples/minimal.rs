@@ -270,12 +270,11 @@ impl MinimalApp {
                 let style = ProseStyle { ink: p.ink, code_ink: p.accent_ink, code_bg: p.accent_soft, size: BODY_TEXT, line_height: scale::LH_BODY, paragraph_gap: scale::SP_4 };
                 div().w_full().child(cited_answer(id.clone(), text.clone(), style).streaming(*streaming)).into_any_element()
             }
-            Block::Approval { tool, command, reason, cwd, capabilities, state, rule, .. } => {
+            Block::Approval { tool, command, reason, cwd, state, rule, .. } => {
                 let decide = cx.listener(|this, decision: &ApprovalDecision, window, cx| this.decide(*decision, window, cx));
                 let card = approval_card(id.clone(), tool.clone(), command.clone(), state.clone())
                     .reason(reason.clone())
                     .cwd(cwd.clone())
-                    .capabilities(capabilities.clone())
                     .rule(rule.clone().unwrap_or_default())
                     .on_decide(move |d, w, cx| decide(&d, w, cx));
                 let mut holder = div().w_full();

@@ -1,6 +1,7 @@
-//! Card 36: the question card — a structured question with radio or checkbox
-//! options, an optional free-text "Other" row and an action row, plus the
-//! one-line answered state it collapses to once the person has replied.
+//! The question card (D4, docs/41 §2.6): a structured question with radio
+//! or checkbox options, an optional "Other" input and a footer of only the
+//! provider's choices — or, for several questions, one card stepping through
+//! them as a wizard — plus the quiet row it collapses to once answered.
 //!
 //! The card is stateless: it draws the selection it is given and emits the
 //! person's intent through closures. The host keeps the selection, builds the
@@ -13,8 +14,10 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, Hsla, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{button, chip, glyph_ok, kbd, pill, record_ax_label, PillVariant};
+use crate::data::record_ax_label;
 use crate::icons::{icon, IconName};
+use crate::transcript::controls::{control, control_with, key_hints, ControlKind};
+use crate::transcript::quiet_row::{quiet_status_row, status_check, status_cross};
 use crate::transcript::ProseStyle;
 use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
 
@@ -26,15 +29,17 @@ const HEAD_GAP: f32 = 10.0;
 const TILE: f32 = 26.0;
 const TILE_RADIUS: f32 = 7.0;
 const TILE_GLYPH: f32 = 14.0;
-/// `.q .ttl{font-size:13px;font-weight:600}` and `.q .sub{font-size:12px}`.
+/// Title 600 at body size; the subtitle and the question's header in caption.
 const TITLE_TEXT: f32 = 13.0;
 const SUB_TEXT: f32 = 12.0;
-/// `.opt{padding:8px 10px;margin:0 8px 6px;gap:10px}`.
+/// Options: rows 8 / 10 in an 8 px inset, radius 6, gap 10.
 const OPT_PAD_Y: f32 = 8.0;
 const OPT_PAD_X: f32 = 10.0;
 const OPT_MARGIN_X: f32 = 8.0;
-const OPT_MARGIN_BOTTOM: f32 = 6.0;
 const OPT_GAP: f32 = 10.0;
+const OPT_RADIUS: f32 = 6.0;
+/// FF's fluid hover glide on option rows.
+const ROW_GLIDE: Tween = Tween::new(std::time::Duration::from_millis(80), aui_tokens::Easing::OUT);
 /// `.opt .rb{width:16px;height:16px;border:1.5px;margin-top:1px}`.
 const MARK: f32 = 16.0;
 const MARK_BORDER: f32 = 1.5;
@@ -45,17 +50,12 @@ const DOT: f32 = 8.0;
 const DOT_FROM: f32 = 0.4;
 /// `.opt .cb{border-radius:4px}` and `.opt.on .cb::after{border-radius:1px}`.
 const CHECKBOX_RADIUS: f32 = 4.0;
-const CHECKBOX_DOT_RADIUS: f32 = 1.0;
-/// `.opt b{font-size:12.5px;font-weight:500}` and `.opt span{font-size:12px}`.
-const LABEL_TEXT: f32 = 12.5;
+/// The label at body size (600 when picked), the description in caption.
+const LABEL_TEXT: f32 = 13.0;
 const DESCRIPTION_TEXT: f32 = 12.0;
-/// The description is an inline `span`, so in CSS its line box is the row's
-/// inherited 13 px strut rather than its own 12 px one.
-const DESCRIPTION_LINE: f32 = scale::FS_13 * scale::LH_UI;
-/// `.other{margin:0 8px 8px;padding:6px 10px;gap:8px;font-size:12px}` with a
-/// 12 px glyph and a dashed 1 px line-strong border.
+/// "Other": a 32 px Well input, margins 0 / 8 / 8, the edit glyph.
 const OTHER_MARGIN_BOTTOM: f32 = 8.0;
-const OTHER_PAD_Y: f32 = 6.0;
+const OTHER_H: f32 = 32.0;
 const OTHER_PAD_X: f32 = 10.0;
 const OTHER_GAP: f32 = 8.0;
 const OTHER_TEXT: f32 = 12.0;
@@ -64,22 +64,13 @@ const OTHER_GLYPH: f32 = 12.0;
 const FOOT_PAD_Y: f32 = 8.0;
 const FOOT_PAD_X: f32 = 12.0;
 const FOOT_GAP: f32 = 8.0;
-const HINT_TEXT: f32 = 11.0;
-/// The caps `header` line above the prompt keeps the title's line box.
-const HEADER_LINE: f32 = scale::FS_11 * scale::LH_UI;
 /// The "Preview" chevron under an option row, and the body it opens.
 const PREVIEW_GAP: f32 = 5.0;
-const PREVIEW_TEXT: f32 = scale::FS_11;
 const PREVIEW_GLYPH: f32 = 12.0;
 /// A mono preview body sits on the terminal ground, like a tool card's output.
 const PREVIEW_PAD_Y: f32 = 8.0;
 const PREVIEW_PAD_X: f32 = 10.0;
 const PREVIEW_LINE: f32 = scale::LH_MONO;
-/// `.answered{padding:8px 12px;gap:8px;font-size:12.5px}`.
-const ANSWERED_PAD_Y: f32 = 8.0;
-const ANSWERED_PAD_X: f32 = 12.0;
-const ANSWERED_GAP: f32 = 8.0;
-const ANSWERED_TEXT: f32 = 12.5;
 
 /// A closure fed the index of the option the person clicked. Shared, because
 /// every option row wires the same handler.
@@ -112,6 +103,22 @@ pub struct QuestionCard {
     on_skip: Option<ClickHandler>,
     on_toggle_preview: Option<PreviewHandler>,
     on_clarify: Option<ClickHandler>,
+    wizard: Option<Wizard>,
+    on_back: Option<ClickHandler>,
+}
+
+/// Where a several-question request is (docs/41 §2.6, the owner's wizard,
+/// 2026-10-13): one card, one question at a time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Wizard {
+    /// The request's topic, the card's title.
+    pub topic: SharedString,
+    /// Why the agent is asking, under the topic.
+    pub why: SharedString,
+    /// The current question, from 0.
+    pub index: usize,
+    /// How many questions there are.
+    pub total: usize,
 }
 
 /// A question with `prompt` and `options`, drawn as radios; call
@@ -142,6 +149,8 @@ pub fn question_card(id: impl Into<ElementId>, prompt: impl Into<SharedString>, 
         on_skip: None,
         on_toggle_preview: None,
         on_clarify: None,
+        wizard: None,
+        on_back: None,
     }
 }
 
@@ -203,6 +212,20 @@ impl QuestionCard {
     /// `userInput/clarify`).
     pub fn on_clarify(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_clarify = Some(Box::new(f));
+        self
+    }
+
+    /// Draws the card as one step of several questions: the topic header,
+    /// `n of m`, the progress bar, **Back** and **Next** (**Continue** on
+    /// the last).
+    pub fn wizard(mut self, wizard: Option<Wizard>) -> Self {
+        self.wizard = wizard;
+        self
+    }
+
+    /// **Back** in a wizard past its first question.
+    pub fn on_back(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_back = Some(Box::new(f));
         self
     }
 
@@ -302,91 +325,113 @@ fn preview_body(id: impl Into<ElementId>, preview: &QuestionPreview, p: &Palette
     }
 }
 
-/// The 16 px radio or checkbox, with its dot popping in on the swap spring.
+/// The 16 px radio (1.5 muted ring; picked: a foreground ring and an 8 px
+/// dot) or checkbox (radius 4; picked: the foreground fill and a
+/// frame-coloured tick), the dot popping in on the fast spring.
 fn option_mark(id: ElementId, on: bool, multi: bool, p: &Palette, window: &mut Window, cx: &mut App) -> impl IntoElement {
-    let phase = spring_phase(id, on, SpringKind::Swap, window, cx).clamp(0.0, 1.0);
-    let dot = DOT * (DOT_FROM + (1.0 - DOT_FROM) * phase);
-    let radius = if multi { px(CHECKBOX_RADIUS) } else { px(scale::R_FULL) };
-    let dot_radius = if multi { px(CHECKBOX_DOT_RADIUS) } else { px(scale::R_FULL) };
-    div()
-        .flex_none()
-        .mt(px(MARK_OFFSET))
-        .size(px(MARK))
-        .rounded(radius)
-        .border(px(MARK_BORDER))
-        .border_color(if on { p.accent } else { p.line_strong })
-        .flex()
-        .items_center()
-        .justify_center()
-        .when(phase > 0.0, |d| d.child(div().size(px(dot)).rounded(dot_radius).bg(p.accent.alpha(phase))))
+    let phase = spring_phase(id, on, SpringKind::Fast, window, cx).clamp(0.0, 1.0);
+    let mark = div().flex_none().mt(px(MARK_OFFSET)).size(px(MARK)).flex().items_center().justify_center();
+    if multi {
+        mark.rounded(px(CHECKBOX_RADIUS))
+            .when(!on, |d| d.border(px(MARK_BORDER)).border_color(p.ink_2))
+            .when(on, |d| d.bg(p.ink))
+            .when(phase > 0.0, |d| d.child(icon(IconName::CheckBold).size(px(10.0 * (DOT_FROM + (1.0 - DOT_FROM) * phase))).color(p.bg)))
+    } else {
+        let dot = DOT * (DOT_FROM + (1.0 - DOT_FROM) * phase);
+        mark.rounded_full()
+            .border(px(MARK_BORDER))
+            .border_color(if on { p.ink } else { p.ink_2 })
+            .when(phase > 0.0, |d| d.child(div().size(px(dot)).rounded_full().bg(p.ink.alpha(phase))))
+    }
 }
 
 impl RenderOnce for QuestionCard {
     fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-
-        let head = h_flex()
-            .w_full()
+        let tile = div()
+            .flex_none()
+            .size(px(TILE))
+            .rounded(px(TILE_RADIUS))
+            .bg(crate::util::raised_lit(&p, p.surface_2))
+            .shadow(p.edge())
+            .flex()
             .items_center()
-            .gap(px(HEAD_GAP))
-            .py(px(HEAD_PAD_Y))
-            .px(px(HEAD_PAD_X))
-            .child(
-                div()
-                    .flex_none()
-                    .size(px(TILE))
-                    .rounded(px(TILE_RADIUS))
-                    .bg(p.accent_soft)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(icon(IconName::Question).size(px(TILE_GLYPH)).color(p.accent_ink)),
-            )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    // MSP's `header` is a short label *above* the prompt ("File").
-                    .when(!self.header.is_empty(), |d| {
-                        d.child(div().text_role(aui_tokens::TextRole::Caps).line_height(aui_tokens::scaled(HEADER_LINE)).text_color(p.ink_3).child(self.header.clone()))
-                    })
-                    .child(div().ui(TITLE_TEXT).semibold().text_color(p.ink).child(self.prompt.clone()))
-                    .when(!self.subtitle.is_empty(), |d| d.child(div().ui(SUB_TEXT).text_color(p.ink_2).child(self.subtitle.clone()))),
-            )
-            // The countdown the host ticks: a question that resolves itself
-            // should say so before it does.
-            .children(self.timeout.map(|(remaining_ms, _)| pill(countdown_label(remaining_ms)).variant(PillVariant::Warning)));
+            .justify_center()
+            .child(icon(IconName::Question).size(px(TILE_GLYPH)).color(p.ink_2));
+        // The auto-resolve tag: caption, warning on warning-soft, radius 6.
+        let countdown = self.timeout.map(|(remaining_ms, _)| {
+            div().flex_none().px(px(8.0)).py(px(2.0)).rounded(px(6.0)).bg(p.warning_soft).ui(scale::FS_12).text_color(p.warning).child(countdown_label(remaining_ms))
+        });
+        // The question's own header (caption muted) over the prompt (600).
+        let prompt_block = v_flex()
+            .flex_1()
+            .min_w(px(0.0))
+            .when(!self.header.is_empty(), |d| d.child(div().ui(SUB_TEXT).text_color(p.ink_2).child(self.header.clone())))
+            .child(div().ui(TITLE_TEXT).semibold().text_color(p.ink).child(self.prompt.clone()))
+            .when(!self.subtitle.is_empty(), |d| d.child(div().ui(SUB_TEXT).text_color(p.ink_2).child(self.subtitle.clone())));
 
-        let mut card = v_flex()
-            .id(id.clone())
-            .w_full()
-            .rounded(px(scale::R_LG))
-            .border_1()
-            .border_color(p.attention_border(p.accent))
-            .bg(p.surface_1)
-            .overflow_hidden()
-            .child(head);
+        let mut card = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_1)
+            .shadow(crate::transcript::card::attention_edge(p.warning))
+            .overflow_hidden();
+        match &self.wizard {
+            // Several questions: one card, one question at a time — the topic
+            // and why in the header with `n of m`, a 3 px progress bar, then
+            // the current question.
+            Some(wizard) => {
+                card = card
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .gap(px(HEAD_GAP))
+                            .py(px(HEAD_PAD_Y))
+                            .px(px(HEAD_PAD_X))
+                            .child(tile)
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w(px(0.0))
+                                    .child(div().ui(TITLE_TEXT).semibold().text_color(p.ink).child(wizard.topic.clone()))
+                                    .when(!wizard.why.is_empty(), |d| d.child(div().ui(SUB_TEXT).text_color(p.ink_2).child(wizard.why.clone()))),
+                            )
+                            .child(div().flex_none().mono(scale::FS_11).text_color(p.ink_4).child(format!("{} of {}", wizard.index + 1, wizard.total)))
+                            .children(countdown),
+                    )
+                    .child(progress_bar(&p, (wizard.index + 1) as f32 / wizard.total.max(1) as f32))
+                    .child(div().w_full().pt(px(10.0)).pb(px(6.0)).px(px(HEAD_PAD_X)).child(prompt_block));
+            }
+            None => {
+                card = card.child(
+                    h_flex()
+                        .w_full()
+                        .items_center()
+                        .gap(px(HEAD_GAP))
+                        .py(px(HEAD_PAD_Y))
+                        .px(px(HEAD_PAD_X))
+                        .child(tile)
+                        .child(prompt_block)
+                        .children(countdown),
+                );
+            }
+        }
 
+        let mut options = v_flex().w_full().px(px(OPT_MARGIN_X)).gap(px(2.0));
         for (index, option) in self.options.iter().enumerate() {
             let on = self.selected.contains(&index);
             let row_id: ElementId = (id.clone(), SharedString::from(format!("opt-{index}"))).into();
             let (state, flags) = interaction_flags(row_id.clone(), window, cx);
-            // `.opt:hover{background:surface-2}` and `.opt.on{border-color:accent;background:surface-2}`.
-            let tint = on || flags.hovered;
-            let bg: Hsla = tween((row_id.clone(), "bg"), if tint { p.surface_2 } else { p.surface_1 }, Tween::FAST, window, cx);
-            let border: Hsla = tween((row_id.clone(), "border"), if on { p.accent } else { p.line }, Tween::FAST, window, cx);
+            // Selected 9 %, hover 5 %, on FF's 80 ms glide.
+            let tint = if on { p.selected_overlay() } else if flags.hovered { p.hover_overlay() } else { p.hover_overlay().alpha(0.0) };
+            let bg: Hsla = tween((row_id.clone(), "bg"), tint, ROW_GLIDE, window, cx);
             let mut row = h_flex()
                 .id(row_id.clone())
+                .w_full()
                 .items_start()
                 .gap(px(OPT_GAP))
                 .py(px(OPT_PAD_Y))
                 .px(px(OPT_PAD_X))
-                .mx(px(OPT_MARGIN_X))
-                .mb(px(OPT_MARGIN_BOTTOM))
-                .rounded(px(scale::R_MD))
-                .border_1()
-                .border_color(border)
+                .rounded(px(OPT_RADIUS))
                 .bg(bg)
                 .cursor_pointer()
                 .track_interaction(&state)
@@ -395,11 +440,11 @@ impl RenderOnce for QuestionCard {
                     v_flex()
                         .flex_1()
                         .min_w(px(0.0))
-                        .child(div().ui(LABEL_TEXT).medium().text_color(p.ink).child(SharedString::from(option.label.clone())))
-                        .child(div().text_px(DESCRIPTION_TEXT).font_family(scale::FONT_UI).line_height(aui_tokens::scaled(DESCRIPTION_LINE)).text_color(p.ink_2).child(SharedString::from(option.description.clone()))),
+                        .child(div().ui(LABEL_TEXT).when(on, |d| d.semibold()).text_color(p.ink).child(SharedString::from(option.label.clone())))
+                        .when(!option.description.is_empty(), |d| d.child(div().ui(DESCRIPTION_TEXT).text_color(p.ink_2).child(SharedString::from(option.description.clone())))),
                 );
             if !option.key.is_empty() {
-                row = row.child(kbd(option.key.clone()));
+                row = row.child(key_cap(&p, option.key.clone()));
             }
             if let Some(on_select) = self.on_select.clone() {
                 // The row is the radio/checkbox control: it carries the
@@ -408,122 +453,130 @@ impl RenderOnce for QuestionCard {
                 record_ax_label(&option.label);
                 row = row.role(role).aria_label(SharedString::from(option.label.clone())).on_click(move |_, w, cx| on_select(index, w, cx));
             }
-            card = card.child(row);
+            options = options.child(row);
 
             // An option may carry a rendered preview — a diff, a snippet — and
-            // the chevron is how the person asks to see it.
+            // the "Preview" disclosure is how the person asks to see it.
             let Some(preview) = &option.preview else { continue };
             let open = self.previews_open.contains(&index);
             let toggle_id: ElementId = (id.clone(), SharedString::from(format!("preview-{index}"))).into();
-            let preview_label = SharedString::from(format!(
-                "{} preview for {}",
-                if open { "Hide" } else { "Show" },
-                option.label
-            ));
+            let preview_label = SharedString::from(format!("{} preview for {}", if open { "Hide" } else { "Show" }, option.label));
             record_ax_label(&preview_label);
-            let mut chevron = h_flex()
+            let mut disclosure = h_flex()
                 .id(toggle_id)
-                .mx(px(OPT_MARGIN_X + OPT_PAD_X))
-                .mb(px(OPT_MARGIN_BOTTOM))
+                .pt(px(4.0))
+                .pr(px(10.0))
+                .pb(px(4.0))
+                .pl(px(18.0))
                 .items_center()
                 .gap(px(PREVIEW_GAP))
-                .ui(PREVIEW_TEXT)
-                .text_color(p.ink_3)
+                .ui(DESCRIPTION_TEXT)
+                .text_color(p.ink_2)
                 .cursor_pointer()
+                .hover(|d| d.text_color(p.ink))
                 .role(gpui::Role::Button)
                 .aria_label(preview_label)
-                .child(icon(if open { IconName::ChevronDown } else { IconName::Chevron }).size(px(PREVIEW_GLYPH)).color(p.ink_3))
+                .child(icon(if open { IconName::ChevronDown } else { IconName::Chevron }).size(px(PREVIEW_GLYPH)))
                 .child("Preview");
             if let Some(on_toggle) = self.on_toggle_preview.clone() {
-                chevron = chevron.on_click(move |_, w, cx| on_toggle(index, w, cx));
+                disclosure = disclosure.on_click(move |_, w, cx| on_toggle(index, w, cx));
             }
-            card = card.child(chevron);
+            options = options.child(disclosure);
             if open {
-                card = card.child(
-                    div()
-                        .mx(px(OPT_MARGIN_X))
-                        .mb(px(OPT_MARGIN_BOTTOM))
-                        .child(preview_body((id.clone(), SharedString::from(format!("preview-body-{index}"))), preview, &p)),
-                );
+                options = options.child(div().w_full().pb(px(4.0)).child(preview_body((id.clone(), SharedString::from(format!("preview-body-{index}"))), preview, &p)));
             }
         }
+        card = card.child(options.pb(px(8.0)));
 
         // "Explain instead": the field is the host's, the buttons are the card's.
         if self.clarify_open {
             if let Some(slot) = self.clarify_slot.take() {
-                card = card.child(div().mx(px(OPT_MARGIN_X)).mb(px(OPT_MARGIN_BOTTOM)).child(slot));
+                card = card.child(div().mx(px(OPT_MARGIN_X)).mb(px(OTHER_MARGIN_BOTTOM)).child(slot));
             }
         }
 
+        // "Other": a 32 px Well input with the edit glyph.
         if self.allow_other {
             let other_id: ElementId = (id.clone(), "other").into();
             record_ax_label("Other, type your own answer");
             let mut other = h_flex()
                 .id(other_id)
+                .h(px(OTHER_H))
                 .items_center()
                 .gap(px(OTHER_GAP))
-                .py(px(OTHER_PAD_Y))
                 .px(px(OTHER_PAD_X))
                 .mx(px(OPT_MARGIN_X))
                 .mb(px(OTHER_MARGIN_BOTTOM))
-                .rounded(px(scale::R_MD))
-                .border_dashed()
-                .border_1()
-                .border_color(p.line_strong)
+                .rounded(px(OPT_RADIUS))
+                .bg(p.well)
                 .ui(OTHER_TEXT)
-                .text_color(p.ink_3)
-                .cursor_pointer()
+                .text_color(p.ink_2)
+                .cursor_text()
                 .role(gpui::Role::Button)
                 .aria_label("Other, type your own answer")
-                .child(icon(IconName::Edit).size(px(OTHER_GLYPH)).color(p.ink_3))
-                .child("Other, type your own…");
+                .child(icon(IconName::Edit).size(px(OTHER_GLYPH)).color(p.ink_2))
+                .child("Other…");
             if let Some(on_other) = self.on_other {
                 other = other.on_click(move |e, w, cx| on_other(e, w, cx));
             }
             card = card.child(other);
         }
 
+        // The footer: key hints (or the limit the selection is outside),
+        // a spacer, then only the choices the provider minted.
         let count = self.selected.len();
-        // A multi-select outside its min/max would be refused on the wire, so
-        // the card refuses first and says which bound it is on.
         let (min, max) = self.limits;
         let under = min.is_some_and(|min| count < min);
         let over = max.is_some_and(|max| count > max);
-        let hint = self.hint.clone().unwrap_or_else(|| match (under, over, min, max) {
+        let last = self.wizard.as_ref().is_none_or(|w| w.index + 1 >= w.total);
+        let advance = if last { "continue" } else { "next" };
+        let hint: SharedString = self.hint.clone().unwrap_or_else(|| match (under, over, min, max) {
             (true, _, Some(min), _) => SharedString::from(format!("Pick at least {min}")),
             (_, true, _, Some(max)) => SharedString::from(format!("Pick at most {max}")),
-            _ => SharedString::from(format!("{count} selected")),
+            _ if self.multi => SharedString::from(format!("↑↓ move · space pick · ⏎ {advance}")),
+            _ => SharedString::from(format!("↑↓ move · ⏎ {advance}")),
         });
         let answer = Answer { selected: self.selected.clone(), other: None };
-        let mut skip = button((id.clone(), "skip"), "Skip").sm().ghost();
-        if let Some(on_skip) = self.on_skip {
-            skip = skip.on_click(move |e, w, cx| on_skip(e, w, cx));
+        let mut foot = h_flex().w_full().items_center().gap(px(FOOT_GAP)).py(px(FOOT_PAD_Y)).px(px(FOOT_PAD_X)).border_t_1().border_color(p.line);
+        if self.wizard.as_ref().is_some_and(|w| w.index > 0) {
+            if let Some(on_back) = self.on_back {
+                let back = control_with((id.clone(), "back"), Some(IconName::ArrowLeft), "Back", ControlKind::Text, &p)
+                    .pl(px(6.0))
+                    .on_click(move |e, w, cx| on_back(e, w, cx));
+                foot = foot.child(back);
+            }
         }
-        let clarify = self.on_clarify.map(|on_clarify| {
-            button((id.clone(), "clarify"), "Explain instead").sm().on_click(move |e, w, cx| on_clarify(e, w, cx))
-        });
-        let mut confirm = button((id.clone(), "continue"), "Continue").sm().primary().disabled(under || over);
-        if let Some(on_answer) = self.on_answer {
+        foot = foot.child(key_hints(hint, &p)).child(div().flex_1());
+        if let Some(on_skip) = self.on_skip {
+            foot = foot.child(control((id.clone(), "skip"), "Skip", ControlKind::Text, &p).on_click(move |e, w, cx| on_skip(e, w, cx)));
+        }
+        if let Some(on_clarify) = self.on_clarify {
+            foot = foot.child(control((id.clone(), "clarify"), "Explain instead", ControlKind::Secondary, &p).on_click(move |e, w, cx| on_clarify(e, w, cx)));
+        }
+        let mut confirm = control((id.clone(), "continue"), if last { "Continue" } else { "Next" }, ControlKind::Primary, &p);
+        if under || over {
+            confirm = confirm.opacity(0.4).cursor_default();
+        } else if let Some(on_answer) = self.on_answer {
             confirm = confirm.on_click(move |_, w, cx| on_answer(answer.clone(), w, cx));
         }
-        card = card.child(
-            h_flex()
-                .w_full()
-                .items_center()
-                .gap(px(FOOT_GAP))
-                .py(px(FOOT_PAD_Y))
-                .px(px(FOOT_PAD_X))
-                .border_t_1()
-                .border_color(p.line)
-                .bg(crate::util::raised_lit(&p, p.surface_2))
-                .child(div().flex_none().ui(HINT_TEXT).text_color(p.ink_3).child(hint))
-                .child(div().flex_1())
-                .child(skip)
-                .children(clarify)
-                .child(confirm),
-        );
-        card
+        card.child(foot.child(confirm))
     }
+}
+
+/// The 3 px progress bar under a wizard's or the tasks card's header: a 7 %
+/// track, the muted fill clamped at 100 %.
+pub(crate) fn progress_bar(p: &Palette, fraction: f32) -> impl IntoElement {
+    div()
+        .relative()
+        .w_full()
+        .h(px(3.0))
+        .bg(p.line)
+        .child(div().absolute().top_0().left_0().h_full().w(gpui::relative(fraction.clamp(0.0, 1.0))).bg(p.ink_2))
+}
+
+/// The key cap at an option's right: faint mono on white 7 %, radius 4, 1 / 6.
+fn key_cap(p: &Palette, key: impl Into<SharedString>) -> impl IntoElement {
+    div().flex_none().px(px(6.0)).py(px(1.0)).rounded(px(4.0)).bg(p.line).mono(scale::FS_11).text_color(p.ink_4).child(key.into())
 }
 
 /// How a question settled, which is what the collapsed row says it did.
@@ -549,9 +602,9 @@ impl QuestionOutcome {
     /// The lead-in the row shows before the chips.
     fn label(&self) -> SharedString {
         match self {
-            QuestionOutcome::Answered => "Answered:".into(),
+            QuestionOutcome::Answered => "Answered".into(),
             QuestionOutcome::Skipped => "Skipped".into(),
-            QuestionOutcome::Clarified(_) => "Clarified:".into(),
+            QuestionOutcome::Clarified(_) => "Clarified".into(),
             QuestionOutcome::TimedOut => "Timed out".into(),
             QuestionOutcome::Interrupted => "Interrupted".into(),
         }
@@ -569,14 +622,13 @@ pub struct AnsweredRow {
     id: ElementId,
     chips: Vec<SharedString>,
     outcome: QuestionOutcome,
-    on_change: Option<ClickHandler>,
 }
 
-/// The one-line card a settled question collapses to: a success glyph, the
-/// chosen answers as chips and a "Change" action. `chips` are the short
-/// labels of the chosen options.
+/// The quiet row a settled question leaves (docs/41 §2.4): `✓ Answered
+/// <pick as inline code>`, `✓ Clarified <text>`; a non-answer reads what
+/// it was with a muted ✕. Not clickable.
 pub fn answered_row(id: impl Into<ElementId>, chips: Vec<SharedString>) -> AnsweredRow {
-    AnsweredRow { id: id.into(), chips, outcome: QuestionOutcome::Answered, on_change: None }
+    AnsweredRow { id: id.into(), chips, outcome: QuestionOutcome::Answered }
 }
 
 impl AnsweredRow {
@@ -585,46 +637,19 @@ impl AnsweredRow {
         self.outcome = outcome;
         self
     }
-
-    /// "Change": the person wants to answer again.
-    pub fn on_change(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.on_change = Some(Box::new(f));
-        self
-    }
 }
 
 impl RenderOnce for AnsweredRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let id = self.id.clone();
-        // The "Change" action renders only when a caller wired it. An action
-        // without a handler is a dead control, and a settled approval genuinely
-        // cannot be re-answered — the server refuses a second decision — so for
-        // that caller the button must not exist rather than sit there inert.
-        let change = self.on_change.map(|on_change| {
-            button((id.clone(), "change"), "Change").xs().ghost().on_click(move |e, w, cx| on_change(e, w, cx))
-        });
-        let answered = self.outcome.answered();
-        let clarification = match &self.outcome {
-            QuestionOutcome::Clarified(text) => Some(text.clone()),
-            _ => None,
-        };
-        crate::util::raised_block(h_flex()
-            .id(id.clone())
-            .w_full()
-            .items_center()
-            .gap(px(ANSWERED_GAP))
-            .py(px(ANSWERED_PAD_Y))
-            .px(px(ANSWERED_PAD_X))
-            .rounded(px(scale::R_MD)), &p, p.surface_1)
-            .ui(ANSWERED_TEXT)
-            .text_color(p.ink)
-            .children(answered.then(glyph_ok))
-            .children((!answered).then(|| div().flex_none().child(icon(IconName::X).size(px(OTHER_GLYPH)).color(p.ink_3))))
-            .child(div().flex_none().text_color(p.ink_3).child(self.outcome.label()))
-            .children(clarification.map(|text| div().flex_1().min_w(px(0.0)).truncate().text_color(p.ink_2).child(text)))
-            .children(self.chips.into_iter().enumerate().map(|(i, label)| chip((id.clone(), SharedString::from(format!("chip-{i}"))), label)))
-            .child(div().flex_1())
-            .children(change)
+        let glyph = if self.outcome.answered() { status_check(p.success).into_any_element() } else { status_cross(p.ink_3).into_any_element() };
+        let mut row = quiet_status_row(self.id.clone(), glyph).part(div().flex_none().child(self.outcome.label()));
+        if let QuestionOutcome::Clarified(text) = &self.outcome {
+            row = row.part(div().min_w(px(0.0)).truncate().text_color(p.ink).child(text.clone()));
+        }
+        for chip in self.chips {
+            row = row.part(div().flex_none().px(px(5.0)).py(px(1.0)).rounded(px(4.0)).bg(p.line).mono(scale::FS_12).child(chip));
+        }
+        row
     }
 }

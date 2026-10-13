@@ -2,7 +2,7 @@
 //! banner states. Reproduces `design/src/cards/shell/13-toasts.html` at
 //! 820×440.
 
-use aui::feedback::{banner, toast_stack, BannerActionStyle, BannerKind, BannerRun, ToastAction, ToastData, ToastKind};
+use aui::feedback::{banner, feedback_pill, toast_chip, toast_stack, BannerActionStyle, BannerKind, BannerRun, ToastAction, ToastData, ToastKind, ToastTone};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
@@ -57,6 +57,16 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
     v_flex()
         .w_full()
         .gap(px(FAN_SECTION_GAP))
+        .child(caps(p, "The corner stack · D4"))
+        .child(
+            v_flex()
+                .items_end()
+                .gap(px(8.0))
+                .child(toast_chip("card13-chip-1", ToastTone::Neutral, "File not found", "docs/02-app.md is no longer in this workspace.").on_close(|_, _, _| {}))
+                .child(toast_chip("card13-chip-2", ToastTone::Success, "Downloaded", "fluid-functionalism-tokens.json").queued(1).action("Show in Finder", |_, _, _| {}).on_close(|_, _, _| {}))
+                .child(feedback_pill("card13-feedback-idle", false).on_toggle(|_, _, _| {}))
+                .child(feedback_pill("card13-feedback", true).notes(Some("3 notes".into())).on_toggle(|_, _, _| {}).on_done(|_, _, _| {}).on_discard(|_, _, _| {})),
+        )
         .child(
             h_flex()
                 .w_full()

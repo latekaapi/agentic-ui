@@ -11,6 +11,7 @@ mod approval;
 mod caps;
 mod card;
 mod code;
+mod controls;
 mod handoff;
 mod item;
 mod markdown;
@@ -61,7 +62,7 @@ pub use handoff::{
     handoff_step_label, handoff_step_state_word, HandoffCard, HandoffIntent, HandoffStep, HandoffStepState,
     HANDOFF_CONFIRM_WIDTH, HANDOFF_FRESH_NOTE,
 };
-pub use question::{answered_row, question_card, AnsweredRow, QuestionCard, QuestionOutcome};
+pub use question::{answered_row, question_card, AnsweredRow, QuestionCard, QuestionOutcome, Wizard};
 pub use caps::{
     cap_expanded, cap_preview, cut_preview_line, Remainder, EXPANDED_LINE_CHARS,
     EXPANDED_MAX_CHARS, EXPANDED_MAX_LINES, PREVIEW_LINE_CHARS, PREVIEW_MAX_CHARS,
@@ -77,4 +78,4 @@ pub use todo::{todo_list, TodoList};
 pub use code::{code_block, diff_block, diff_note, diff_note_inset, runnable_command, CodeBlock, CodeBlockAction, DiffBlock, DiffBlockAction, DiffNote, NoteInsets};
 pub use syntax::{syntax_runs, syntax_runs_in, token_color, tokenize_line, tokenize_line_in, ts_language, TokenKind};
 pub use summary::{summary_card, SummaryAction, SummaryCard};
-pub use status::{error_card, jump_pill, needs_you_banner, retry_row, status_row, ErrorCard, JumpPill, NeedsYouBanner, StatusLead, StatusRow};
+pub use status::{error_card, jump_pill, needs_you_banner, retry_row, status_row, ErrorCard, JumpPill, NeedsYouBanner, RetryRow, StatusLead, StatusRow};

@@ -13,25 +13,19 @@ use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{button, pill, record_ax_label, PillVariant};
-use crate::nav::chevron;
+use crate::data::record_ax_label;
 use crate::transcript::caps::{cap_expanded, cap_preview, Remainder};
+use crate::transcript::quiet_row::{status_check, status_cross};
 use crate::transcript::transcript_card;
 
-/// The body of both cards keeps the transcript's own card padding.
-const BODY_PAD: f32 = scale::SP_4;
 /// The header row's gap, matching every other transcript card header.
 const HEAD_GAP: f32 = scale::SP_2;
-/// The definition rows under a goal: label column, gap, row rhythm.
-const DL_LABEL_W: f32 = 84.0;
-const DL_COL_GAP: f32 = scale::SP_3;
+/// The definition rows under a goal: a 92 px key column, the row rhythm.
+const DL_LABEL_W: f32 = 92.0;
 const DL_ROW_GAP: f32 = scale::SP_2;
-/// The progress bar: full width of the body, 4 px tall, its own radius.
-const BAR_HEIGHT: f32 = 4.0;
-const BAR_RADIUS: f32 = 2.0;
-/// The bar and the number it belongs to sit on one row.
+/// The 3 px bar and the number it belongs to sit on one row.
+const BAR_HEIGHT: f32 = 3.0;
 const BAR_GAP: f32 = scale::SP_3;
-const BAR_NUMBER_W: f32 = 44.0;
 
 /// Collapsed, the card shows a header plus this many preview lines.
 pub const GENERIC_PREVIEW_LINES: usize = 3;
@@ -137,61 +131,50 @@ impl RenderOnce for GenericItemCard {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let handler = self.on_intent.clone();
-        // The frame stays expanded — collapsed means preview lines, not an
-        // empty card — so the chevron is drawn by hand from the open state,
-        // the `tool_group` idiom.
-        let mut card = transcript_card(id.clone(), true)
-            .chevron(false)
+        // D4 (docs/41 §2.7): the tool header's layout — a status glyph, the
+        // kind as the verb, the provider's status in mono muted — folded by
+        // default; open, the fallback text at 8 / 12.
+        let status = self.status.to_lowercase();
+        let glyph: Option<gpui::AnyElement> = if ["completed", "complete", "done", "succeeded", "success"].contains(&status.as_str()) {
+            Some(status_check(p.success).into_any_element())
+        } else if ["failed", "error", "errored"].contains(&status.as_str()) {
+            Some(status_cross(p.danger).into_any_element())
+        } else {
+            None
+        };
+        let mut card = transcript_card(id.clone(), self.open)
             .hover_tint(self.on_intent.is_some())
-            .header(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap(px(HEAD_GAP))
-                    .child(div().flex_none().ui(scale::FS_13).semibold().text_color(p.ink).child(self.kind))
-                    .child(div().flex_1().min_w(px(0.0)))
-                    .child(pill(self.status).variant(PillVariant::Quiet)),
-            )
-            .header(chevron((id.clone(), "chevron"), self.open, p.ink_3, window, cx));
-        // An item with no fallback text is a header and nothing else; an empty
-        // body would draw a stray border under it.
+            .children_header(glyph)
+            .header(div().flex_none().whitespace_nowrap().child(self.kind))
+            .header(div().min_w(px(0.0)).truncate().mono(scale::FS_12).text_color(p.ink_2).child(self.status))
+            .header(div().flex_1());
+        // An item with no fallback text is a header and nothing else.
         if !self.text.is_empty() {
-            if self.open {
-                let (visible, remainder) = generic_expanded_text(&self.text);
-                let mut body = v_flex().w_full().p(px(BODY_PAD)).ui(scale::FS_12).text_color(p.ink_2).child(visible);
-                if let Some(cut) = remainder.label() {
-                    let open = handler.clone();
-                    let open_full = self.on_open_full.clone();
-                    let label = "Open full text";
-                    record_ax_label(label);
-                    body = body.child(
-                        h_flex()
-                            .w_full()
-                            .items_center()
-                            .gap(px(HEAD_GAP))
-                            .pt(px(scale::SP_2))
-                            .child(div().flex_none().ui(scale::FS_11).text_color(p.ink_3).child(cut))
-                            .child(div().flex_1())
-                            .child(
-                                button((id.clone(), "open-full"), label)
-                                    .xs()
-                                    .ghost()
-                                    .accessibility_label(label)
-                                    .on_click(move |_, w, cx| {
-                                        if let Some(f) = &open_full {
-                                            f(w, cx);
-                                        } else if let Some(h) = &open {
-                                            h(GenericItemIntent::OpenFull, w, cx);
-                                        }
-                                    }),
-                            ),
-                    );
-                }
-                card = card.body(body);
-            } else {
-                card = card.body(div().w_full().p(px(BODY_PAD)).ui(scale::FS_12).text_color(p.ink_2).child(generic_preview_text(&self.text)));
+            let unfolded = window.use_keyed_state((id.clone(), "unfolded"), cx, |_, _| false);
+            let (visible, remainder) = if *unfolded.read(cx) { (self.text.to_string(), Remainder::default()) } else { generic_expanded_text(&self.text) };
+            let mut body = v_flex().w_full().py(px(8.0)).px(px(12.0)).ui(scale::FS_13).text_color(p.ink).child(visible);
+            if let Some(cut) = remainder.label() {
+                let label = format!("Show {cut}");
+                record_ax_label(&label);
+                body = body.child(
+                    h_flex()
+                        .id((id.clone(), "more"))
+                        .pt(px(scale::SP_2))
+                        .gap(px(6.0))
+                        .ui(scale::FS_12)
+                        .text_color(p.ink_2)
+                        .cursor_pointer()
+                        .role(gpui::Role::Button)
+                        .aria_label(label)
+                        .on_click(move |_, _, cx| unfolded.update(cx, |u, cx| {
+                            *u = true;
+                            cx.notify();
+                        }))
+                        .child(crate::icons::icon(crate::icons::IconName::ChevronDown).size(px(11.0)))
+                        .child(cut),
+                );
             }
+            card = card.body(body);
         }
         if let Some(handler) = self.on_intent {
             card = card.on_toggle(move |_, w, cx| handler(GenericItemIntent::Toggle, w, cx));
@@ -247,14 +230,18 @@ impl RenderOnce for GoalCard {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
+        // D4 (docs/41 §2.7): Raised, radius 8; the title 600 with the
+        // provider's status as a tag; the 3 px bar (clamped) with the number
+        // as given; the two-column list in caption.
         let header = h_flex()
             .w_full()
             .items_center()
             .gap(px(HEAD_GAP))
+            .px(px(12.0))
+            .py(px(10.0))
             .child(div().flex_1().min_w(px(0.0)).truncate().ui(scale::FS_13).semibold().text_color(p.ink).child(self.objective))
-            .child(pill(self.status).variant(PillVariant::Line));
-
-        let mut body = v_flex().w_full().p(px(BODY_PAD)).gap(px(DL_ROW_GAP));
+            .child(div().flex_none().px(px(8.0)).py(px(2.0)).rounded(px(6.0)).bg(p.line).ui(scale::FS_12).text_color(p.ink_2).child(self.status));
+        let mut body = v_flex().w_full().px(px(12.0)).pb(px(12.0)).gap(px(DL_ROW_GAP));
         if let Some(percent) = self.percent {
             let fraction = (percent / 100.0).clamp(0.0, 1.0);
             body = body.child(
@@ -262,17 +249,9 @@ impl RenderOnce for GoalCard {
                     .w_full()
                     .items_center()
                     .gap(px(BAR_GAP))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(0.0))
-                            .h(px(BAR_HEIGHT))
-                            .rounded(px(BAR_RADIUS))
-                            .bg(p.surface_3)
-                            .overflow_hidden()
-                            .child(div().h_full().w(gpui::relative(fraction)).rounded(px(BAR_RADIUS)).bg(p.accent)),
-                    )
-                    .child(div().flex_none().w(px(BAR_NUMBER_W)).flex().justify_end().mono(scale::FS_11).text_color(p.ink_3).child(format!("{percent:.0}%"))),
+                    .mb(px(6.0))
+                    .child(div().flex_1().min_w(px(0.0)).h(px(BAR_HEIGHT)).bg(p.line).child(div().h_full().w(gpui::relative(fraction)).bg(p.ink_2)))
+                    .child(div().flex_none().mono(scale::FS_11).text_color(p.ink_4).child(format!("{percent:.0}%"))),
             );
         }
         for (label, value) in [("Doing now", self.current_work), ("Next", self.next_work)] {
@@ -281,14 +260,12 @@ impl RenderOnce for GoalCard {
                 h_flex()
                     .w_full()
                     .items_start()
-                    .gap(px(DL_COL_GAP))
                     .ui(scale::FS_12)
-                    .child(div().flex_none().w(px(DL_LABEL_W)).text_color(p.ink_3).child(label))
-                    .child(div().flex_1().min_w(px(0.0)).text_color(p.ink_2).child(value)),
+                    .child(div().flex_none().w(px(DL_LABEL_W)).text_color(p.ink_2).child(label))
+                    .child(div().flex_1().min_w(px(0.0)).text_color(p.ink).child(value)),
             );
         }
-
-        transcript_card(id, true).chevron(false).hover_tint(false).header(header).body(body)
+        crate::util::raised_block(v_flex().id(id).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_1).overflow_hidden().child(header).child(body)
     }
 }
 

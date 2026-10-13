@@ -47,7 +47,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
                 .text_color(p.ink_3)
-                .child("While thinking, the label shimmers and the viewport is capped at four lines with a top fade; new text pushes up from the bottom. On completion the block collapses to one line with a model-written summary. Click re-expands the full trace."),
+                .child("D4: a quiet row — no surface. While it streams, \"Thinking\" shimmers with its elapsed and the trace shows capped, 32 in from the measure, under a 34 px top fade; once done it reads \"Thought for 4.2 s · summary\" and the whole row toggles the trace."),
         )
         .into_any_element()
 }

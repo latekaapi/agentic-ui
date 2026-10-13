@@ -1,12 +1,9 @@
-//! Card 36: the todo list — the agent's task list as a collapsible card with
-//! a progress bar and one row per task, whose mark morphs from a pending ring
-//! to a pulsing accent dot to a success check.
+//! The tasks card (D4, docs/41 §2.7): the agent's task list as a
+//! collapsible card with a 3 px progress bar and one 30 px row per task.
 
-use std::time::Duration;
-
-use aui_motion::{looping, spring, spring_phase, Loop, SpringKind};
+use aui_motion::{spring, spring_phase, SpringKind};
 use aui_protocol::{TodoItem, TodoState};
-use aui_tokens::{ActiveAui, AuiStyled, Easing, Palette, TextRole};
+use aui_tokens::{ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, StrikethroughStyle, StyledText, TextRun, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -24,17 +21,13 @@ const ROW_H: f32 = 30.0;
 const ROW_PAD_X: f32 = 12.0;
 const ROW_GAP: f32 = 10.0;
 const ROW_TEXT: f32 = 12.5;
-/// `.ti .m{width:15px;height:15px;border:1.5px}`.
+/// Rows 30 px, 0 / 12, gap 10; the mark 15 px with a 1.5 ring.
 const MARK: f32 = 15.0;
 const MARK_BORDER: f32 = 1.5;
 /// `.ti.done .m svg{width:9px;height:9px}`.
 const CHECK: f32 = 9.0;
-/// `.ti.run .m{box-shadow:0 0 0 3px var(--accent-soft)}` and its 6 px dot,
-/// which pulses to 60 % and back over 1.2 s.
-const RING: f32 = 3.0;
+/// The running mark's dot.
 const RUN_DOT: f32 = 6.0;
-const PULSE_TO: f32 = 0.6;
-const PULSE_HALF_CYCLE: Duration = Duration::from_millis(600);
 /// The strikethrough on a finished label.
 const STRIKE_THICKNESS: f32 = 1.0;
 
@@ -79,48 +72,37 @@ fn elapsed_label(ms: u64) -> String {
     format!("{}:{:02}", total / 60, total % 60)
 }
 
-/// The 15 px mark: a pending ring that fills with success as the task
-/// finishes (swap spring) and carries a pulsing accent dot while running.
+/// The 15 px mark (docs/41 §2.7): pending a 1.5 muted ring; running a
+/// 1.5 foreground ring with a 6 px foreground dot; done the success fill with
+/// a frame-coloured tick, cross-fading in on the fast spring. Nothing pulses.
 fn todo_mark(id: ElementId, state: TodoState, p: &Palette, window: &mut Window, cx: &mut App) -> impl IntoElement {
-    let done = spring_phase((id.clone(), "done"), state == TodoState::Done, SpringKind::Swap, window, cx).clamp(0.0, 1.0);
+    let done = spring_phase((id, "done"), state == TodoState::Done, SpringKind::Fast, window, cx).clamp(0.0, 1.0);
     let running = state == TodoState::Running;
-    let pulse = if running {
-        looping((id, "pulse"), Loop::eased(PULSE_HALF_CYCLE, Easing::INOUT).alternate().resting(0.0), window, cx)
-    } else {
-        0.0
-    };
-    let dot = RUN_DOT * (1.0 - (1.0 - PULSE_TO) * pulse);
     div()
         .relative()
         .flex_none()
         .size(px(MARK))
         .rounded_full()
         .border(px(MARK_BORDER))
-        .border_color(if running { p.accent } else { p.line_strong })
+        .border_color(if running { p.ink } else { p.ink_2 })
         .flex()
         .items_center()
         .justify_center()
-        // The 3 px accent-soft ring is a box-shadow spread in the CSS; gpui
-        // draws it as a larger circle behind the mark.
-        .when(running, |d| {
-            d.child(div().absolute().size(px(MARK + 2.0 * RING)).rounded_full().bg(p.accent_soft))
-                .child(div().relative().size(px(dot)).rounded_full().bg(p.accent))
-        })
-        // The success fill crossfades in over the pending ring.
+        .when(running, |d| d.child(div().size(px(RUN_DOT)).rounded_full().bg(p.ink)))
         .when(done > 0.0, |d| {
             d.child(
                 div()
                     .absolute()
+                    .top(px(-MARK_BORDER))
+                    .left(px(-MARK_BORDER))
                     .size(px(MARK))
                     .rounded_full()
-                    .border(px(MARK_BORDER))
-                    .border_color(p.success)
                     .bg(p.success)
                     .opacity(done)
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(icon(IconName::CheckBold).size(px(CHECK)).color(gpui::white())),
+                    .child(icon(IconName::CheckBold).size(px(CHECK)).color(p.bg)),
             )
         })
 }
@@ -132,18 +114,19 @@ impl RenderOnce for TodoList {
         let total = self.items.len();
         let done = self.items.iter().filter(|i| i.state == TodoState::Done).count();
         let fraction = if total == 0 { 0.0 } else { done as f32 / total as f32 };
-        let width = spring((id.clone(), "bar"), fraction, SpringKind::Layout, window, cx).clamp(0.0, 1.0);
+        let width = spring((id.clone(), "bar"), fraction, SpringKind::Moderate, window, cx).clamp(0.0, 1.0);
 
         let mut card = transcript_card(id.clone(), self.open)
             .header_height(px(HEADER_H))
-            .header(icon(IconName::List).size(px(HEADER_GLYPH)).color(p.ink_3))
-            .header(div().medium().child(self.title.clone()))
-            .header(div().text_role(TextRole::MonoSmall).text_color(p.ink_3).child(format!("{done} / {total}")))
+            .header(icon(IconName::List).size(px(HEADER_GLYPH)).color(p.ink_2))
+            .header(div().semibold().child(self.title.clone()))
+            .header(div().mono(aui_tokens::scale::FS_11).text_color(p.ink_4).child(format!("{done} / {total}")))
             .header(div().flex_1());
 
+        // The 3 px bar under the header: a 7 % track, the muted fill.
         let mut body = v_flex()
             .w_full()
-            .child(div().w_full().h(px(BAR_H)).bg(p.surface_3).child(div().h_full().w(relative(width)).bg(p.ink_3)));
+            .child(div().w_full().h(px(BAR_H)).bg(p.line).child(div().h_full().w(relative(width)).bg(p.ink_2)));
         for (index, item) in self.items.iter().enumerate() {
             let label: SharedString = item.label.clone().into();
             let text = match item.state {
@@ -151,10 +134,10 @@ impl RenderOnce for TodoList {
                     .with_runs(vec![TextRun {
                         len: label.len(),
                         font: gpui::font(aui_tokens::scale::FONT_UI),
-                        color: p.ink_3,
+                        color: p.ink_2,
                         background_color: None,
                         underline: None,
-                        strikethrough: Some(StrikethroughStyle { thickness: px(STRIKE_THICKNESS), color: Some(p.ink_4) }),
+                        strikethrough: Some(StrikethroughStyle { thickness: px(STRIKE_THICKNESS), color: Some(p.ink_2) }),
                     }])
                     .into_any_element(),
                 _ => label.clone().into_any_element(),
@@ -177,7 +160,6 @@ impl RenderOnce for TodoList {
                             .min_w(px(0.0))
                             .truncate()
                             .text_color(p.ink)
-                            .when(item.state == TodoState::Running, |d| d.medium())
                             .child(text),
                     )
                     .children(item.elapsed_ms.map(|ms| {
@@ -185,12 +167,10 @@ impl RenderOnce for TodoList {
                         // so a finished row's elapsed is struck through too and
                         // a running one takes the brighter ink.
                         let elapsed: SharedString = elapsed_label(ms).into();
-                        let mut font = gpui::font(aui_tokens::scale::FONT_MONO);
-                        font.weight = gpui::FontWeight::MEDIUM;
                         let run = TextRun {
                             len: elapsed.len(),
-                            font,
-                            color: if item.state == TodoState::Running { p.ink } else { p.ink_3 },
+                            font: gpui::font(aui_tokens::scale::FONT_MONO),
+                            color: p.ink_4,
                             background_color: None,
                             underline: None,
                             strikethrough: (item.state == TodoState::Done).then_some(StrikethroughStyle { thickness: px(STRIKE_THICKNESS), color: Some(p.ink_4) }),

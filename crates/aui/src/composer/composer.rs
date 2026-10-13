@@ -38,6 +38,10 @@ const CHIP_MARK: f32 = 12.0;
 const CHIP_GLYPH: f32 = 11.0;
 /// The `x` in a context chip: 10 px at ink-4.
 const CHIP_X: f32 = 10.0;
+/// D4 attachment chips: 32 px, radius 6; the upload sweep's period.
+const ATTACH_CHIP_H: f32 = 32.0;
+const ATTACH_CHIP_RADIUS: f32 = 6.0;
+const UPLOAD_SWEEP: std::time::Duration = std::time::Duration::from_millis(1600);
 /// An image chip with a decoded thumbnail: a 30 px tile in a 32 px pill (the
 /// 1 px border on each side); the tile sits 1 px off the border while the gap
 /// and the right pad match the text chips.
@@ -46,9 +50,14 @@ const IMAGE_CHIP_H: f32 = 32.0;
 const IMAGE_CHIP_PAD_L: f32 = 1.0;
 const IMAGE_CHIP_GAP: f32 = 5.0;
 const IMAGE_CHIP_PAD_R: f32 = 8.0;
-/// The send glyph (14) and the press scale (.92).
+/// The send glyph (14) and the press scale (.92, the docked composer only).
 const SEND_ICON: f32 = 14.0;
 const SEND_PRESS: f32 = 0.92;
+/// The raised composer's stop square, the glyph swap's starting scale and the
+/// fill's cross-fade (docs/41 §2.9, §3).
+const STOP_SQUARE: f32 = 10.0;
+const SWAP_FROM: f32 = 0.6;
+const SEND_FADE: Tween = Tween::new(std::time::Duration::from_millis(80), aui_tokens::Easing::OUT);
 /// The `+` rotates 45° while the menu is open.
 const PLUS_TURN: f32 = std::f32::consts::FRAC_PI_4;
 /// `.meta{gap:10px;padding:0 4px;font:500 11px/1 mono}` with a 48 × 4 context meter.
@@ -92,6 +101,22 @@ pub enum ComposerChipKind {
     File,
     /// `$` skill.
     Skill,
+    /// Words quoted from an answer (D4): `label` holds the first words.
+    Quote,
+}
+
+/// Where an attachment chip is (docs/41 §2.9).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ComposerChipState {
+    /// Attached and usable.
+    #[default]
+    Ready,
+    /// Still being read or uploaded: the thumbnail at 50 % and a sweep along
+    /// the chip's bottom.
+    Uploading,
+    /// It could not be attached: the name in danger and the reason as the
+    /// chip's meta. ✕ removes it; there is no retry.
+    Failed(SharedString),
 }
 
 /// Which toolbar control a [`Composer::chip_menu`] hangs off.
@@ -124,6 +149,8 @@ pub struct ComposerChip {
     pub thumbnail: Option<std::sync::Arc<gpui::RenderImage>>,
     /// Muted suffix for [`ComposerChipKind::File`] (`PDF · 2.1 MB`).
     pub detail: Option<SharedString>,
+    /// Ready, uploading or failed.
+    pub state: ComposerChipState,
 }
 
 impl std::fmt::Debug for ComposerChip {
@@ -136,6 +163,7 @@ impl std::fmt::Debug for ComposerChip {
             .field("removable", &self.removable)
             .field("thumbnail", &self.thumbnail.is_some())
             .field("detail", &self.detail)
+            .field("state", &self.state)
             .finish()
     }
 }
@@ -406,6 +434,90 @@ impl Composer {
     }
 }
 
+/// One attachment chip in the raised composer (D4, docs/41 §2.9):
+/// Raised-lit, radius 6, the edge, 32 tall. An image leads with its 30 px
+/// thumbnail (radius 5, 1 px in); a file with its glyph and `TYPE · size`
+/// muted; a quote with the edit glyph, its first words and `quote`. While it
+/// uploads the thumbnail dims to 50 % and a 2 px foreground sweep runs along
+/// the chip's bottom; failed, the name turns danger and the reason is the
+/// meta. ✕ removes it.
+fn attachment_chip(id: &ElementId, c: &ComposerChip, p: &aui_tokens::Palette, remove: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static, window: &mut Window, cx: &mut App) -> gpui::AnyElement {
+    let uploading = c.state == ComposerChipState::Uploading;
+    let failed = match &c.state {
+        ComposerChipState::Failed(reason) => Some(reason.clone()),
+        _ => None,
+    };
+    let thumb = c.thumbnail.clone().filter(|_| c.kind == ComposerChipKind::Image);
+    let mut chip = h_flex()
+        .id(named_child(id, "chip-", &c.id))
+        .relative()
+        .flex_none()
+        .h(px(ATTACH_CHIP_H))
+        .pl(px(if thumb.is_some() { 1.0 } else { 8.0 }))
+        .pr(px(4.0))
+        .gap(px(6.0))
+        .items_center()
+        .rounded(px(ATTACH_CHIP_RADIUS))
+        .bg(crate::util::raised_lit(p, p.surface_2))
+        .shadow(p.edge())
+        .overflow_hidden()
+        .font_family(scale::FONT_UI)
+        .text_px(scale::FS_13)
+        .whitespace_nowrap()
+        .text_color(p.ink);
+    chip = match (&thumb, c.kind) {
+        (Some(image), _) => chip.child(
+            div()
+                .flex_none()
+                .size(px(CHIP_THUMB))
+                .rounded(px(5.0))
+                .overflow_hidden()
+                .when(uploading, |d| d.opacity(0.5))
+                .child(gpui::img(image.clone()).object_fit(gpui::ObjectFit::Cover).w_full().h_full()),
+        ),
+        (None, ComposerChipKind::Image) => chip.child(icon(IconName::Image).size(px(13.0)).color(p.ink_2)),
+        (None, ComposerChipKind::File) => chip.child(icon(IconName::File).size(px(13.0)).color(p.ink_2)),
+        (None, ComposerChipKind::Quote) => chip.child(icon(IconName::Edit).size(px(13.0)).color(p.ink_2)),
+        (None, ComposerChipKind::Mention) => chip.child(div().mono(scale::FS_12).text_color(p.ink_2).child("@")),
+        (None, ComposerChipKind::Skill) => chip.child(div().mono(scale::FS_12).text_color(p.ink_2).child("$")),
+    };
+    let label: SharedString = if c.kind == ComposerChipKind::Quote { format!("“{}”", c.label).into() } else { c.label.clone() };
+    chip = chip.child(div().max_w(px(260.0)).truncate().when(failed.is_some(), |d| d.text_color(p.danger)).child(label));
+    let meta: Option<SharedString> = match (&failed, c.kind) {
+        (Some(reason), _) => Some(reason.clone()),
+        (None, ComposerChipKind::Quote) => Some("quote".into()),
+        (None, ComposerChipKind::File) => c.detail.clone(),
+        _ => None,
+    };
+    if let Some(meta) = meta {
+        chip = chip.child(div().flex_none().text_px(scale::FS_12).text_color(p.ink_2).child(meta));
+    }
+    if c.removable {
+        chip = chip.child(
+            div()
+                .id(named_child(id, "chip-x-", &c.id))
+                .flex_none()
+                .size(px(20.0))
+                .rounded(px(4.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .hover(|d| d.bg(p.hover_overlay()))
+                .role(gpui::Role::Button)
+                .aria_label(SharedString::from(format!("Remove {}", c.label)))
+                .on_click(remove)
+                .child(icon(IconName::X).size(px(CHIP_X)).color(p.ink_2)),
+        );
+    }
+    if uploading {
+        // A 2 px foreground sweep, 35 % of the chip wide, every 1.6 s.
+        let phase = aui_motion::looping((named_child(id, "chip-sweep-", &c.id), "sweep"), aui_motion::Loop::linear(UPLOAD_SWEEP), window, cx);
+        chip = chip.child(div().absolute().bottom_0().left(gpui::relative(phase * 1.35 - 0.35)).w(gpui::relative(0.35)).h(px(2.0)).bg(p.ink));
+    }
+    chip.into_any_element()
+}
+
 impl RenderOnce for Composer {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
@@ -427,7 +539,10 @@ impl RenderOnce for Composer {
         // v3: the card's 8 px padding already holds the row; the field's 8 px
         // inset lines the chips up with the text.
         chips_row = if self.raised { chips_row.px(px(RAISED_TEXT_PAD_X)).pt(px(RAISED_TEXT_PAD_X)) } else { chips_row.pt(px(CHIPS_PAD_TOP)).px(px(CHIPS_PAD_X)) };
-        for c in &self.chips {
+        for c in self.chips.iter().filter(|_| self.raised) {
+            chips_row = chips_row.child(attachment_chip(&id, c, &p, emit(ComposerIntent::RemoveChip(c.id.clone())), window, cx));
+        }
+        for c in self.chips.iter().filter(|_| !self.raised) {
             // An image with a decoded preview wears its thumbnail: a rounded
             // tile in place of the glyph, in a pill sized to the tile.
             if c.kind == ComposerChipKind::Image {
@@ -478,6 +593,7 @@ impl RenderOnce for Composer {
                 ComposerChipKind::Skill => div().mono(scale::FS_12).line_height(relative(1.0)).text_color(p.accent_ink).child("$").into_any_element(),
                 ComposerChipKind::Image => icon(IconName::Image).size(px(CHIP_GLYPH)).into_any_element(),
                 ComposerChipKind::File => icon(IconName::File).size(px(CHIP_GLYPH)).into_any_element(),
+                ComposerChipKind::Quote => icon(IconName::Edit).size(px(CHIP_GLYPH)).into_any_element(),
             };
             let mut el = chip(named_child(&id, "chip-", &c.id), c.label.clone()).leading(leading);
             // A file names its kind and size after the glyph, muted.
@@ -548,31 +664,59 @@ impl RenderOnce for Composer {
             .children(self.plus_menu);
 
         let (send_state, send_flags) = interaction_flags((id.clone(), "send"), window, cx);
-        let press = spring_phase((id.clone(), "send-press"), send_flags.pressed, SpringKind::Press, window, cx).clamp(0.0, 1.0);
-        let send_size = control * (1.0 - (1.0 - SEND_PRESS) * press);
-        let sample = icon_morph((id.clone(), "send-stop"), self.streaming, window, cx);
         let enabled = self.streaming || self.can_send;
-        let glyph_color = if raised {
-            if enabled { p.ink } else { p.ink_4 }
-        } else if enabled {
-            gpui::white()
+        let send = if raised {
+            // D4 (docs/41 §2.9): the composer's only solid fill. Empty: the
+            // round 28 px button at Floating with the edge and a muted arrow.
+            // Ready (a draft, an attachment or a queued line): the
+            // foreground fill, a frame-coloured arrow, no edge. Running: the
+            // same fill with a 10 px frame-coloured square. The fill
+            // cross-fades in 80 ms; the glyph swaps on spring.fast (scale
+            // 0.6 → 1 and opacity). Nothing moves.
+            let bg: gpui::Hsla = tween((id.clone(), "send-fill"), if enabled { p.ink } else { p.overlay }, SEND_FADE, window, cx);
+            let ink = if enabled { p.bg } else { p.ink_2 };
+            let swap = spring_phase((id.clone(), "send-swap"), self.streaming, SpringKind::Fast, window, cx).clamp(0.0, 1.0);
+            let arrow = 1.0 - swap;
+            div().flex_none().size(control).flex().items_center().justify_center().child(
+                div()
+                    .id((id.clone(), "send"))
+                    .relative()
+                    .size(control)
+                    .rounded_full()
+                    .when(!enabled, |d| d.shadow(p.edge()))
+                    .bg(bg)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .track_interaction(&send_state)
+                    .role(gpui::Role::Button)
+                    .aria_label(if self.streaming { "Stop" } else { "Send" })
+                    .on_click(emit(if self.streaming { ComposerIntent::Stop } else { ComposerIntent::Send }))
+                    .when(arrow > 0.001, |d| {
+                        d.child(
+                            div().absolute().inset_0().flex().items_center().justify_center().opacity(arrow).child(
+                                icon(IconName::ArrowUp).size(px(SEND_ICON * (SWAP_FROM + (1.0 - SWAP_FROM) * arrow))).color(ink).lit(true),
+                            ),
+                        )
+                    })
+                    .when(swap > 0.001, |d| {
+                        let side = STOP_SQUARE * (SWAP_FROM + (1.0 - SWAP_FROM) * swap);
+                        d.child(div().absolute().inset_0().flex().items_center().justify_center().opacity(swap).child(div().size(px(side)).rounded(px(2.0)).bg(ink)))
+                    }),
+            )
         } else {
-            p.ink_4
-        };
-        let send_bg = if raised { p.overlay } else { tween((id.clone(), "send-bg"), if enabled { p.accent } else { p.surface_3 }, Tween::FAST, window, cx) };
-        let glyph = |name: IconName| icon(name).size(px(SEND_ICON)).color(glyph_color);
-        let send = div()
-            .flex_none()
-            .size(control)
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(
+            let press = spring_phase((id.clone(), "send-press"), send_flags.pressed, SpringKind::Press, window, cx).clamp(0.0, 1.0);
+            let send_size = control * (1.0 - (1.0 - SEND_PRESS) * press);
+            let sample = icon_morph((id.clone(), "send-stop"), self.streaming, window, cx);
+            let glyph_color = if enabled { gpui::white() } else { p.ink_4 };
+            let send_bg = tween((id.clone(), "send-bg"), if enabled { p.accent } else { p.surface_3 }, Tween::FAST, window, cx);
+            let glyph = |name: IconName| icon(name).size(px(SEND_ICON)).color(glyph_color);
+            div().flex_none().size(control).flex().items_center().justify_center().child(
                 div()
                     .id((id.clone(), "send"))
                     .size(send_size)
-                    .when(raised, |d| d.rounded_full().shadow(p.edge()))
-                    .when(!raised, |d| d.rounded(px(scale::R_SM)))
+                    .rounded(px(scale::R_SM))
                     .bg(send_bg)
                     .flex()
                     .items_center()
@@ -583,7 +727,8 @@ impl RenderOnce for Composer {
                     .aria_label(if self.streaming { "Stop" } else { "Send" })
                     .on_click(emit(if self.streaming { ComposerIntent::Stop } else { ComposerIntent::Send }))
                     .child(IconMorph::new(sample, px(SEND_ICON), glyph(IconName::ArrowUp), glyph(IconName::Stop))),
-            );
+            )
+        };
 
         let mut bar = h_flex().relative().w_full();
         bar = if raised {

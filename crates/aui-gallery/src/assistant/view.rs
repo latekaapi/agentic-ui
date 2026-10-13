@@ -318,7 +318,6 @@ impl AssistantMock {
                 let card = approval_card(id, tool.clone(), command.clone(), state.clone())
                     .reason(reason.clone())
                     .cwd("~/Documents/Teacher recruitment RFP")
-                    .capabilities(["write files"])
                     .rule("Write *.xlsx")
                     .on_decide(move |decision, w, cx| decide(&decision, w, cx));
                 let pending = *state == ApprovalState::Pending;

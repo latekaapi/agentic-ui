@@ -1610,7 +1610,7 @@ fn render_block(
             // tag); a fence carries no filename, so the name stays `code`
             // and the info string feeds the tag and the highlighter.
             let mut fenced =
-                code_block(block_id(id, index, "code"), "code", text.clone());
+                code_block(block_id(id, index, "code"), "code", text.clone()).fold_long(true);
             if let Some(lang) = lang {
                 fenced = fenced.language(lang.clone());
             }
@@ -1789,7 +1789,7 @@ fn image_block(id: ElementId, alt: &str, url: &str, root: Option<&str>, palette:
             .object_fit(gpui::ObjectFit::Cover)
             .w_full()
             .max_h(px(IMAGE_MAX_H))
-            .with_fallback(move || fallback()),
+            .with_fallback(fallback),
     );
     if !alt.is_empty() {
         block = block.child(

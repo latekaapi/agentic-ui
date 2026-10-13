@@ -35,15 +35,13 @@ const NOTE_MEASURE: f32 = 640.0;
 
 /// Turns one sample [`Block::Approval`] into a card.
 fn card(id: &'static str, block: &Block) -> ApprovalCard {
-    let Block::Approval { tool, command, reason, cwd, capabilities, scope, state, rule, body_kind, .. } = block else {
+    let Block::Approval { tool, command, reason, cwd, state, rule, body_kind, .. } = block else {
         unreachable!("sample::approvals yields approval blocks only")
     };
     let mut el = approval_card(id, tool.clone(), command.clone(), state.clone())
         .body_kind(*body_kind)
         .reason(reason.clone())
         .cwd(cwd.clone())
-        .capabilities(capabilities.clone())
-        .scope(*scope)
         .at_rest();
     if let Some(rule) = rule {
         el = el.rule(rule.clone());
@@ -54,7 +52,7 @@ fn card(id: &'static str, block: &Block) -> ApprovalCard {
 /// Turns one sample [`Block::Approval`] from [`sample::muse_approvals`] into a
 /// card, choices, stages, badges and resolution included.
 fn muse_card(id: &'static str, block: &Block) -> ApprovalCard {
-    let Block::Approval { tool, command, reason, cwd, capabilities, scope, state, choices, stages, current_stage, badges, feedback, resolved_by, body_kind, .. } = block
+    let Block::Approval { tool, command, reason, cwd, state, choices, stages, current_stage, badges, feedback, resolved_by, body_kind, .. } = block
     else {
         unreachable!("sample::muse_approvals yields approval blocks only")
     };
@@ -63,8 +61,6 @@ fn muse_card(id: &'static str, block: &Block) -> ApprovalCard {
         .body_kind(*body_kind)
         .reason(reason.clone())
         .cwd(cwd.clone())
-        .capabilities(capabilities.clone())
-        .scope(*scope)
         .choices(choices.clone())
         .stages(stages.clone(), *current_stage)
         .badges(*badges)
@@ -109,7 +105,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .w_full()
                 .gap(px(GRID_GAP))
                 .child(row(quiet(1, "card35-approving"), quiet(2, "card35-allowed")))
-                .child(row(quiet(3, "card35-denied"), card("card35-rule", &blocks[4]).on_manage_rules(|_, _| {}).into_any_element())),
+                .child(row(quiet(3, "card35-denied"), card("card35-rule", &blocks[4]).into_any_element())),
         )
         .child(
             v_flex()

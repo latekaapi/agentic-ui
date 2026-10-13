@@ -438,7 +438,7 @@ fn picture_tile(p: &Palette, id: ElementId, attachment: &Attachment, video: bool
         .rounded(px(TILE_RADIUS))
         .overflow_hidden()
         .bg(p.surface_3);
-    let picture = attachment.path.as_ref().filter(|_| !video).map(|path| std::path::PathBuf::from(path)).filter(|path| path.is_file());
+    let picture = attachment.path.as_ref().filter(|_| !video).map(std::path::PathBuf::from).filter(|path| path.is_file());
     tile = match picture {
         Some(path) => tile.child(gpui::img(path).object_fit(gpui::ObjectFit::Cover).absolute().top_0().left_0().size(px(TILE))),
         None if video => tile,
@@ -621,8 +621,8 @@ impl RenderOnce for UserTurn {
             .track_interaction(&state);
 
         // What was sent with it, above the bubble: tiles then chips.
-        let (quotes, sent): (Vec<(usize, &Attachment)>, Vec<(usize, &Attachment)>) =
-            self.attachments.iter().enumerate().partition(|(_, a)| a.kind == AttachmentKind::Quote);
+        type Indexed<'a> = Vec<(usize, &'a Attachment)>;
+        let (quotes, sent): (Indexed, Indexed) = self.attachments.iter().enumerate().partition(|(_, a)| a.kind == AttachmentKind::Quote);
         if !sent.is_empty() {
             let mut strip = h_flex().flex_wrap().justify_end().items_end().gap(px(ATTACH_GAP)).mb(px(ATTACH_ABOVE));
             for (index, attachment) in sent {

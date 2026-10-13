@@ -1006,6 +1006,29 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 .child(control(ctx, "reload", IconName::Refresh, "Reload", BrowseIntent::Reload, true, cx))
                 .child(control(ctx, "new-tab-button", IconName::Plus, "New tab", BrowseIntent::NewTab, true, cx))
                 .child(div().flex_1())
+                // Downloads (docs/41 §2.11): present only while downloads
+                // list; a 6 px foreground dot at the glyph's top-right while
+                // one runs. Its popover opens under it.
+                .children(browse.downloads.map(|running| {
+                    let anchor: Rc<Cell<Option<gpui::Bounds<Pixels>>>> = Rc::new(Cell::new(None));
+                    let at = anchor.clone();
+                    let c = ctx.clone();
+                    let button = icon_button(ctx.child("browse-downloads"), IconName::Download)
+                        .tooltip_within(ctx.width)
+                        .ghost()
+                        .size(ButtonSize::Md)
+                        .icon_size(cx.aui().metrics.icon)
+                        .accessibility_label(if running { "Downloads, one running" } else { "Downloads" })
+                        .on_click(move |_, w, cx| {
+                            cx.stop_propagation();
+                            c.emit(SidebarIntent::Browse(BrowseIntent::Downloads(at.get())), w, cx);
+                        });
+                    div()
+                        .relative()
+                        .on_prepaint(move |bounds, _, _| anchor.set(Some(bounds)))
+                        .child(button)
+                        .when(running, |d| d.child(div().absolute().top(px(7.0)).right(px(7.0)).size(px(6.0)).rounded_full().bg(p.fg)))
+                }))
                 .child(control(ctx, "ask", IconName::Sparkle, "Ask Claude about this page", BrowseIntent::Ask, true, cx))
                 .child({
                     // The page menu opens under its button, so the click

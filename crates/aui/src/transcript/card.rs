@@ -61,6 +61,14 @@ impl TranscriptCard {
         self
     }
 
+    /// An optional header part (a status glyph only some states draw).
+    pub fn children_header(mut self, el: Option<impl IntoElement>) -> Self {
+        if let Some(el) = el {
+            self.header.push(el.into_any_element());
+        }
+        self
+    }
+
     /// The body, drawn behind a 1 px top border and collapsed when closed.
     pub fn body(mut self, el: impl IntoElement) -> Self {
         self.body = Some(el.into_any_element());

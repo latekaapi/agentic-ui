@@ -269,7 +269,7 @@ fn background_tab(url: &str) -> SpaceTab {
 
 /// The page chip the Ask line and the card share.
 fn page_chip() -> ComposerChip {
-    ComposerChip { id: "this-page".into(), kind: ComposerChipKind::File, label: "This page".into(), removable: true, thumbnail: None, detail: None }
+    ComposerChip { id: "this-page".into(), kind: ComposerChipKind::File, label: "This page".into(), removable: true, thumbnail: None, detail: None, state: Default::default() }
 }
 
 /// The Ask line state: the kept page chips plus the two site actions.

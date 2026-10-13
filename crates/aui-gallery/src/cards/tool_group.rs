@@ -59,7 +59,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             .max_w(px(NOTE_MEASURE))
             .ui(scale::FS_12)
             .text_color(p.ink_3)
-            .child("Consecutive tool calls fold into one card: the header carries the status glyph, the summary and a muted call count. Collapsed, the first two calls read as single-line verb-plus-target rows with a +k more row; open, every call is the full tool card with its own body and intents."),
+            .child("D4: consecutive calls are one surface. Closed, the header and a caption preview of the first two calls with +k more; open, every call is a row of the same card — the tool header over a 7 % rule, its output on the Well right under it. Nothing nests."),
     )
     .into_any_element()
 }

@@ -21,8 +21,8 @@ use gpui::{
 };
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{kbd, status_dot, tag};
-use crate::interact::{dropdown_label, fluid_list, menu_surface, Axis, FluidHandle};
+use crate::data::status_dot;
+use crate::interact::{fluid_list, menu_surface, Axis, FluidHandle};
 use crate::util::interaction_flags;
 
 /// `.pop{margin-bottom:8px}` — the gap to the composer the popover sits above.
@@ -35,9 +35,12 @@ const MENU_W_MAX: f32 = 520.0;
 /// frame instead of growing past the transcript it occludes.
 const MENU_MAX_H: f32 = 560.0;
 
-/// `.it .c{font:500 12px var(--font-mono);width:100px}` — the command column
-/// is fixed, so a long command wraps inside it.
-const COMMAND_W: f32 = 100.0;
+/// The `/` menu's command column: 120 px of mono.
+const COMMAND_W: f32 = 120.0;
+/// Rows padded 0 / 10, gap 10; section headers 24 tall.
+const ROW_PAD_X: f32 = 10.0;
+const ROW_GAP: f32 = 10.0;
+const SECTION_H: f32 = 24.0;
 const COMMAND_TEXT: f32 = scale::FS_12;
 /// The `font:` shorthand of `.it .c` resets the line height to `normal`.
 const COMMAND_LH: f32 = 1.5;
@@ -45,8 +48,6 @@ const COMMAND_LH: f32 = 1.5;
 /// and symbol locations of the mention picker.
 const DETAIL_TEXT: f32 = scale::FS_12;
 const DETAIL_MONO_TEXT: f32 = scale::FS_11;
-/// `.it .k{gap:4px}`.
-const KEYS_GAP: f32 = 4.0;
 /// `.i{width:14px}` — the file, folder and globe glyphs.
 const ROW_ICON: f32 = 14.0;
 /// `<span class="ic mono" style="font-size:11px">ƒ</span>` — the symbol glyph.
@@ -56,13 +57,10 @@ const SYMBOL_TEXT: f32 = scale::FS_11;
 /// margin-top:4px;font-size:11px}`.
 const FT_GAP: f32 = 12.0;
 const FT_PAD_TOP: f32 = 6.0;
-const FT_PAD_X: f32 = 8.0;
+const FT_PAD_X: f32 = 10.0;
 const FT_PAD_BOTTOM: f32 = 2.0;
 const FT_MARGIN_TOP: f32 = 4.0;
 const FT_TEXT: f32 = scale::FS_11;
-/// The single space between a footer keycap and its word, which flex has to
-/// draw as a gap here.
-const FT_KEY_GAP: f32 = 4.0;
 
 type SelectHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 type HoverHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
@@ -193,14 +191,14 @@ impl RenderOnce for CommandMenu {
 
         let mut index = 0usize;
         for (s, section) in self.sections.into_iter().enumerate() {
-            pop = pop.child(dropdown_label(section.title, cx));
+            pop = pop.child(section_label(section.title, &p));
             for item in section.items {
                 let key: ElementId = (id.clone(), SharedString::from(format!("command-{s}-{index}"))).into();
                 pop = pop.child(fluid.item(index, command_row(key, &p, item, &self.query, index, index == active, &self.on_select, &self.on_hover, window, cx)));
                 index += 1;
             }
         }
-        finish(id, sample, pop.child(footer(&p)), &fluid, self.selected, cx)
+        finish(id, sample, pop.child(footer(&p, "run")), &fluid, self.selected, cx)
     }
 }
 
@@ -356,14 +354,14 @@ impl RenderOnce for MentionPicker {
 
         let mut index = 0usize;
         for (s, section) in self.sections.into_iter().enumerate() {
-            pop = pop.child(dropdown_label(section.title, cx));
+            pop = pop.child(section_label(section.title, &p));
             for item in section.items {
                 let key: ElementId = (id.clone(), SharedString::from(format!("mention-{s}-{index}"))).into();
                 pop = pop.child(fluid.item(index, mention_row(key, &p, item, &self.query, index, index == active, &self.on_select, &self.on_hover, window, cx)));
                 index += 1;
             }
         }
-        finish(id, sample, pop, &fluid, self.selected, cx)
+        finish(id, sample, pop.child(footer(&p, "insert")), &fluid, self.selected, cx)
     }
 }
 
@@ -387,8 +385,7 @@ fn fluid_handle(id: &ElementId, window: &mut Window, cx: &mut App) -> FluidHandl
 /// (fade + 4 px up out of the composer, 80 ms). It takes its container's
 /// width up to the 520 px ceiling, 8 px above the composer, and owns the
 /// wheel over it.
-fn finish(id: ElementId, sample: aui_motion::PresenceSample, rows: Stateful<Div>, fluid: &FluidHandle, selected: usize, cx: &App) -> impl IntoElement {
-    let metrics = cx.aui().metrics;
+fn finish(id: ElementId, sample: aui_motion::PresenceSample, rows: Stateful<Div>, fluid: &FluidHandle, selected: usize, _cx: &App) -> impl IntoElement {
     let style = PresenceStyle::fade_rise(sample, scale::SP_2);
     let list = fluid_list((id.clone(), "fluid"), Axis::Y).handle(fluid).gap(px(0.0)).highlighted(Some(selected)).item_static(usize::MAX, rows);
     div()
@@ -403,7 +400,7 @@ fn finish(id: ElementId, sample: aui_motion::PresenceSample, rows: Stateful<Div>
             menu_surface(
                 v_flex()
                     .id("caret-menu-panel")
-                    .p(metrics.item_px / 2.0)
+                    .p(px(crate::interact::PANEL_PAD))
                     .role(gpui::Role::Menu)
                     // The open menu owns the wheel over it: it occludes the
                     // transcript behind and stops the wheel after the rows'
@@ -526,8 +523,8 @@ fn menu_row(
         .flex_none()
         .w_full()
         .h(metrics.control)
-        .gap(metrics.gap)
-        .px(metrics.item_px)
+        .gap(px(ROW_GAP))
+        .px(px(ROW_PAD_X))
         .text_role_in(TextRole::Body, aui_tokens::Density::Standard)
         .text_color(if on { p.fg } else { p.fg_muted })
         .cursor_pointer();
@@ -593,13 +590,13 @@ fn command_row(
         // One line: the row is `ROW_H` tall, so a description that outgrows
         // its column truncates (the full text belongs to `/help`), never
         // wraps onto the row below.
-        .child(div().flex_1().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).text_color(p.ink_3).child(item.description));
+        .child(div().flex_1().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).text_color(if on { p.fg } else { p.ink_2 }).child(item.description));
 
     if let Some(key) = item.key {
-        row = row.child(h_flex().flex_none().gap(px(KEYS_GAP)).child(kbd(key)));
+        row = row.child(div().flex_none().mono(DETAIL_MONO_TEXT).text_color(p.ink_4).child(key));
     }
     if let Some(source) = item.source_tag {
-        row = row.child(tag(source));
+        row = row.child(div().flex_none().ui(DETAIL_TEXT).text_color(p.ink_4).child(source));
     }
     if let Some(handler) = on_select.clone() {
         let item_id = item.id.clone();
@@ -647,15 +644,14 @@ fn mention_row(
         div()
             .flex_shrink_1()
             .min_w(px(0.0))
-            .font_family(scale::FONT_MONO)
-            .text_px(COMMAND_TEXT)
-            .line_height(relative(COMMAND_LH))
-            .medium()
+            .truncate()
             .text_color(if on { p.fg } else { p.fg_muted })
             .child(highlighted(p, &item.label, &matched)),
     );
 
-    let detail = div().flex_1().min_w(px(0.0)).text_color(p.ink_3);
+    // The detail sits at the right, muted; mono for a symbol's or a path's
+    // location.
+    let detail = div().flex_1().min_w(px(0.0)).flex().justify_end().truncate().text_color(p.ink_2);
     row = row.child(if item.detail_mono {
         detail.mono(DETAIL_MONO_TEXT).child(item.detail)
     } else {
@@ -663,7 +659,7 @@ fn mention_row(
     });
 
     if let Some(key) = item.key {
-        row = row.child(h_flex().flex_none().gap(px(KEYS_GAP)).child(kbd(key)));
+        row = row.child(div().flex_none().mono(DETAIL_MONO_TEXT).text_color(p.ink_4).child(key));
     }
     if let Some(handler) = on_select.clone() {
         let item_id = item.id.clone();
@@ -678,8 +674,9 @@ fn highlighted(p: &Palette, text: &SharedString, matched: &Option<Range<usize>>)
     StyledText::new(text.clone()).with_highlights(matched.iter().map(|r| (r.clone(), highlight)).collect::<Vec<_>>())
 }
 
-/// `.ft`: the key hints under the `/` menu.
-fn footer(p: &Palette) -> impl IntoElement {
+/// The key hints under both caret menus: faint, over a 7 % rule, padded
+/// 6 / 10 / 2, 4 above (docs/41 §2.9).
+fn footer(p: &Palette, enter: &'static str) -> impl IntoElement {
     h_flex()
         .flex_none()
         .w_full()
@@ -689,21 +686,17 @@ fn footer(p: &Palette) -> impl IntoElement {
         .pb(px(FT_PAD_BOTTOM))
         .mt(px(FT_MARGIN_TOP))
         .border_t_1()
-        .border_color({
-            let mut line = p.line;
-            line.a *= 0.6;
-            line
-        })
+        .border_color(p.line)
         .ui(FT_TEXT)
-        .text_color(p.ink_3)
-        .child(footer_hint("↑↓", "move"))
-        .child(footer_hint("⇥", "complete"))
-        .child(footer_hint("esc", "dismiss"))
+        .text_color(p.ink_4)
+        .child("↑↓ move")
+        .child(format!("⏎ {enter}"))
+        .child("esc close")
 }
 
-/// One `<span class="kbd">…</span> word` footer hint.
-fn footer_hint(key: &'static str, word: &'static str) -> impl IntoElement {
-    h_flex().flex_none().gap(px(FT_KEY_GAP)).child(kbd(key)).child(word)
+/// A section's caption header: 24 px, muted, padded 0 / 10 / 4.
+fn section_label(title: SharedString, p: &Palette) -> impl IntoElement {
+    div().h(px(SECTION_H)).px(px(ROW_PAD_X)).pb(px(4.0)).flex().items_end().ui(scale::FS_12).text_color(p.ink_2).child(title)
 }
 
 #[cfg(test)]

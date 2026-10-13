@@ -5,7 +5,7 @@
 //! pickers all build their rows here, so one change reaches every menu.
 //!
 //! - **Panel:** [`menu_surface`] (substrate + 2, shadow-3, container radius)
-//!   with a 4 px inset; `Role::Menu` and its accessible name.
+//!   with a 6 px inset (every menu, docs/41 §6 decision 9); `Role::Menu` and its accessible name.
 //! - **Rows:** one `control` tall (36), `item_px` padding, the item radius,
 //!   an optional 16 px icon on its own axis, labels muted at rest and lit to
 //!   the foreground with the icon's stroke; a second line (Caption, muted)
@@ -226,7 +226,12 @@ pub struct Dropdown {
     on_backdrop: Option<Handler>,
     max_height: Option<Pixels>,
     focus: Option<gpui::FocusHandle>,
+    row_px: Option<Pixels>,
 }
+
+/// The panel's padding around the row highlight: 6 px in every menu (the
+/// owner, 2026-10-13, docs/41 §6 decision 9).
+pub const PANEL_PAD: f32 = 6.0;
 
 /// A menu panel named `label` (its accessible name).
 pub fn dropdown(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Dropdown {
@@ -244,6 +249,7 @@ pub fn dropdown(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Dro
         on_backdrop: None,
         max_height: None,
         focus: None,
+        row_px: None,
     }
 }
 
@@ -280,6 +286,13 @@ impl Dropdown {
     /// Caps the panel's height (FF: min(480, available)); rows scroll.
     pub fn max_height(mut self, height: impl Into<Pixels>) -> Self {
         self.max_height = Some(height.into());
+        self
+    }
+
+    /// The rows' side padding; the density's `item_px` when unset. The
+    /// composer's pickers and caret menus use 10 (docs/41 §2.9–2.10).
+    pub fn row_padding(mut self, padding: impl Into<Pixels>) -> Self {
+        self.row_px = Some(padding.into());
         self
     }
 
@@ -345,7 +358,7 @@ impl Dropdown {
     }
 }
 
-/// The separator: one hairline, full bleed through the panel's 4 px inset,
+/// The separator: one hairline, full bleed through the panel's 6 px inset,
 /// 4 px above and below. Dark (v3): the line inside a surface, white 7 %;
 /// light keeps FF's border/60.
 pub fn dropdown_separator(cx: &App) -> AnyElement {
@@ -355,7 +368,7 @@ pub fn dropdown_separator(cx: &App) -> AnyElement {
     if !colors.is_dark() {
         line.a *= 0.6;
     }
-    div().h(px(1.0)).mx(-(metrics.item_px / 2.0)).my(metrics.item_px / 2.0).bg(line).into_any_element()
+    div().h(px(1.0)).mx(px(-PANEL_PAD)).my(metrics.item_px / 2.0).bg(line).into_any_element()
 }
 
 /// FF's group label: Caption, muted, 28 tall.
@@ -377,13 +390,13 @@ pub fn dropdown_label(text: impl Into<SharedString>, cx: &App) -> AnyElement {
 /// overlay over a native page) needs before the first layout.
 pub fn dropdown_height(rows: usize, separators: usize, labels: usize, cx: &App) -> Pixels {
     let metrics = cx.aui().metrics;
-    let inset = metrics.item_px; // 4 above + 4 below
+    let inset = px(2.0 * PANEL_PAD); // 6 above + 6 below
     let separator = px(1.0) + metrics.item_px; // 1 px + 4 above + 4 below
     metrics.control * rows as f32 + separator * separators as f32 + metrics.control_md * labels as f32 + inset
 }
 
 /// One row's body: icon slot, label (+ detail), trailing.
-fn row_body(item: DropdownItem, lit: bool, cx: &App) -> (gpui::Div, Option<Handler>, gpui::Role, SharedString, bool) {
+fn row_body(item: DropdownItem, lit: bool, row_px: Option<Pixels>, cx: &App) -> (gpui::Div, Option<Handler>, gpui::Role, SharedString, bool) {
     let p = cx.aui().colors;
     let metrics = cx.aui().metrics;
     let on = lit && !item.disabled;
@@ -397,7 +410,7 @@ fn row_body(item: DropdownItem, lit: bool, cx: &App) -> (gpui::Div, Option<Handl
     let role = item.role();
     let label = item.label.clone();
     let disabled = item.disabled;
-    let mut body = h_flex().w_full().items_center().px(metrics.item_px).gap(metrics.gap);
+    let mut body = h_flex().w_full().items_center().px(row_px.unwrap_or(metrics.item_px)).gap(metrics.gap);
     body = match item.detail {
         Some(_) => body.min_h(metrics.control).py(metrics.gap / 2.0),
         None => body.h(metrics.control),
@@ -444,7 +457,6 @@ fn row_body(item: DropdownItem, lit: bool, cx: &App) -> (gpui::Div, Option<Handl
 
 impl RenderOnce for Dropdown {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let metrics = cx.aui().metrics;
         record_ax_label(&self.label);
         let timing = if self.at_rest { EnterExit { enter: std::time::Duration::ZERO, ..EnterExit::POPUP } } else { EnterExit::POPUP };
         let sample = presence((self.id.clone(), "presence"), self.open, timing, window, cx);
@@ -477,7 +489,7 @@ impl RenderOnce for Dropdown {
         for (index, entry) in self.entries.into_iter().enumerate() {
             match entry {
                 DropdownEntry::Item(item) => {
-                    let (body, on_select, role, label, disabled) = row_body(item, lit_now == Some(index), cx);
+                    let (body, on_select, role, label, disabled) = row_body(item, lit_now == Some(index), self.row_px, cx);
                     let row = Shape::Item
                         .rounded(body)
                         .id(crate::util::indexed_child(&self.id, "row", index))
@@ -523,7 +535,7 @@ impl RenderOnce for Dropdown {
         let mut panel = v_flex()
             .id((self.id.clone(), "panel"))
             .w_full()
-            .p(metrics.item_px / 2.0)
+            .p(px(PANEL_PAD))
             .role(gpui::Role::Menu)
             .aria_label(self.label.clone())
             .occlude()

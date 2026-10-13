@@ -357,6 +357,10 @@ pub struct BrowseModel {
     pub editing: Option<BrowseEditing>,
     /// The open right-click menu.
     pub menu: Option<BrowseMenu>,
+    /// The downloads button in the page controls, before ✦ and ⋯ (docs/41
+    /// §2.11): `None` while no download is listed; `Some(true)` draws its
+    /// 6 px foreground dot while one runs.
+    pub downloads: Option<bool>,
 }
 
 /// How the session list is grouped (the Group by submenu).
@@ -548,6 +552,9 @@ pub enum BrowseIntent {
     NewTab,
     /// Ask Claude about this page.
     Ask,
+    /// The downloads button, with its bounds in window coordinates: the
+    /// popover opens under it. A click while it is open closes it.
+    Downloads(Option<gpui::Bounds<gpui::Pixels>>),
     /// The page menu (the page controls' ⋯), with the button's bounds in
     /// window coordinates: the menu opens under it (FF: 6 px below, right
     /// edges aligned). A click while it is open closes it.
@@ -785,6 +792,8 @@ pub fn sample_model() -> SidebarModel {
             space: 0,
             editing: None,
             menu: None,
+            // A download running, so the sample shows the button (D4).
+            downloads: Some(true),
             hovered_today_header: false,
         }),
     }

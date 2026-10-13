@@ -71,6 +71,7 @@ fn page_chip() -> ComposerChip {
         removable: true,
         thumbnail: None,
         detail: None,
+        state: Default::default(),
     }
 }
 

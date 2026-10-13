@@ -5,20 +5,20 @@ use std::time::Duration;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{presence, stagger_delay, EnterExit, PresenceStyle};
-use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
-use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, Window};
+use aui_tokens::{scale, ActiveAui, AuiStyled};
+use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{icon_button, ButtonSize};
 use crate::util::{indexed_child, interaction_flags, named_child, TrackInteraction};
 
-/// `.qi{gap:8px;height:30px;padding:0 10px;font-size:12.5px}` with a dashed line-strong border.
+/// The queued row: 32 px, gap 8, caption text.
+const ROW_H: f32 = 32.0;
 const ROW_GAP: f32 = 8.0;
 const ROW_PAD: f32 = 10.0;
-const ROW_TEXT: f32 = 12.5;
-/// `.qi .n{font:600 10px/1 mono;padding:3px 6px}`.
-const BADGE_TEXT: f32 = 10.0;
-const BADGE_PAD_Y: f32 = 3.0;
+const ROW_TEXT: f32 = 12.0;
+/// The `queued` cap: 16 px, 10.5 mono, 0 / 6.
+const CAP_H: f32 = 16.0;
+const BADGE_TEXT: f32 = 10.5;
 const BADGE_PAD_X: f32 = 6.0;
 /// The xs ghost actions carry 11 px glyphs.
 const ACTION_GLYPH: f32 = 11.0;
@@ -31,7 +31,6 @@ const SUGG_STAGGER: Duration = Duration::from_millis(60);
 const SUGG_RISE: f32 = 4.0;
 /// The strip above the docked composer: `.queue{gap:6px}` with `.caps` 6 px above it.
 const STRIP_GAP: f32 = 6.0;
-const STRIP_HEAD_GAP: f32 = 2.0;
 
 /// What a queue row asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,39 +88,51 @@ impl RenderOnce for QueueRow {
                 }
             }
         };
+        // D4 (docs/41 §2.8): Raised-lit, radius 6, the edge, 32 px, padded
+        // 0 / 6 / 0 / 10: a 16 px `queued` cap, the text in caption, ✕.
         h_flex()
             .id(id.clone())
             .w_full()
-            .h(cx.aui().metrics.row)
+            .h(px(ROW_H))
             .gap(px(ROW_GAP))
-            .px(px(ROW_PAD))
-            .rounded(px(scale::R_MD))
-            .border_1()
-            .border_dashed()
-            .border_color(p.line_strong)
+            .pl(px(ROW_PAD))
+            .pr(px(6.0))
+            .items_center()
+            .rounded(px(6.0))
+            .bg(crate::util::raised_lit(&p, p.surface_2))
+            .shadow(p.edge())
             .ui(ROW_TEXT)
-            .text_color(p.ink_2)
+            .text_color(p.ink)
             .child(
                 div()
                     .flex_none()
-                    .py(px(BADGE_PAD_Y))
+                    .h(px(CAP_H))
                     .px(px(BADGE_PAD_X))
+                    .flex()
+                    .items_center()
                     .rounded_full()
-                    .bg(p.surface_3)
+                    .bg(p.selected_overlay())
                     .mono(BADGE_TEXT)
-                    .line_height(relative(1.0))
-                    .semibold()
-                    .text_color(p.ink_3)
+                    .text_color(p.ink_2)
                     .child(if self.editing { "editing" } else { "queued" }),
             )
             .child(div().flex_1().min_w(px(0.0)).truncate().child(self.text))
             .child(
-                h_flex()
+                div()
+                    .id((id, "remove"))
                     .flex_none()
-                    .gap(px(scale::SP_1))
-                    .child(icon_button((id.clone(), "steer"), IconName::ArrowUp).ghost().size(ButtonSize::Xs).icon_size(px(ACTION_GLYPH)).on_click(emit(QueueIntent::Steer)))
-                    .child(icon_button((id.clone(), "edit"), IconName::Edit).ghost().size(ButtonSize::Xs).icon_size(px(ACTION_GLYPH)).on_click(emit(QueueIntent::Edit)))
-                    .child(icon_button((id, "remove"), IconName::X).ghost().size(ButtonSize::Xs).icon_size(px(ACTION_GLYPH)).on_click(emit(QueueIntent::Remove))),
+                    .size(px(24.0))
+                    .rounded(px(6.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .text_color(p.ink_2)
+                    .hover(|d| d.bg(p.hover_overlay()).text_color(p.ink))
+                    .role(gpui::Role::Button)
+                    .aria_label("Remove queued message")
+                    .on_click(emit(QueueIntent::Remove))
+                    .child(icon(IconName::X).size(px(ACTION_GLYPH))),
             )
     }
 }
@@ -263,14 +274,8 @@ impl RenderOnce for QueueStrip {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let count = self.rows.len();
-        let mut column = v_flex().w_full().gap(px(STRIP_GAP)).child(
-            div()
-                .w_full()
-                .pb(px(STRIP_HEAD_GAP))
-                .text_role(TextRole::Caps)
-                .text_color(p.ink_3)
-                .child(format!("Queued \u{b7} {count}")),
-        );
+        let _ = (p, count);
+        let mut column = v_flex().w_full().gap(px(STRIP_GAP));
         for row in self.rows {
             let row_id: ElementId = named_child(&id, "q-", &row.id);
             let handler = self.on_intent.clone();

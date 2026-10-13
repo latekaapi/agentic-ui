@@ -1,32 +1,32 @@
-//! Card 38: the failure card (`.err`), the live status rows (`.status`), the
-//! needs-you banner (`.need`) and the jump-to-latest pill (`.jump`).
+//! The failure card, the live status rows, the needs-you banner and the
+//! jump-to-latest pill (D4, docs/41 §2.6, §2.8).
 
 use std::time::Duration;
 
 use aui_motion::{looping, presence, shimmer_text, EnterExit, Loop, PresenceStyle};
-use aui_tokens::{scale, scaled, ActiveAui, AuiStyled, TextRole};
-use gpui::{div, prelude::*, px, App, ElementId, FontWeight, HighlightStyle, IntoElement, SharedString, StyledText, Window};
+use aui_tokens::{scale, scaled, ActiveAui, AuiStyled};
+use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{button, kbd, record_ax_label, spinner};
+use crate::data::{record_ax_label, spinner};
 use crate::icons::{icon, IconName};
+use crate::transcript::controls::{control, control_with, ControlKind};
 use crate::util::ClickHandler;
 
 /// `.err{padding:10px 12px;gap:2px 10px;font-size:12.5px}` with a 16 px glyph
 /// and a 12 px ink-2 body.
 const ERR_PAD_Y: f32 = 10.0;
 const ERR_PAD_X: f32 = 12.0;
-const ERR_ROW_GAP: f32 = 2.0;
 const ERR_COL_GAP: f32 = 10.0;
 const ERR_TEXT: f32 = 12.5;
 const ERR_GLYPH: f32 = 16.0;
-/// The space before the inline `details` link in the body line.
-const LINK_GAP: f32 = 4.0;
 
 /// `.status{gap:8px;height:28px;font-size:12px}`; its spinner is 11 px.
 const STATUS_GAP: f32 = 8.0;
 const STATUS_H: f32 = 28.0;
-const STATUS_SPINNER: f32 = 11.0;
+const STATUS_SPINNER: f32 = 12.0;
+/// The working label's shimmer sweep.
+const SHIMMER: Duration = Duration::from_millis(1600);
 /// The braille spinner: ten frames at roughly 80 ms each.
 const BRAILLE_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const BRAILLE_PERIOD: Duration = Duration::from_millis(800);
@@ -43,15 +43,15 @@ const NEED_TEXT: f32 = 12.5;
 const NEED_GLYPH: f32 = 14.0;
 const NEED_RISE: f32 = 6.0;
 
-/// `.jump{gap:6px;height:28px;padding:0 12px 0 10px;font:500 12px}` with a
-/// 12 px chevron and the `.n` badge (`font:600 10px mono;padding:3px 6px`).
+/// The pill: 28 px, padding 0 / 12 / 0 / 10, the count cap 10.5 mono at 2 / 6.
+const JUMP_H: f32 = 28.0;
 const JUMP_GAP: f32 = 6.0;
 const JUMP_PAD_LEFT: f32 = 10.0;
 const JUMP_PAD_RIGHT: f32 = 12.0;
 const JUMP_GLYPH: f32 = 12.0;
-const BADGE_PAD_Y: f32 = 3.0;
+const BADGE_PAD_Y: f32 = 2.0;
 const BADGE_PAD_X: f32 = 6.0;
-const BADGE_TEXT: f32 = 10.0;
+const BADGE_TEXT: f32 = 10.5;
 
 /// A failure the person may want to retry. Build with [`error_card`].
 #[derive(IntoElement)]
@@ -61,19 +61,27 @@ pub struct ErrorCard {
     detail: SharedString,
     link: Option<(SharedString, ClickHandler)>,
     retry: SharedString,
+    code: Option<SharedString>,
     on_retry: Option<ClickHandler>,
 }
 
 /// An error card: `title` in 600 over the 12 px `detail` line, framed by the
 /// attention border (danger at 70 %, no halo).
 pub fn error_card(id: impl Into<ElementId>, title: impl Into<SharedString>, detail: impl Into<SharedString>) -> ErrorCard {
-    ErrorCard { id: id.into(), title: title.into(), detail: detail.into(), link: None, retry: "Retry now".into(), on_retry: None }
+    ErrorCard { id: id.into(), title: title.into(), detail: detail.into(), link: None, retry: "Retry now".into(), code: None, on_retry: None }
 }
 
 impl ErrorCard {
     /// A danger-coloured link at the end of the detail line (`details`).
     pub fn link(mut self, label: impl Into<SharedString>, on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.link = Some((label.into(), Box::new(on_click)));
+        self
+    }
+
+    /// The machine-readable line under the detail (`resume_reconcile:…`),
+    /// drawn in mono.
+    pub fn code(mut self, code: impl Into<SharedString>) -> Self {
+        self.code = Some(code.into());
         self
     }
 
@@ -94,14 +102,24 @@ impl RenderOnce for ErrorCard {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let mut body = h_flex().w_full().ui(scale::FS_12).text_color(p.ink_2).gap(px(LINK_GAP)).child(div().flex_none().child(self.detail.clone()));
+        // Raised, radius 8; the danger ring only while a retry is on offer —
+        // a failure in the past needs nothing from the person.
+        let mut lines = v_flex().flex_1().min_w(px(0.0)).ui(scale::FS_12).text_color(p.ink_2);
+        lines = lines.child(div().w_full().ui(ERR_TEXT).semibold().text_color(p.ink).child(self.title.clone()));
+        for line in self.detail.lines().filter(|l| !l.trim().is_empty()) {
+            lines = lines.child(div().w_full().child(line.to_owned()));
+        }
+        if let Some(code) = self.code.clone() {
+            lines = lines.child(div().w_full().mono(scale::FS_12).child(code));
+        }
         if let Some((label, on_click)) = self.link {
             record_ax_label(&label);
-            body = body.child(
+            lines = lines.child(
                 div()
                     .id((id.clone(), "link"))
                     .flex_none()
-                    .text_color(p.danger)
+                    .text_color(p.ink)
+                    .underline()
                     .cursor_pointer()
                     .role(gpui::Role::Link)
                     .aria_label(label.clone())
@@ -109,27 +127,15 @@ impl RenderOnce for ErrorCard {
                     .child(label),
             );
         }
-        let mut row = h_flex()
-            .id(id.clone())
-            .w_full()
-            .gap(px(ERR_COL_GAP))
+        let ringed = self.on_retry.is_some();
+        let mut row = crate::util::raised_block(h_flex().id(id.clone()).w_full().items_center().gap(px(ERR_COL_GAP)).rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_1)
             .py(px(ERR_PAD_Y))
             .px(px(ERR_PAD_X))
-            .rounded(px(scale::R_MD))
-            .border_1()
-            .border_color(p.attention_border(p.danger))
-            .bg(p.surface_1)
-            .child(icon(IconName::X).size(px(ERR_GLYPH)).color(p.danger))
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .gap(px(ERR_ROW_GAP))
-                    .child(div().w_full().ui(ERR_TEXT).semibold().text_color(p.ink).child(self.title.clone()))
-                    .child(body),
-            );
+            .when(ringed, |d| d.shadow(crate::transcript::card::attention_edge(p.danger)))
+            .child(icon(IconName::X).size(px(ERR_GLYPH)).color(p.danger).lit(true))
+            .child(lines);
         if let Some(on_retry) = self.on_retry {
-            row = row.child(button((id, "retry"), self.retry).sm().on_click(move |e, window, cx| on_retry(e, window, cx)));
+            row = row.child(control((id, "retry"), self.retry, ControlKind::Secondary, &p).on_click(move |e, window, cx| on_retry(e, window, cx)));
         }
         row
     }
@@ -200,35 +206,39 @@ impl RenderOnce for StatusRow {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let mut row = h_flex().id(id.clone()).flex_none().h(px(STATUS_H)).gap(px(STATUS_GAP)).ui(scale::FS_12).text_color(p.ink_3).whitespace_nowrap();
+        // 28 px, caption muted: the spinner, the label, ` · ` + the key cap
+        // and its words, then the trailing notes faint (docs/41 §2.8).
+        let mut row = h_flex().id(id.clone()).flex_none().h(px(STATUS_H)).gap(px(STATUS_GAP)).ui(scale::FS_12).text_color(p.ink_2).whitespace_nowrap();
         match self.lead {
             StatusLead::None => {}
-            StatusLead::Spinner => row = row.child(spinner((id.clone(), "spinner")).size(px(STATUS_SPINNER))),
+            StatusLead::Spinner => row = row.child(spinner((id.clone(), "spinner")).size(px(STATUS_SPINNER)).fluid(cx)),
             StatusLead::Braille => {
                 let phase = looping((id.clone(), "braille"), Loop::linear(BRAILLE_PERIOD).resting(BRAILLE_RESTING), window, cx);
                 let frame = BRAILLE_FRAMES[((phase * BRAILLE_FRAMES.len() as f32) as usize).min(BRAILLE_FRAMES.len() - 1)];
-                row = row.child(div().flex_none().mono(scale::FS_12).text_color(p.accent).child(frame));
+                row = row.child(div().flex_none().mono(scale::FS_12).text_color(p.ink_2).child(frame));
             }
         }
         row = if self.shimmer {
-            row.child(shimmer_text((id.clone(), "label"), self.label.clone(), cx).text_size(scaled(scale::FS_12)))
+            row.child(shimmer_text((id.clone(), "label"), self.label.clone(), cx).duration(SHIMMER).text_size(scaled(scale::FS_12)))
         } else {
             row.child(div().flex_none().child(self.label.clone()))
         };
-        if let Some(elapsed) = self.elapsed {
-            row = row.child(div().flex_none().text_role(TextRole::Mono).text_px(scale::FS_12).child(elapsed));
-        }
-        if self.note.is_some() || self.key.is_some() {
-            row = row.child(div().flex_none().child("·"));
-        }
         if let Some((key, text)) = self.key {
-            row = row.child(kbd(key)).child(div().flex_none().child(text));
+            row = row.child(div().flex_none().child("·")).child(key_cap(&p, key)).child(div().flex_none().child(text));
         }
         if let Some(note) = self.note {
-            row = row.child(div().flex_none().child(note));
+            row = row.child(div().flex_none().text_color(p.ink_4).child(note));
+        }
+        if let Some(elapsed) = self.elapsed {
+            row = row.child(div().flex_none().mono(scale::FS_12).text_color(p.ink_4).child(elapsed));
         }
         row
     }
+}
+
+/// `esc` in the `.key` cap: faint mono on white 7 %, radius 4, 1 / 6.
+fn key_cap(p: &aui_tokens::Palette, key: SharedString) -> impl IntoElement {
+    div().flex_none().px(px(6.0)).py(px(1.0)).rounded(px(4.0)).bg(p.line).mono(scale::FS_11).text_color(p.ink_4).child(key)
 }
 
 /// The live row a scheduled retry draws while the provider waits out its
@@ -238,13 +248,40 @@ impl RenderOnce for StatusRow {
 /// own clock, because the wire sends a backoff and never a fire time. Built on
 /// [`status_row`]'s own primitives — spinner lead, no shimmer, the reason as the
 /// trailing note — so a retry reads like every other live row.
-pub fn retry_row(id: impl Into<ElementId>, attempt: u32, max: u32, remaining_ms: u64, reason: impl Into<SharedString>) -> StatusRow {
-    let seconds = remaining_ms.div_ceil(1000);
-    status_row(id, format!("Attempt {attempt}/{max}"))
-        .lead(StatusLead::Spinner)
-        .shimmer(false)
-        .elapsed(format!("retrying in {seconds} s"))
-        .note(reason)
+pub fn retry_row(id: impl Into<ElementId>, attempt: u32, max: u32, remaining_ms: u64, reason: impl Into<SharedString>) -> RetryRow {
+    RetryRow { id: id.into(), attempt, max, remaining_ms, reason: reason.into() }
+}
+
+/// The retry status line. Build with [`retry_row`].
+#[derive(IntoElement)]
+pub struct RetryRow {
+    id: ElementId,
+    attempt: u32,
+    max: u32,
+    remaining_ms: u64,
+    reason: SharedString,
+}
+
+impl RenderOnce for RetryRow {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let p = cx.aui().colors;
+        let seconds = self.remaining_ms.div_ceil(1000);
+        let mut row = h_flex()
+            .id(self.id.clone())
+            .flex_none()
+            .h(px(STATUS_H))
+            .gap(px(STATUS_GAP))
+            .ui(scale::FS_12)
+            .text_color(p.ink_2)
+            .whitespace_nowrap()
+            .child(spinner((self.id.clone(), "spinner")).size(px(STATUS_SPINNER)).fluid(cx))
+            .child(div().flex_none().child(format!("Attempt {}/{}", self.attempt, self.max)))
+            .child(div().flex_none().mono(scale::FS_12).child(format!("retrying in {seconds} s")));
+        if !self.reason.is_empty() {
+            row = row.child(div().flex_none().text_color(p.ink_4).child(format!("· {}", self.reason)));
+        }
+        row
+    }
 }
 
 /// The banner pinned above the composer when the agent is blocked on the
@@ -261,7 +298,7 @@ pub struct NeedsYouBanner {
 
 /// A needs-you banner: bold `headline` then plain `detail`, with a jump action.
 pub fn needs_you_banner(id: impl Into<ElementId>, headline: impl Into<SharedString>, detail: impl Into<SharedString>) -> NeedsYouBanner {
-    NeedsYouBanner { id: id.into(), headline: headline.into(), detail: detail.into(), action: "Jump to it".into(), at_rest: false, on_jump: None }
+    NeedsYouBanner { id: id.into(), headline: headline.into(), detail: detail.into(), action: "Jump".into(), at_rest: false, on_jump: None }
 }
 
 impl NeedsYouBanner {
@@ -293,35 +330,42 @@ impl RenderOnce for NeedsYouBanner {
         } else {
             PresenceStyle::fade_rise(presence((id.clone(), "enter"), true, EnterExit::DEFAULT, window, cx), NEED_RISE)
         };
-
-        // Bold lead-in and plain rest are one wrapping paragraph.
-        let text = format!("{} {}", self.headline, self.detail);
-        let bold = 0..self.headline.len();
+        // Raised-lit, radius 8, the edge: the warning glyph, the headline 600
+        // and the detail muted on one line, one Jump control.
         let mut row = h_flex()
             .id(id.clone())
             .relative()
             .top(style.offset_y)
             .opacity(style.opacity)
             .w_full()
+            .items_center()
             .gap(px(NEED_GAP))
             .py(px(NEED_PAD_Y))
             .pl(px(NEED_PAD_LEFT))
             .pr(px(NEED_PAD_RIGHT))
-            .rounded(px(scale::R_MD))
-            .border_1()
-            .border_color(p.warning_soft)
-            .bg(p.warning_soft)
+            .rounded(px(crate::transcript::card::CARD_RADIUS))
+            .bg(crate::util::raised_lit(&p, p.surface_2))
+            .shadow(p.edge())
             .ui(NEED_TEXT)
             .text_color(p.ink)
-            .child(icon(IconName::Shield).size(px(NEED_GLYPH)).color(p.warning))
+            .child(icon(IconName::Alert).size(px(NEED_GLYPH)).color(p.warning))
             .child(
-                div()
+                h_flex()
                     .flex_1()
                     .min_w(px(0.0))
-                    .child(StyledText::new(text).with_highlights([(bold, HighlightStyle { font_weight: Some(FontWeight::SEMIBOLD), ..Default::default() })])),
+                    .gap(px(5.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(div().flex_none().semibold().child(self.headline.clone()))
+                    .child(div().min_w(px(0.0)).truncate().text_color(p.ink_2).child(self.detail.clone())),
             );
         if let Some(on_jump) = self.on_jump {
-            row = row.child(button((id, "jump"), self.action).xs().primary().on_click(move |e, window, cx| on_jump(e, window, cx)));
+            row = row.child(
+                control_with((id, "jump"), None, self.action.clone(), ControlKind::Text, &p)
+                    .h(px(24.0))
+                    .child(icon(IconName::ChevronDown).size(px(11.0)).rotate(gpui::radians(std::f32::consts::PI)))
+                    .on_click(move |e, window, cx| on_jump(e, window, cx)),
+            );
         }
         row
     }
@@ -359,10 +403,12 @@ impl JumpPill {
 impl RenderOnce for JumpPill {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
+        // Floating, fully round, 28 px, the edge and the float drop: ↓, the
+        // label in caption, the count in a 9 % cap.
         let mut pill = h_flex()
             .id(self.id)
             .flex_none()
-            .h(px(scale::H_MD))
+            .h(px(JUMP_H))
             .gap(px(JUMP_GAP))
             .pl(px(JUMP_PAD_LEFT))
             .pr(px(JUMP_PAD_RIGHT))
@@ -370,10 +416,9 @@ impl RenderOnce for JumpPill {
             .bg(p.overlay)
             .shadow(p.floating_shadow())
             .ui(scale::FS_12)
-            .medium()
             .text_color(p.ink)
             .whitespace_nowrap()
-            .child(icon(IconName::ChevronDown).size(px(JUMP_GLYPH)))
+            .child(icon(IconName::ArrowDown).size(px(JUMP_GLYPH)))
             .child(self.label.clone());
         if let Some(count) = self.count {
             pill = pill.child(
@@ -382,12 +427,10 @@ impl RenderOnce for JumpPill {
                     .py(px(BADGE_PAD_Y))
                     .px(px(BADGE_PAD_X))
                     .rounded_full()
-                    .bg(p.ink)
-                    .text_color(p.bg)
+                    .bg(p.selected_overlay())
                     .font_family(scale::FONT_MONO)
                     .text_px(BADGE_TEXT)
                     .line_height(gpui::relative(1.0))
-                    .semibold()
                     .child(count.to_string()),
             );
         }

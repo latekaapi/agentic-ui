@@ -8,8 +8,8 @@
 //! composed to the same rules rather than measured against a reference.
 
 use aui::composer::{
-    composer, composer_state_rows, effort_menu, mode_menu, model_menu, queue_strip, ComposerChip,
-    ComposerChipAnchor, ComposerChipKind, PickerRow, QueueStripRow,
+    composer, composer_state_rows, effort_slider_menu, mode_menu, model_menu, provider_menu, queue_strip, ComposerChip,
+    ComposerChipAnchor, ComposerChipKind, PickerRow, PickerSubmenu, QueueStripRow,
 };
 use aui::data::{context_meter, ContextMeterState, ContextPressure};
 use aui_icons::Provider;
@@ -45,6 +45,38 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         state
     });
 
+    let sub = |selected: Option<usize>| PickerSubmenu {
+        title: "Reasoning effort · muse-spark-1.3".into(),
+        rows: vec![
+            PickerRow::new("default", "Default", "Leave it to the provider."),
+            PickerRow::new("low", "Low", "A short budget."),
+            PickerRow::new("medium", "Medium", "The middle budget, and the usual default."),
+            PickerRow::new("high", "High", "A long budget."),
+            PickerRow::new("max", "Max", "Longer than extra high, below ultra."),
+        ],
+        selected,
+    };
+    let providers = vec![
+        PickerRow::new("muse", "Muse", "").mark(Provider::Muse),
+        PickerRow::new("claude", "Claude Code", "").mark(Provider::Claude),
+        PickerRow::new("codex", "Codex", "").mark(Provider::Codex),
+    ];
+    let nested = vec![
+        PickerRow::new("muse-spark-1.3", "muse-spark-1.3", "").meta("1.0M ctx").badge("active").submenu(sub(Some(0))),
+        PickerRow::new("muse-spark-1.3-contributor", "muse-spark-1.3-contributor", "").meta("1.0M ctx").badge("default").submenu(sub(None)),
+        PickerRow::new("muse-spark-1.2", "muse-spark-1.2", "").meta("1.0M ctx").submenu(sub(None)),
+    ];
+    let levels = vec![
+        PickerRow::new("none", "None", "No reasoning at all."),
+        PickerRow::new("minimal", "Minimal", "The smallest budget the provider offers."),
+        PickerRow::new("low", "Low", "A short budget."),
+        PickerRow::new("medium", "Medium", "The middle budget, and the usual default."),
+        PickerRow::new("high", "High", "A long budget."),
+        PickerRow::new("xhigh", "Extra high", "Longer than high."),
+        PickerRow::new("max", "Max", "Longer than extra high, below ultra."),
+        PickerRow::new("ultra", "Ultra", "The largest budget MSP accepts."),
+    ];
+    let default_effort = PickerRow::new("default", "Default", "Leave it to the provider; the field is omitted.");
     let models = vec![
         PickerRow::new("muse-spark-1.3", "muse-spark-1.3", "").meta("1.0M ctx").badge("active"),
         PickerRow::new(
@@ -55,13 +87,6 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .meta("1.0M ctx")
         .badge("default"),
         PickerRow::new("muse-spark-1.2", "muse-spark-1.2", "").meta("1.0M ctx"),
-    ];
-    let efforts = vec![
-        PickerRow::new("none", "None", "No reasoning at all."),
-        PickerRow::new("low", "Low", "A short budget."),
-        PickerRow::new("medium", "Medium", "The middle budget, and the usual default."),
-        PickerRow::new("max", "Max", "Longer than extra high, below ultra."),
-        PickerRow::new("ultra", "Ultra", "The largest budget MSP accepts."),
     ];
     let modes = vec![
         PickerRow::new("allowAll", "Full access", "Nothing is gated; every action runs."),
@@ -102,15 +127,30 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .w_full()
         .max_w(px(WRAP_MAX))
         .gap(px(WRAP_GAP))
-        .child(caps(cx, "Chip menus"))
+        .child(caps(cx, "Provider · model"))
         .child(
             h_flex()
                 .w_full()
                 .items_end()
                 .gap(px(ROW_GAP))
                 .h(px(MENU_COLUMN_H))
-                .child(div().relative().flex_1().child(model_menu("card43-model", models, 0, true).at_rest().on_pick(|_, _, _| {})))
-                .child(div().relative().flex_1().child(effort_menu("card43-effort", efforts, 2, true).at_rest().on_pick(|_, _, _| {})))
+                .child(div().relative().w(px(250.0)).child(provider_menu("card43-provider", providers, 0, true).at_rest().on_pick(|_, _, _| {})))
+                .child(div().relative().flex_1().child(model_menu("card43-model", models, 0, true).at_rest().on_pick(|_, _, _| {}))),
+        )
+        .child(caps(cx, "Nested: a model's effort levels"))
+        .child(
+            h_flex().w_full().items_end().h(px(MENU_COLUMN_H)).child(
+                div().relative().flex_1().child(model_menu("card43-nested", nested, 0, true).at_rest().open_submenu(Some(0)).on_pick(|_, _, _| {}).on_pick_nested(|_, _, _, _| {})),
+            ),
+        )
+        .child(caps(cx, "Effort as a slider · approval mode"))
+        .child(
+            h_flex()
+                .w_full()
+                .items_end()
+                .gap(px(ROW_GAP))
+                .h(px(MENU_COLUMN_H + 40.0))
+                .child(div().relative().w(px(380.0)).child(effort_slider_menu("card43-slider", levels, Some(4), default_effort, true).at_rest().on_change(|_, _, _| {}).on_pick(|_, _, _| {})))
                 .child(div().relative().flex_1().child(mode_menu("card43-mode", modes, 1, true).at_rest().on_pick(|_, _, _| {}))),
         )
         .child(caps(cx, "Context meter"))
@@ -134,6 +174,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                         // variant on the composer card.
                         thumbnail: None,
                         detail: None,
+                        state: Default::default(),
                     }])
                     .context(ContextMeterState {
                         used_tokens: 19_328,

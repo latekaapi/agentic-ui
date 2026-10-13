@@ -184,7 +184,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
                 .text_color(p.ink_3)
-                .child("Settled turns fold to one row with counts and a diff chip; the live run is one row naming the current call with its earlier count. Generic results collapse to three preview lines and cap at forty with an Open control. Shell bodies follow the six-line tail; Search and MCP bodies cap at forty with fold rows. Group headers drop their own count when the summary already states it."),
+                .child("D4: settled turns fold to one quiet row — chevron on the left, counts, the +N −M chip that opens the turn's diff; open, the turn's cards follow on the measure, 8 apart. The live run is a quiet row naming the current call, its earlier count and elapsed. An unknown item kind is a folded card with the kind as the verb and its status in mono."),
         )
         .into_any_element()
 }

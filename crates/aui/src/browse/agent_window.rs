@@ -587,6 +587,7 @@ fn chips_row(
                 .into_any_element(),
             ComposerChipKind::Image => icon(IconName::Image).size(px(CHIP_GLYPH)).into_any_element(),
             ComposerChipKind::File => icon(IconName::File).size(px(CHIP_GLYPH)).into_any_element(),
+            ComposerChipKind::Quote => icon(IconName::Edit).size(px(11.0)).into_any_element(),
         };
         let mut el = chip((id.clone(), SharedString::from(format!("chip-{}", c.id))), c.label.clone()).leading(leading);
         if c.kind == ComposerChipKind::File {

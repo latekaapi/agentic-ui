@@ -1,24 +1,24 @@
-//! `.mk`: marker rows inside the transcript — session started, hand-off,
-//! context compacted, permission mode changed. One line, 11.5 px ink-3, a
-//! hairline on both sides, 12 px glyph.
+//! Marker rows inside the transcript (D4, docs/41 §2.8) — session started,
+//! context compacted, permission mode changed, handed off. One centred
+//! caption line in muted between two 7 % rules, 10 above and below, gap 10;
+//! a 12 px glyph; a hand-off leads with both provider marks (14) and an
+//! arrow. Links are underlined in the foreground.
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, Hsla, IntoElement, SharedString, Window};
 use gpui_kit::base::h_flex;
 
-/// `.mk{gap:10px;font-size:11.5px;margin:10px 0}` — block flow collapses the
-/// vertical margins, so rows carry a top margin only.
+/// Gap 10, caption, 10 above and below.
 const GAP: f32 = 10.0;
-const TEXT: f32 = 11.5;
+const TEXT: f32 = 12.0;
 const MARGIN_Y: f32 = 10.0;
-/// `.mk .i{width:12px;height:12px}`.
+/// The leading glyph.
 const GLYPH: f32 = 12.0;
-/// `.hand{gap:6px;padding:3px 8px}` with 11 px marks and arrow.
+/// The hand-off's two marks and the arrow between them.
 const HAND_GAP: f32 = 6.0;
-const HAND_PAD_Y: f32 = 3.0;
-const HAND_PAD_X: f32 = 8.0;
-const HAND_MARK: f32 = 11.0;
+const HAND_MARK: f32 = 14.0;
+const HAND_ARROW: f32 = 12.0;
 
 /// A hand-off between two agents, shown as a pill with both marks.
 #[derive(Debug, Clone, PartialEq)]
@@ -85,34 +85,28 @@ enum Run {
 impl RenderOnce for MarkerRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let rule = || div().flex_1().h(px(1.0)).bg(p.line);
-        let mut row = h_flex().id(self.id.clone()).w_full().mt(px(MARGIN_Y)).gap(px(GAP)).ui(TEXT).text_color(p.ink_3).whitespace_nowrap().child(rule());
+        let rule = || div().flex_1().min_w(px(16.0)).h(px(1.0)).bg(p.line);
+        let mut row = h_flex().id(self.id.clone()).w_full().my(px(MARGIN_Y)).items_center().gap(px(GAP)).ui(TEXT).text_color(p.ink_2).whitespace_nowrap().child(rule());
         if let Some((name, color)) = self.glyph {
-            row = row.child(icon(name).size(px(GLYPH)).color(color.unwrap_or(p.ink_3)));
+            row = row.child(icon(name).size(px(GLYPH)).color(color.unwrap_or(p.ink_2)));
         }
         if let Some(hand) = self.hand_off {
             row = row.child(
                 h_flex()
+                    .flex_none()
+                    .items_center()
                     .gap(px(HAND_GAP))
-                    .py(px(HAND_PAD_Y))
-                    .px(px(HAND_PAD_X))
-                    .rounded_full()
-                    .bg(p.surface_2)
-                    .border_1()
-                    .border_color(p.line)
                     .child(provider_mark(hand.from.0).size(px(HAND_MARK)))
-                    .child(hand.from.1)
-                    .child(icon(IconName::ArrowRight).size(px(HAND_MARK)).color(p.ink_3))
-                    .child(provider_mark(hand.to.0).size(px(HAND_MARK)))
-                    .child(hand.to.1),
+                    .child(icon(IconName::ArrowRight).size(px(HAND_ARROW)).color(p.ink_2))
+                    .child(provider_mark(hand.to.0).size(px(HAND_MARK))),
             );
         }
         // Runs sit side by side; emphasis and links carry their own colour.
-        let mut text = h_flex().gap(px(scale::SP_2)).text_color(p.ink_3);
+        let mut text = h_flex().flex_none().gap(px(scale::SP_1)).text_color(p.ink_2);
         for (i, run) in self.runs.into_iter().enumerate() {
             text = match run {
                 Run::Text(t) => text.child(div().whitespace_nowrap().child(t)),
-                Run::Strong(t) => text.child(div().whitespace_nowrap().medium().text_color(p.ink).child(t)),
+                Run::Strong(t) => text.child(div().whitespace_nowrap().semibold().text_color(p.ink).child(t)),
                 Run::Link(t, on_click) => {
                     let id: ElementId = (self.id.clone(), SharedString::from(format!("link-{i}"))).into();
                     crate::data::record_ax_label(&t);
@@ -120,8 +114,10 @@ impl RenderOnce for MarkerRow {
                         div()
                             .id(id)
                             .whitespace_nowrap()
-                            .text_color(p.accent_ink)
+                            .text_color(p.ink_2)
+                            .underline()
                             .cursor_pointer()
+                            .hover(|d| d.text_color(p.ink))
                             .role(gpui::Role::Link)
                             .aria_label(t.clone())
                             .on_click(move |e, w, cx| on_click(e, w, cx))

@@ -1,103 +1,102 @@
-//! Card 42 · Attachments and drop: the five attachment row states beside the
-//! transcript pane with the drag overlay on it.
-//! Reproduces `design/src/cards/composer/42-attachments.html` at 760×460.
+//! `composer/attachments` · the composer's states (D4, docs/41 §2.9, the
+//! D4Composer board): the raised composer empty, typed, with attachment
+//! chips, with a quotation, with chips uploading and failed, running with a
+//! queued line above it — the send button the composer's only solid fill —
+//! and the drop overlay over a sheet.
 
-use aui::composer::{attachment_row, drop_overlay, AttachmentRowState, ROW_STACK_GAP};
-use aui_icons::IconName;
-use aui::protocol::AttachmentKind;
+use aui::composer::{composer, composer_state_rows, drop_overlay, queue_strip, ComposerChip, ComposerChipKind, ComposerChipState, QueueStripRow};
+use aui_icons::Provider;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
-use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::base::input::TextareaState;
+use gpui_kit::base::v_flex;
+
 use super::composer::sample_thumbnail;
 
-/// `.grid{grid-template-columns:1fr 1fr;gap:16px}`.
-const COLUMN_GAP: f32 = scale::SP_5;
-/// `.drop{height:300px}`.
-const PANE_H: f32 = 300.0;
-/// `.drop .lines{inset:16px;gap:12px}` at `opacity:.5`.
-const LINES_INSET: f32 = 16.0;
-const LINES_GAP: f32 = 12.0;
-const LINES_OPACITY: f32 = 0.5;
-/// `.drop .lines i{height:10px;border-radius:4px}` with the card's widths.
-const LINE_H: f32 = 10.0;
-const LINE_WIDTHS: [f32; 6] = [0.60, 0.90, 0.75, 0.40, 0.85, 0.65];
-/// The uploading row sits at `width:68%`.
-const UPLOAD_PROGRESS: f32 = 0.68;
-/// `.ds-note{margin-top:12px;max-width:80ch}` ≈ 640 px of Geist 12.
-const NOTE_TOP: f32 = 12.0;
+/// The composers stack 18 apart; the drop sheet is 240 tall.
+const GAP: f32 = 18.0;
+const SHEET_H: f32 = 240.0;
 const NOTE_MEASURE: f32 = 640.0;
 
-/// Builds the card content.
-pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
-    let p = cx.aui().colors;
-    let mut lines = v_flex()
-        .absolute()
-        .top(px(LINES_INSET))
-        .left(px(LINES_INSET))
-        .right(px(LINES_INSET))
-        .bottom(px(LINES_INSET))
-        .gap(px(LINES_GAP))
-        .opacity(LINES_OPACITY);
-    for width in LINE_WIDTHS {
-        lines = lines.child(div().h(px(LINE_H)).w(relative(width)).rounded(px(scale::R_XS)).bg(p.surface_3));
-    }
+const PLACEHOLDER: &str = "Ask Muse, or type / for commands";
 
+fn chip(id: &str, kind: ComposerChipKind, label: &str, detail: Option<&str>, thumb: bool, state: ComposerChipState) -> ComposerChip {
+    ComposerChip {
+        id: id.to_owned().into(),
+        kind,
+        label: label.to_owned().into(),
+        removable: true,
+        thumbnail: thumb.then(sample_thumbnail),
+        detail: detail.map(|d| d.to_owned().into()),
+        state,
+    }
+}
+
+fn field(key: &'static str, text: &'static str, window: &mut Window, cx: &mut App) -> Entity<TextareaState> {
+    window.use_keyed_state(key, cx, move |window, cx| {
+        let mut state = composer_state_rows(PLACEHOLDER, 1, 8, window, cx);
+        if !text.is_empty() {
+            state.set_value(text, window, cx);
+        }
+        state
+    })
+}
+
+/// Builds the card content.
+pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
+    let p = cx.aui().colors;
+    let empty = field("card42-empty", "", window, cx);
+    let typed = field("card42-typed", "Tighten the GB regex so the space form passes too, then rerun the focused tests and show me the diff before committing anything.", window, cx);
+    let attached = field("card42-attached", "Tighten the GB regex so the space form passes too.", window, cx);
+    let quoted = field("card42-quoted", "Try that again.", window, cx);
+    let states = field("card42-states", "Here is the capture and the fixture.", window, cx);
+    let running = field("card42-running", "", window, cx);
+
+    let raised = |id: &'static str, state: &Entity<TextareaState>| composer(id, state, Provider::Muse, "Muse Spark 1.3").docked(true).raised(true).mode("Auto").effort("Default");
+    let label = |text: &'static str| div().ui(scale::FS_12).text_color(p.ink_3).child(text);
     v_flex()
         .w_full()
+        .gap(px(GAP))
+        .child(label("Empty"))
+        .child(raised("card42-c-empty", &empty).can_send(false))
+        .child(label("Typed — the send button takes the one solid fill"))
+        .child(raised("card42-c-typed", &typed).can_send(true))
+        .child(label("With attachments"))
+        .child(raised("card42-c-attached", &attached).can_send(true).chips(vec![
+            chip("img", ComposerChipKind::Image, "transcript-real.png", None, true, ComposerChipState::Ready),
+            chip("file", ComposerChipKind::File, "synthetic-markdown.jsonl", Some("JSONL · 2.4 KB"), false, ComposerChipState::Ready),
+        ]))
+        .child(label("With a quotation"))
+        .child(raised("card42-c-quote", &quoted).can_send(true).chips(vec![chip(
+            "quote",
+            ComposerChipKind::Quote,
+            "the provider closed the stream before…",
+            None,
+            false,
+            ComposerChipState::Ready,
+        )]))
+        .child(label("Attachment states: uploading, ready, failed"))
+        .child(raised("card42-c-states", &states).can_send(true).chips(vec![
+            chip("up", ComposerChipKind::Image, "transcript-real.png", None, true, ComposerChipState::Uploading),
+            chip("pdf", ComposerChipKind::File, "notes.pdf", Some("PDF · 1.1 MB"), false, ComposerChipState::Ready),
+            chip("bad", ComposerChipKind::File, "archive.zip", None, false, ComposerChipState::Failed("couldn't be read".into())),
+        ]))
+        .child(label("Running, a message queued"))
         .child(
-            h_flex()
+            v_flex()
                 .w_full()
-                .items_start()
-                .gap(px(COLUMN_GAP))
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .gap(px(ROW_STACK_GAP))
-                        .child(
-                            attachment_row("card42-image", "checkout-form.png", "PNG · 1.2 MB · 1440 × 900")
-                                .kind(AttachmentKind::Image)
-                                .thumbnail(sample_thumbnail())
-                                .on_remove(|_, _| {}),
-                        )
-                        .child(
-                            attachment_row("card42-upload", "design-spec.pdf", "")
-                                .kind(AttachmentKind::File)
-                                .glyph(IconName::Pdf)
-                                .state(AttachmentRowState::Uploading(UPLOAD_PROGRESS))
-                                .on_cancel(|_, _| {}),
-                        )
-                        .child(attachment_row("card42-source", "validators.ts", "from src/checkout · 180 lines").kind(AttachmentKind::Text).on_remove(|_, _| {}))
-                        .child(
-                            attachment_row("card42-failed", "recording.mov", "")
-                                .kind(AttachmentKind::File)
-                                .state(AttachmentRowState::Failed("Too large for this provider (max 32 MB)".into()))
-                                .on_retry(|_, _| {}),
-                        )
-                        .child(attachment_row("card42-hint", "Paste an image or drop files", "⌘V with an image on the clipboard").state(AttachmentRowState::Hint)),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .relative()
-                        .h(px(PANE_H))
-                        .rounded(px(scale::R_LG))
-                        .border_1()
-                        .border_color(p.line)
-                        .bg(p.bg)
-                        .overflow_hidden()
-                        .child(lines)
-                        .child(drop_overlay("card42-drop", true).subtitle("3 files · images become screenshots the agent can see").at_rest()),
-                ),
+                .gap(px(8.0))
+                .child(queue_strip("card42-queue", vec![QueueStripRow::new("q1", "Also update the changelog once the tests pass.")]).on_intent(|_, _, _, _| {}))
+                .child(raised("card42-c-running", &running).streaming(true)),
         )
+        .child(label("Drop over the sheet"))
+        .child(div().relative().w_full().h(px(SHEET_H)).rounded(px(8.0)).bg(p.surface_2).child(drop_overlay("card42-drop", true).at_rest()))
         .child(
             div()
-                .mt(px(NOTE_TOP))
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
                 .text_color(p.ink_3)
-                .child("Rows are 44 px with a 32 px thumb, name and one line of metadata. Uploading dims the thumb, shimmers the name and runs a hairline progress bar. The drop overlay covers the whole transcript pane with a dashed accent border and a bobbing arrow."),
+                .child("The composer's states on the approved card. Chips sit above the field, 6 apart, inset 8: Raised-lit, radius 6, 32 tall; an image leads with its thumbnail, a file with its glyph and type · size, a quote with its first words. Uploading dims the thumbnail and sweeps a 2 px line along the chip's bottom; failed turns the name danger with the reason as its meta. Send is round 28: Floating with a muted arrow while empty, the foreground fill once there is something to send, the same fill with a 10 px square while a turn runs."),
         )
         .into_any_element()
 }

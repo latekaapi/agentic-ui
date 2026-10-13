@@ -1,13 +1,13 @@
-//! Card 36: the plan card — a proposed, numbered plan with a "Plan mode"
-//! pill and an action row that rejects, edits or accepts it.
+//! The plan card (D4, docs/41 §2.7): "Proposed plan" with the Plan mode
+//! tag, the steps as an ordered list at body size, and a footer that
+//! rejects, edits or accepts it.
 
 use aui_protocol::{PlanSection, PlanState};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{button, kbd, pill, PillVariant};
-use crate::icons::{icon, IconName};
+use crate::transcript::controls::{control, key_hints, ControlKind};
 use crate::transcript::{prose, ProseStyle};
 use crate::util::ClickHandler;
 
@@ -16,7 +16,6 @@ const HEAD_PAD_Y: f32 = 10.0;
 const HEAD_PAD_X: f32 = 12.0;
 const HEAD_GAP: f32 = 8.0;
 const HEAD_TEXT: f32 = 13.0;
-const HEAD_GLYPH: f32 = 14.0;
 /// `.plan ol{padding:0 12px 10px 30px;font-size:12.5px;line-height:1.6}` —
 /// the 30 px left padding is the 12 px inset plus the marker column.
 const LIST_PAD_X: f32 = 12.0;
@@ -24,21 +23,17 @@ const LIST_PAD_BOTTOM: f32 = 10.0;
 const MARKER_COL: f32 = 18.0;
 /// The gap a browser leaves between an `::marker` and the item's content.
 const MARKER_GAP: f32 = 7.0;
-const ITEM_TEXT: f32 = 12.5;
+const ITEM_TEXT: f32 = 13.0;
 const ITEM_LH: f32 = 1.6;
-/// `.plan ol li::marker{font-family:var(--font-mono);font-size:11px}`.
-const MARKER_TEXT: f32 = 11.0;
 /// A section label is a caps row that owns the whole list width, with a little
 /// air above it — and none above the first, which the header already gives.
 const SECTION_TEXT: f32 = 11.0;
 const SECTION_GAP_TOP: f32 = 10.0;
 const SECTION_GAP_BOTTOM: f32 = 2.0;
 /// `.actions{gap:8px;padding:10px 12px}` and `.actions .hint{gap:5px;font-size:11px}`.
-const ACTIONS_PAD_Y: f32 = 10.0;
+const ACTIONS_PAD_Y: f32 = 8.0;
 const ACTIONS_PAD_X: f32 = 12.0;
 const ACTIONS_GAP: f32 = 8.0;
-const HINT_GAP: f32 = 5.0;
-const HINT_TEXT: f32 = 11.0;
 
 /// The plan card. Build with [`plan_card`].
 #[derive(IntoElement)]
@@ -114,9 +109,9 @@ impl RenderOnce for PlanCard {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let style = ProseStyle {
-            ink: p.ink_2,
-            code_ink: p.ink_2,
-            code_bg: gpui::transparent_black(),
+            ink: p.ink,
+            code_ink: p.ink,
+            code_bg: p.line,
             size: ITEM_TEXT,
             line_height: ITEM_LH,
             paragraph_gap: 0.0,
@@ -147,19 +142,16 @@ impl RenderOnce for PlanCard {
                         .pr(px(MARKER_GAP))
                         .flex()
                         .justify_end()
-                        .mono(MARKER_TEXT)
+                        .ui(ITEM_TEXT)
                         // The marker sits on the item's first line box.
                         .line_height(aui_tokens::scaled(ITEM_TEXT * ITEM_LH))
-                        .text_color(p.ink_3)
+                        .text_color(p.ink)
                         .child(format!("{}.", index + 1)),
                 ).child(div().flex_1().min_w(px(0.0)).child(prose((id.clone(), SharedString::from(format!("item-{index}"))), item, style))),
             );
         }
 
-        let mut card = crate::util::raised_block(v_flex()
-            .id(id.clone())
-            .w_full()
-            .rounded(px(scale::R_LG)), &p, p.surface_1)
+        let mut card = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_1)
             .overflow_hidden()
             .child(
                 h_flex()
@@ -168,25 +160,21 @@ impl RenderOnce for PlanCard {
                     .gap(px(HEAD_GAP))
                     .py(px(HEAD_PAD_Y))
                     .px(px(HEAD_PAD_X))
-                    .ui(HEAD_TEXT)
-                    .semibold()
-                    .text_color(p.ink)
-                    .child(icon(IconName::List).size(px(HEAD_GLYPH)).color(p.accent_ink))
-                    .child(div().flex_1().min_w(px(0.0)).truncate().child("Proposed plan"))
-                    .child(pill("Plan mode").variant(PillVariant::Line)),
+                    .child(div().flex_1().min_w(px(0.0)).truncate().ui(HEAD_TEXT).semibold().text_color(p.ink).child("Proposed plan"))
+                    .child(div().flex_none().px(px(8.0)).py(px(2.0)).rounded(px(6.0)).bg(p.line).ui(scale::FS_12).text_color(p.ink_2).child("Plan mode")),
             )
             .child(list);
 
         if self.state == PlanState::Proposed {
-            let mut reject = button((id.clone(), "reject"), "Reject").sm().ghost();
+            let mut reject = control((id.clone(), "reject"), "Reject", ControlKind::Text, &p);
             if let Some(on_reject) = self.on_reject {
                 reject = reject.on_click(move |e, w, cx| on_reject(e, w, cx));
             }
-            let mut edit = button((id.clone(), "edit"), "Edit").sm();
+            let mut edit = control((id.clone(), "edit"), "Edit", ControlKind::Text, &p);
             if let Some(on_edit) = self.on_edit {
                 edit = edit.on_click(move |e, w, cx| on_edit(e, w, cx));
             }
-            let mut accept = button((id.clone(), "accept"), "Accept and run").sm().primary();
+            let mut accept = control((id.clone(), "accept"), "Accept plan", ControlKind::Primary, &p);
             if let Some(on_accept) = self.on_accept {
                 accept = accept.on_click(move |e, w, cx| on_accept(e, w, cx));
             }
@@ -199,17 +187,7 @@ impl RenderOnce for PlanCard {
                     .px(px(ACTIONS_PAD_X))
                     .border_t_1()
                     .border_color(p.line)
-                    .bg(crate::util::raised_lit(&p, p.surface_2))
-                    .child(
-                        h_flex()
-                            .flex_none()
-                            .items_center()
-                            .gap(px(HINT_GAP))
-                            .ui(HINT_TEXT)
-                            .text_color(p.ink_3)
-                            .child(kbd("⇧⇥"))
-                            .child("mode"),
-                    )
+                    .child(key_hints("⏎ accept · e edit · ⎋ reject", &p))
                     .child(div().flex_1())
                     .child(reject)
                     .child(edit)

@@ -12,9 +12,9 @@ mod menus;
 mod pickers;
 mod queue;
 
-pub use composer::{composer, composer_state, composer_state_rows, provider_display_name, Composer, ComposerChip, ComposerChipAnchor, ComposerChipKind, ComposerIntent, ComposerMeta};
-pub use attachments::{attachment_row, drop_overlay, AttachmentRow, AttachmentRowState, DropOverlay, ROW_STACK_GAP};
+pub use composer::{composer, composer_state, composer_state_rows, provider_display_name, Composer, ComposerChip, ComposerChipAnchor, ComposerChipKind, ComposerChipState, ComposerIntent, ComposerMeta};
+pub use attachments::{drop_overlay, DropOverlay};
 pub use menu::{plus_menu, PlusMenu, PlusMenuItem};
 pub use menus::{command_menu, mention_picker, CommandItem, CommandMenu, CommandSection, MentionIcon, MentionItem, MentionPicker, MentionSection};
-pub use pickers::{effort_menu, mode_menu, model_menu, PickerMenu, PickerRow};
+pub use pickers::{effort_menu, effort_slider_menu, mode_menu, model_menu, provider_menu, EffortSliderMenu, PickerMenu, PickerRow, PickerSubmenu};
 pub use queue::{queue_row, queue_strip, suggestion_chips, QueueIntent, QueueRow, QueueStrip, QueueStripRow, SuggestionChips};

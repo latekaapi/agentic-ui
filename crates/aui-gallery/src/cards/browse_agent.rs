@@ -26,6 +26,7 @@ fn ask_state() -> LineState {
             removable: true,
             thumbnail: None,
             detail: None,
+            state: Default::default(),
         }],
         site_actions: vec![
             ("sum".into(), "Sum it up".into()),
@@ -57,6 +58,7 @@ fn page_chip() -> ComposerChip {
         removable: true,
         thumbnail: None,
         detail: None,
+        state: Default::default(),
     }
 }
 

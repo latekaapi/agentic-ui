@@ -43,7 +43,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let (plus_open, streaming) = *ui.read(cx);
     let ui_for_intent = ui.clone();
     let chips = vec![
-        ComposerChip { id: "mention".into(), kind: ComposerChipKind::Mention, label: "src/checkout".into(), removable: true, thumbnail: None, detail: None },
+        ComposerChip { id: "mention".into(), kind: ComposerChipKind::Mention, label: "src/checkout".into(), removable: true, thumbnail: None, detail: None, state: Default::default() },
         ComposerChip {
             id: "image".into(),
             kind: ComposerChipKind::Image,
@@ -51,6 +51,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             removable: true,
             thumbnail: Some(sample_thumbnail()),
             detail: None,
+            state: Default::default(),
         },
         ComposerChip {
             id: "file".into(),
@@ -59,8 +60,9 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             removable: true,
             thumbnail: None,
             detail: Some("PDF · 2.1 MB".into()),
+            state: Default::default(),
         },
-        ComposerChip { id: "skill".into(), kind: ComposerChipKind::Skill, label: "test-writer".into(), removable: false, thumbnail: None, detail: None },
+        ComposerChip { id: "skill".into(), kind: ComposerChipKind::Skill, label: "test-writer".into(), removable: false, thumbnail: None, detail: None, state: Default::default() },
     ];
     let menu = plus_menu(
         "card40-plus-menu",

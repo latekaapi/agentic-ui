@@ -4,7 +4,7 @@
 //! `design/src/cards/transcript/36-question-plan-todo.html` at 800×760.
 
 use aui::protocol::{sample, Block, QuestionOption, TodoItem, TodoState};
-use aui::transcript::{answered_row, plan_card, question_card, todo_list, QuestionOutcome};
+use aui::transcript::{answered_row, plan_card, question_card, Wizard, todo_list, QuestionOutcome};
 use gpui::*;
 use gpui_kit::base::input::TextareaState;
 use gpui_kit::base::v_flex;
@@ -142,6 +142,21 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                         .allow_other(true)
                         .selected(current)
                         .on_select(toggle_option),
+                )
+                // Several questions: one card, one at a time (the wizard).
+                .child(
+                    question_card("card36-wizard", "Which postcode formats should validate?", &options())
+                        .header("Formats · pick all that apply")
+                        .multi(true)
+                        .allow_other(true)
+                        .selected(vec![0, 1])
+                        .timeout(TIMEOUT_LEFT_MS, TIMEOUT_TOTAL_MS)
+                        .wizard(Some(Wizard { topic: "Address validation".into(), why: "Muse needs four answers before editing the validator".into(), index: 1, total: 4 }))
+                        .on_back(|_, _, _| {})
+                        .on_select(|_, _, _| {})
+                        .on_skip(|_, _, _| {})
+                        .on_clarify(|_, _, _| {})
+                        .on_answer(|_, _, _| {}),
                 )
                 .child(answered_row("card36-answered", vec!["US ZIP".into(), "Canadian".into()]))
                 // The settlements that are not answers: MSP settles a prompt

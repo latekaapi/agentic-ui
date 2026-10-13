@@ -59,7 +59,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
                 .text_color(p.ink_3)
-                .child("One header for every tool: status glyph, verb, mono target, right-aligned result and duration, chevron. Bodies differ: terminal output on the terminal ground with ANSI colours and a fold after eight lines, diffs with gutters, search hits, web results with favicons, browser actions with a screenshot and the click ring."),
+                .child("D4: one header for every tool — the status glyph, the verb, the target in mono muted, then the result and duration in faint mono and the chevron. No buttons: the header toggles. Shell output and a read file sit on the Well and fold at six lines behind an in-place \"N more lines\"; edits show the 36/20 diff grid; search, web, browser, delegated and MCP bodies follow docs/41 §2.5."),
         )
         .into_any_element()
 }

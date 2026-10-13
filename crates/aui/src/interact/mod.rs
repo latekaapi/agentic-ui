@@ -17,7 +17,7 @@ pub mod interactive;
 pub mod row;
 pub mod surface;
 
-pub use dropdown::{
+pub use dropdown::{PANEL_PAD, 
     dropdown, dropdown_height, dropdown_label, dropdown_present, dropdown_separator, Dropdown, DropdownEntry, DropdownItem,
     DropdownSide, DropdownTrailing,
 };
