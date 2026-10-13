@@ -6,16 +6,14 @@
 //! title row (title at 16, actions at the right) centred on the lights'
 //! line; the right pane is a second sheet beside it.
 //!
-//! Closing removes the column; the sheet grows into the space. What stays is
-//! the chrome row, now a **pill**: the sidebar's own top strip — a plain
-//! rectangle flush with the window's top and left, the sidebar's width, the
-//! row's height, the frame's own colour with no edge and no drop — holding
-//! exactly lights · toggle · switch at the x and y they had open. A 150 ms
-//! rest on the pill, the toggle or the window's left strip peeks the whole
-//! sidebar as the frame-coloured column flush with the window's left, top
-//! and bottom behind the pill (one surface with it, rounded 8 at the bottom
-//! right, a drop to its right); after a toggle the peek waits for the
-//! pointer to leave and come back.
+//! Closing removes the column; the sheet grows into the space and nothing
+//! else is drawn — no row, no toggle, and the host hides the window's lights
+//! (owner 2026-10-13, round 7). A 150 ms rest on the window's top edge (the
+//! frame band above the sheet) or its left edge peeks the whole sidebar as
+//! the frame-coloured column flush with the window's left, top and bottom,
+//! rounded 8 at the bottom right with a drop to its right, its own row
+//! riding in with it; after a toggle the peek waits for the pointer to leave
+//! and come back.
 //!
 //! Motion (Emil Kowalski's rules, owner 2026-10-13: smooth or none): the
 //! column opens and closes on an ease-out tween, 260 / 220 ms, the panel
@@ -24,7 +22,7 @@
 //! sheet's edge, so no frame re-lays out the transcript (the build before
 //! re-measured per frame and managed four frames per close).
 
-use aui_motion::{open_close, open_close_with, spring_px, Enter, SpringKind, EXIT_EASING};
+use aui_motion::{open_close, open_close_with, spring_px, Enter, SpringKind};
 use aui_tokens::{ActiveAui, Easing};
 use gpui::{div, prelude::*, px, AnyElement, App, Div, ElementId, IntoElement, Pixels, Window};
 use gpui_kit::base::h_flex;
@@ -75,8 +73,8 @@ pub const SHEET_ROW_H: f32 = 32.0;
 pub const SHEET_ROW_PAD_LEFT: f32 = 16.0;
 /// See [`SHEET_ROW_H`].
 pub const SHEET_ROW_PAD_RIGHT: f32 = 10.0;
-/// The scroll fade at the sheet's top: under the title row (open) and under
-/// the pill (closed).
+/// The scroll fade at the sheet's top: under the title row (open) and at the
+/// sheet's bare top (closed).
 pub const SHEET_FADE_OPEN: f32 = 64.0;
 /// See [`SHEET_FADE_OPEN`].
 pub const SHEET_FADE_CLOSED: f32 = 92.0;
@@ -102,27 +100,6 @@ const PEEK_DISMISS: std::time::Duration = std::time::Duration::from_millis(250);
 pub const COLUMN_EASE: Easing = Easing([0.22, 1.0, 0.36, 1.0]);
 const COLUMN_OPEN: std::time::Duration = std::time::Duration::from_millis(260);
 const COLUMN_CLOSE: std::time::Duration = std::time::Duration::from_millis(220);
-/// The pill's ground fades in once the column has closed (FF popup timing)
-/// and leaves before it opens.
-const PILL_IN: std::time::Duration = std::time::Duration::from_millis(80);
-/// Browse closed (owner 2026-10-13): the strip is not always there — a native
-/// page cannot run under it the way the transcript does. It fades in when the
-/// pointer reaches the window's top edge (the frame band above the page: the
-/// page window takes every event over itself, so that band is the only place
-/// a pointer near the top can be seen), right after the sidebar closes and
-/// while the sidebar peeks; it fades out `STRIP_LINGER` after the pointer
-/// last left it. The hole under it cross-fades with it.
-pub const STRIP_LINGER: std::time::Duration = std::time::Duration::from_millis(2000);
-const STRIP_OUT: std::time::Duration = std::time::Duration::from_millis(200);
-
-/// Whether the fading strip is due now: never gone when it does not fade;
-/// otherwise while hovered or peeking, and for [`STRIP_LINGER`] after the
-/// pointer last touched the top edge or the strip, or the sidebar closed.
-fn strip_due(fades: bool, hovered: bool, peeking: bool, top_seen: Option<std::time::Instant>, closed_at: Option<std::time::Instant>, now: std::time::Instant) -> bool {
-    let recent = |t: Option<std::time::Instant>| t.is_some_and(|t| now.duration_since(t) < STRIP_LINGER);
-    !fades || hovered || peeking || recent(top_seen) || recent(closed_at)
-}
-
 /// The shell. Build with [`app_shell`].
 #[derive(IntoElement)]
 pub struct AppShell {
@@ -140,10 +117,6 @@ pub struct AppShell {
     traffic_lights: bool,
     native_lights: bool,
     page_sheet: bool,
-    /// The closed strip fades (Browse); see [`STRIP_LINGER`].
-    strip_fades: bool,
-    /// Holds the fading strip shown (captures).
-    strip_shown: bool,
     animate: bool,
     peek_open: bool,
     header_right: Option<AnyElement>,
@@ -159,12 +132,12 @@ pub struct AppShell {
 }
 
 /// The chrome over the sheet's rects with their corner radii.
-type OverlayRects = Vec<(gpui::Bounds<Pixels>, Pixels, f32)>;
+type OverlayRects = Vec<(gpui::Bounds<Pixels>, Pixels)>;
 
 /// Called each frame with the rects of the shell's chrome over the sheet
 /// (window coordinates: the peek card while it shows, with its corner
 /// radius) — a host with a native surface under it cuts matching holes.
-pub type OverlayBoundsHandler = std::rc::Rc<dyn Fn(Vec<(gpui::Bounds<Pixels>, Pixels, f32)>, &mut Window, &mut App)>;
+pub type OverlayBoundsHandler = std::rc::Rc<dyn Fn(Vec<(gpui::Bounds<Pixels>, Pixels)>, &mut Window, &mut App)>;
 
 /// An empty shell with the default column widths.
 pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
@@ -183,8 +156,6 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         traffic_lights: false,
         native_lights: false,
         page_sheet: false,
-        strip_fades: false,
-        strip_shown: false,
         animate: true,
         peek_open: false,
         header_right: None,
@@ -284,21 +255,6 @@ impl AppShell {
         self.page_sheet = on;
         self
     }
-    /// The closed strip fades instead of staying (Browse, owner 2026-10-13):
-    /// in on a pointer at the window's top edge, after a close and during a
-    /// peek; out [`STRIP_LINGER`] after the pointer last left it. The hole
-    /// the host cuts for it carries the same opacity, so it cross-fades with
-    /// the page.
-    pub fn strip_fades(mut self, on: bool) -> Self {
-        self.strip_fades = on;
-        self
-    }
-
-    /// Holds the fading strip shown with no pointer (captures).
-    pub fn strip_shown(mut self, on: bool) -> Self {
-        self.strip_shown = on;
-        self
-    }
 
     /// Whether the column animates (default true). Off, open and close are
     /// instant: a host whose native page cannot follow a per-frame resize
@@ -317,7 +273,7 @@ impl AppShell {
 
     /// Reports the chrome's rects over the sheet every frame they paint
     /// (see [`OverlayBoundsHandler`]); an empty list when none shows.
-    pub fn on_overlay_bounds(mut self, f: impl Fn(Vec<(gpui::Bounds<Pixels>, Pixels, f32)>, &mut Window, &mut App) + 'static) -> Self {
+    pub fn on_overlay_bounds(mut self, f: impl Fn(Vec<(gpui::Bounds<Pixels>, Pixels)>, &mut Window, &mut App) + 'static) -> Self {
         self.on_overlay_bounds = Some(std::rc::Rc::new(f));
         self
     }
@@ -439,28 +395,20 @@ struct ShellState {
     peeking: bool,
     /// The lead's last painted rect: the toggle is the host's element, so
     /// its hover is read from the pointer's position, not from a handler it
-    /// may never surface. The pills likewise.
+    /// may never surface.
     lead_bounds: Option<gpui::Bounds<Pixels>>,
-    pill_bounds: Option<gpui::Bounds<Pixels>>,
-    /// The pointer rests on the pill.
-    pill: bool,
     /// The host's open flag as last seen, and whether a close happened with
-    /// the pointer still on the toggle / pill / strip: the peek then waits
-    /// for the pointer to leave and come back.
+    /// the pointer still on the toggle or an edge: the peek then waits for
+    /// the pointer to leave and come back.
     open_seen: bool,
     wait_for_leave: bool,
-    /// The fading strip: the pointer rests on the window's top edge; when
-    /// it last touched the edge or the strip; when the sidebar last closed.
-    top: bool,
-    top_seen: Option<std::time::Instant>,
-    closed_at: Option<std::time::Instant>,
 }
 
 #[derive(Clone, Copy)]
 enum HoverSource {
+    /// The window's top or left edge.
     Strip,
     Lead,
-    Pill,
     Card,
 }
 
@@ -470,14 +418,13 @@ impl ShellState {
     /// so moving between the toggle, the strip and the card never resets
     /// either.
     fn set_hover(&mut self, source: HoverSource, hovered: bool, now: std::time::Instant) {
-        let before = self.strip || self.lead || self.pill || self.card;
+        let before = self.strip || self.lead || self.card;
         match source {
             HoverSource::Strip => self.strip = hovered,
             HoverSource::Lead => self.lead = hovered,
-            HoverSource::Pill => self.pill = hovered,
             HoverSource::Card => self.card = hovered,
         }
-        let after = self.strip || self.lead || self.pill || self.card;
+        let after = self.strip || self.lead || self.card;
         if !before && after {
             self.since = Some(now);
             self.left_at = None;
@@ -503,46 +450,31 @@ impl RenderOnce for AppShell {
         let hi = f32::from(shell.sidebar_max).max(lo);
         let rest = px(f32::from(shell.sidebar_width).clamp(lo, hi));
 
-        // Hover by geometry: the toggle and the pills are the host's
-        // elements, which re-render on their own hover (when this runs);
-        // frames keep coming while the pointer is on them, so leaving is
-        // seen too.
+        // Hover by geometry: the toggle is the host's element, which
+        // re-renders on its own hover (when this runs); frames keep coming
+        // while the pointer is on it, so leaving is seen too.
         let mouse = window.mouse_position();
         let over_lead = st.lead_bounds.is_some_and(|b| b.contains(&mouse));
-        let over_pill = st.pill_bounds.is_some_and(|b| b.contains(&mouse));
         let mut changed = false;
         if over_lead != st.lead {
             st.set_hover(HoverSource::Lead, over_lead, now);
-            changed = true;
-        }
-        if over_pill != st.pill {
-            st.set_hover(HoverSource::Pill, over_pill, now);
             changed = true;
         }
         // A toggle leaves the pointer on the button it just pressed: the peek
         // waits until the pointer has gone and come back (owner 2026-10-13).
         if shell.sidebar_open != st.open_seen {
             st.open_seen = shell.sidebar_open;
-            st.wait_for_leave = !shell.sidebar_open && (st.lead || st.pill || st.strip);
-            if !shell.sidebar_open {
-                st.closed_at = Some(now);
-            }
+            st.wait_for_leave = !shell.sidebar_open && (st.lead || st.strip);
             changed = true;
         }
-        // The fading strip stays while the pointer is on it or its toggle;
-        // the clock restarts when the pointer leaves.
-        if shell.strip_fades && (st.pill || st.lead) {
-            st.top_seen = Some(now);
-            changed = true;
-        }
-        if st.wait_for_leave && !(st.lead || st.pill || st.strip) {
+        if st.wait_for_leave && !(st.lead || st.strip) {
             st.wait_for_leave = false;
             changed = true;
         }
         if changed {
             state.update(cx, |s, _| *s = st);
         }
-        if st.lead || st.pill {
+        if st.lead {
             window.request_animation_frame();
         }
 
@@ -555,7 +487,6 @@ impl RenderOnce for AppShell {
         }
         if !shell.animate || shell.resizing {
             aui_motion::open_close_jump((id.clone(), "column"), shell.sidebar_open, window, cx);
-            aui_motion::open_close_jump((id.clone(), "pill"), closed, window, cx);
         }
         let column = if shell.resizing || !shell.animate {
             if shell.sidebar_open { 1.0 } else { 0.0 }
@@ -565,36 +496,18 @@ impl RenderOnce for AppShell {
         let sidebar_w = rest * column.clamp(0.0, 1.0);
         let settled_closed = closed && column <= 0.0005;
         let settled_open = shell.sidebar_open && column >= 0.9995;
-        // The pill's ground arrives once the column has settled closed (FF
-        // popup timing, 80 ms, a 4 px rise) and leaves before it opens.
-        let strip_hovered = st.top || st.pill || st.lead || st.strip;
-        let due = shell.strip_shown || strip_due(shell.strip_fades, strip_hovered, st.peeking || shell.peek_open, st.top_seen, st.closed_at, now);
-        let pill_wanted = closed && st.column <= 0.0005 && due;
-        let pill_k = if !shell.animate && !shell.strip_fades {
-            if closed { 1.0 } else { 0.0 }
-        } else {
-            let out = if shell.strip_fades { STRIP_OUT } else { aui_motion::durations::FAST_EXIT };
-            open_close_with((id.clone(), "pill"), pill_wanted, Enter::Tween(PILL_IN, Easing::OUT), out, EXIT_EASING, window, cx)
-        };
-        if (shell.animate || shell.strip_fades) && settled_closed && !pill_wanted && pill_k > 0.0 {
-            window.request_animation_frame();
-        }
-        // A lingering strip needs a frame when its time is up.
-        if shell.strip_fades && closed && due && !strip_hovered && !shell.strip_shown {
-            window.request_animation_frame();
-        }
         if shell.native_lights {
             place_native_lights(window, cx);
         }
 
-        // The peek: armed by a 150 ms rest on the toggle or the strip,
+        // The peek: armed by a 150 ms rest on the toggle or an edge,
         // dismissed 250 ms after the pointer has left those and the card.
-        let any_hovered = st.strip || st.lead || st.pill || st.card;
+        let any_hovered = st.strip || st.lead || st.card;
         let mut peeking = (st.peeking || shell.peek_open) && settled_closed;
         let mut pending = false;
         if settled_closed && shell.peek.is_some() {
             if !peeking {
-                if let (Some(since), true, false) = (st.since, st.strip || st.lead || st.pill, st.wait_for_leave) {
+                if let (Some(since), true, false) = (st.since, st.strip || st.lead, st.wait_for_leave) {
                     if now.duration_since(since) >= PEEK_ARM { peeking = true } else { pending = true }
                 }
             } else if !any_hovered {
@@ -611,7 +524,7 @@ impl RenderOnce for AppShell {
             state.update(cx, |s, _| {
                 s.strip = false;
                 s.card = false;
-                s.since = if s.lead || s.pill { Some(now) } else { None };
+                s.since = if s.lead { Some(now) } else { None };
                 s.left_at = None;
             });
         }
@@ -687,8 +600,8 @@ impl RenderOnce for AppShell {
 
         // The centre sheet, its content at the resting width; fully open it
         // carries its own title row (title at 16, the actions at the right)
-        // over a fade; closed, the content runs under the pill through a
-        // taller fade and the pill alone stays.
+        // over a fade; closed, the content runs to the sheet's bare top
+        // through a taller fade.
         let fade_h = if settled_open && !shell.page_sheet { SHEET_FADE_OPEN } else { SHEET_FADE_CLOSED };
         let mut centre_sheet = sheet_box(shell.page_sheet).child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(px(0.0)).w(content_w).children(shell.centre));
         if !shell.page_sheet {
@@ -756,59 +669,36 @@ impl RenderOnce for AppShell {
         use gpui_kit::base::ElementExt as _;
         let rects: std::rc::Rc<std::cell::RefCell<OverlayRects>> = Default::default();
 
-        // The peek strip and card, under the chrome row.
-        if settled_closed && shell.strip_fades {
-            // The window's top edge: the frame band above the page, the one
-            // place a pointer near the top reaches the shell. Resting there
-            // brings the strip; leaving starts its linger.
-            let top_state = state.clone();
-            root = root.child(
-                div()
-                    .id((id.clone(), "strip-reveal"))
-                    .absolute()
-                    .left(px(0.0))
-                    .top(px(0.0))
-                    .right(px(0.0))
-                    .h(px(SHEET_INSET))
-                    .on_hover(move |hovered, _, cx| {
-                        let hovered = *hovered;
-                        top_state.update(cx, |s, cx| {
-                            s.top = hovered;
-                            s.top_seen = Some(cx.background_executor().now());
-                            cx.notify();
-                        });
-                    }),
-            );
-        }
+        // The peek: closed, nothing is drawn (owner 2026-10-13: not even the
+        // lights); a rest on the window's top edge (the frame band above the
+        // sheet) or its left edge brings the sidebar as a card, its own row
+        // riding in with it.
+        let mut peek_k: f32 = 0.0;
         if settled_closed {
             if let Some(peek_el) = shell.peek {
                 let k = open_close((id.clone(), "peek"), peeking, SpringKind::Moderate, aui_motion::durations::MODERATE_EXIT, window, cx);
-                let strip_state = state.clone();
-                root = root.child(
-                    div()
-                        .id((id.clone(), "peek-strip"))
-                        .absolute()
-                        .left(px(0.0))
-                        .top(row_h)
-                        .bottom(px(0.0))
-                        .w(px(PEEK_STRIP))
-                        .on_hover(move |hovered, _, cx| {
-                            let hovered = *hovered;
-                            strip_state.update(cx, |s, cx| {
-                                s.set_hover(HoverSource::Strip, hovered, cx.background_executor().now());
-                                cx.notify();
-                            });
-                        }),
-                );
+                peek_k = k;
+                for (name, el) in [
+                    ("peek-top", div().absolute().left(px(0.0)).top(px(0.0)).right(px(0.0)).h(px(SHEET_INSET))),
+                    ("peek-left", div().absolute().left(px(0.0)).top(px(SHEET_INSET)).bottom(px(0.0)).w(px(PEEK_STRIP))),
+                ] {
+                    let edge_state = state.clone();
+                    root = root.child(el.id((id.clone(), name)).on_hover(move |hovered, _, cx| {
+                        let hovered = *hovered;
+                        edge_state.update(cx, |s, cx| {
+                            s.set_hover(HoverSource::Strip, hovered, cx.background_executor().now());
+                            cx.notify();
+                        });
+                    }));
+                }
                 if k > 0.0 {
                     let card_state = state.clone();
                     let report = rects.clone();
                     // From −108 % of its width to its resting place: the
                     // sidebar's own column in the frame's colour, flush with
                     // the window's left, top and bottom, the sidebar's width,
-                    // rounded 8 at the bottom right, one surface with the pill
-                    // above it (owner 2026-10-13); its rows start under the
-                    // pill. Its drop to the right is what lifts it off the
+                    // rounded 8 at the bottom right; its rows start under its
+                    // row. Its drop to the right is what lifts it off the
                     // sheet.
                     let travel = rest * 1.08;
                     root = root.child(
@@ -833,7 +723,7 @@ impl RenderOnce for AppShell {
                             })
                             .child(div().absolute().top(row_h).bottom(px(0.0)).left(px(0.0)).right(px(0.0)).child(peek_el))
                             .child(fade(p.surface_1, LIST_FADE).top(row_h))
-                            .on_prepaint(move |bounds, _, _| report.borrow_mut().push((bounds, px(SHEET_RADIUS), 1.0))),
+                            .on_prepaint(move |bounds, _, _| report.borrow_mut().push((bounds, px(SHEET_RADIUS)))),
                     );
                 }
             }
@@ -841,55 +731,37 @@ impl RenderOnce for AppShell {
 
         // The chrome row: lights, the host's toggle at CHROME_LEAD, the mode
         // switch ending CHROME_SWITCH_INSET before the sidebar's right edge —
-        // at the same x and the same line (y 22) in both states. Open it is
-        // the sidebar column's title row, on the frame; closed, its ground is
-        // the pill: the sidebar's own top strip on the frame's colour.
-        let lead_state = state.clone();
-        let lead = div()
-            .absolute()
-            .left(px(CHROME_LEAD))
-            .top(px(0.0))
-            .h(row_h)
-            .flex()
-            .items_center()
-            .children(shell.chrome_lead)
-            .on_prepaint(move |bounds, _, cx| {
-                lead_state.update(cx, |s, _| s.lead_bounds = Some(bounds));
-            });
-        let switch = div().absolute().left(px(0.0)).top(px(0.0)).w(rest).h(row_h).flex().items_center().justify_end().pr(px(CHROME_SWITCH_INSET)).children(shell.chrome_switch);
-        let mut row = div().absolute().top(px(0.0)).left(px(0.0)).w(rest).h(row_h).child(switch).child(lead);
-        if pill_k > 0.0 {
-            // The pill's ground: the frame's own colour — the surface under
-            // everything else (owner 2026-10-13) — a plain strip flush with
-            // the window's top and left, exactly the sidebar's width and the
-            // row's height, so the peek card below it continues it as one
-            // surface; it rises 4 px as it fades in. Over a native page the
-            // host cuts it as a hole.
-            let pill_state = state.clone();
-            let report = rects.clone();
-            let ground = div()
+        // the sidebar column's own title row, on the frame. Open, it stands at
+        // the window's corner; closed it is gone, and it rides in with the
+        // peek card. The lights are the host's to hide and show with it.
+        let row_left = if !settled_closed {
+            Some(px(0.0))
+        } else if peek_k > 0.0 {
+            Some(px(0.0) - rest * 1.08 * (1.0 - peek_k))
+        } else {
+            None
+        };
+        if let Some(row_left) = row_left {
+            let lead_state = state.clone();
+            let lead = div()
                 .absolute()
-                .left(px(0.0))
-                .top(px(4.0 * (1.0 - pill_k)))
-                .w(rest)
+                .left(px(CHROME_LEAD))
+                .top(px(0.0))
                 .h(row_h)
-                .bg(p.surface_1)
-                .opacity(pill_k)
+                .flex()
+                .items_center()
+                .children(shell.chrome_lead)
                 .on_prepaint(move |bounds, _, cx| {
-                    pill_state.update(cx, |s, _| s.pill_bounds = Some(bounds));
-                    // The hole cross-fades with the strip.
-                    report.borrow_mut().push((bounds, px(0.0), pill_k));
+                    lead_state.update(cx, |s, _| s.lead_bounds = Some(bounds));
                 });
-            row = div().absolute().top(px(0.0)).left(px(0.0)).w(rest).h(row_h).child(ground).child(row);
-        } else if st.pill_bounds.is_some() {
-            state.update(cx, |s, _| s.pill_bounds = None);
+            let switch = div().absolute().left(px(0.0)).top(px(0.0)).w(rest).h(row_h).flex().items_center().justify_end().pr(px(CHROME_SWITCH_INSET)).children(shell.chrome_switch);
+            let row = div().absolute().top(px(0.0)).left(row_left).w(rest).h(row_h).child(switch).child(lead);
+            let row = if shell.draggable { drag_region((id.clone(), "row-drag")).child(row).into_any_element() } else { row.into_any_element() };
+            root = root.child(row);
+        } else if st.lead_bounds.is_some() {
+            // No toggle on screen: its last rect must not keep arming the peek.
+            state.update(cx, |s, _| s.lead_bounds = None);
         }
-        if shell.strip_fades && closed {
-            // The controls go with the strip's ground.
-            row = row.opacity(pill_k);
-        }
-        let row = if shell.draggable { drag_region((id.clone(), "row-drag")).child(row).into_any_element() } else { row.into_any_element() };
-        root = root.child(row);
         if shell.traffic_lights {
             let at = super::header::traffic_light_position(cx);
             root = root.child(painted_lights().absolute().left(at.x).top(at.y));
@@ -907,25 +779,6 @@ impl RenderOnce for AppShell {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_fading_strip_lingers_two_seconds_after_the_pointer() {
-        use std::time::{Duration, Instant};
-        let t0 = Instant::now();
-        // Not fading: always due.
-        assert!(strip_due(false, false, false, None, None, t0));
-        // Fading, nothing seen: gone.
-        assert!(!strip_due(true, false, false, None, None, t0));
-        // Hovered or peeking: due.
-        assert!(strip_due(true, true, false, None, None, t0));
-        assert!(strip_due(true, false, true, None, None, t0));
-        // The pointer left the edge: due for STRIP_LINGER, then gone.
-        assert!(strip_due(true, false, false, Some(t0), None, t0 + STRIP_LINGER - Duration::from_millis(1)));
-        assert!(!strip_due(true, false, false, Some(t0), None, t0 + STRIP_LINGER));
-        // The sidebar just closed: the same linger.
-        assert!(strip_due(true, false, false, None, Some(t0), t0 + Duration::from_millis(1999)));
-        assert!(!strip_due(true, false, false, None, Some(t0), t0 + Duration::from_millis(2000)));
-    }
 
     #[test]
     fn clamp_keeps_drag_widths_in_range() {

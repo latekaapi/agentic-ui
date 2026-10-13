@@ -142,12 +142,10 @@ void aui_cef_set_corner_radius(void *child_root_view, double radius) {
   }
 }
 
-// Cuts `n` rounded holes (x, y, w, h, radius, cut — the page's own
-// coordinates, top-left origin, points; `cut` 1 removes the page there, less
-// leaves it that much visible, so chrome under it can cross-fade with the
-// page) through the page window, so host chrome drawn
-// under it shows through and takes the clicks there: the closed shell's strip
-// and its peek card float over the live page (v3, docs/31 §9). A fully
+// Cuts `n` rounded holes (x, y, w, h, radius — the page's own coordinates,
+// top-left origin, points) through the page window, so host chrome drawn
+// under it shows through and takes the clicks there: the closed shell's peek
+// card floats over the live page (v3, docs/31 §9). A fully
 // transparent pixel of a non-opaque window passes the click to the window
 // below. n = 0 removes the mask. No implicit animation: the mask follows the
 // host's frames exactly.
@@ -176,9 +174,8 @@ void aui_cef_set_holes(void *child_root_view, const double *rects, int n) {
     CALayer *parent = cv.layer;
     int cut = 0;
     for (int i = 0; i < n; i++) {
-      double x = rects[i * 6], y = rects[i * 6 + 1], w = rects[i * 6 + 2], h = rects[i * 6 + 3], r = rects[i * 6 + 4];
-      double depth = fmin(fmax(rects[i * 6 + 5], 0.0), 1.0);
-      if (w <= 0 || h <= 0 || depth <= 0) continue;
+      double x = rects[i * 5], y = rects[i * 5 + 1], w = rects[i * 5 + 2], h = rects[i * 5 + 3], r = rects[i * 5 + 4];
+      if (w <= 0 || h <= 0) continue;
       double fy = cv.isFlipped ? y : b.size.height - y - h;
       double rr = fmin(r, fmin(w, h) / 2.0);
       CGMutablePathRef path = CGPathCreateMutable();
@@ -190,18 +187,6 @@ void aui_cef_set_holes(void *child_root_view, const double *rects, int n) {
       mask.fillRule = kCAFillRuleEvenOdd;
       mask.path = path;
       CGPathRelease(path);
-      // A partial cut: a sublayer over the hole gives it back (1 − depth) of
-      // the page, so the strip cross-fades with the page instead of popping.
-      CALayer *fill = mask.sublayers.firstObject;
-      if (depth < 1.0) {
-        if (!fill) { fill = [CALayer layer]; [mask addSublayer:fill]; }
-        fill.frame = CGRectMake(x, fy, w, h);
-        fill.cornerRadius = rr;
-        fill.backgroundColor = CGColorGetConstantColor(kCGColorWhite);
-        fill.opacity = (float)(1.0 - depth);
-      } else if (fill) {
-        [fill removeFromSuperlayer];
-      }
       parent.mask = mask;
       parent = mask;
       cut++;

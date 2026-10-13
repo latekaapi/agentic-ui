@@ -126,7 +126,7 @@ struct Shared {
     corner_radius: f32,
     /// Holes through the page (x, y, w, h, radius) in the host view's
     /// coordinates, converted against `bounds` each time the page is placed.
-    holes: Vec<[f32; 6]>,
+    holes: Vec<[f32; 5]>,
     /// Set once the setup scripts are registered.
     ready: bool,
     /// The URL to load once ready (the latest `navigate` wins).
@@ -291,7 +291,7 @@ fn place(page: &Page) {
     // The holes in the page's own coordinates.
     let local: Vec<f64> = holes
         .iter()
-        .flat_map(|[hx, hy, hw, hh, hr, cut]| [(hx - x) as f64, (hy - y) as f64, *hw as f64, *hh as f64, *hr as f64, *cut as f64])
+        .flat_map(|[hx, hy, hw, hh, hr]| [(hx - x) as f64, (hy - y) as f64, *hw as f64, *hh as f64, *hr as f64])
         .collect();
     if parent == 0 || child == 0 {
         return;
@@ -300,7 +300,7 @@ fn place(page: &Page) {
     unsafe {
         aui_cef_place(parent as *mut c_void, child as *mut c_void, x as f64, y as f64, w as f64, h as f64);
         aui_cef_set_corner_radius(child as *mut c_void, radius as f64);
-        aui_cef_set_holes(child as *mut c_void, local.as_ptr(), (local.len() / 6) as i32);
+        aui_cef_set_holes(child as *mut c_void, local.as_ptr(), (local.len() / 5) as i32);
         aui_cef_set_hidden(child as *mut c_void, if visible { 0 } else { 1 });
     }
 }
@@ -2151,7 +2151,7 @@ impl WebBackend for CefBackend {
         }
     }
 
-    fn set_holes(&mut self, holes: Vec<[f32; 6]>) {
+    fn set_holes(&mut self, holes: Vec<[f32; 5]>) {
         let changed = {
             let mut s = locked(&self.page);
             let changed = s.holes != holes;
