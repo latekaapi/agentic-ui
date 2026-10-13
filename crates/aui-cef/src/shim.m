@@ -142,6 +142,55 @@ void aui_cef_set_corner_radius(void *child_root_view, double radius) {
   }
 }
 
+// The holes, kept on the page window for the event monitor below (an array of
+// NSValue rects in the content view's coordinates).
+static const void *kAuiCefHolesKey = &kAuiCefHolesKey;
+
+// A hole makes the page's pixels transparent, but AppKit still routes every
+// mouse event over the page window to the page window — the host under it
+// never sees a click on the peek card's toggle (owner 2026-10-13: "the toggle
+// and the switch don't work"). One local monitor per process looks at mouse
+// events bound for a page window and, when the point lies inside a hole,
+// re-sends the event to the parent (host) window in its own coordinates and
+// swallows the original. Scroll events are left alone: they cannot be rebuilt
+// with a new window, and a scroll over the card is not a control.
+static id aui_cef_hole_monitor = nil;
+static void aui_cef_install_hole_monitor(void) {
+  if (aui_cef_hole_monitor) return;
+  NSEventMask mask = NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged |
+                     NSEventMaskRightMouseDown | NSEventMaskRightMouseUp | NSEventMaskRightMouseDragged |
+                     NSEventMaskOtherMouseDown | NSEventMaskOtherMouseUp | NSEventMaskOtherMouseDragged |
+                     NSEventMaskMouseMoved;
+  aui_cef_hole_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
+    NSWindow *cw = event.window;
+    if (!cw) return event;
+    NSArray *holes = objc_getAssociatedObject(cw, kAuiCefHolesKey);
+    if (holes.count == 0) return event;
+    NSWindow *pw = cw.parentWindow;
+    NSView *cv = cw.contentView;
+    if (!pw || !cv) return event;
+    NSPoint inView = [cv convertPoint:event.locationInWindow fromView:nil];
+    BOOL inside = NO;
+    for (NSValue *v in holes) {
+      if (NSPointInRect(inView, v.rectValue)) { inside = YES; break; }
+    }
+    if (!inside) return event;
+    NSPoint onScreen = [cw convertPointToScreen:event.locationInWindow];
+    NSPoint inParent = [pw convertPointFromScreen:onScreen];
+    NSEvent *forwarded = [NSEvent mouseEventWithType:event.type
+                                            location:inParent
+                                       modifierFlags:event.modifierFlags
+                                           timestamp:event.timestamp
+                                        windowNumber:pw.windowNumber
+                                             context:nil
+                                         eventNumber:event.eventNumber
+                                          clickCount:event.clickCount
+                                            pressure:event.pressure];
+    if (forwarded) [pw sendEvent:forwarded];
+    return nil;
+  }];
+}
+
 // Cuts `n` rounded holes (x, y, w, h, radius — the page's own coordinates,
 // top-left origin, points) through the page window, so host chrome drawn
 // under it shows through and takes the clicks there: the closed shell's peek
@@ -163,6 +212,7 @@ void aui_cef_set_holes(void *child_root_view, const double *rects, int n) {
   cv.wantsLayer = YES;
   [CATransaction begin];
   [CATransaction setDisableActions:YES];
+  NSMutableArray *kept = [NSMutableArray arrayWithCapacity:(NSUInteger)(n > 0 ? n : 0)];
   if (n <= 0) {
     cv.layer.mask = nil;
   } else {
@@ -181,6 +231,7 @@ void aui_cef_set_holes(void *child_root_view, const double *rects, int n) {
       CGMutablePathRef path = CGPathCreateMutable();
       CGPathAddRect(path, NULL, b);
       CGPathAddRoundedRect(path, NULL, CGRectMake(x, fy, w, h), rr, rr);
+      [kept addObject:[NSValue valueWithRect:NSMakeRect(x, fy, w, h)]];
       // Reuse the layer already at this link of the chain, else make one.
       CAShapeLayer *mask = [parent.mask isKindOfClass:[CAShapeLayer class]] ? (CAShapeLayer *)parent.mask : [CAShapeLayer layer];
       mask.frame = b;
@@ -196,6 +247,8 @@ void aui_cef_set_holes(void *child_root_view, const double *rects, int n) {
     if (cut == 0) cv.layer.mask = nil; else parent.mask = nil;
   }
   [CATransaction commit];
+  objc_setAssociatedObject(cw, kAuiCefHolesKey, kept.count ? kept : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  if (kept.count) aui_cef_install_hole_monitor();
 }
 
 // Hidden = invisible and click-through. CEF's own `Window::hide` does nothing
