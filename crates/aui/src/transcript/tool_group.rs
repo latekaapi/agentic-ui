@@ -8,6 +8,7 @@
 use aui_motion::{open_close, SpringKind, COLLAPSE_EXIT};
 use aui_protocol::{ActivityState, Block, ToolCall, ToolStatus};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
+use crate::data::record_ax_label;
 use gpui::{div, prelude::*, px, radians, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -253,8 +254,30 @@ impl RenderOnce for ToolGroup {
             }
             let hidden = preview_hidden(count);
             if hidden > 0 {
-                preview = preview.child(div().text_color(p.ink_4).child(more_label(hidden)));
+                preview = preview.child(
+                    div()
+                        .id((id.clone(), "more"))
+                        .text_color(p.ink_3)
+                        .hover(|d| d.text_color(p.ink).underline())
+                        .child(more_label(hidden)),
+                );
             }
+            // The closed preview is part of the toggle: a click anywhere on
+            // it — the `+k more` row most of all — opens the group (owner
+            // 2026-10-14: "not able to click/toggle this").
+            let preview = match self.on_intent.clone() {
+                Some(on_intent) => {
+                    record_ax_label("Show all calls");
+                    preview
+                        .id((id.clone(), "preview"))
+                        .cursor_pointer()
+                        .role(gpui::Role::Button)
+                        .aria_label("Show all calls")
+                        .on_click(move |_, w, cx| on_intent(ToolGroupIntent::Toggle, w, cx))
+                        .into_any_element()
+                }
+                None => preview.into_any_element(),
+            };
             card = card.body_border(true).body(preview);
         }
         if let Some(on_intent) = self.on_intent {

@@ -73,11 +73,11 @@ pub const SHEET_ROW_H: f32 = 32.0;
 pub const SHEET_ROW_PAD_LEFT: f32 = 16.0;
 /// See [`SHEET_ROW_H`].
 pub const SHEET_ROW_PAD_RIGHT: f32 = 10.0;
-/// The scroll fade at the sheet's top: under the title row (open) and at the
-/// sheet's bare top (closed).
-pub const SHEET_FADE_OPEN: f32 = 64.0;
-/// See [`SHEET_FADE_OPEN`].
-pub const SHEET_FADE_CLOSED: f32 = 92.0;
+/// The scroll fade under the sheet's title row: the row's own height is
+/// opaque ground — content never shows behind the title (owner 2026-10-14:
+/// the old 64 px ramp left the title at ~69 % cover, so text collided with
+/// it) — then this many pixels fade to clear, as Claude Desktop does.
+pub const SHEET_FADE_BELOW: f32 = 24.0;
 /// The chrome row: the host's toggle starts here, past the window's lights
 /// (the v2 sidebar's title bar put it at the same x).
 pub const CHROME_LEAD: f32 = 84.0;
@@ -512,7 +512,6 @@ impl RenderOnce for AppShell {
         };
         let sidebar_w = rest * column.clamp(0.0, 1.0);
         let settled_closed = closed && column <= 0.0005;
-        let settled_open = shell.sidebar_open && column >= 0.9995;
         if shell.native_lights {
             place_native_lights(window, cx);
         }
@@ -625,12 +624,26 @@ impl RenderOnce for AppShell {
         // carries its own title row (title at 16, the actions at the right)
         // over a fade; closed, the content runs to the sheet's bare top
         // through a taller fade.
-        let fade_h = if settled_open && !shell.page_sheet { SHEET_FADE_OPEN } else { SHEET_FADE_CLOSED };
         let mut centre_sheet = sheet_box(shell.page_sheet).child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(px(0.0)).w(content_w).children(shell.centre));
         if !shell.page_sheet {
-            centre_sheet = centre_sheet.child(fade(p.surface_2, fade_h));
+            // Opaque under the row, then the ramp. The solid part carries
+            // the sheet's top radius (a square fill repaints the corners).
+            let ground = p.surface_2;
+            centre_sheet = centre_sheet.child(
+                div()
+                    .absolute()
+                    .top(px(0.0))
+                    .left(px(0.0))
+                    .right(px(0.0))
+                    .child(div().w_full().h(px(SHEET_ROW_H)).bg(ground).rounded_tl(px(SHEET_RADIUS)).rounded_tr(px(SHEET_RADIUS)))
+                    .child(div().w_full().h(px(SHEET_FADE_BELOW)).bg(gpui::linear_gradient(180.0, gpui::linear_color_stop(ground, 0.0), gpui::linear_color_stop(ground.alpha(0.0), 1.0)))),
+            );
         }
-        let row_shown = settled_open && !shell.page_sheet;
+        // The sheet's title row stands in every state of a work sheet — the
+        // sidebar closed too (owner 2026-10-14: "bring back the title and the
+        // icons as seen when sidebar is expanded") — and never on a page
+        // sheet (Browse), which is the page.
+        let row_shown = !shell.page_sheet;
         if row_shown {
             let row = h_flex()
                 .w_full()

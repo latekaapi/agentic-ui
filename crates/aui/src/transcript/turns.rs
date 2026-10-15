@@ -39,7 +39,7 @@ const BUBBLE_RADIUS: f32 = 14.0;
 const BUBBLE_RADIUS_V3: f32 = 12.0;
 const BUBBLE_PAD_Y: f32 = 9.0;
 const BUBBLE_PAD_X: f32 = 13.0;
-const BUBBLE_TEXT: f32 = 13.5;
+const BUBBLE_TEXT: f32 = BODY_TEXT;
 /// The rail under a bubble: 24 px, always reserved; edit · copy as 28 px
 /// icon buttons (glyph 12) then the age, 6 apart.
 const RAIL_H: f32 = 24.0;
@@ -65,9 +65,11 @@ const SHOT_H: f32 = 120.0;
 const PIN: f32 = 18.0;
 /// The assistant answer: body at line 23 on 14.3 (1.6), paragraphs 12 apart
 /// (the owner's one rhythm for every answer, 2026-10-14).
-const BODY_TEXT: f32 = 13.5;
-const BODY_LH: f32 = 1.6;
-const PARAGRAPH_GAP: f32 = 12.0;
+/// Body text, at the design size (the app's 1.1 text scale makes it 16 px):
+/// the owner's reading scale, 16 / 26 (2026-10-14).
+const BODY_TEXT: f32 = 16.0 / 1.1;
+const BODY_LH: f32 = 26.0 / 16.0;
+const PARAGRAPH_GAP: f32 = 16.0;
 /// Under an answer, on hover: one copy button 8 below, the footer 10 below it.
 const COPY_TOP: f32 = 8.0;
 const FOOTER_TOP: f32 = 10.0;

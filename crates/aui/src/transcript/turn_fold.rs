@@ -207,6 +207,7 @@ pub struct LiveActivityRow {
     elapsed_ms: u64,
     running: bool,
     open: bool,
+    tail: Option<SharedString>,
     children: Vec<AnyElement>,
     on_toggle: Option<ClickHandler>,
 }
@@ -216,10 +217,19 @@ pub struct LiveActivityRow {
 /// it in the run, `elapsed_ms` is the run's wall-clock time. Clicking
 /// expands to the run's cards, given as children in run order.
 pub fn live_activity_row(id: impl Into<ElementId>, verb: impl Into<SharedString>, target: impl Into<SharedString>, earlier: usize, elapsed_ms: u64) -> LiveActivityRow {
-    LiveActivityRow { id: id.into(), verb: verb.into(), target: target.into(), earlier, elapsed_ms, running: true, open: false, children: Vec::new(), on_toggle: None }
+    LiveActivityRow { id: id.into(), verb: verb.into(), target: target.into(), earlier, elapsed_ms, running: true, open: false, tail: None, children: Vec::new(), on_toggle: None }
 }
 
 impl LiveActivityRow {
+    /// The running call's newest output line, shown under the closed row
+    /// while it runs — a long command visibly progresses instead of
+    /// sitting silent behind its timer (owner 2026-10-14: "working for 2
+    /// mins without any output").
+    pub fn tail(mut self, tail: Option<SharedString>) -> Self {
+        self.tail = tail.filter(|t| !t.trim().is_empty());
+        self
+    }
+
     /// Whether a call in the run is still in flight (the default). A run
     /// whose calls have all finished shows the done glyph, not a spinner.
     pub fn running(mut self, running: bool) -> Self {
@@ -284,10 +294,22 @@ impl RenderOnce for LiveActivityRow {
         }
         // A status row has no open state of its own; the run's cards are
         // the body, shown while the host says so.
-        row.open_body(self.open)
+        let row = row.open_body(self.open);
+        match self.tail.filter(|_| self.running && !self.open) {
+            // Under the label, on the trace's indent (the row's 8 px bleed
+            // plus the glyph and its gap), faint mono, one line.
+            Some(tail) => gpui_kit::base::v_flex()
+                .w_full()
+                .child(row)
+                .child(div().w_full().pl(px(LIVE_TAIL_INDENT)).pb(px(4.0)).mono(scale::FS_12).text_color(p.ink_4).truncate().child(tail))
+                .into_any_element(),
+            None => row.into_any_element(),
+        }
     }
 }
 
+/// Where the live row's output tail starts: under the verb.
+const LIVE_TAIL_INDENT: f32 = 22.0;
 /// The live row's spinner and check: 12 px.
 const LIVE_GLYPH: f32 = 12.0;
 /// One sweep of the live verb's shimmer.

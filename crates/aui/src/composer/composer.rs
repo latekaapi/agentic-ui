@@ -75,8 +75,19 @@ const RAISED_RADIUS: f32 = 12.0;
 const RAISED_PAD: f32 = 8.0;
 const RAISED_GAP: f32 = 4.0;
 const RAISED_TEXT_PAD_X: f32 = 8.0;
-const RAISED_TEXT_LH: f32 = 20.0;
+const RAISED_TEXT_LH: f32 = 24.0;
 const RAISED_TEXT_MIN_H: f32 = 36.0;
+/// The field's text: the body's 16 px (design size, before the 1.1 scale).
+const RAISED_TEXT_SIZE: f32 = 16.0 / 1.1;
+/// The field's padding, and how far the send button sits from its bottom.
+const FIELD_PAD: f32 = 4.0;
+const FIELD_SEND_INSET: f32 = 4.0;
+/// The field's edge at rest and while it holds the keyboard.
+const FIELD_EDGE_REST: f32 = 0.08;
+const FIELD_EDGE_FOCUSED: f32 = 0.22;
+/// The controls row under the field.
+const CONTROLS_TOP: f32 = 6.0;
+const CONTROLS_PAD_X: f32 = 2.0;
 const RAISED_MARK: f32 = 14.0;
 /// Text area rows: grows from 2 to 8 (the docked variant starts at 1).
 const MIN_ROWS: usize = 2;
@@ -635,10 +646,16 @@ impl RenderOnce for Composer {
             // v3: the kit's own editor padding (8 / 10) is the field's 8 /
             // 8, less 2 px each side, so the text lands at 16 from the card.
             .when(raised, |d| d.mx(px(RAISED_TEXT_PAD_X - KIT_EDITOR_PAD_X)))
-            .ui(TEXT_SIZE)
-            .line_height(if raised { relative(RAISED_TEXT_LH / TEXT_SIZE) } else { relative(TEXT_LH) })
+            .ui(if raised { RAISED_TEXT_SIZE } else { TEXT_SIZE })
+            .line_height(if raised { relative(RAISED_TEXT_LH / RAISED_TEXT_SIZE) } else { relative(TEXT_LH) })
             .text_color(p.ink)
-            .child(Textarea::new(&self.state).appearance(false).bordered(false).text_size(aui_tokens::scaled(TEXT_SIZE)).line_height(if raised { relative(RAISED_TEXT_LH / TEXT_SIZE) } else { relative(TEXT_LH) }));
+            .child(
+                Textarea::new(&self.state)
+                    .appearance(false)
+                    .bordered(false)
+                    .text_size(aui_tokens::scaled(if raised { RAISED_TEXT_SIZE } else { TEXT_SIZE }))
+                    .line_height(if raised { relative(RAISED_TEXT_LH / RAISED_TEXT_SIZE) } else { relative(TEXT_LH) }),
+            );
 
         // Toolbar.
         let plus_turn = spring_phase((id.clone(), "plus"), self.plus_open, SpringKind::Swap, window, cx);
@@ -848,11 +865,45 @@ impl RenderOnce for Composer {
             }
             bar = bar.child(div().ml(px(if raised { RAISED_GAP } else { CONTEXT_MARGIN })).relative().flex_none().child(meter));
         }
+        // Claude's shape (owner 2026-10-14): the send button lives in the
+        // field; the controls row stands outside it.
+        let mut send = Some(send);
         bar = if raised {
-            bar.child(div().flex_1()).child(right.child(send))
+            bar.child(div().flex_1()).child(right)
         } else {
-            bar.child(div().flex_1()).child(send)
+            bar.child(div().flex_1()).children(send.take())
         };
+
+        if raised {
+            // The field: its own rounded box, the text and the send button,
+            // chips above them; its edge brightens while it holds the
+            // keyboard (white 8 % → 22 %), read from the field's own focus
+            // handle so no host has to report it.
+            use gpui::Focusable as _;
+            let focused = self.focused || self.state.read(cx).focus_handle(cx).contains_focused(window, cx);
+            let edge = tween((id.clone(), "field-edge"), if focused { p.ink.alpha(FIELD_EDGE_FOCUSED) } else { p.ink.alpha(FIELD_EDGE_REST) }, SEND_FADE, window, cx);
+            let mut field = v_flex()
+                .id(id.clone())
+                .w_full()
+                .bg(p.surface_3)
+                .rounded(px(RAISED_RADIUS))
+                .border_1()
+                .border_color(edge)
+                .p(px(FIELD_PAD));
+            if !self.chips.is_empty() {
+                field = field.child(chips_row);
+            }
+            field = field.child(
+                h_flex()
+                    .w_full()
+                    .items_end()
+                    .gap(px(RAISED_GAP))
+                    .child(div().flex_1().min_w(px(0.0)).child(text))
+                    .child(div().flex_none().pb(px(FIELD_SEND_INSET)).children(send.take())),
+            );
+            let controls = bar.mt(px(CONTROLS_TOP)).px(px(CONTROLS_PAD_X));
+            return v_flex().w_full().child(field).child(controls).into_any_element();
+        }
 
         let mut card = v_flex().id(id.clone()).w_full().bg(p.surface_1);
         card = if raised {
@@ -895,6 +946,6 @@ impl RenderOnce for Composer {
                     .child(meta.hint),
             );
         }
-        root.child(card)
+        root.child(card).into_any_element()
     }
 }

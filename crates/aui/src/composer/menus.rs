@@ -124,6 +124,7 @@ pub struct CommandMenu {
     selected: usize,
     present: bool,
     timing: EnterExit,
+    max_rows_h: f32,
     on_select: Option<SelectHandler>,
     on_hover: Option<HoverHandler>,
 }
@@ -140,12 +141,21 @@ pub fn command_menu(id: impl Into<ElementId>, query: impl Into<SharedString>, se
         selected,
         present: true,
         timing: EnterExit::QUICK,
+        max_rows_h: MENU_MAX_H,
         on_select: None,
         on_hover: None,
     }
 }
 
 impl CommandMenu {
+    /// The tallest the rows may grow before they scroll inside the panel
+    /// (default 560). The host passes the room it has above the composer,
+    /// so the panel — its footer and bottom corners included — always fits.
+    pub fn max_rows_height(mut self, max: f32) -> Self {
+        self.max_rows_h = max.max(120.0);
+        self
+    }
+
     /// Whether the menu is open; `false` plays the exit.
     pub fn present(mut self, present: bool) -> Self {
         self.present = present;
@@ -187,7 +197,7 @@ impl RenderOnce for CommandMenu {
         // frame fought the wheel and read as jank.
         let scroll = menu_scroll(&id, &counts, self.selected, window, cx);
         let fluid = fluid_handle(&id, window, cx);
-        let mut pop = popover_frame(id.clone(), &scroll);
+        let mut pop = popover_frame(id.clone(), &scroll, self.max_rows_h);
 
         let mut index = 0usize;
         for (s, section) in self.sections.into_iter().enumerate() {
@@ -198,7 +208,7 @@ impl RenderOnce for CommandMenu {
                 index += 1;
             }
         }
-        finish(id, sample, pop.child(footer(&p, "run")), &fluid, self.selected, cx)
+        finish(id, sample, pop, footer(&p, "run"), &fluid, self.selected, cx)
     }
 }
 
@@ -291,6 +301,7 @@ pub struct MentionPicker {
     selected: usize,
     present: bool,
     timing: EnterExit,
+    max_rows_h: f32,
     on_select: Option<SelectHandler>,
     on_hover: Option<HoverHandler>,
 }
@@ -307,12 +318,21 @@ pub fn mention_picker(id: impl Into<ElementId>, query: impl Into<SharedString>, 
         selected,
         present: true,
         timing: EnterExit::QUICK,
+        max_rows_h: MENU_MAX_H,
         on_select: None,
         on_hover: None,
     }
 }
 
 impl MentionPicker {
+    /// The tallest the rows may grow before they scroll inside the panel
+    /// (default 560). The host passes the room it has above the composer,
+    /// so the panel — its footer and bottom corners included — always fits.
+    pub fn max_rows_height(mut self, max: f32) -> Self {
+        self.max_rows_h = max.max(120.0);
+        self
+    }
+
     /// Whether the picker is open; `false` plays the exit.
     pub fn present(mut self, present: bool) -> Self {
         self.present = present;
@@ -350,7 +370,7 @@ impl RenderOnce for MentionPicker {
         let active = active_row(&id, "mention", &counts, self.selected, window, cx);
         let scroll = menu_scroll(&id, &counts, self.selected, window, cx);
         let fluid = fluid_handle(&id, window, cx);
-        let mut pop = popover_frame(id.clone(), &scroll);
+        let mut pop = popover_frame(id.clone(), &scroll, self.max_rows_h);
 
         let mut index = 0usize;
         for (s, section) in self.sections.into_iter().enumerate() {
@@ -361,16 +381,17 @@ impl RenderOnce for MentionPicker {
                 index += 1;
             }
         }
-        finish(id, sample, pop.child(footer(&p, "insert")), &fluid, self.selected, cx)
+        finish(id, sample, pop, footer(&p, "insert"), &fluid, self.selected, cx)
     }
 }
 
 /// The scrolling column of rows inside the popover: past `MENU_MAX_H` the
 /// rows scroll inside the panel instead of growing over the transcript.
-/// Its direct children are the labels, the rows and the footer, in order
-/// ([`row_child_index`]).
-fn popover_frame(id: ElementId, scroll: &ScrollHandle) -> Stateful<Div> {
-    v_flex().id((id, "rows")).w_full().max_h(px(MENU_MAX_H)).overflow_y_scroll().track_scroll(scroll)
+/// Its direct children are the labels and the rows, in order
+/// ([`row_child_index`]); the footer stands under it, outside the scroll,
+/// so it never scrolls away or clips with the rows.
+fn popover_frame(id: ElementId, scroll: &ScrollHandle, max_h: f32) -> Stateful<Div> {
+    v_flex().id((id, "rows")).w_full().max_h(px(max_h)).overflow_y_scroll().track_scroll(scroll)
 }
 
 /// The fluid list's geometry for one caret menu: its rows register through
@@ -385,7 +406,7 @@ fn fluid_handle(id: &ElementId, window: &mut Window, cx: &mut App) -> FluidHandl
 /// (fade + 4 px up out of the composer, 80 ms). It takes its container's
 /// width up to the 520 px ceiling, 8 px above the composer, and owns the
 /// wheel over it.
-fn finish(id: ElementId, sample: aui_motion::PresenceSample, rows: Stateful<Div>, fluid: &FluidHandle, selected: usize, _cx: &App) -> impl IntoElement {
+fn finish(id: ElementId, sample: aui_motion::PresenceSample, rows: Stateful<Div>, footer: impl IntoElement, fluid: &FluidHandle, selected: usize, _cx: &App) -> impl IntoElement {
     let style = PresenceStyle::fade_rise(sample, scale::SP_2);
     let list = fluid_list((id.clone(), "fluid"), Axis::Y).handle(fluid).gap(px(0.0)).highlighted(Some(selected)).item_static(usize::MAX, rows);
     div()
@@ -407,7 +428,8 @@ fn finish(id: ElementId, sample: aui_motion::PresenceSample, rows: Stateful<Div>
                     // own scroll handler has run.
                     .occlude()
                     .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-                    .child(list),
+                    .child(list)
+                    .child(footer),
             ),
         )
 }

@@ -87,17 +87,17 @@ const IMAGE_GLYPH: f32 = 16.0;
 const LINK_UNDERLINE: f32 = 1.0;
 /// The underline's alpha over the link ink: the faint step (docs/41 §2.3).
 const LINK_UNDERLINE_ALPHA: f32 = 0.42;
-/// Headings (docs/41 §2.3): h2 is the title role, 20 above and 8 below; h3
-/// the subtitle size, 16 above and 6 below. A heading that opens the answer
+/// Headings at the 16 / 26 reading scale (owner 2026-10-14): h2 28 above
+/// and 10 below, h3 22 above and 8 below. A heading that opens the answer
 /// has nothing above it.
-const H2_ABOVE: f32 = 20.0;
-const H2_BELOW: f32 = 8.0;
-const H3_ABOVE: f32 = 16.0;
-const H3_BELOW: f32 = 6.0;
-/// A rule keeps 16 above and below.
-const RULE_GAP: f32 = 16.0;
-/// List items sit 2 apart.
-const LIST_ITEM_GAP: f32 = 2.0;
+const H2_ABOVE: f32 = 28.0;
+const H2_BELOW: f32 = 10.0;
+const H3_ABOVE: f32 = 22.0;
+const H3_BELOW: f32 = 8.0;
+/// A rule keeps 22 above and below.
+const RULE_GAP: f32 = 22.0;
+/// List items sit 4 apart.
+const LIST_ITEM_GAP: f32 = 4.0;
 /// The quote: a 2 px rule at white 12 %, padded 2 / 0 / 2 / 14.
 const QUOTE_RULE: f32 = 2.0;
 const QUOTE_RULE_ALPHA: f32 = 0.12;
@@ -109,16 +109,11 @@ const IMAGE_CAPTION_PAD_Y: f32 = 8.0;
 const IMAGE_CAPTION_PAD_X: f32 = 12.0;
 /// Heading sizes walk down the token ramp so H1 stays under dialog-title
 /// scale; H5/H6 stay at body size and read as headings through weight alone.
-const HEADING_SIZES: [f32; 6] = [
-    scale::FS_20,
-    scale::FS_16,
-    scale::FS_14,
-    scale::FS_13,
-    scale::FS_13,
-    scale::FS_13,
-];
-/// Heading line heights, px at the design size: h2 24 on 16, h3 22 on 14.
-const HEADING_LH: [f32; 6] = [1.25, 1.5, 22.0 / 14.0, 1.5, 1.5, 1.5];
+/// At the 16 / 26 reading scale (owner 2026-10-14) they render h1 24,
+/// h2 20, h3 17, and h4–h6 at body size, 16.
+const HEADING_SIZES: [f32; 6] = [24.0 / 1.1, 20.0 / 1.1, 17.0 / 1.1, 16.0 / 1.1, 16.0 / 1.1, 16.0 / 1.1];
+/// Heading line heights: h2 28 on 20, h3 24 on 17, the rest the body's 26 on 16.
+const HEADING_LH: [f32; 6] = [1.3, 28.0 / 20.0, 24.0 / 17.0, 26.0 / 16.0, 26.0 / 16.0, 26.0 / 16.0];
 /// Extensions that make a `slash/path` token a workspace-path link.
 const PATH_EXTENSIONS: &[&str] = &[
     "rs", "md", "toml", "json", "jsonl", "txt", "py", "ts", "tsx", "js", "css", "html", "yaml",

@@ -1587,8 +1587,25 @@ enum Target {
     Intent(SidebarIntent),
 }
 
+/// How far the sidebar list's scroll edges fade (see [`list_host`]).
+const LIST_EDGE_FADE: f32 = 24.0;
+
 /// The virtualised list, filling its FluidList slot.
 fn list_host(ctx: &Ctx, render: impl Fn(usize, &mut Window, &mut App) -> AnyElement + 'static, cx: &App) -> AnyElement {
+    // The list's two scroll edges fade into the column (owner 2026-10-14,
+    // after Claude Desktop): rows passing under the Projects header or the
+    // footer dissolve instead of being cut mid-glyph. Each edge fades only
+    // while there is more beyond it, so a list at rest shows its first row
+    // whole.
+    let state = ctx_state(ctx);
+    let top = state.logical_scroll_top();
+    let scrolled = top.item_ix > 0 || top.offset_in_item > px(0.5);
+    let more_below = !state.is_scrolled_to_end().unwrap_or(true);
+    let ground = cx.aui().colors.surface_1;
+    let edge = |down: bool| {
+        let (from, to) = if down { (ground, ground.alpha(0.0)) } else { (ground.alpha(0.0), ground) };
+        div().absolute().left(px(0.0)).right(px(0.0)).h(px(LIST_EDGE_FADE)).bg(gpui::linear_gradient(180.0, gpui::linear_color_stop(from, 0.0), gpui::linear_color_stop(to, 1.0)))
+    };
     div()
         .id(ctx.child("virtual"))
         .relative()
@@ -1596,7 +1613,9 @@ fn list_host(ctx: &Ctx, render: impl Fn(usize, &mut Window, &mut App) -> AnyElem
         .h_full()
         .flex_1()
         .min_h(px(0.0))
-        .child(ctx.fluid.clip_region(VIRTUAL_BASE, list(ctx_state(ctx), render).w_full().h_full()))
+        .child(ctx.fluid.clip_region(VIRTUAL_BASE, list(state, render).w_full().h_full()))
+        .when(scrolled, |d| d.child(edge(true).top(px(0.0))))
+        .when(more_below, |d| d.child(edge(false).bottom(px(0.0))))
         // The bar stands in the body's right gutter (owner 2026-10-11): its
         // host reaches past the rows by the body's padding, so the track is
         // flush with the sidebar's edge like FF's on its scroll container,
