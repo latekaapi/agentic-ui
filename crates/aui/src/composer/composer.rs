@@ -889,6 +889,9 @@ impl RenderOnce for Composer {
                 .rounded(px(RAISED_RADIUS))
                 .border_1()
                 .border_color(edge)
+                // It floats over the transcript (owner 2026-10-15): the
+                // floating drop under it, as menus and the jump pill wear.
+                .shadow(p.floating_shadow())
                 .p(px(FIELD_PAD));
             if !self.chips.is_empty() {
                 field = field.child(chips_row);

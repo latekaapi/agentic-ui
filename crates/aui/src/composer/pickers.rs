@@ -54,6 +54,9 @@ const ITEM_GAP: f32 = 8.0;
 const ROW_PAD_X: f32 = 10.0;
 /// The provider picker's width.
 const PROVIDER_W: f32 = 240.0;
+/// The approval-mode and effort lists: 320, their meanings wrapping under the
+/// name (owner 2026-10-14: the mode menu ran 520 wide, past the sheet).
+const NARROW_W: f32 = 320.0;
 /// The nested submenu: 4 px right of the panel, 300 wide, opening after a
 /// 150 ms rest on its row.
 const SUBMENU_GAP: f32 = 4.0;
@@ -149,6 +152,8 @@ pub struct PickerMenu {
     on_hover: Option<HoverHandler>,
     on_close: Option<CloseHandler>,
     width: f32,
+    max_width: f32,
+    align_end: bool,
     force_sub: Option<usize>,
 }
 
@@ -164,12 +169,16 @@ pub fn model_menu(id: impl Into<ElementId>, rows: Vec<PickerRow>, selected: usiz
 
 /// The reasoning-effort picker.
 pub fn effort_menu(id: impl Into<ElementId>, rows: Vec<PickerRow>, selected: usize, open: bool) -> PickerMenu {
-    menu(id, "Reasoning effort", rows, selected, open)
+    let mut menu = menu(id, "Reasoning effort", rows, selected, open);
+    (menu.width, menu.max_width) = (NARROW_W, NARROW_W);
+    menu
 }
 
 /// The approval-mode picker.
 pub fn mode_menu(id: impl Into<ElementId>, rows: Vec<PickerRow>, selected: usize, open: bool) -> PickerMenu {
-    menu(id, "Approval mode", rows, selected, open)
+    let mut menu = menu(id, "Approval mode", rows, selected, open);
+    (menu.width, menu.max_width) = (NARROW_W, NARROW_W);
+    menu
 }
 
 fn menu(id: impl Into<ElementId>, title: &'static str, rows: Vec<PickerRow>, selected: usize, open: bool) -> PickerMenu {
@@ -185,6 +194,8 @@ fn menu(id: impl Into<ElementId>, title: &'static str, rows: Vec<PickerRow>, sel
         on_hover: None,
         on_close: None,
         width: MENU_W_MIN,
+        max_width: MENU_W_MAX,
+        align_end: false,
         force_sub: None,
     }
 }
@@ -198,6 +209,15 @@ pub fn provider_menu(id: impl Into<ElementId>, rows: Vec<PickerRow>, selected: u
 }
 
 impl PickerMenu {
+    /// Hang from the chip's right edge instead of its left — for chips at
+    /// the right of the controls row, so the panel grows into the sheet and
+    /// never past it (where a native page in the pane draws above it); the
+    /// submenu then opens to the panel's left.
+    pub fn align_end(mut self, end: bool) -> Self {
+        self.align_end = end;
+        self
+    }
+
     /// Replaces the caps header.
     pub fn title(mut self, title: impl Into<SharedString>) -> Self {
         self.title = title.into();
@@ -380,7 +400,8 @@ impl RenderOnce for PickerMenu {
             }
             panel = panel.entry(item);
         }
-        let mut menu = div().id(id.clone()).absolute().bottom(px(MENU_BOTTOM)).left(px(0.0)).max_w(px(MENU_W_MAX)).child({
+        let menu = div().id(id.clone()).absolute().bottom(px(MENU_BOTTOM)).max_w(px(self.max_width));
+        let mut menu = if self.align_end { menu.right(px(0.0)) } else { menu.left(px(0.0)) }.child({
             let nest = nest.clone();
             div().on_prepaint(move |bounds, _, cx| nest.update(cx, |n, _| n.panel = Some(bounds))).child(panel)
         });
@@ -407,17 +428,25 @@ impl RenderOnce for PickerMenu {
                     }
                     subpanel = subpanel.entry(item);
                 }
-                menu = menu.child(div().absolute().left(panel_bounds.size.width + px(SUBMENU_GAP)).top(top).child(subpanel));
+                let beside = div().absolute().top(top);
+                let beside = if self.align_end { beside.right(panel_bounds.size.width + px(SUBMENU_GAP)) } else { beside.left(panel_bounds.size.width + px(SUBMENU_GAP)) };
+                menu = menu.child(beside.child(subpanel));
             }
         }
 
         // A click anywhere else closes it. The catcher is a sibling of the menu
         // inside the same deferred draw, so it covers the window without
         // covering the menu.
-        let mut layer = div().absolute().child(menu);
+        let mut layer = div().absolute().top(px(0.0)).left(px(0.0)).right(px(0.0)).child(menu);
         if let Some(close) = self.on_close.clone() {
+            // The catcher's wrapper spans the chip too, or the panel's
+            // `right(0)` resolves against a zero-width box (the chip's
+            // left edge) instead of the chip's right.
             layer = div()
                 .absolute()
+                .top(px(0.0))
+                .left(px(0.0))
+                .right(px(0.0))
                 .child(
                     div()
                         .id((id.clone(), "scrim"))
@@ -462,15 +491,24 @@ pub struct EffortSliderMenu {
     on_change: Option<PickHandler>,
     on_pick: Option<PickHandler>,
     on_close: Option<CloseHandler>,
+    align_end: bool,
 }
 
 /// The slider over `levels` (low to high), `current` the level in use or
 /// `None` when the session leaves effort to the provider (`default_row`).
 pub fn effort_slider_menu(id: impl Into<ElementId>, levels: Vec<PickerRow>, current: Option<usize>, default_row: PickerRow, open: bool) -> EffortSliderMenu {
-    EffortSliderMenu { id: id.into(), levels, current, default_row, open, at_rest: false, on_change: None, on_pick: None, on_close: None }
+    EffortSliderMenu { id: id.into(), levels, current, default_row, open, at_rest: false, on_change: None, on_pick: None, on_close: None, align_end: false }
 }
 
 impl EffortSliderMenu {
+    /// Hang from the chip's right edge (see [`PickerMenu::align_end`]): the
+    /// chip's label changes width as the level changes, and a panel pinned
+    /// to its left edge slid sideways with every step (owner 2026-10-15).
+    pub fn align_end(mut self, end: bool) -> Self {
+        self.align_end = end;
+        self
+    }
+
     /// Skips the enter (static captures).
     pub fn at_rest(mut self) -> Self {
         self.at_rest = true;
@@ -662,11 +700,18 @@ impl RenderOnce for EffortSliderMenu {
         if self.at_rest {
             panel = panel.at_rest();
         }
-        let menu = div().id(id.clone()).absolute().bottom(px(MENU_BOTTOM)).left(px(0.0)).child(panel);
-        let mut layer = div().absolute().child(menu);
+        let menu = div().id(id.clone()).absolute().bottom(px(MENU_BOTTOM));
+        let menu = if self.align_end { menu.right(px(0.0)) } else { menu.left(px(0.0)) }.child(panel);
+        let mut layer = div().absolute().top(px(0.0)).left(px(0.0)).right(px(0.0)).child(menu);
         if let Some(close) = self.on_close.clone() {
+            // The catcher's wrapper spans the chip too, or the panel's
+            // `right(0)` resolves against a zero-width box (the chip's
+            // left edge) instead of the chip's right.
             layer = div()
                 .absolute()
+                .top(px(0.0))
+                .left(px(0.0))
+                .right(px(0.0))
                 .child(
                     div()
                         .id((id.clone(), "scrim"))
