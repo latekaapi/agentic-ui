@@ -26,9 +26,10 @@ use gpui_kit::base::ElementExt;
 use crate::interact::{dropdown, dropdown_present, DropdownEntry, DropdownItem, DropdownSide, DropdownTrailing};
 use crate::overlay::popover_layer;
 
-/// `.pick{bottom:28px;left:0;padding:6px}` — measured from the chip it hangs
-/// off, which is 28 px tall like every composer toolbar control.
-const MENU_BOTTOM: f32 = 28.0;
+/// The panel's bottom edge, measured from the bottom of the chip it hangs off
+/// (the layers below fill the chip's box): the chip's 28 px plus a 6 px gap,
+/// so the menu attaches to its button (owner 2026-10-15).
+const MENU_BOTTOM: f32 = 28.0 + 6.0;
 /// The model menu carries a context limit and two badges, so it is wider than
 /// the `+` menu's 200; effort and mode share the floor so the three read as one
 /// control.
@@ -437,16 +438,13 @@ impl RenderOnce for PickerMenu {
         // A click anywhere else closes it. The catcher is a sibling of the menu
         // inside the same deferred draw, so it covers the window without
         // covering the menu.
-        let mut layer = div().absolute().top(px(0.0)).left(px(0.0)).right(px(0.0)).child(menu);
+        // Both wrappers fill the chip's box (as the `+` menu's do), so the
+        // panel's `bottom`/`right` resolve against the chip itself.
+        let mut layer = div().absolute().inset_0().child(menu);
         if let Some(close) = self.on_close.clone() {
-            // The catcher's wrapper spans the chip too, or the panel's
-            // `right(0)` resolves against a zero-width box (the chip's
-            // left edge) instead of the chip's right.
             layer = div()
                 .absolute()
-                .top(px(0.0))
-                .left(px(0.0))
-                .right(px(0.0))
+                .inset_0()
                 .child(
                     div()
                         .id((id.clone(), "scrim"))
@@ -702,16 +700,13 @@ impl RenderOnce for EffortSliderMenu {
         }
         let menu = div().id(id.clone()).absolute().bottom(px(MENU_BOTTOM));
         let menu = if self.align_end { menu.right(px(0.0)) } else { menu.left(px(0.0)) }.child(panel);
-        let mut layer = div().absolute().top(px(0.0)).left(px(0.0)).right(px(0.0)).child(menu);
+        // Both wrappers fill the chip's box (as the `+` menu's do), so the
+        // panel's `bottom`/`right` resolve against the chip itself.
+        let mut layer = div().absolute().inset_0().child(menu);
         if let Some(close) = self.on_close.clone() {
-            // The catcher's wrapper spans the chip too, or the panel's
-            // `right(0)` resolves against a zero-width box (the chip's
-            // left edge) instead of the chip's right.
             layer = div()
                 .absolute()
-                .top(px(0.0))
-                .left(px(0.0))
-                .right(px(0.0))
+                .inset_0()
                 .child(
                     div()
                         .id((id.clone(), "scrim"))
