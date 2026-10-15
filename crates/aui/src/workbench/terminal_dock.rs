@@ -315,6 +315,7 @@ pub struct TerminalDock {
     on_resize_start: Option<ResizeHandler>,
     on_resize: Option<ResizeHandler>,
     on_resize_end: Option<ResizeEndHandler>,
+    surface: bool,
 }
 
 /// The dock frame: `header` (usually [`terminal_tabs`]) seated on the left of
@@ -332,10 +333,20 @@ pub fn terminal_dock(id: impl Into<ElementId>, header: impl IntoElement, body: O
         on_resize_start: None,
         on_resize: None,
         on_resize_end: None,
+        surface: false,
     }
 }
 
 impl TerminalDock {
+    /// Draw the dock as a surface inside its sheet (owner 2026-10-15): a
+    /// Raised card, radius 8, the one edge, inset 8 from the sheet's sides
+    /// and bottom, the resize grip in the gap above it. A full-bleed dock
+    /// painted square corners over the sheet's rounded bottom.
+    pub fn surface(mut self, surface: bool) -> Self {
+        self.surface = surface;
+        self
+    }
+
     /// The hint text at the right of the header cell.
     pub fn hint(mut self, hint: impl Into<SharedString>) -> Self {
         self.hint = Some(hint.into());
@@ -376,6 +387,10 @@ impl TerminalDock {
         self
     }
 }
+
+/// The surface dock's radius and its inset inside the sheet.
+const DOCK_SURFACE_RADIUS: f32 = 8.0;
+const DOCK_SURFACE_INSET: f32 = 8.0;
 
 impl RenderOnce for TerminalDock {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
@@ -445,7 +460,37 @@ impl RenderOnce for TerminalDock {
             }
         }
 
-        v_flex().id(id).size_full().min_h(px(0.0)).bg(p.surface_1).child(top).child(header).child(body)
+        if self.surface {
+            // Every painted child carries the card's corners: gpui clips to
+            // the rectangle, so a square child would paint over them.
+            let radius = px(DOCK_SURFACE_RADIUS);
+            let header = header.bg(p.surface_3).rounded_t(radius);
+            // The grid paints its own square ground and gpui clips to the
+            // rectangle, so the grid sits 4 px inside the body: the body's
+            // rounded corners stay its own (8 · (1 − 1/√2) ≈ 2.3 px is the
+            // depth the curve needs).
+            let body = body.rounded_b(radius).px(px(4.0)).pb(px(4.0));
+            let card = v_flex()
+                .flex_1()
+                .min_h(px(0.0))
+                .w_full()
+                .rounded(radius)
+                .bg(p.surface_3)
+                .shadow(p.edge())
+                .overflow_hidden()
+                .child(header)
+                .child(body);
+            return v_flex()
+                .id(id)
+                .size_full()
+                .min_h(px(0.0))
+                .px(px(DOCK_SURFACE_INSET))
+                .pb(px(DOCK_SURFACE_INSET))
+                .child(top)
+                .child(card)
+                .into_any_element();
+        }
+        v_flex().id(id).size_full().min_h(px(0.0)).bg(p.surface_1).child(top).child(header).child(body).into_any_element()
     }
 }
 

@@ -23,8 +23,10 @@ pub const QUIET_ROW_H: f32 = 32.0;
 pub const QUIET_ROW_BLEED: f32 = 8.0;
 /// Gap between the row's parts.
 const GAP: f32 = 8.0;
-/// Radius of the hover overlay.
-const RADIUS: f32 = 6.0;
+/// Radius of the hover overlay: the cards' own 8, so a lit row and the card
+/// under it share one corner (owner 2026-10-15: "the border radius on the
+/// pill … is not consistent").
+const RADIUS: f32 = super::card::CARD_RADIUS;
 /// The leading chevron.
 const CHEVRON: f32 = 12.0;
 /// The hover overlay and text colour change: 80 ms.

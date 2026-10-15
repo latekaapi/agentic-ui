@@ -509,6 +509,28 @@ fn row_child_index(counts: &[usize], active: usize) -> usize {
 /// highlight and the menu never shows two rows lit at once. `counts` is the
 /// item count of each section, in order, and `prefix` the row key prefix.
 fn active_row(id: &ElementId, prefix: &str, counts: &[usize], selected: usize, window: &mut Window, cx: &mut App) -> usize {
+    // The keyboard owns the highlight from an arrow press until the pointer
+    // really moves (the FluidList's own rule, `effective_keyboard`). These
+    // menus open where the pointer already rests — just above the composer
+    // — so "the hovered row always wins" pinned the highlight under a still
+    // pointer and the arrows looked dead (owner, 2026-10-14 and 10-15).
+    let mouse = window.mouse_position();
+    let keys = window.use_keyed_state((id.clone(), "keyboard"), cx, |_, _| KeyboardHold { selected, mouse, held: true });
+    // Held from the open, too: the gliding band starts on `selected` (the
+    // FluidList's keyboard prop), and a hover-first text lit a second row
+    // under the resting pointer — two rows emphasised at once.
+    let mut hold = *keys.read(cx);
+    if hold.selected != selected {
+        hold = KeyboardHold { selected, mouse, held: true };
+    } else if hold.held && hold.mouse != mouse {
+        hold.held = false;
+    }
+    keys.update(cx, |k, _| *k = hold);
+    if hold.held {
+        #[cfg(test)]
+        LAST_ACTIVE.with(|a| a.set(Some(selected)));
+        return selected;
+    }
     let mut index = 0usize;
     let mut hovered = None;
     for (s, count) in counts.iter().enumerate() {
@@ -520,7 +542,24 @@ fn active_row(id: &ElementId, prefix: &str, counts: &[usize], selected: usize, w
             index += 1;
         }
     }
-    hovered.unwrap_or(selected)
+    let active = hovered.unwrap_or(selected);
+    #[cfg(test)]
+    LAST_ACTIVE.with(|a| a.set(Some(active)));
+    active
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The row the last rendered caret menu lit, for the keyboard tests.
+    static LAST_ACTIVE: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+/// Whether an arrow press holds the highlight (see [`active_row`]).
+#[derive(Clone, Copy)]
+struct KeyboardHold {
+    selected: usize,
+    mouse: gpui::Point<gpui::Pixels>,
+    held: bool,
 }
 
 /// `.it`: the row shell both menus share — 32 px, 10 px gaps, accent-soft when
@@ -724,6 +763,62 @@ fn section_label(title: SharedString, p: &Palette) -> impl IntoElement {
 #[cfg(test)]
 mod tests {
     use super::row_child_index;
+
+    mod keyboard {
+        use super::super::{command_menu, CommandItem, CommandSection, LAST_ACTIVE};
+        use gpui::{div, prelude::*, px, Context, Window};
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        struct Host {
+            selected: Rc<Cell<usize>>,
+        }
+
+        impl Render for Host {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let items = (0..6).map(|i| CommandItem::new(format!("c{i}"), format!("/cmd{i}"), "does a thing")).collect();
+                div().size_full().child(command_menu("menu", "/", vec![CommandSection::new("Commands", items)], self.selected.get()).at_rest())
+            }
+        }
+
+        fn active() -> Option<usize> {
+            LAST_ACTIVE.with(|a| a.get())
+        }
+
+        /// Owner, three times (2026-10-14, -15): ↑/↓ "do nothing" in the
+        /// `/` and `@` menus. The keys reached the selection; the highlight
+        /// stayed with the row under a resting pointer, because the menus
+        /// open right where the pointer already is. An arrow press must
+        /// own the highlight until the pointer really moves.
+        #[gpui::test]
+        fn the_keyboard_owns_the_highlight_until_the_pointer_moves(cx: &mut gpui::TestAppContext) {
+            cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+            let selected = Rc::new(Cell::new(0));
+            let host = selected.clone();
+            let (view, vc) = cx.add_window_view(move |_, _| Host { selected: host });
+            vc.run_until_parked();
+            // Find a row under the pointer other than the selected one.
+            let mut rest = None;
+            for y in (20..360).step_by(4) {
+                vc.simulate_mouse_move(gpui::point(px(120.0), px(y as f32)), None, Default::default());
+                vc.run_until_parked();
+                if let Some(row) = active().filter(|row| *row >= 1 && *row <= 3) {
+                    rest = Some((y as f32, row));
+                    break;
+                }
+            }
+            let (y, hovered) = rest.expect("the pointer lights a row at rest");
+            // An arrow press: the host's selection moves past the hovered row.
+            selected.set(hovered + 1);
+            vc.update(|_, cx| view.update(cx, |_, cx| cx.notify()));
+            vc.run_until_parked();
+            assert_eq!(active(), Some(hovered + 1), "the arrow's row is lit, not the row under the resting pointer");
+            // The pointer moves within its row: it takes the highlight back.
+            vc.simulate_mouse_move(gpui::point(px(140.0), px(y + 1.0)), None, Default::default());
+            vc.run_until_parked();
+            assert_eq!(active(), Some(hovered), "a real pointer move hands the highlight back to the pointer");
+        }
+    }
 
     #[test]
     fn row_child_index_skips_section_headers() {
