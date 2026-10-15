@@ -632,6 +632,18 @@ impl RenderOnce for Composer {
         // VoiceOver and automation write through it instead of into the void.
         let raised = self.raised;
         let docked = self.docked && !raised;
+        // Claude's shape puts the controls row UNDER the field, so a menu
+        // hanging from a control would open over the field (owner
+        // 2026-10-15: the provider picker covered the text). The field's
+        // painted height lifts every control's menu clear of it.
+        let field_h = window.use_keyed_state((id.clone(), "field-h"), cx, |_, _| 0.0f32);
+        let lift = if raised { *field_h.read(cx) + CONTROLS_TOP } else { 0.0 };
+        let lifted = move |menu: gpui::AnyElement| -> gpui::AnyElement {
+            if lift <= 0.0 {
+                return menu;
+            }
+            div().absolute().top(px(-lift)).left(px(0.0)).right(px(0.0)).child(menu).into_any_element()
+        };
         let text = crate::a11y_text::a11y_text_field((id.clone(), "text"), "Message", &self.state, true, cx)
             .w_full()
             .min_h(px(if raised { RAISED_TEXT_MIN_H } else if docked { DOCKED_TEXT_MIN_H } else { TEXT_MIN_H }))
@@ -678,7 +690,7 @@ impl RenderOnce for Composer {
                     .justify_center()
                     .child(icon(IconName::Plus).color(if raised { p.ink_2 } else { p.ink }).rotate(plus_glyph_turn)),
             )
-            .children(self.plus_menu);
+            .children(self.plus_menu.map(lifted));
 
         let (send_state, send_flags) = interaction_flags((id.clone(), "send"), window, cx);
         let enabled = self.streaming || self.can_send;
@@ -803,7 +815,7 @@ impl RenderOnce for Composer {
             let mut rest = Vec::new();
             for (at, menu) in menus.drain(..) {
                 if at == anchor {
-                    holder = holder.child(menu);
+                    holder = holder.child(lifted(menu));
                 } else {
                     rest.push((at, menu));
                 }
@@ -905,6 +917,17 @@ impl RenderOnce for Composer {
                     .child(div().flex_none().pb(px(FIELD_SEND_INSET)).children(send.take())),
             );
             let controls = bar.mt(px(CONTROLS_TOP)).px(px(CONTROLS_PAD_X));
+            let report = field_h.clone();
+            let field = div()
+                .w_full()
+                .on_children_prepainted(move |bounds, window, cx| {
+                    let height = bounds.first().map(|b| f32::from(b.size.height)).unwrap_or(0.0);
+                    if (*report.read(cx) - height).abs() > 0.5 {
+                        report.update(cx, |h, _| *h = height);
+                        window.refresh();
+                    }
+                })
+                .child(field);
             return v_flex().w_full().child(field).child(controls).into_any_element();
         }
 
