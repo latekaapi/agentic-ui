@@ -52,12 +52,14 @@ impl Session {
 
     /// The turn with this id, if it is still in the transcript.
     pub fn turn(&self, turn_id: &str) -> Option<&Turn> {
-        self.turns.iter().find(|t| t.id() == turn_id)
+        // From the end: deltas land on the newest turns, and ids are unique,
+        // so this is O(1) while streaming instead of O(turns).
+        self.turns.iter().rev().find(|t| t.id() == turn_id)
     }
 
     /// Mutable access to the turn with this id.
     pub fn turn_mut(&mut self, turn_id: &str) -> Option<&mut Turn> {
-        self.turns.iter_mut().find(|t| t.id() == turn_id)
+        self.turns.iter_mut().rev().find(|t| t.id() == turn_id)
     }
 
     /// The id of the last turn, if any.
