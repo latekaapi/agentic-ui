@@ -224,6 +224,12 @@ fn action_tray(
         .rounded(px(scale::R_SM))
         .bg(p.surface_2)
         .opacity(opacity);
+    if visible {
+        // Rows open on press: a press on the shown tray must not reach the
+        // row, or the pin (pencil, archive) would re-open the session before
+        // its own click lands.
+        tray = tray.on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation());
+    }
     for action in actions {
         let action = *action;
         let unpin = action == RowAction::Pin && pinned;
@@ -841,7 +847,9 @@ impl RenderOnce for SessionRow {
 
         if let Some(on_select) = self.on_select.clone() {
             let key = s.id.clone();
-            row = row.on_click(move |_, w, cx| on_select(&key, w, cx));
+            // On press, not release, as Zed does: the session swaps a click's
+            // 60-120 ms earlier (perf audit 2026-10-16).
+            row = row.on_mouse_down(gpui::MouseButton::Left, move |_, w, cx| on_select(&key, w, cx));
         }
 
         if s.children.is_empty() {
@@ -1121,7 +1129,9 @@ impl RenderOnce for CompactSessionRow {
         // field it is holding would otherwise close the field it just opened.
         if let (Some(on_select), false) = (self.on_select.clone(), editing) {
             let key = s.id.clone();
-            row = row.on_click(move |_, w, cx| on_select(&key, w, cx));
+            // On press, not release, as Zed does: the session swaps a click's
+            // 60-120 ms earlier (perf audit 2026-10-16).
+            row = row.on_mouse_down(gpui::MouseButton::Left, move |_, w, cx| on_select(&key, w, cx));
         }
         if s.children.is_empty() {
             return wrap_hover_bounds(row, &bounds_cell).into_any_element();

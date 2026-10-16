@@ -26,6 +26,7 @@ unsafe extern "C" {
     fn aui_cef_pump_start(work: extern "C" fn());
     fn aui_cef_pump_schedule(delay_ms: i64);
     fn aui_cef_pump_stop();
+    fn aui_cef_pump_set_max(seconds: f64);
 }
 
 /// Where the runtime is.
@@ -110,8 +111,14 @@ pub fn available() -> bool {
     matches!(state(), State::Loaded | State::Ready)
 }
 
+/// How long the safety pump may sleep with no page open: CEF schedules its
+/// own work, and nothing on screen needs the 30 Hz safety net.
+const IDLE_PUMP_SECONDS: f64 = 1.0;
+
 extern "C" fn pump_work() {
     do_message_loop_work();
+    let max = if crate::backend::open_count() == 0 { IDLE_PUMP_SECONDS } else { 0.0 };
+    unsafe { aui_cef_pump_set_max(max) };
 }
 
 /// Chromium features every Baaz page runs without (see

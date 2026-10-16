@@ -28,7 +28,7 @@ use std::thread::JoinHandle;
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 
-use crate::backend::{TermEvent, TerminalBackend};
+use crate::backend::{Readiness, TermEvent, TerminalBackend};
 
 /// The pty opens at this size until the pane measures itself.
 const DEFAULT_COLS: u16 = 100;
@@ -650,6 +650,8 @@ pub struct Pty {
     /// Extra environment for the child, from [`PtyConfig::env`].
     extra_env: Vec<(String, String)>,
     exited: bool,
+    /// Rung by the reader thread on every chunk and at end of output.
+    ready: std::sync::Arc<Readiness>,
 }
 
 impl Pty {
@@ -678,6 +680,7 @@ impl Pty {
             nonce,
             extra_env: Vec::new(),
             exited: false,
+            ready: std::sync::Arc::new(Readiness::default()),
         }
     }
 
@@ -796,15 +799,22 @@ impl Pty {
         let mut reader = pair.master.try_clone_reader().map_err(io_err)?;
         let writer = pair.master.take_writer().map_err(io_err)?;
         let (tx, rx) = channel();
+        let ready = self.ready.clone();
         let reader = std::thread::Builder::new().name("aui-terminal-reader".into()).spawn(move || {
             let mut buf = vec![0u8; READ_CHUNK];
             loop {
                 match reader.read(&mut buf) {
-                    Ok(0) | Err(_) => return,
+                    Ok(0) | Err(_) => {
+                        // End of output: the child is exiting, and the next
+                        // poll should look for its status.
+                        ready.signal();
+                        return;
+                    }
                     Ok(n) => {
                         if tx.send(buf[..n].to_vec()).is_err() {
                             return;
                         }
+                        ready.signal();
                     }
                 }
             }
@@ -931,6 +941,10 @@ impl TerminalBackend for Pty {
             }
         }
         events
+    }
+
+    fn readiness(&self) -> Option<std::sync::Arc<Readiness>> {
+        Some(self.ready.clone())
     }
 }
 

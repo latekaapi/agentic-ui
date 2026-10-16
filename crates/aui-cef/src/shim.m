@@ -58,12 +58,23 @@ static void (*g_work)(void) = NULL;
 static CFRunLoopTimerRef g_timer = NULL;
 static BOOL g_in_work = NO;
 static const double kMaxDelay = 1.0 / 30.0;
+// The safety pump's interval: cefclient's 1/30 s while a page is open; the
+// host raises it while none is (aui_cef_pump_set_max), so an app with no
+// browser open stops waking 30 times a second (perf audit 2026-10-16).
+// CEF's own OnScheduleMessagePumpWork still wakes the pump at once.
+static double g_max_delay = 1.0 / 30.0;
 
 static void timer_fired(CFRunLoopTimerRef timer, void *info) {
   if (!g_work || g_in_work) return;
   g_in_work = YES;
   g_work();
   g_in_work = NO;
+  if (g_timer) CFRunLoopTimerSetNextFireDate(g_timer, CFAbsoluteTimeGetCurrent() + g_max_delay);
+}
+
+// Main thread: the longest the safety pump waits between runs.
+void aui_cef_pump_set_max(double seconds) {
+  g_max_delay = seconds > kMaxDelay ? seconds : kMaxDelay;
 }
 
 void aui_cef_pump_start(void (*work)(void)) {
@@ -77,7 +88,7 @@ void aui_cef_pump_start(void (*work)(void)) {
 
 // Any thread (CEF's OnScheduleMessagePumpWork).
 void aui_cef_pump_schedule(int64_t delay_ms) {
-  double delay = delay_ms <= 0 ? 0 : MIN(delay_ms / 1000.0, kMaxDelay);
+  double delay = delay_ms <= 0 ? 0 : MIN(delay_ms / 1000.0, g_max_delay);
   CFRunLoopPerformBlock(CFRunLoopGetMain(), kCFRunLoopCommonModes, ^{
     if (g_timer) CFRunLoopTimerSetNextFireDate(g_timer, CFAbsoluteTimeGetCurrent() + delay);
   });

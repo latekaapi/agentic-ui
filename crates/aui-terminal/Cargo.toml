@@ -26,6 +26,8 @@ aui-icons.workspace = true
 aui-motion.workspace = true
 
 vte = "0.15"
+# Only `channel::mpsc`: the reader thread wakes the UI-side notifier.
+futures = { version = "0.3", default-features = false, features = ["std"] }
 getrandom = { version = "0.3", optional = true }
 portable-pty = { version = "0.8", optional = true }
 alacritty_terminal = { version = "0.26", optional = true }

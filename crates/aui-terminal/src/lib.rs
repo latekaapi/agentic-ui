@@ -45,7 +45,7 @@ pub mod pty;
 pub mod tui_grid;
 pub mod view;
 
-pub use backend::{TermEvent, TerminalBackend};
+pub use backend::{Readiness, TermEvent, TerminalBackend};
 pub use fake::{FakePty, ScriptChunk};
 #[cfg(feature = "tui")]
 pub use grid::{

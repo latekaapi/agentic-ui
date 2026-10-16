@@ -62,6 +62,9 @@ const SCROLLBACK: usize = 10_000;
 const SCROLLBACK_SLACK: usize = 4_096;
 /// The backend is drained on this cadence — about twice a display frame.
 const POLL_INTERVAL: Duration = Duration::from_millis(8);
+/// The longest a session thread sleeps on a backend's [`crate::Readiness`]
+/// before polling anyway (a child that exits without closing its output).
+const READY_WAIT: Duration = Duration::from_millis(250);
 /// Smallest grid the session will report, however small the pane is drawn.
 const MIN_COLS: u16 = 8;
 /// …and fewest rows.
@@ -141,6 +144,11 @@ pub struct SessionEventProxy {
 fn mark_dirty(shared: &Arc<Shared>) {
     shared.dirty.store(true, Ordering::Release);
     shared.snap_gen.fetch_add(1, Ordering::Release);
+    if let Ok(wake) = shared.ui_wake.lock() {
+        if let Some(wake) = wake.as_ref() {
+            let _ = wake.unbounded_send(());
+        }
+    }
 }
 
 impl EventListener for SessionEventProxy {
@@ -205,6 +213,9 @@ struct Shared {
     refused_clipboard: AtomicUsize,
     /// Set when the grid changed since the last frame.
     dirty: AtomicBool,
+    /// Rung with every `dirty` store, so the UI-side notifier sleeps until
+    /// the grid changes (set once [`TerminalSession::ensure_polling`] runs).
+    ui_wake: Mutex<Option<futures::channel::mpsc::UnboundedSender<()>>>,
     /// Bumped alongside every `dirty` store and every other snapshot input
     /// (selection, scroll, resize, hover, marked text): the snapshot cache's
     /// invalidation generation (D20).
@@ -429,13 +440,20 @@ impl TerminalSession {
         let side_rx = self.side_rx.clone();
         let shared = self.shared.clone();
         let mark_state = self.mark_state.clone();
+        // A backend that signals arriving output lets this thread sleep
+        // until it does; it used to wake every 8 ms per tab, open or not
+        // (perf audit 2026-10-16). Others keep the fixed poll.
+        let ready = backend.lock().unwrap().readiness();
         let handle = std::thread::spawn(move || {
             while !shared.stop.load(Ordering::Acquire) {
                 let had_output = cycle(&inner, &backend, &side_rx, &shared, &mark_state);
                 if had_output {
                     mark_dirty(&shared);
                 }
-                std::thread::sleep(POLL_INTERVAL);
+                match &ready {
+                    Some(ready) => ready.wait(READY_WAIT),
+                    None => std::thread::sleep(POLL_INTERVAL),
+                }
             }
         });
         *self.reader.lock().unwrap() = Some(handle);
@@ -454,8 +472,17 @@ impl TerminalSession {
         }
         let shared = self.shared.clone();
         let this = cx.entity().downgrade();
+        // Wait for a dirty signal, notify once, then hold POLL_INTERVAL so a
+        // burst of output still lands as one frame. At rest this sleeps —
+        // it used to tick every 8 ms per tab.
+        let (wake, mut woken) = futures::channel::mpsc::unbounded();
+        *shared.ui_wake.lock().unwrap() = Some(wake);
         let task = window.spawn(cx, async move |cx| loop {
-            cx.background_executor().timer(POLL_INTERVAL).await;
+            use futures::StreamExt as _;
+            if !shared.dirty.load(Ordering::Acquire) && woken.next().await.is_none() {
+                return;
+            }
+            while woken.try_recv().is_ok() {}
             let ok = this.update(cx, |_, cx| {
                 if shared.dirty.swap(false, Ordering::AcqRel) {
                     cx.notify();
@@ -464,6 +491,7 @@ impl TerminalSession {
             if ok.is_err() {
                 return;
             }
+            cx.background_executor().timer(POLL_INTERVAL).await;
         });
         *self.poll.lock().unwrap() = Some(task);
     }

@@ -36,4 +36,37 @@ pub trait TerminalBackend {
     /// Takes everything that arrived since the last call. Never blocks;
     /// returns an empty vector when nothing happened.
     fn poll(&mut self) -> Vec<TermEvent>;
+
+    /// A signal rung whenever [`poll`](Self::poll) would have something
+    /// new, so the session thread can sleep until output arrives instead of
+    /// polling. `None` (the default) keeps the fixed-interval poll.
+    fn readiness(&self) -> Option<std::sync::Arc<Readiness>> {
+        None
+    }
+}
+
+/// A one-bit "something arrived" signal between a backend's reader thread and
+/// the session thread (see [`TerminalBackend::readiness`]).
+#[derive(Default)]
+pub struct Readiness {
+    ready: std::sync::Mutex<bool>,
+    changed: std::sync::Condvar,
+}
+
+impl Readiness {
+    /// Mark output ready and wake a waiter.
+    pub fn signal(&self) {
+        if let Ok(mut ready) = self.ready.lock() {
+            *ready = true;
+            self.changed.notify_one();
+        }
+    }
+
+    /// Wait until signalled or `timeout` passes, then clear the signal.
+    pub fn wait(&self, timeout: std::time::Duration) {
+        let Ok(ready) = self.ready.lock() else { return };
+        if let Ok((mut ready, _)) = self.changed.wait_timeout_while(ready, timeout, |ready| !*ready) {
+            *ready = false;
+        }
+    }
 }
