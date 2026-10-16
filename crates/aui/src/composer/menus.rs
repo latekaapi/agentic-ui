@@ -176,7 +176,7 @@ impl CommandMenu {
         self
     }
 
-    /// The pointer entered a row; the argument is its index across all
+    /// The pointer moved over a row; the argument is its index across all
     /// sections, so the caller can move the selection to it.
     pub fn on_hover(mut self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
         self.on_hover = Some(Rc::new(f));
@@ -352,7 +352,7 @@ impl MentionPicker {
         self
     }
 
-    /// The pointer entered a row; the argument is its index across all
+    /// The pointer moved over a row; the argument is its index across all
     /// sections.
     pub fn on_hover(mut self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
         self.on_hover = Some(Rc::new(f));
@@ -590,23 +590,23 @@ fn menu_row(
         .text_color(if on { p.fg } else { p.fg_muted })
         .cursor_pointer();
 
-    // gpui allows one `on_hover` per element, so the row's own hover tint and
-    // the caller's hover intent share a single handler.
     let hovered_state = state.clone();
-    let handler = on_hover.clone();
-    row = row.on_hover(move |hovered, w, cx| {
+    row = row.on_hover(move |hovered, _, cx| {
         hovered_state.update(cx, |s, cx| {
             if s.hovered != *hovered {
                 s.hovered = *hovered;
                 cx.notify();
             }
         });
-        if *hovered {
-            if let Some(handler) = &handler {
-                handler(index, w, cx);
-            }
-        }
     });
+    // The caller hears every real pointer move over the row, not only the
+    // enter: a move inside the row an arrow left takes the highlight back
+    // ([`active_row`]), and the caller's selection has to follow it there,
+    // or the next arrow continues from the stale keyboard row (live,
+    // 2026-10-16).
+    if let Some(handler) = on_hover.clone() {
+        row = row.on_mouse_move(move |_, w, cx| handler(index, w, cx));
+    }
     row
 }
 
@@ -777,7 +777,12 @@ mod tests {
         impl Render for Host {
             fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
                 let items = (0..6).map(|i| CommandItem::new(format!("c{i}"), format!("/cmd{i}"), "does a thing")).collect();
-                div().size_full().child(command_menu("menu", "/", vec![CommandSection::new("Commands", items)], self.selected.get()).at_rest())
+                let follow = self.selected.clone();
+                div().size_full().child(
+                    command_menu("menu", "/", vec![CommandSection::new("Commands", items)], self.selected.get())
+                        .at_rest()
+                        .on_hover(move |index, _, _| follow.set(index)),
+                )
             }
         }
 
@@ -817,6 +822,13 @@ mod tests {
             vc.simulate_mouse_move(gpui::point(px(140.0), px(y + 1.0)), None, Default::default());
             vc.run_until_parked();
             assert_eq!(active(), Some(hovered), "a real pointer move hands the highlight back to the pointer");
+            // …and the host's selection with it, so the next arrow continues
+            // from the lit row, not the stale keyboard one (live, 2026-10-16).
+            assert_eq!(selected.get(), hovered, "the pointer's move hands the selection to the lit row");
+            selected.set(hovered + 1);
+            vc.update(|_, cx| view.update(cx, |_, cx| cx.notify()));
+            vc.run_until_parked();
+            assert_eq!(active(), Some(hovered + 1), "an arrow then continues from the hovered row");
         }
     }
 
