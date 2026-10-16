@@ -213,7 +213,7 @@ impl RenderOnce for StatusRow {
             StatusLead::None => {}
             StatusLead::Spinner => row = row.child(spinner((id.clone(), "spinner")).size(px(STATUS_SPINNER)).fluid(cx)),
             StatusLead::Braille => {
-                let phase = looping((id.clone(), "braille"), Loop::linear(BRAILLE_PERIOD).resting(BRAILLE_RESTING), window, cx);
+                let phase = looping((id.clone(), "braille"), Loop::linear(BRAILLE_PERIOD).resting(BRAILLE_RESTING).stepped(BRAILLE_FRAMES.len() as u32), window, cx);
                 let frame = BRAILLE_FRAMES[((phase * BRAILLE_FRAMES.len() as f32) as usize).min(BRAILLE_FRAMES.len() - 1)];
                 row = row.child(div().flex_none().mono(scale::FS_12).text_color(p.ink_2).child(frame));
             }

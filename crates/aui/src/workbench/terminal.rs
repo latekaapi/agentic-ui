@@ -372,7 +372,7 @@ impl RenderOnce for BlockTerminal {
         }
         let mut pane = v_flex().id(id.clone()).size_full().bg(p.term_bg).child(scroll);
         if let Some(prompt) = self.prompt {
-            let on = looping((id.clone(), "cursor"), Loop::linear(CURSOR_PERIOD).resting(1.0), window, cx) < 0.5;
+            let on = looping((id.clone(), "cursor"), Loop::linear(CURSOR_PERIOD).resting(1.0).stepped(2), window, cx) < 0.5;
             let mut row = h_flex()
                 .w_full()
                 .flex_none()

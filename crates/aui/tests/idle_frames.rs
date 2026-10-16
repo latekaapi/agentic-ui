@@ -48,8 +48,10 @@ fn frames_at_rest(
     build: impl Fn(&mut Window, &mut gpui::App) -> AnyElement + 'static,
 ) -> usize {
     cx.update(|cx| aui::init(aui::tokens::ThemeKind::Dark, cx));
-    let (host, cx) = cx.add_window_view(|_, _| Host {
-        build: Rc::new(build),
+    let renders = Rc::new(std::cell::Cell::new(0usize));
+    let (host, cx) = cx.add_window_view({
+        let renders = renders.clone();
+        |_, _| Host { build: Rc::new(build), renders }
     });
 
     let redraw = |cx: &mut gpui::VisualTestContext| {
@@ -64,14 +66,22 @@ fn frames_at_rest(
         cx.executor().advance_clock(FRAME);
     }
 
+    // One draw, then only the clock moves: every frame the card registers
+    // and every render it wakes on its own (a looping animation wakes its
+    // view on a timer rather than asking for each frame) is activity at
+    // rest.
+    redraw(cx);
     let mut frames = 0;
+    let mut wakes = 0;
     for _ in 0..COUNTED_DRAWS {
-        redraw(cx);
+        let before = renders.get();
         frames += cx.update(|window, app| window.simulate_next_frame(app));
         cx.executor().advance_clock(FRAME);
+        cx.run_until_parked();
+        wakes += renders.get() - before;
     }
-    println!("IDLE {label} frames={frames} over {COUNTED_DRAWS} draws");
-    frames
+    println!("IDLE {label} frames={frames} wakes={wakes} over {COUNTED_DRAWS} frames of clock");
+    frames + wakes
 }
 
 /// Builds the card under test.
@@ -80,10 +90,12 @@ type Build = dyn Fn(&mut Window, &mut gpui::App) -> AnyElement;
 /// The host view: the card is rendered by a view, as an app renders it.
 struct Host {
     build: Rc<Build>,
+    renders: Rc<std::cell::Cell<usize>>,
 }
 
 impl gpui::Render for Host {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        self.renders.set(self.renders.get() + 1);
         (self.build.clone())(window, cx)
     }
 }

@@ -619,7 +619,7 @@ impl RenderOnce for TuiGridView {
             body = body.child(grid_line(row, &p));
         }
         if let Some(input) = self.input {
-            let on = looping((self.id.clone(), "cursor"), Loop::linear(CURSOR_PERIOD).resting(1.0), window, cx) < 0.5;
+            let on = looping((self.id.clone(), "cursor"), Loop::linear(CURSOR_PERIOD).resting(1.0).stepped(2), window, cx) < 0.5;
             body = body.child(
                 h_flex()
                     .my(px(BOX_MARGIN_Y))

@@ -2308,7 +2308,7 @@ impl gpui::RenderOnce for TerminalGrid {
             let phase = if want_blink {
                 looping(
                     (grid_id.clone(), "cursor-blink"),
-                    Loop::linear(aui_tokens::scale::D_SLOW * 4).resting(0.0),
+                    Loop::linear(aui_tokens::scale::D_SLOW * 4).resting(0.0).stepped(2),
                     window,
                     cx,
                 )

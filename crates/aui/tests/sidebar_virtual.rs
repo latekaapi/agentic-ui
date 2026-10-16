@@ -273,19 +273,23 @@ fn pulse_frames(cx: &mut TestAppContext, phase: Option<f32>, draws: usize) -> (u
     (frames, renders.get())
 }
 
-/// The looping running dot is a self-perpetuating frame loop: every render
-/// mounts the pulse, which asks for the next frame, which re-renders the
-/// pane (and, through `mark_view_dirty`'s ancestor walk, the root) — so a
-/// running session holds the whole window at full display rate for as long
-/// as it runs. This pins the legacy mode the sampled phase replaces; it
-/// keeps passing because unset phases still loop.
+/// An unsampled running dot no longer holds the frame loop: `looping` wakes
+/// its view on a 30 Hz timer instead of asking for the next frame on every
+/// render, which (through `mark_view_dirty`'s ancestor walk) used to hold the
+/// whole window at full display rate for as long as a session ran. Over ten
+/// 16 ms draws it registers at most one frame callback per tick — not one
+/// per render — and adds at most one render per tick.
 #[gpui::test]
-fn running_dot_requests_a_frame_every_render(cx: &mut TestAppContext) {
+fn running_dot_wakes_on_a_timer_not_every_frame(cx: &mut TestAppContext) {
     init(cx);
-    let (frames, renders) = pulse_frames(cx, None, 10);
-    println!("PULSE frames={frames} renders={renders} over 10 draws");
-    assert!(frames >= 10, "a running dot must keep asking for the next frame: {frames}/10");
-    assert!(renders >= 10, "each granted frame must re-render the host: {renders}/10");
+    let draws = 10;
+    let (frames, renders) = pulse_frames(cx, None, draws);
+    println!("PULSE frames={frames} renders={renders} over {draws} draws");
+    let clock = std::time::Duration::from_millis(16 * draws as u64);
+    let ticks = (clock.as_millis() / aui::motion::SMOOTH_TICK.as_millis()) as usize + 1;
+    assert!(frames <= ticks, "a looping dot asks for at most one frame per tick: {frames} > {ticks}");
+    assert!(renders > draws, "the dot still animates on its timer: {renders} renders for {draws} draws");
+    assert!(renders <= draws + ticks, "at most one wake per tick: {renders} > {draws} + {ticks}");
 }
 
 /// A sampled running dot costs no frames: the ring is drawn at the passed
