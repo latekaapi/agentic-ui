@@ -581,6 +581,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::d6_page::build,
     },
     Entry {
+        id: "workbench/d6-views",
+        group: "Workbench",
+        title: "D6 · Full output and image",
+        subtitle: "Pushed views the transcript opens: the full output on the Well (exit, time, cap footer, running tail, fetching) and the image view (fit ↔ 100 %, not available) (docs/43 §2.9–2.10)",
+        width: 1300.0,
+        height: 1340.0,
+        theme: CardTheme::Both,
+        build: crate::cards::d6_views::build,
+    },
+    Entry {
         id: "workbench/files-docs",
         group: "Workbench",
         title: "File tree and document panes",
