@@ -3,6 +3,7 @@
 //! document panes, sources and citations (cards 50–55, spec §5).
 
 mod browser;
+mod changes;
 mod citations;
 mod code_view;
 mod diff_review;
@@ -35,6 +36,11 @@ pub use docs::{
     flush_paper_layout, heading_text_size, table_layout, TABLE_MIN_COL_W,
 };
 pub use citations::{cited_answer, citation, source_hover_card, sources_card, Citation, CitedAnswer, Source, SourceHoverCard, SourceTier, SourcesCard, ANSWER_MARGIN};
+pub use changes::{
+    ahead_behind, base_and_head, base_picker, branch_label, draft_checkbox, form_field, well_input, change_letter, change_row, change_with_diff, changes_caption, commit_foot, commit_frame, commit_message_view,
+    diff_body, hook_failed_note, hunk_new_start, hunk_old_range, pr_card, primary_action, split_path, text_action, unchanged_between, ChangeRow,
+    DiffBody, PrState, CHANGE_FOLDER_MIN_WIDTH,
+};
 pub use code_view::{code_skeleton, code_view, markdown_view, reveal_top_row, CodeView, REVEAL_LEAD_LINES};
 pub use pane::{
     pane_action, pane_row, pane_row_fade, pane_strip, pane_toggle, pushed_row, pushed_row_with, secondary_action, skeleton_bar, skeleton_rows,

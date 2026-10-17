@@ -561,6 +561,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::d6_files::build,
     },
     Entry {
+        id: "workbench/d6-changes",
+        group: "Workbench",
+        title: "D6 · Changes, commit and PR",
+        subtitle: "Captions, change rows folding their diff open, hunk headers and unchanged runs, the commit box's states, the hook note, the PR card and form (docs/43 §2.6)",
+        width: 1300.0,
+        height: 1860.0,
+        theme: CardTheme::Both,
+        build: crate::cards::d6_changes::build,
+    },
+    Entry {
         id: "workbench/files-docs",
         group: "Workbench",
         title: "File tree and document panes",
