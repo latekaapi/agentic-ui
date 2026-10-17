@@ -402,7 +402,7 @@ mod tests {
     use super::*;
 
     /// The number of `<symbol>` elements in `design/src/sprite.svg`.
-    const SPRITE_SYMBOL_COUNT: usize = 74;
+    const SPRITE_SYMBOL_COUNT: usize = 82;
 
     #[test]
     fn every_sprite_symbol_has_a_variant() {

@@ -469,9 +469,9 @@ mod tests {
         assert_eq!((scale::OV_HOVER_DARK, scale::OV_SELECTED_DARK, scale::OV_PRESSED_DARK), (0.05, 0.09, 0.12));
         assert_eq!((scale::OV_HOVER_LIGHT, scale::OV_SELECTED_LIGHT), (0.04, 0.07));
         // The line: v3 draws none on a surface edge, only inside one, at
-        // white 7 %; light keeps FF's --border, foreground at 12 %.
+        // white 7 %; light draws its lines at black 7 % (docs/43 §2.8).
         assert_eq!(d.ring(), d.line);
-        assert!((d.line.a - 0.07).abs() < 1e-6 && (l.line.a - 0.12).abs() < 1e-6);
+        assert!((d.line.a - 0.07).abs() < 1e-6 && (l.line.a - 0.07).abs() < 1e-6);
     }
 
     #[test]
@@ -491,7 +491,7 @@ mod tests {
     }
 
     #[test]
-    fn surfaces_are_v3_dark_and_ff_light() {
+    fn surfaces_are_v3_dark_and_d6_light() {
         let hex = |c: gpui::Hsla| {
             let r: gpui::Rgba = c.into();
             format!("#{:02X}{:02X}{:02X}", (r.r * 255.0).round() as u8, (r.g * 255.0).round() as u8, (r.b * 255.0).round() as u8)
@@ -507,15 +507,21 @@ mod tests {
         assert_eq!(hex(d.surface(Palette::FLOATING_LEVEL)), "#2C2C32");
         assert_eq!(hex(d.surface(Palette::DIALOG_LEVEL)), "#35353C");
         let l = light();
-        assert_eq!((hex(l.surface(1)), hex(l.surface(2)), hex(l.surface(3))), ("#FAFAFA".into(), "#FCFCFC".into(), "#FFFFFF".into()));
-        assert_eq!((hex(l.fg), hex(l.fg_muted)), ("#171717".into(), "#737373".into()));
+        // Light, first drawn for D6 (docs/43 §2.8): frame, sheet, raised, raised-lit, floating.
+        let want = ["#ECECEF", "#FAFAFB", "#FFFFFF", "#F3F3F5", "#FFFFFF"];
+        for (i, w) in want.iter().enumerate() {
+            assert_eq!(hex(l.surface((i + 1) as u8)), *w);
+        }
+        assert_eq!((hex(l.fg), hex(l.fg_muted), hex(l.ink_4)), ("#18181B".into(), "#63636D".into(), "#9A9AA4".into()));
+        assert_eq!(hex(l.well), "#F2F2F4");
     }
 
     #[test]
     fn floating_shadow_is_the_constant_shadow_3() {
-        // Dark: v3 maps FF's popup level (3) to the float recipe; light is FF.
-        for p in [dark(), light()] {
-            assert_eq!(p.floating_shadow(), p.shadow(3));
-        }
+        // Dark: v3 maps FF's popup level (3) to the float recipe. Light keeps
+        // FF's ladder; its float is the D6 recipe (docs/43 §2.8): ring + one drop.
+        let d = dark();
+        assert_eq!(d.floating_shadow(), d.shadow(3));
+        assert_eq!(light().floating_shadow().len(), 2);
     }
 }
