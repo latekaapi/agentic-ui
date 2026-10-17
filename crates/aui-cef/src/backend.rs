@@ -1052,7 +1052,7 @@ wrap_load_handler! {
             }
             // Only the main frame's document; an aborted load (a new
             // navigation replaced it, ERR_ABORTED = -3) is not a failure.
-            let code: i32 = error_code.get_raw() as i32;
+            let code: i32 = error_code.get_raw();
             if code == -3 || !frame.map(|f| f.is_main() == 1).unwrap_or(true) {
                 return;
             }
