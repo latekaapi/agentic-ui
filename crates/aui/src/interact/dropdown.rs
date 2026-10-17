@@ -69,6 +69,7 @@ pub struct DropdownItem {
     danger: bool,
     disabled: bool,
     wrap: bool,
+    detail_lines: usize,
     on_select: Option<Handler>,
 }
 
@@ -86,6 +87,7 @@ impl DropdownItem {
             danger: false,
             disabled: false,
             wrap: false,
+            detail_lines: 1,
             on_select: None,
         }
     }
@@ -94,6 +96,13 @@ impl DropdownItem {
     /// whole (a model name the provider chose), in a panel with a ceiling.
     pub fn wrap(mut self) -> Self {
         self.wrap = true;
+        self
+    }
+
+    /// The detail wraps to at most `lines` laid-out lines instead of
+    /// truncating to one: a meaning whose caveat must be read whole.
+    pub fn detail_lines(mut self, lines: usize) -> Self {
+        self.detail_lines = lines.max(1);
         self
     }
 
@@ -433,7 +442,15 @@ fn row_body(item: DropdownItem, lit: bool, row_px: Option<Pixels>, cx: &App) -> 
             .flex_1()
             .min_w(px(0.0))
             .child(title)
-            .child(div().min_w(px(0.0)).truncate().role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(detail)),
+            .child(
+                div()
+                    .min_w(px(0.0))
+                    .when(item.detail_lines <= 1, |d| d.truncate())
+                    .when(item.detail_lines > 1, |d| d.line_clamp(item.detail_lines))
+                    .role_in(TextRole::Caption, cx)
+                    .text_color(p.fg_muted)
+                    .child(detail),
+            ),
         None => v_flex().flex_1().min_w(px(0.0)).child(title),
     };
     body = body.child(text);
@@ -565,5 +582,48 @@ impl RenderOnce for Dropdown {
             return div().into_any_element();
         }
         root.child(menu_surface(panel)).into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One dropdown row carrying `detail`, its detail allowed `lines`
+    /// lines, in a 320-wide column (the mode menu's).
+    struct Probe {
+        detail: SharedString,
+        lines: usize,
+    }
+
+    impl gpui::Render for Probe {
+        fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().w(px(320.0)).child(
+                div().debug_selector(|| "probe".into()).child(
+                    dropdown("probe-menu", "Approval mode")
+                        .open(true)
+                        .at_rest()
+                        .entry(DropdownItem::new("Read-only").detail(self.detail.clone()).detail_lines(self.lines)),
+                ),
+            )
+        }
+    }
+
+    fn panel_height(detail: &str, lines: usize, cx: &mut gpui::TestAppContext) -> f32 {
+        cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+        let detail = SharedString::from(detail.to_owned());
+        let (_, vcx) = cx.add_window_view(move |_, _| Probe { detail, lines });
+        vcx.run_until_parked();
+        f32::from(vcx.debug_bounds("probe").expect("the panel is laid out").size.height)
+    }
+
+    /// A detail allowed two lines wraps onto the second instead of being
+    /// cut at one: the caveat at its end stays readable.
+    #[gpui::test]
+    fn a_two_line_detail_wraps_where_a_one_line_detail_truncates(cx: &mut gpui::TestAppContext) {
+        let long = "Reads files and searches; never edits or runs commands. MCP tools you always allowed still run.";
+        let one = panel_height(long, 1, cx);
+        let two = panel_height(long, 2, cx);
+        assert!(two > one, "the second line is laid out: one line {one}, two lines {two}");
     }
 }

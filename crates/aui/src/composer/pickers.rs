@@ -1,9 +1,9 @@
 //! The three composer chip menus: **model**, **effort** and **approval mode**.
 //!
 //! One component with three constructors, because they are one control with
-//! three data sets: a list of rows with a label, a one-line detail, an optional
-//! trailing meta (a model's context limit) and any number of badges
-//! (`default`, `active`), plus a check on the selected row.
+//! three data sets: a list of rows with a label, a detail line (wrapping in
+//! the mode menu), an optional trailing meta (a model's context limit) and any
+//! number of badges (`default`, `active`), plus a check on the selected row.
 //!
 //! They are the one menu panel ([`crate::interact::Dropdown`], FF's dropdown),
 //! painted through [`crate::overlay::popover_layer`] and anchored by the
@@ -58,6 +58,10 @@ const PROVIDER_W: f32 = 240.0;
 /// The approval-mode and effort lists: 320, their meanings wrapping under the
 /// name (owner 2026-10-14: the mode menu ran 520 wide, past the sheet).
 const NARROW_W: f32 = 320.0;
+/// How many lines a mode's meaning may wrap to before it clamps: the
+/// longest (Codex's Read-only, ~100 characters) needs three in the 320
+/// column.
+const MODE_DETAIL_LINES: usize = 3;
 /// The nested submenu: 4 px right of the panel, 300 wide, opening after a
 /// 150 ms rest on its row.
 const SUBMENU_GAP: f32 = 4.0;
@@ -156,6 +160,7 @@ pub struct PickerMenu {
     max_width: f32,
     align_end: bool,
     force_sub: Option<usize>,
+    detail_lines: usize,
 }
 
 /// The model picker: rows from the provider catalog, `selected` on the row the
@@ -175,10 +180,13 @@ pub fn effort_menu(id: impl Into<ElementId>, rows: Vec<PickerRow>, selected: usi
     menu
 }
 
-/// The approval-mode picker.
+/// The approval-mode picker. A mode's meaning wraps instead of truncating:
+/// its caveat ("MCP tools you always allowed in Muse still run") is part
+/// of what the mode means, and one truncated line hid it.
 pub fn mode_menu(id: impl Into<ElementId>, rows: Vec<PickerRow>, selected: usize, open: bool) -> PickerMenu {
     let mut menu = menu(id, "Approval mode", rows, selected, open);
     (menu.width, menu.max_width) = (NARROW_W, NARROW_W);
+    menu.detail_lines = MODE_DETAIL_LINES;
     menu
 }
 
@@ -198,6 +206,7 @@ fn menu(id: impl Into<ElementId>, title: &'static str, rows: Vec<PickerRow>, sel
         max_width: MENU_W_MAX,
         align_end: false,
         force_sub: None,
+        detail_lines: 1,
     }
 }
 
@@ -394,7 +403,7 @@ impl RenderOnce for PickerMenu {
                     })
                 }
             });
-            let mut item = picker_item_placed(row, index == self.selected, &p, place);
+            let mut item = picker_item_placed(row, index == self.selected, &p, place).detail_lines(self.detail_lines);
             if let Some(handler) = self.on_pick.clone() {
                 let row_id = row.id.clone();
                 item = item.on_select(move |w, cx| handler(&row_id, w, cx));
