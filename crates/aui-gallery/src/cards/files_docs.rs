@@ -229,8 +229,6 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let closed: Vec<SharedString> = nodes.iter().filter(|n| n.open == Some(false)).map(|n| n.id.clone()).collect();
     nodes.retain(|n| !closed.iter().any(|dir| n.id.starts_with(&format!("{dir}/"))));
     let tree = file_tree("card54-tree", nodes)
-        .header("acme-web")
-        .footer("worktree checkout-flow-v2 · 2 modified · 1 added")
         .scroll_to(DEEP_ID)
         .on_action(move |action, _, cx| {
             let action = action.clone();
@@ -242,7 +240,6 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                             s.collapsed.insert(id);
                         }
                     }
-                    FileTreeAction::Search | FileTreeAction::Refresh => {}
                 }
                 cx.notify();
             })

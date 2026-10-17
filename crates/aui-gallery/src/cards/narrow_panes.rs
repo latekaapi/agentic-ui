@@ -125,7 +125,7 @@ pub fn build_files(_window: &mut Window, _cx: &mut App) -> AnyElement {
     v_flex()
         .w_full()
         .h(px(560.0))
-        .child(file_tree("x6b-tree", nodes).header("acme-web").footer("worktree checkout-flow-v2 · 2 modified · 1 added").on_action(|_, _, _| {}))
+        .child(file_tree("x6b-tree", nodes).on_action(|_, _, _| {}))
         .into_any_element()
 }
 

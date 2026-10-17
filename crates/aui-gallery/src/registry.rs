@@ -551,6 +551,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::d6_pane::build,
     },
     Entry {
+        id: "workbench/d6-files",
+        group: "Workbench",
+        title: "D6 · Files and preview",
+        subtitle: "Tree rows 28 with fluid hover, keyboard ring, git letters, ignored paths; filter; capped folder; code view with reveal band; Markdown reading; not shown, gone, loading, no project (docs/43 §2.4–2.5)",
+        width: 1300.0,
+        height: 1240.0,
+        theme: CardTheme::Both,
+        build: crate::cards::d6_files::build,
+    },
+    Entry {
         id: "workbench/files-docs",
         group: "Workbench",
         title: "File tree and document panes",

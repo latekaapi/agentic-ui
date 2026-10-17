@@ -495,3 +495,56 @@ impl RenderOnce for PaneStrip {
             }))
     }
 }
+
+/// A focused field's edge (docs/43 §2.4, §2.6): dark lifts the edge's ring to
+/// white 22 % under the top highlight; light draws one black ring at 28 %.
+pub fn focus_edge(cx: &App) -> Vec<gpui::BoxShadow> {
+    let p = cx.aui().colors;
+    let ring = |color: gpui::Hsla| gpui::BoxShadow {
+        color,
+        offset: gpui::point(px(0.0), px(0.0)),
+        blur_radius: px(0.0),
+        spread_radius: px(1.0),
+        inset: true,
+    };
+    if p.is_dark() {
+        vec![
+            gpui::BoxShadow { color: gpui::white().alpha(0.07), offset: gpui::point(px(0.0), px(1.0)), blur_radius: px(0.0), spread_radius: px(0.0), inset: true },
+            ring(gpui::white().alpha(0.22)),
+        ]
+    } else {
+        vec![ring(gpui::black().alpha(0.28))]
+    }
+}
+
+/// Files' filter (docs/43 §2.4): a 32 px Well field under the pane row (inset
+/// 6 above, 8 at the sides, 2 below), the edge (22 % while focused), the
+/// search glyph 14 muted, the query, and `3 of 1,204` in faint mono 12.1 at
+/// the right.
+pub fn filter_field(
+    id: impl Into<ElementId>,
+    state: &gpui::Entity<gpui_kit::base::input::InputState>,
+    count: Option<SharedString>,
+    window: &Window,
+    cx: &App,
+) -> gpui::Div {
+    let p = cx.aui().colors;
+    let id: ElementId = id.into();
+    let focused = gpui::Focusable::focus_handle(state.read(cx), cx).is_focused(window);
+    div().w_full().flex_none().pt(px(6.0)).px(px(8.0)).pb(px(2.0)).child(
+        h_flex()
+            .h(px(32.0))
+            .px(px(10.0))
+            .gap(px(8.0))
+            .items_center()
+            .rounded(px(6.0))
+            .bg(p.well)
+            .shadow(if focused { focus_edge(cx) } else { p.edge() })
+            .font_family(scale::FONT_UI)
+            .text_px(NAME_TEXT)
+            .text_color(p.fg)
+            .child(icon(IconName::Search).size(px(GLYPH)).color(p.fg_muted))
+            .child(crate::a11y_text::a11y_text_input(id, "Filter files", state, cx).flex_1().min_w(px(0.0)))
+            .when_some(count, |d, c| d.child(div().flex_none().font_family(scale::FONT_MONO).text_px(12.1).text_color(p.ink_4).child(c))),
+    )
+}

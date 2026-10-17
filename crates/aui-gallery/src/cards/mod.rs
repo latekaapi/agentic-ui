@@ -61,3 +61,4 @@ pub mod typography;
 pub mod views;
 pub mod webview_live;
 pub mod d6_pane;
+pub mod d6_files;
