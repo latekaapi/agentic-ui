@@ -145,6 +145,8 @@ pub struct WebviewState {
     /// Why the renderer went away, if it did ([`WebEvent::Crashed`]).
     /// Cleared by the next successful navigation.
     crashed: Option<SharedString>,
+    /// The main frame's failed load, if the last one failed ([`WebEvent::LoadFailed`]).
+    load_failed: Option<(SharedString, SharedString)>,
     /// A navigation the backend has been asked for but not reported yet
     /// ([`Self::navigate`], back/forward/reload). The load end that follows
     /// one clears [`Self::crashed`]; a bare `Loading(false)` — the one the
@@ -297,6 +299,7 @@ impl WebviewState {
             security: PageSecurity::Unknown,
             audible: false,
             crashed: None,
+            load_failed: None,
             navigation_pending: false,
             find: None,
             find_stopped: false,
@@ -349,6 +352,18 @@ impl WebviewState {
     /// load end) — what a host's Stop/Reload button follows.
     pub fn loading(&self) -> bool {
         self.loading
+    }
+
+    /// The main frame's failed load — (address, engine reason) — until the
+    /// next load starts.
+    pub fn load_failed(&self) -> Option<(SharedString, SharedString)> {
+        self.load_failed.clone()
+    }
+
+    /// The page's visible rectangle in window coordinates (its last
+    /// layout), for a host that seats an overlay window over the page.
+    pub fn page_rect(&self) -> Option<Bounds<Pixels>> {
+        self.visible_box
     }
 
     /// Whether annotate mode is on.
@@ -948,6 +963,9 @@ impl WebviewState {
                 }
                 WebEvent::Loading(loading) => {
                     self.loading = loading;
+                    if loading {
+                        self.load_failed = None;
+                    }
                     // Only the load end of a navigation we asked for clears
                     // the crash. The crash report itself arrives with a
                     // `Loading(false)` (a dead renderer never finishes), and
@@ -973,6 +991,7 @@ impl WebviewState {
                 WebEvent::Security(security) => self.security = security,
                 WebEvent::Audible(audible) => self.audible = audible,
                 WebEvent::Crashed(reason) => self.crashed = Some(SharedString::from(reason)),
+                WebEvent::LoadFailed { url, reason } => self.load_failed = Some((url.into(), reason.into())),
                 WebEvent::Find(found) => {
                     // Late results from a stopped session never repopulate
                     // the strip; the next `find` call re-opens it.
@@ -1164,7 +1183,7 @@ impl WebviewState {
     }
 
     /// Handles the annotations panel, answering with the intent it raises.
-    fn annotator_action(&mut self, action: AnnotatorAction, cx: &mut Context<Self>) -> Option<WebviewIntent> {
+    pub fn annotator_action(&mut self, action: AnnotatorAction, cx: &mut Context<Self>) -> Option<WebviewIntent> {
         cx.notify();
         match action {
             AnnotatorAction::Close => {
@@ -1176,6 +1195,12 @@ impl WebviewState {
                 self.elements.clear();
                 self.selected = None;
                 self.note = None;
+                // The page's own pins go too (the annotator drops them
+                // when annotate mode cycles).
+                if self.annotate {
+                    self.backend.set_annotate(false);
+                    self.backend.set_annotate(true);
+                }
                 None
             }
             AnnotatorAction::Select(position) => {
@@ -1546,7 +1571,9 @@ impl RenderOnce for WebviewPane {
 
         // D6: the notes collect in a panel 8 in from the page's foot
         // (docs/43 §2.7), over the page.
-        if annotate {
+        // Over a native page the host draws the panel in an overlay window
+        // (the page window sits above everything gpui paints).
+        if annotate && !native {
             let notes: Vec<aui::workbench::PageNote> = annotations
                 .iter()
                 .map(|a| aui::workbench::PageNote { index: a.index, selector: a.selector.clone(), note: a.note.clone() })

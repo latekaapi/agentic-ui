@@ -66,14 +66,14 @@ use crate::backend::{ElementInfo, WebBackend, WebEvent, OUTER_HTML_LIMIT};
 /// draws the outline in (`crates/aui/src/workbench/browser.rs`).
 pub const ANNOTATOR_JS: &str = r#"
 (function () {
-  var state = { on: false, hovered: null, box: null, tag: null };
+  var state = { on: false, hovered: null, box: null, tag: null, pins: [] };
   var LIMIT = 2048;
 
   function ensure() {
     if (state.box) return;
     state.box = document.createElement('div');
     state.box.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;' +
-      'border:1px solid rgba(90,106,255,.6);background:rgba(90,106,255,.06);border-radius:4px;display:none';
+      'border:1.5px solid #3B6DF2;background:rgba(59,109,242,.06);border-radius:4px;box-sizing:border-box;display:none';
     state.tag = document.createElement('div');
     state.tag.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;' +
       'background:#5a6aff;color:#fff;font:500 10px/1 ui-monospace,monospace;' +
@@ -103,7 +103,8 @@ pub const ANNOTATOR_JS: &str = r#"
     state.box.style.top = r.top + 'px';
     state.box.style.width = r.width + 'px';
     state.box.style.height = r.height + 'px';
-    state.tag.style.display = 'block';
+    // D6 (docs/43 §2.7): the outline carries no label.
+    state.tag.style.display = 'none';
     state.tag.style.left = (r.left - 1) + 'px';
     state.tag.style.top = (r.top - 20) + 'px';
     state.tag.textContent = el.tagName.toLowerCase() + ' · ' +
@@ -125,6 +126,7 @@ pub const ANNOTATOR_JS: &str = r#"
     var el = state.hovered || e.target;
     if (!el || !el.getBoundingClientRect) return;
     var r = el.getBoundingClientRect();
+    pin(r);
     var html = (el.outerHTML || '');
     window.ipc.postMessage(JSON.stringify({
       selector: selectorFor(el),
@@ -134,12 +136,31 @@ pub const ANNOTATOR_JS: &str = r#"
     }));
   }, true);
 
+  // D6: a numbered pin at the element's top-right — a 20 px dark disc, 11 /
+  // 600 white, a 2 px white ring — riding with the document as it scrolls.
+  function pin(r) {
+    var p = document.createElement('div');
+    p.textContent = String(state.pins.length + 1);
+    p.style.cssText = 'position:absolute;pointer-events:none;z-index:2147483647;width:20px;height:20px;' +
+      'border-radius:50%;background:#18181B;color:#fff;box-shadow:0 0 0 2px #fff;' +
+      'font:600 11px/20px -apple-system,system-ui,sans-serif;text-align:center;' +
+      'left:' + (r.right + window.scrollX - 10) + 'px;top:' + (r.top + window.scrollY - 10) + 'px';
+    document.documentElement.appendChild(p);
+    state.pins.push(p);
+  }
+
+  function clearPins() {
+    state.pins.forEach(function (p) { p.remove(); });
+    state.pins = [];
+  }
+
   window.__aui = {
     setAnnotate: function (on) {
       state.on = !!on;
       document.documentElement.style.cursor = on ? 'crosshair' : '';
-      if (!on) clear();
-    }
+      if (!on) { clear(); clearPins(); }
+    },
+    clearPins: clearPins
   };
 })();
 "#;

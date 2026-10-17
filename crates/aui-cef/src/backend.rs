@@ -1039,6 +1039,28 @@ wrap_load_handler! {
             s.events.push(WebEvent::Loading(is_loading == 1));
         }
 
+        fn on_load_error(
+            &self,
+            browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            error_code: Errorcode,
+            error_text: Option<&CefString>,
+            failed_url: Option<&CefString>,
+        ) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
+            // Only the main frame's document; an aborted load (a new
+            // navigation replaced it, ERR_ABORTED = -3) is not a failure.
+            let code: i32 = error_code.get_raw() as i32;
+            if code == -3 || !frame.map(|f| f.is_main() == 1).unwrap_or(true) {
+                return;
+            }
+            let url = failed_url.map(|u| u.to_string()).unwrap_or_default();
+            let reason = error_text.map(|t| t.to_string()).unwrap_or_else(|| format!("error {code}"));
+            locked(&self.shared).events.push(WebEvent::LoadFailed { url, reason });
+        }
+
         fn on_load_end(
             &self,
             browser: Option<&mut Browser>,

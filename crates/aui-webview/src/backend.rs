@@ -120,6 +120,16 @@ pub enum WebEvent {
     /// Cleared by the next successful navigation. [`WebBackend::reload`]
     /// recovers the page.
     Crashed(String),
+    /// The main frame's load failed (no answer, refused, unknown host): the
+    /// address and the engine's reason (`net::ERR_CONNECTION_REFUSED`). A
+    /// host draws its own error page over the engine's (D6, docs/43 §2.7).
+    /// Cleared by the next load start.
+    LoadFailed {
+        /// The address that failed.
+        url: String,
+        /// The engine's error text.
+        reason: String,
+    },
     /// A find-in-page result for the query [`WebBackend::find`] started.
     /// `active` is the 1-based match under the cursor (0 while searching).
     Find(FindState),
