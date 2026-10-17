@@ -675,7 +675,11 @@ impl RenderOnce for AppShell {
                             .size_full()
                             .flex()
                             .flex_col()
-                            .child(div().w_full().h(row_h).flex_none().flex().items_center().children(shell.header_right))
+                            // D6: a pane whose screens carry their own rows (the
+                            // strip) passes no header, and its body fills the sheet.
+                            .when(shell.header_right.is_some(), |d| {
+                                d.child(div().w_full().h(row_h).flex_none().flex().items_center().children(shell.header_right))
+                            })
                             .child(div().w_full().flex_1().min_h(px(0.0)).overflow_hidden().children(shell.right)),
                     ),
                 ),

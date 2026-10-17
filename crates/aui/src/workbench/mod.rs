@@ -9,6 +9,7 @@ mod docs;
 mod file_card;
 mod files;
 mod git;
+mod pane;
 mod pdf;
 mod sheet;
 mod terminal;
@@ -33,5 +34,10 @@ pub use docs::{
     flush_paper_layout, heading_text_size, table_layout, TABLE_MIN_COL_W,
 };
 pub use citations::{cited_answer, citation, source_hover_card, sources_card, Citation, CitedAnswer, Source, SourceHoverCard, SourceTier, SourcesCard, ANSWER_MARGIN};
+pub use pane::{
+    pane_action, pane_row, pane_row_fade, pane_strip, pane_toggle, pushed_row, pushed_row_with, secondary_action, skeleton_bar, skeleton_rows,
+    state_block, strip_moving, strip_position, strip_visible, PaneRow, PaneStrip, PushedRow, StateBlock, CONTEXT_MIN_WIDTH, PANE_ROW_FADE,
+    PANE_ROW_H, STRIP_GAP, STRIP_SLIDE,
+};
 pub use pdf::{pdf_pane, PdfAction, PdfControls, PdfPage, PdfPane, PdfRun};
 pub use sheet::{sheet_pane, SheetCell, SheetPane};

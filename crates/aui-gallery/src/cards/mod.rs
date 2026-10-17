@@ -60,3 +60,4 @@ pub mod turns;
 pub mod typography;
 pub mod views;
 pub mod webview_live;
+pub mod d6_pane;

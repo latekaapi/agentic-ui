@@ -94,6 +94,14 @@ impl Spinner {
         self
     }
 
+    /// The pane's 12 px spinner (docs/43 §2.11): a 1.5 px ring at 35 % muted
+    /// with a muted arc.
+    pub fn muted(mut self, cx: &App) -> Self {
+        let p = cx.aui().colors;
+        self.colors = Some((p.fg_muted.alpha(0.35), p.fg_muted));
+        self
+    }
+
     /// FF's loading spinner (button.tsx): the arc in the foreground on a
     /// border-12 % track, one turn every 2 s. Adaptation: FF also breathes
     /// the arc's length (`spinner-dash 4s`); ours keeps a fixed quarter.

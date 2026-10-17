@@ -541,6 +541,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::git_pr::build,
     },
     Entry {
+        id: "workbench/d6-pane",
+        group: "Workbench",
+        title: "D6 · Right pane chrome",
+        subtitle: "Transcript-row toggles drive the screen strip (240 ms slide, swipe), pane row, pushed-view row, state blocks (docs/43 §2.2–2.3)",
+        width: 820.0,
+        height: 440.0,
+        theme: CardTheme::Both,
+        build: crate::cards::d6_pane::build,
+    },
+    Entry {
         id: "workbench/files-docs",
         group: "Workbench",
         title: "File tree and document panes",

@@ -142,6 +142,7 @@ pub struct Button {
     tooltip: bool,
     tooltip_right: Option<gpui::Pixels>,
     menu_open: bool,
+    toggled: Option<bool>,
     on_click: Option<ClickHandler>,
 }
 
@@ -163,6 +164,7 @@ pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Butto
         tooltip: true,
         tooltip_right: None,
         menu_open: false,
+        toggled: None,
         on_click: None,
     }
 }
@@ -296,6 +298,14 @@ impl Button {
         self
     }
 
+    /// A toggle button: `on` holds the selected overlay with the foreground
+    /// glyph (the lit look, docs/43 §2.2) and the button announces itself as
+    /// pressed or not (`aria-pressed`). Meant for ghost buttons.
+    pub fn toggled(mut self, on: bool) -> Self {
+        self.toggled = Some(on);
+        self
+    }
+
     /// Click handler.
     pub fn on_click(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Box::new(f));
@@ -383,10 +393,11 @@ impl RenderOnce for Button {
         // Colours tween on the fast tier (FF: background 80 ms). The press is
         // FF's: the surface shrinks exactly 1 px per side — fast in, a slower
         // release (FF 80 ms / 180 ms) — never a scale.
-        let target = if pressed { look.bg_pressed } else if hovered { look.bg_hover } else { look.bg };
+        let lit = self.toggled == Some(true);
+        let target = if pressed { look.bg_pressed } else if lit { p.selected_overlay() } else if hovered { look.bg_hover } else { look.bg };
         let bg = tween((id.clone(), "bg"), target, Tween::FAST, window, cx);
         let border = look.border;
-        let text = tween((id.clone(), "text"), if hovered || pressed { look.text_hover } else { look.text }, Tween::FAST, window, cx);
+        let text = tween((id.clone(), "text"), if hovered || pressed || lit { look.text_hover } else { look.text }, Tween::FAST, window, cx);
         let press = spring_phase((id.clone(), "press"), pressed, if pressed { SpringKind::Fast } else { SpringKind::Moderate }, window, cx).clamp(0.0, 1.0);
         let inset = px(1.0) * press;
 
@@ -484,6 +495,9 @@ impl RenderOnce for Button {
         }
         if let Some(label) = effective {
             outer = outer.role(gpui::Role::Button).aria_label(label);
+        }
+        if let Some(on) = self.toggled {
+            outer = outer.aria_toggled(if on { gpui::Toggled::True } else { gpui::Toggled::False });
         }
         outer
     }
