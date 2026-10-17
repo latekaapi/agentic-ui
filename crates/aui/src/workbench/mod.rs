@@ -11,6 +11,7 @@ mod docs;
 mod file_card;
 mod files;
 mod git;
+mod page;
 mod pane;
 mod pdf;
 mod sheet;
@@ -42,6 +43,10 @@ pub use changes::{
     DiffBody, PrState, CHANGE_FOLDER_MIN_WIDTH,
 };
 pub use code_view::{code_skeleton, code_view, markdown_view, reveal_top_row, CodeView, REVEAL_LEAD_LINES};
+pub use page::{
+    address_field_frame, address_frame, agent_pill, annotate_outline, annotate_pin, no_page_state, notes_panel, page_address, page_error_state,
+    page_nav_row, split_url, PageNavAction, PageNote, PAGE_NAV_H, PAGE_NAV_NARROW,
+};
 pub use pane::{
     pane_action, pane_row, pane_row_fade, pane_strip, pane_toggle, pushed_row, pushed_row_with, secondary_action, skeleton_bar, skeleton_rows,
     state_block, strip_moving, strip_position, strip_visible, filter_field, focus_edge, PaneRow, PaneStrip, PushedRow, StateBlock, CONTEXT_MIN_WIDTH, PANE_ROW_FADE,

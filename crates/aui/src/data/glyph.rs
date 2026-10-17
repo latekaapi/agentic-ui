@@ -94,6 +94,12 @@ impl Spinner {
         self
     }
 
+    /// Explicit track and arc colours (the page's pill stays dark in light).
+    pub fn colors(mut self, track: Hsla, arc: Hsla) -> Self {
+        self.colors = Some((track, arc));
+        self
+    }
+
     /// The pane's 12 px spinner (docs/43 §2.11): a 1.5 px ring at 35 % muted
     /// with a muted arc.
     pub fn muted(mut self, cx: &App) -> Self {

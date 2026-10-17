@@ -12,18 +12,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use aui::a11y_text::a11y_text_input;
-use aui::data::{icon_button, kbd, record_ax_label, ButtonSize};
-use aui::util::{interaction_flags, TrackInteraction};
-use aui::workbench::{annotations_panel, element_outline, note_popover, Annotation, AnnotatorAction, BrowserAction, NoteAction};
-use aui_icons::{icon, IconName};
-use aui_motion::{tween, Tween};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
-use gpui::{actions, canvas, div, img, prelude::*, px, relative, App, Bounds, Context, ElementId, Entity, FocusHandle, Focusable as _, Global, Image, ImageFormat, IntoElement, KeyBinding, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, Role, SharedString, Size, Subscription, Task, Window};
+use aui::data::record_ax_label;
+use aui::workbench::{note_popover, Annotation, AnnotatorAction, BrowserAction, NoteAction};
+use aui_tokens::ActiveAui;
+use gpui::{actions, canvas, div, img, prelude::*, px, App, Bounds, Context, ElementId, Entity, FocusHandle, Focusable as _, Global, Image, ImageFormat, IntoElement, KeyBinding, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, SharedString, Size, Subscription, Task, Window};
 use gpui_kit::base::input::{Escape as InputEscape, InputEvent, InputState};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::backend::{BackendFeature, DownloadState, ElementInfo, FindState, PageSecurity, PermissionDecision, PermissionRequest, WebBackend, WebEvent};
-use crate::page::{page_body, pin_at};
+use crate::page::page_body;
 
 /// How often the pane drains its backend. Fast enough that a title or a pin
 /// lands within a frame or two, slow enough to cost nothing while idle.
@@ -89,6 +86,8 @@ pub enum WebviewIntent {
     FocusUrl,
     /// Show the page's console.
     Console,
+    /// Open the page in Browse (D6's nav row).
+    OpenInBrowse,
     /// The person asked for a screenshot.
     Screenshot,
     /// Annotate mode was turned on or off.
@@ -1285,12 +1284,13 @@ pub struct WebviewPane {
     state: Entity<WebviewState>,
     on_intent: Option<IntentHandler>,
     nav: bool,
+    agent: SharedString,
 }
 
 /// The pane for `state`: the nav row, the page with the annotator's overlays,
 /// and — only while annotate mode is on — the annotations panel.
 pub fn webview_pane(id: impl Into<ElementId>, state: &Entity<WebviewState>) -> WebviewPane {
-    WebviewPane { id: id.into(), state: state.clone(), on_intent: None, nav: true }
+    WebviewPane { id: id.into(), state: state.clone(), on_intent: None, nav: true, agent: "the agent".into() }
 }
 
 impl WebviewPane {
@@ -1298,6 +1298,12 @@ impl WebviewPane {
     /// the page (Baaz's Browse mode). The page fills the pane.
     pub fn without_nav(mut self) -> Self {
         self.nav = false;
+        self
+    }
+
+    /// The agent the notes go to ("Send 2 to Muse").
+    pub fn agent(mut self, name: impl Into<SharedString>) -> Self {
+        self.agent = name.into();
         self
     }
 
@@ -1332,10 +1338,6 @@ impl RenderOnce for WebviewPane {
         // Only a picture taken for this cover stands in; an older one would
         // show the page at another scroll position or with stale content.
         let stand_in = if is_blank_url(&view.url) || !view.stand_in_fresh { None } else { view.screenshot_image.clone() };
-        // Below [`COMPACT_PANE_WIDTH`] the full nav row starves the URL
-        // field, so the keycap and the annotate label get out of its way.
-        let compact =
-            f32::from(view.page_size.width) > 0.0 && f32::from(view.page_size.width) < COMPACT_PANE_WIDTH;
         let nav_handler: NavHandler = {
             let state = state.clone();
             let handler = handler.clone();
@@ -1357,21 +1359,60 @@ impl RenderOnce for WebviewPane {
                 state.update(cx, |state, cx| state.leave_editing(cx));
             })
         };
-        let nav = nav_row(
-            (id.clone(), "nav").into(),
-            view.url.clone(),
-            view.address.clone(),
-            view.editing,
-            view.backend.can_go_back(),
-            view.backend.can_go_forward(),
-            if view.loading { 1.0 } else { 0.0 },
-            annotate,
-            compact,
-            Some(nav_handler),
-            Some(dismiss.clone()),
-            _window,
-            cx,
-        );
+        // D6's 36 px nav row (docs/43 §2.7): the address at rest or the
+        // editing input in the same Well frame.
+        let address: gpui::AnyElement = match (view.editing, view.address.clone()) {
+            (true, Some(input)) => aui::workbench::address_frame((id.clone(), "url"), cx)
+                .debug_selector(|| "address-box".into())
+                .on_mouse_down_out({
+                    let dismiss = dismiss.clone();
+                    move |_, _, cx| dismiss(cx)
+                })
+                .child(a11y_text_input((id.clone(), "address"), "Address", &input, cx).flex_1().min_w(px(0.0)).debug_selector(|| "address-slot".into()))
+                .into_any_element(),
+            _ => {
+                record_ax_label("Address");
+                let nav_handler = nav_handler.clone();
+                aui::workbench::page_address((id.clone(), "url"), &view.url, cx)
+                    .debug_selector(|| "address-display".into())
+                    .on_click(move |_, window, cx| nav_handler(BrowserAction::FocusUrl, window, cx))
+                    .into_any_element()
+            }
+        };
+        let nav = {
+            let nav_handler = nav_handler.clone();
+            let handler = handler.clone();
+            aui::workbench::page_nav_row(
+                (id.clone(), "nav"),
+                address,
+                view.backend.can_go_back(),
+                view.backend.can_go_forward(),
+                annotate,
+                f32::from(view.page_size.width),
+                view.loading.then_some(0.6),
+                move |action, window, cx| {
+                    use aui::workbench::PageNavAction as A;
+                    let mapped = match action {
+                        A::Back => Some(BrowserAction::Back),
+                        A::Forward => Some(BrowserAction::Forward),
+                        A::Reload => Some(BrowserAction::Reload),
+                        A::FocusAddress => Some(BrowserAction::FocusUrl),
+                        A::Annotate => Some(BrowserAction::ToggleAnnotate),
+                        A::Screenshot => Some(BrowserAction::Screenshot),
+                        A::OpenInBrowse => None,
+                    };
+                    match mapped {
+                        Some(a) => nav_handler(a, window, cx),
+                        None => {
+                            if let Some(h) = handler.clone() {
+                                h(WebviewIntent::OpenInBrowse, window, cx);
+                            }
+                        }
+                    }
+                },
+                cx,
+            )
+        };
 
         // The page area records its own box during prepaint, so a pointer
         // position can be turned into page coordinates without the state
@@ -1464,7 +1505,7 @@ impl RenderOnce for WebviewPane {
                         .absolute()
                         .left(px(info.origin.0))
                         .top(px(info.origin.1))
-                        .child(element_outline(info.outline_label()).size(px(info.size.0), px(info.size.1))),
+                        .child(aui::workbench::annotate_outline(info.size.0, info.size.1)),
                 );
             }
         }
@@ -1478,10 +1519,12 @@ impl RenderOnce for WebviewPane {
                         .absolute()
                         .left(px(info.origin.0))
                         .top(px(info.origin.1))
-                        .child(element_outline(info.selector.clone()).selected(true).size(px(info.size.0), px(info.size.1))),
+                        .child(aui::workbench::annotate_outline(info.size.0, info.size.1)),
                 );
             }
-            page = page.child(pin_at((info.origin.0 + info.size.0, info.origin.1), annotation.index, is_selected));
+            // D6: the pin's centre sits on the element's top-right corner.
+            let _ = is_selected;
+            page = page.child(div().absolute().left(px(info.origin.0 + info.size.0 - 12.0)).top(px(info.origin.1 - 12.0)).child(aui::workbench::annotate_pin(annotation.index)));
         }
 
         // The note popover sits inside the page area, clear of the pin.
@@ -1501,21 +1544,35 @@ impl RenderOnce for WebviewPane {
             );
         }
 
-        let panel = annotate.then(|| {
-            annotations_panel((id.clone(), "panel"), annotations.clone())
-                .selected(selected)
-                .screenshot(preview)
-                .on_action({
-                    let state = state.clone();
-                    let handler = handler.clone();
-                    move |action, window, cx| {
-                        let intent = state.update(cx, |state, cx| state.annotator_action(action, cx));
-                        if let (Some(intent), Some(handler)) = (intent, handler.clone()) {
-                            handler(intent, window, cx);
-                        }
+        // D6: the notes collect in a panel 8 in from the page's foot
+        // (docs/43 §2.7), over the page.
+        if annotate {
+            let notes: Vec<aui::workbench::PageNote> = annotations
+                .iter()
+                .map(|a| aui::workbench::PageNote { index: a.index, selector: a.selector.clone(), note: a.note.clone() })
+                .collect();
+            let act = |action: AnnotatorAction| -> NotesClick {
+                let state = state.clone();
+                let handler = handler.clone();
+                std::rc::Rc::new(move |_, window, cx| {
+                    let intent = state.update(cx, |state, cx| state.annotator_action(action, cx));
+                    if let (Some(intent), Some(handler)) = (intent, handler.clone()) {
+                        handler(intent, window, cx);
                     }
                 })
-        });
+            };
+            page = page.child(
+                div().absolute().left(px(8.0)).right(px(8.0)).bottom(px(8.0)).child(aui::workbench::notes_panel(
+                    (id.clone(), "notes"),
+                    &notes,
+                    &self.agent,
+                    Some(act(AnnotatorAction::Clear)),
+                    Some(act(AnnotatorAction::Send)),
+                    cx,
+                )),
+            );
+        }
+        let _ = preview;
 
         v_flex()
             .track_focus(&focus)
@@ -1551,228 +1608,15 @@ impl RenderOnce for WebviewPane {
             .min_h(px(0.0))
             .bg(p.surface_1)
             .when(show_nav, |pane| pane.child(nav))
-            .child(h_flex().flex_1().w_full().min_h(px(0.0)).items_stretch().child(page).children(panel))
+            .child(h_flex().flex_1().w_full().min_h(px(0.0)).items_stretch().child(page))
     }
 }
 
-/// The nav band: 38 px row, 4 px gap, 8 px side padding.
-const NAV_HEIGHT: f32 = 38.0;
-const NAV_GAP: f32 = 4.0;
-const NAV_PAD_X: f32 = 8.0;
-/// The URL slot: 28 px, 10 px side padding, 8 px gap, 11 px shield.
-const URL_HEIGHT: f32 = 28.0;
-const URL_PAD_X: f32 = 10.0;
-const URL_GAP: f32 = 8.0;
-const URL_SHIELD: f32 = 11.0;
-/// The annotate toggle: 28 px, 10 px side padding, 6 px gap, 12 px glyph.
-const MODE_HEIGHT: f32 = 28.0;
-const MODE_PAD_X: f32 = 10.0;
-const MODE_GAP: f32 = 6.0;
-const MODE_GLYPH: f32 = 12.0;
-/// The `esc` cap inside the filled toggle over the ink ground.
-const MODE_KBD_BORDER_ALPHA: f32 = 0.3;
-/// `.kbd{height:18px;padding:0 5px}` — the toggle draws its own, untinted.
-const KBD_HEIGHT: f32 = 18.0;
-const KBD_PAD_X: f32 = 5.0;
-/// The loading hairline at the bottom of the nav row: 2 px accent.
-const LOADING_HEIGHT: f32 = 2.0;
-/// Below this pane width the nav row compacts: the `⌘L` keycap beside the
-/// URL and the annotate label give their room to the address slot. 24 URL
-/// characters at 12 px mono need ~175 px, plus ~40 px of slot chrome and
-/// ~210 px of nav buttons and padding — so below ~480 px the keycap goes
-/// and the host/path stays readable.
-const COMPACT_PANE_WIDTH: f32 = 480.0;
+/// A click on the notes panel's Clear or Send.
+type NotesClick = std::rc::Rc<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
 
 /// Called with the [`BrowserAction`] a nav control stands for.
 type NavHandler = Rc<dyn Fn(BrowserAction, &mut Window, &mut App)>;
-
-/// Ends address editing when a press lands outside the field.
-type DismissFn = Rc<dyn Fn(&mut App)>;
-
-/// The 38 px nav row: history controls, the address slot, the annotate
-/// toggle, screenshot and console. Every control names itself for the
-/// accessibility tree — icon-only buttons through explicit labels, the
-/// address slot through "Address".
-///
-/// `dismiss` ends an open address edit without navigating; the editing slot
-/// calls it on a press outside the input (focus alone cannot do this: a
-/// focus move between two painted elements changes no focus path, so no
-/// focus event — and no input blur — ever fires for it).
-#[allow(clippy::too_many_arguments)]
-fn nav_row(
-    id: ElementId,
-    url: SharedString,
-    address: Option<Entity<InputState>>,
-    editing: bool,
-    can_go_back: bool,
-    can_go_forward: bool,
-    loading: f32,
-    annotating: bool,
-    compact: bool,
-    handler: Option<NavHandler>,
-    dismiss: Option<DismissFn>,
-    window: &mut Window,
-    cx: &mut App,
-) -> impl IntoElement {
-    let p = cx.aui().colors;
-    let nav_button = |key: &'static str, glyph: IconName, label: &'static str, action: BrowserAction, disabled: bool| {
-        let handler = handler.clone();
-        let mut b = icon_button((id.clone(), key), glyph)
-            .ghost()
-            .size(ButtonSize::Sm)
-            .disabled(disabled)
-            .accessibility_label(label);
-        if let Some(handler) = handler {
-            b = b.on_click(move |_, window, cx| handler(action, window, cx));
-        }
-        b
-    };
-
-    // The address slot. While editing it is the real single-line input
-    // (role + "Address" label come from `a11y_text_input`); otherwise the
-    // page URL, clickable to start editing.
-    let url_id: ElementId = (id.clone(), "url").into();
-    let url_field = match (editing, address) {
-        // The wrapper fills the slot on the main axis: without flex it is
-        // an auto-width flex item around a full-width input, which collapses
-        // to zero width and the field paints empty. The slot's mono/ink text
-        // style inherits into the input, so the URL, selection and caret
-        // draw in the field's font and colour.
-        (true, Some(input)) => h_flex()
-            .id(url_id)
-            .flex_1()
-            .min_w(px(0.0))
-            .h(px(URL_HEIGHT))
-            .px(px(URL_PAD_X))
-            .rounded(px(scale::R_SM))
-            .bg(p.surface_2)
-            .mono(scale::FS_12)
-            .text_color(p.ink_2)
-            .items_center()
-            .debug_selector(|| "address-box".into())
-            // The whole slot — padding included — is the field: only a press
-            // outside the rounded box ends editing.
-            .when_some(dismiss.clone(), |slot, dismiss| {
-                slot.on_mouse_down_out(move |_, _, cx| dismiss(cx))
-            })
-            .child(
-                a11y_text_input((id.clone(), "address"), "Address", &input, cx)
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .debug_selector(|| "address-slot".into()),
-            )
-            .into_any_element(),
-        _ => {
-            record_ax_label("Address");
-            let mut field = h_flex()
-                .id(url_id)
-                .flex_1()
-                .min_w(px(0.0))
-                .h(px(URL_HEIGHT))
-                .px(px(URL_PAD_X))
-                .gap(px(URL_GAP))
-                .rounded(px(scale::R_SM))
-                .debug_selector(|| "address-display".into())
-                .bg(p.surface_2)
-                .mono(scale::FS_12)
-                .text_color(p.ink_2)
-                .cursor_pointer()
-                .role(Role::Button)
-                .aria_label("Address")
-                .child(icon(IconName::Shield).size(px(URL_SHIELD)).color(p.success))
-                .child(div().flex_1().min_w(px(0.0)).truncate().child(url))
-                .when(!compact, |d| {
-                    record_ax_label("⌘L");
-                    d.child(kbd("⌘L"))
-                });
-            if let Some(handler) = handler.clone() {
-                field = field.on_click(move |_, window, cx| handler(BrowserAction::FocusUrl, window, cx));
-            }
-            field.into_any_element()
-        }
-    };
-
-    // The row wraps below ~300 px instead of clipping its trailing
-    // controls; one line still measures exactly as before.
-    h_flex()
-        .relative()
-        .w_full()
-        .min_h(px(NAV_HEIGHT))
-        .flex_none()
-        .flex_wrap()
-        .px(px(NAV_PAD_X))
-        .gap(px(NAV_GAP))
-        .border_b_1()
-        .border_color(p.line)
-        .child(nav_button("back", IconName::ArrowLeft, "Back", BrowserAction::Back, !can_go_back))
-        .child(nav_button("forward", IconName::ArrowRight, "Forward", BrowserAction::Forward, !can_go_forward))
-        .child(nav_button("reload", IconName::Refresh, "Reload", BrowserAction::Reload, false))
-        .child(url_field)
-        .child(annotate_toggle((id.clone(), "annotate"), annotating, compact, handler.clone(), window, cx))
-        .child(nav_button("screenshot", IconName::Camera, "Screenshot", BrowserAction::Screenshot, false))
-        .child(nav_button("console", IconName::Terminal, "Terminal", BrowserAction::Console, false))
-        .when(loading > 0.0, |d| {
-            d.child(div().absolute().left_0().bottom_0().w(relative(loading)).h(px(LOADING_HEIGHT)).bg(p.accent))
-        })
-}
-
-/// The annotate toggle: ink-filled while annotating, the secondary control
-/// look when off. Carries the Button role and the "Annotate" name.
-fn annotate_toggle(id: impl Into<ElementId>, on: bool, compact: bool, handler: Option<NavHandler>, window: &mut Window, cx: &mut App) -> impl IntoElement {
-    let p = cx.aui().colors;
-    let id: ElementId = id.into();
-    let (state, flags) = interaction_flags(id.clone(), window, cx);
-    let (ground, edge, text) = match (on, flags.hovered) {
-        (true, false) => (p.ink, p.ink, p.bg),
-        (true, true) => (p.ink_2, p.ink_2, p.bg),
-        (false, false) => (p.surface_2, p.line_strong, p.ink),
-        (false, true) => (p.surface_3, p.ink_4, p.ink),
-    };
-    let ground = tween((id.clone(), "bg"), ground, Tween::FAST, window, cx);
-    let edge = tween((id.clone(), "border"), edge, Tween::FAST, window, cx);
-    let text = tween((id.clone(), "text"), text, Tween::FAST, window, cx);
-
-    record_ax_label("Annotate");
-    let mut toggle = h_flex()
-        .id(id)
-        .flex_none()
-        .h(px(MODE_HEIGHT))
-        .px(px(MODE_PAD_X))
-        .gap(px(MODE_GAP))
-        .rounded(px(scale::R_SM))
-        .border_1()
-        .border_color(edge)
-        .bg(ground)
-        .text_color(text)
-        .ui(scale::FS_12)
-        .medium()
-        .whitespace_nowrap()
-        .cursor_pointer()
-        .track_interaction(&state)
-        .role(Role::Button)
-        .aria_label("Annotate")
-        .child(icon(IconName::Edit).size(px(MODE_GLYPH)).color(text))
-        .when(!compact, |d| d.child("Annotate"))
-        .when(on, |d| {
-            d.child(
-                h_flex()
-                    .flex_none()
-                    .h(px(KBD_HEIGHT))
-                    .px(px(KBD_PAD_X))
-                    .rounded(px(scale::R_XS))
-                    .border_1()
-                    .border_color(gpui::white().alpha(MODE_KBD_BORDER_ALPHA))
-                    .font_family(scale::FONT_MONO)
-                    .text_px(scale::FS_11)
-                    .line_height(relative(1.0))
-                    .child("esc"),
-            )
-        });
-    if let Some(handler) = handler {
-        toggle = toggle.on_click(move |_, window, cx| handler(BrowserAction::ToggleAnnotate, window, cx));
-    }
-    toggle
-}
 
 /// Whether `url` is a page with no content of its own: before the first
 /// load (empty) or `about:blank`.
@@ -2577,7 +2421,7 @@ mod tests {
     /// L4: a settled 360 px pane drops the `⌘L` keycap so the host/path keeps
     /// room; a settled 500 px pane keeps it (~24 URL characters still fit).
     #[gpui::test]
-    fn narrow_pane_hides_the_address_keycap(cx: &mut TestAppContext) {
+    fn narrow_pane_drops_back_and_forward(cx: &mut TestAppContext) {
         cx.update(|cx| aui::init(aui_tokens::ThemeKind::Dark, cx));
         aui::data::arm_ax_probe(true);
         aui::data::take_ax_labels();
@@ -2600,7 +2444,7 @@ mod tests {
             let _ = window.draw(cx);
         });
         let narrow_first = aui::data::take_ax_labels();
-        assert!(!narrow_first.iter().any(|label| label == "⌘L"), "no ⌘L keycap at 360 px, got {narrow_first:?}");
+        assert!(narrow_first.iter().any(|label| label == "Back"), "back stays at 360 px, got {narrow_first:?}");
         vcx.simulate_resize(gpui::size(gpui::px(500.), gpui::px(600.)));
         aui::data::take_ax_labels();
         vcx.update(|window, cx| {
@@ -2611,8 +2455,8 @@ mod tests {
             let _ = window.draw(cx);
         });
         let medium = aui::data::take_ax_labels();
-        assert!(medium.iter().any(|label| label == "⌘L"), "⌘L keycap stays at 500 px, got {medium:?}");
-        vcx.simulate_resize(gpui::size(gpui::px(360.), gpui::px(600.)));
+        assert!(medium.iter().any(|label| label == "Forward"), "forward stays at 500 px, got {medium:?}");
+        vcx.simulate_resize(gpui::size(gpui::px(280.), gpui::px(600.)));
         aui::data::take_ax_labels();
         vcx.update(|window, cx| {
             let _ = window.draw(cx);
@@ -2622,7 +2466,7 @@ mod tests {
             let _ = window.draw(cx);
         });
         let narrow = aui::data::take_ax_labels();
-        assert!(!narrow.iter().any(|label| label == "⌘L"), "no ⌘L keycap at 360 px, got {narrow:?}");
+        assert!(!narrow.iter().any(|label| label == "Back" || label == "Forward"), "back / forward leave under 300 px (docs/43 §2.7), got {narrow:?}");
         aui::data::arm_ax_probe(false);
     }
 
@@ -2638,7 +2482,7 @@ mod tests {
         with_pane(cx, |_state, _vcx| {});
         let labels = aui::data::take_ax_labels();
         aui::data::arm_ax_probe(false);
-        for want in ["Back", "Forward", "Reload", "Address", "Annotate", "Screenshot", "Terminal"] {
+        for want in ["Back", "Forward", "Reload", "Address", "Annotate", "Screenshot to the composer", "Open in Browse"] {
             assert!(labels.iter().any(|label| label == want), "missing AX label {want:?} in {labels:?}");
         }
         assert!(!labels.iter().any(String::is_empty), "an empty label is an unnamed control in {labels:?}");

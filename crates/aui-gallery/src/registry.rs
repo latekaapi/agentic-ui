@@ -571,6 +571,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::d6_changes::build,
     },
     Entry {
+        id: "workbench/d6-page",
+        group: "Workbench",
+        title: "D6 · Page",
+        subtitle: "The session's one page: 36 px nav row, the agent pill, annotating (outline, pins, notes panel), loading, no page yet, couldn't load, narrow (docs/43 §2.7)",
+        width: 1300.0,
+        height: 1160.0,
+        theme: CardTheme::Both,
+        build: crate::cards::d6_page::build,
+    },
+    Entry {
         id: "workbench/files-docs",
         group: "Workbench",
         title: "File tree and document panes",
