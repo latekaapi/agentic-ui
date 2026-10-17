@@ -591,6 +591,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::d6_views::build,
     },
     Entry {
+        id: "transcript/d6-quote",
+        group: "Transcript",
+        title: "Quote flow",
+        subtitle: "The selection bar, quote blocks in the composer (prose, code), the sent bubble's quote at the shipped scale (docs/43 §0)",
+        width: 820.0,
+        height: 760.0,
+        theme: CardTheme::Both,
+        build: crate::cards::d6_quote::build,
+    },
+    Entry {
         id: "workbench/files-docs",
         group: "Workbench",
         title: "File tree and document panes",

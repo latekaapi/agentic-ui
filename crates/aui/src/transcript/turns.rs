@@ -491,8 +491,34 @@ fn file_chip(p: &Palette, id: ElementId, attachment: &Attachment) -> gpui::State
     chip
 }
 
-/// The quote block at the top of a bubble.
-fn quote_block(p: &Palette, id: ElementId, words: &str, source: Option<String>, on_quote: Option<QuoteHandler>) -> impl IntoElement {
+/// A quote attachment's code language: `meta` = `code` or `code:<lang>`
+/// marks a code quote (the quote flow, docs/43 §0); `None` is prose.
+pub fn quote_code(a: &Attachment) -> Option<&str> {
+    let meta = a.meta.as_deref()?;
+    if meta == "code" {
+        Some("")
+    } else {
+        meta.strip_prefix("code:")
+    }
+}
+
+/// The quote block at the top of a bubble (docs/43 §0, at the shipped
+/// scale): a 2 px rule at 18 %, the words 14.3 / 22 muted clamped to 3
+/// lines, "from the reply above" faint 12.1 (−4 above, 8 below). A code
+/// quote (`code` = its language, or "" when unknown) is mono 12.65 / 20,
+/// 4 lines, "from the reply above · rust". A click scrolls to the source.
+fn quote_block(p: &Palette, id: ElementId, words: &str, code: Option<&str>, source: Option<String>, on_quote: Option<QuoteHandler>) -> impl IntoElement {
+    let code_ink: gpui::Hsla = if p.is_dark() { gpui::rgb(0xC9C9D0).into() } else { p.fg_muted };
+    let text = match code {
+        Some(_) => div().font_family(scale::FONT_MONO).text_px(12.65).line_height(px(20.0)).text_color(code_ink).whitespace_nowrap().overflow_hidden().line_clamp(4).max_h(px(80.0)),
+        None => div().font_family(scale::FONT_UI).text_px(14.3).line_height(px(22.0)).text_color(p.fg_muted).line_clamp(3).max_h(px(66.0)).overflow_hidden(),
+    };
+    let source_line = match code.filter(|l| !l.is_empty()) {
+        Some(lang) => format!("from the reply above · {lang}"),
+        None => "from the reply above".to_string(),
+    };
+    // The canvas: the quote 1 / 0 / 1 / 12 with 8 below it; the source line
+    // pulled up 4 (so 4 below the quote), 14 in, 8 above the person's words.
     let mut block = v_flex()
         .id(id)
         .w_full()
@@ -500,15 +526,13 @@ fn quote_block(p: &Palette, id: ElementId, words: &str, source: Option<String>, 
         .child(
             div()
                 .w_full()
+                .py(px(1.0))
                 .border_l(px(QUOTE_RULE))
-                .border_color(gpui::white().alpha(QUOTE_RULE_ALPHA))
+                .border_color(p.fg.alpha(QUOTE_RULE_ALPHA))
                 .pl(px(QUOTE_PAD_L))
-                .ui(scale::FS_12)
-                .text_color(p.ink_2)
-                .line_clamp(3)
-                .child(words.to_owned()),
+                .child(text.child(words.to_owned())),
         )
-        .child(div().pl(px(QUOTE_PAD_L + QUOTE_RULE)).mt(px(4.0)).ui(scale::FS_11).text_color(p.ink_4).child("from the reply above"));
+        .child(div().pl(px(QUOTE_PAD_L + QUOTE_RULE)).mt(px(4.0)).font_family(scale::FONT_UI).text_px(12.1).line_height(px(16.0)).text_color(p.ink_4).child(source_line));
     if let (Some(source), Some(on_quote)) = (source, on_quote) {
         crate::data::record_ax_label("Show the quoted reply");
         block = block
@@ -659,7 +683,7 @@ impl RenderOnce for UserTurn {
             .ui(BUBBLE_TEXT)
             .text_color(p.ink);
         for (index, quote) in quotes {
-            bubble = bubble.child(quote_block(&p, (id.clone(), SharedString::from(format!("quote-{index}"))).into(), &quote.name, quote.quote_of.clone(), self.on_quote.clone()));
+            bubble = bubble.child(quote_block(&p, (id.clone(), SharedString::from(format!("quote-{index}"))).into(), &quote.name, quote_code(quote), quote.quote_of.clone(), self.on_quote.clone()));
         }
         if let Some(batch) = &self.annotations {
             // An annotation batch is wide: the bubble takes the column.

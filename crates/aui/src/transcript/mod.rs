@@ -30,6 +30,7 @@ mod tool_group;
 mod turn_fold;
 mod prose;
 mod quiet_row;
+mod quote_bar;
 mod turns;
 
 pub use crate::data::{arm_ax_probe, record_ax_label, take_ax_labels};
@@ -41,7 +42,8 @@ pub use prose::{caret_top_in_line, caret_visible, prose, ProseStyle, CARET_BASEL
 pub use markdown::{last_block_runs, markdown, markdown_fences, markdown_fences_settled, markdown_selected_text, markdown_selected_text_settled, markdown_span_selected_text, message_select_all, message_select_all_settled, message_selected_text, message_selected_text_settled, parse_markdown, parse_markdown_settled, parsed_markdown, span_runs, Block, Block as MarkdownBlock, LinkHandler, LinkRange, LinkTarget, Markdown, MarkdownFence, Span, Span as MarkdownSpan, TableAlign};
 pub use selectable::{selectable_text, MessageSelection, SelectableText, SelectionEndpoint, SelectionHandler, SelectionKey, SpanEvent, SpanHandler, SpanSession, TextSelection};
 pub use marker::{marker_row, HandOff, MarkerRow};
-pub use turns::{assistant_turn, file_meta, footer_items, format_age, is_video, AnnotationBatch, AnnotationNote, turn_selected_text, turn_selected_text_settled, turn_span_selected_text, turn_span_selected_text_settled, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction, COPY_HOLD};
+pub use quote_bar::{quote_bar, quote_bar_top, QUOTE_BAR_GAP, QUOTE_BAR_H, QUOTE_BAR_TOP_CLEARANCE};
+pub use turns::{assistant_turn, quote_code, file_meta, footer_items, format_age, is_video, AnnotationBatch, AnnotationNote, turn_selected_text, turn_selected_text_settled, turn_span_selected_text, turn_span_selected_text_settled, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction, COPY_HOLD};
 pub use ansi::{ansi_runs, parse_ansi, AnsiSpan};
 pub use tool_card::{
     arm_chip_probe, format_duration, mcp_visible_text, search_capped_snippet, search_visible_hits,

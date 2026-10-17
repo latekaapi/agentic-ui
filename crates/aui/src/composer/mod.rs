@@ -12,7 +12,7 @@ mod menus;
 mod pickers;
 mod queue;
 
-pub use composer::{composer, composer_state, composer_state_rows, provider_display_name, Composer, ComposerChip, ComposerChipAnchor, ComposerChipKind, ComposerChipState, ComposerIntent, ComposerMeta};
+pub use composer::{composer, composer_state, composer_state_rows, provider_display_name, Composer, ComposerChip, ComposerChipAnchor, ComposerChipKind, ComposerChipState, ComposerIntent, ComposerMeta, ComposerQuote};
 pub use attachments::{drop_overlay, DropOverlay};
 pub use menu::{plus_menu, PlusMenu, PlusMenuItem};
 pub use menus::{command_menu, mention_picker, CommandItem, CommandMenu, CommandSection, MentionIcon, MentionItem, MentionPicker, MentionSection};

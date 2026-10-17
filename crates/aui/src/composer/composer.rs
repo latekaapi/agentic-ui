@@ -244,6 +244,7 @@ pub struct Composer {
     id: ElementId,
     state: Entity<TextareaState>,
     chips: Vec<ComposerChip>,
+    quotes: Vec<ComposerQuote>,
     provider: Provider,
     model: SharedString,
     mode: SharedString,
@@ -287,6 +288,7 @@ pub fn composer(id: impl Into<ElementId>, state: &Entity<TextareaState>, provide
         id: id.into(),
         state: state.clone(),
         chips: Vec::new(),
+        quotes: Vec::new(),
         provider,
         model: model.into(),
         mode: "Plan".into(),
@@ -310,6 +312,13 @@ pub fn composer(id: impl Into<ElementId>, state: &Entity<TextareaState>, provide
 }
 
 impl Composer {
+    /// Quote blocks inside the field, above the text, 8 apart in the order
+    /// they were added (the quote flow, docs/43 §0).
+    pub fn quotes(mut self, quotes: Vec<ComposerQuote>) -> Self {
+        self.quotes = quotes;
+        self
+    }
+
     /// Context chips above the text.
     pub fn chips(mut self, chips: Vec<ComposerChip>) -> Self {
         self.chips = chips;
@@ -443,6 +452,89 @@ impl Composer {
         self.on_intent = Some(std::rc::Rc::new(f));
         self
     }
+}
+
+/// A quote waiting in the composer (the quote flow, docs/43 §0): the
+/// selection's text, flattened for display; `code` = (language, lines) for a
+/// selection inside one code block or Well output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComposerQuote {
+    /// Stable id; ✕ reports [`ComposerIntent::RemoveChip`] with it.
+    pub id: SharedString,
+    /// The quoted text as shown (prose flattened; code as written).
+    pub text: SharedString,
+    /// A code quote: its language and line count.
+    pub code: Option<(SharedString, usize)>,
+}
+
+/// The rule's alpha on a quote (white 18 % in dark: the foreground at 18 %).
+const QUOTE_RULE_ALPHA: f32 = 0.18;
+
+/// One quote block inside the composer field (docs/43 §0): a 2 px rule at
+/// 18 %, padding 1 / 28 / 1 / 12, text 14.3 / 22 muted clamped to 2 lines,
+/// ✕ (20, r 4) top-right "Remove quote". A code quote: mono 12.65 / 20,
+/// 3 lines, then `rust · 2 lines` in faint 12.1.
+fn composer_quote_block(id: &ElementId, q: &ComposerQuote, p: &aui_tokens::Palette, remove: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> gpui::AnyElement {
+    let code_ink: gpui::Hsla = if p.is_dark() { gpui::rgb(0xC9C9D0).into() } else { p.fg_muted };
+    let body = match &q.code {
+        Some((lang, lines)) => v_flex()
+            .child(
+                div()
+                    .font_family(scale::FONT_MONO)
+                    .text_px(12.65)
+                    .line_height(px(20.0))
+                    .text_color(code_ink)
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .line_clamp(3)
+                    .max_h(px(60.0))
+                    .child(q.text.clone()),
+            )
+            .child(
+                div()
+                    .mt(px(2.0))
+                    .font_family(scale::FONT_UI)
+                    .text_px(12.1)
+                    .line_height(px(16.0))
+                    .text_color(p.ink_4)
+                    .child(format!("{lang} · {lines} line{}", if *lines == 1 { "" } else { "s" })),
+            ),
+        None => v_flex().child(
+            div().font_family(scale::FONT_UI).text_px(14.3).line_height(px(22.0)).text_color(p.fg_muted).line_clamp(2).max_h(px(44.0)).overflow_hidden().child(q.text.clone()),
+        ),
+    };
+    div()
+        .id(named_child(id, "quote-", &q.id))
+        .relative()
+        .w_full()
+        .pt(px(1.0))
+        .pb(px(1.0))
+        .pl(px(12.0))
+        .pr(px(28.0))
+        .border_l(px(2.0))
+        .border_color(p.fg.alpha(QUOTE_RULE_ALPHA))
+        .role(gpui::Role::Group)
+        .aria_label(SharedString::from(format!("Quote: {}", q.text)))
+        .child(body)
+        .child(
+            div()
+                .id(named_child(id, "quote-x-", &q.id))
+                .absolute()
+                .right(px(0.0))
+                .top(px(1.0))
+                .size(px(20.0))
+                .rounded(px(4.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .hover(|d| d.bg(p.hover_overlay()))
+                .role(gpui::Role::Button)
+                .aria_label("Remove quote")
+                .on_click(remove)
+                .child(icon(IconName::X).size(px(11.0)).color(p.fg_muted)),
+        )
+        .into_any_element()
 }
 
 /// One attachment chip in the raised composer (D4, docs/41 §2.9):
@@ -893,6 +985,13 @@ impl RenderOnce for Composer {
                 // floating drop under it, as menus and the jump pill wear.
                 .shadow(p.floating_shadow())
                 .p(px(FIELD_PAD));
+            if !self.quotes.is_empty() {
+                let mut stack = v_flex().w_full().gap(px(8.0)).px(px(RAISED_TEXT_PAD_X)).pt(px(RAISED_TEXT_PAD_X));
+                for q in &self.quotes {
+                    stack = stack.child(composer_quote_block(&id, q, &p, emit(ComposerIntent::RemoveChip(q.id.clone()))));
+                }
+                field = field.child(stack);
+            }
             if !self.chips.is_empty() {
                 field = field.child(chips_row);
             }
