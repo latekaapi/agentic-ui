@@ -111,6 +111,28 @@ pub enum WebviewIntent {
     },
 }
 
+/// How many addresses [`WebviewState::recent_pages`] keeps.
+pub const RECENT_PAGES: usize = 8;
+
+/// One address the page has shown, and the title it showed there.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecentPage {
+    /// The main-frame address.
+    pub url: SharedString,
+    /// The title it showed there (empty until one arrived).
+    pub title: SharedString,
+}
+
+/// Move `url` to the front of `recent` (a blank page never counts).
+fn note_recent(recent: &mut Vec<RecentPage>, url: &str) {
+    if matches!(url.trim(), "" | "about:blank") {
+        return;
+    }
+    let title = recent.iter().position(|p| p.url.as_ref() == url).map(|i| recent.remove(i).title).unwrap_or_default();
+    recent.insert(0, RecentPage { url: url.to_string().into(), title });
+    recent.truncate(RECENT_PAGES);
+}
+
 /// Everything the pane knows about its page.
 ///
 /// Held as an `Entity` so the poll timer can wake the view: the timer drains
@@ -147,6 +169,9 @@ pub struct WebviewState {
     crashed: Option<SharedString>,
     /// The main frame's failed load, if the last one failed ([`WebEvent::LoadFailed`]).
     load_failed: Option<(SharedString, SharedString)>,
+    /// The page's main-frame addresses, newest first, each once, with the
+    /// title it last showed ([`Self::recent_pages`]).
+    recent: Vec<RecentPage>,
     /// A navigation the backend has been asked for but not reported yet
     /// ([`Self::navigate`], back/forward/reload). The load end that follows
     /// one clears [`Self::crashed`]; a bare `Loading(false)` — the one the
@@ -300,6 +325,7 @@ impl WebviewState {
             audible: false,
             crashed: None,
             load_failed: None,
+            recent: Vec::new(),
             navigation_pending: false,
             find: None,
             find_stopped: false,
@@ -352,6 +378,12 @@ impl WebviewState {
     /// load end) — what a host's Stop/Reload button follows.
     pub fn loading(&self) -> bool {
         self.loading
+    }
+
+    /// The addresses this page has shown, newest first, each once, at most
+    /// [`RECENT_PAGES`] (D6's "Recent pages" menu, docs/43 §2.7).
+    pub fn recent_pages(&self) -> &[RecentPage] {
+        &self.recent
     }
 
     /// The main frame's failed load — (address, engine reason) — until the
@@ -946,7 +978,13 @@ impl WebviewState {
         for event in events {
             changed = true;
             match event {
-                WebEvent::Title(title) => self.title = SharedString::from(title),
+                WebEvent::Title(title) => {
+                    self.title = SharedString::from(title);
+                    let (url, title) = (self.url.clone(), self.title.clone());
+                    if let Some(page) = self.recent.iter_mut().find(|p| p.url == url) {
+                        page.title = title;
+                    }
+                }
                 WebEvent::Url(url) => {
                     // A main-frame address is a navigation, and a navigation
                     // is what clears the crashed tab — including a reload to
@@ -958,8 +996,9 @@ impl WebviewState {
                     // Typing in the address field survives the page announcing
                     // itself underneath it.
                     if !self.editing {
-                        self.url = SharedString::from(url);
+                        self.url = SharedString::from(url.clone());
                     }
+                    note_recent(&mut self.recent, &url);
                 }
                 WebEvent::Loading(loading) => {
                     self.loading = loading;
@@ -2837,6 +2876,27 @@ mod tests {
         state.update(cx, |state, _| state.set_animating(false));
         assert_eq!(bounds.borrow().len(), 4, "the rest size lands exactly once");
         assert_eq!(bounds.borrow().last(), Some(&((40., 0.), (300., 600.))));
+    }
+
+    /// D6 recent pages: newest first, each address once with its last
+    /// title, blank pages left out, capped.
+    #[gpui::test]
+    fn recent_pages_keep_each_address_once_newest_first(cx: &mut TestAppContext) {
+        let (state, _, _, events) = native_state(cx);
+        for (url, title) in [("https://a.example/", "A"), ("about:blank", ""), ("https://b.example/", "B"), ("https://a.example/", "A again")] {
+            events.borrow_mut().push(WebEvent::Url(url.to_owned()));
+            events.borrow_mut().push(WebEvent::Title(title.to_owned()));
+            tick(&state, cx);
+        }
+        let recent: Vec<(String, String)> = state.update(cx, |s, _| s.recent_pages().iter().map(|p| (p.url.to_string(), p.title.to_string())).collect());
+        // The fixture's own first page sits after these two.
+        assert_eq!(recent[..2], [("https://a.example/".into(), "A again".into()), ("https://b.example/".into(), "B".into())]);
+        assert!(!recent.iter().any(|(u, _)| u == "about:blank"));
+        for n in 0..12 {
+            events.borrow_mut().push(WebEvent::Url(format!("https://p{n}.example/")));
+        }
+        tick(&state, cx);
+        assert_eq!(state.update(cx, |s, _| s.recent_pages().len()), super::RECENT_PAGES);
     }
 
     /// L5fix: a screenshot that arrives while covered is exactly what the

@@ -383,6 +383,58 @@ pub fn page_error_state(id: impl Into<ElementId>, host: &str, reason: &str, on_r
         .action(super::pane::secondary_action((id, "retry"), "Try again", Some(IconName::Refresh), cx).on_click(on_retry))
 }
 
+/// What a Recent pages row does when picked: it gets the row's index.
+pub type RecentSelect = Rc<dyn Fn(usize, &mut Window, &mut App)>;
+
+/// One row of the Recent pages menu.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecentRow {
+    /// What the row says: the page's title, or its host and path when it had none.
+    pub title: SharedString,
+    /// The host, muted at the right (hidden under [`PAGE_NAV_NARROW`]).
+    pub host: SharedString,
+    /// The page on screen: checked.
+    pub current: bool,
+}
+
+impl RecentRow {
+    /// A row for `url` titled `title`, current when it is the page on screen.
+    pub fn new(url: &str, title: &str, current: bool) -> Self {
+        let (host, path) = split_url(url);
+        let title = if title.trim().is_empty() { format!("{host}{path}") } else { title.trim().to_string() };
+        RecentRow { title: title.into(), host: host.to_string().into(), current }
+    }
+}
+
+/// The Recent pages menu under the Page row's title (owner 2026-10-18,
+/// canvas v50 `D6PageRecent`): the app's one dropdown, a "Recent pages"
+/// label, then one row per address, newest first; the page on screen is
+/// checked. Width = pane − 12, at most 320. `on_select` gets the row index.
+pub fn recent_pages_menu(
+    id: impl Into<ElementId>,
+    rows: &[RecentRow],
+    pane_width: f32,
+    on_select: RecentSelect,
+) -> crate::interact::Dropdown {
+    use crate::interact::{dropdown, DropdownEntry, DropdownItem, DropdownTrailing};
+    let narrow = pane_width < PAGE_NAV_NARROW;
+    let mut menu = dropdown(id, "Recent pages").width(px(recent_menu_width(pane_width))).entry(DropdownEntry::Label("Recent pages".into()));
+    for (i, row) in rows.iter().enumerate() {
+        let pick = on_select.clone();
+        let mut item = DropdownItem::new(row.title.clone()).checked(row.current).on_select(move |w, cx| pick(i, w, cx));
+        if !narrow {
+            item = item.trailing(DropdownTrailing::Value(row.host.clone()));
+        }
+        menu = menu.entry(item);
+    }
+    menu
+}
+
+/// The Recent pages menu's width for a pane `pane_width` wide.
+pub fn recent_menu_width(pane_width: f32) -> f32 {
+    (pane_width - 12.0).min(320.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

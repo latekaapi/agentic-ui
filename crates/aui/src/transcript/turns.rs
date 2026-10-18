@@ -508,7 +508,8 @@ pub fn quote_code(a: &Attachment) -> Option<&str> {
 /// quote (`code` = its language, or "" when unknown) is mono 12.65 / 20,
 /// 4 lines, "from the reply above · rust". A click scrolls to the source.
 fn quote_block(p: &Palette, id: ElementId, words: &str, code: Option<&str>, source: Option<String>, on_quote: Option<QuoteHandler>) -> impl IntoElement {
-    let code_ink: gpui::Hsla = if p.is_dark() { gpui::rgb(0xC9C9D0).into() } else { p.fg_muted };
+    // Between FG and muted: #C9C9D0 on dark, #3F3F46 on light (docs/43 §0).
+    let code_ink: gpui::Hsla = if p.is_dark() { gpui::rgb(0xC9C9D0).into() } else { gpui::rgb(0x3F3F46).into() };
     let text = match code {
         Some(_) => div().font_family(scale::FONT_MONO).text_px(12.65).line_height(px(20.0)).text_color(code_ink).whitespace_nowrap().overflow_hidden().line_clamp(4).max_h(px(80.0)),
         None => div().font_family(scale::FONT_UI).text_px(14.3).line_height(px(22.0)).text_color(p.fg_muted).line_clamp(3).max_h(px(66.0)).overflow_hidden(),

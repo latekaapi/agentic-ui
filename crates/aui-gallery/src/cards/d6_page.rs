@@ -5,7 +5,7 @@
 
 use aui::workbench::{
     address_field_frame, agent_pill, annotate_outline, annotate_pin, no_page_state, notes_panel, page_address, page_error_state, page_nav_row,
-    pane_row, PageNote,
+    pane_row, recent_pages_menu, PageNote, RecentRow,
 };
 use aui_icons::{IconName, Provider};
 use aui_tokens::{ActiveAui, AuiStyled};
@@ -56,6 +56,35 @@ fn screen(label: &str, w: f32, body: impl IntoElement, cx: &App) -> Div {
     )
 }
 
+/// A Page screen whose title is the Recent pages button, its menu open
+/// (owner 2026-10-18, canvas v50 `D6PageRecent`).
+fn screen_recent(label: &str, w: f32, body: impl IntoElement, cx: &App) -> Div {
+    let p = cx.aui().colors;
+    let rows = [
+        RecentRow::new("http://localhost:3000/pricing", "Pricing — Acme", true),
+        RecentRow::new("http://localhost:3000/login", "Sign in — Acme", false),
+        RecentRow::new("http://localhost:3000/app", "Dashboard — Acme", false),
+        RecentRow::new("https://docs.stripe.com/payments/checkout", "Checkout | Stripe Documentation", false),
+        RecentRow::new("https://tailwindcss.com/docs/grid-template-columns", "", false),
+    ];
+    let menu = recent_pages_menu(SharedString::from(format!("{label}-menu")), &rows, w, std::rc::Rc::new(|_, _, _| {})).at_rest();
+    v_flex().gap(px(6.0)).child(div().text_px(12.0).text_color(p.fg_muted).child(label.to_string())).child(
+        div()
+            .relative()
+            .w(px(w))
+            .h(px(H))
+            .rounded(px(8.0))
+            .overflow_hidden()
+            .bg(p.surface_2)
+            .shadow(p.edge())
+            .flex()
+            .flex_col()
+            .child(pane_row(SharedString::from(format!("{label}-row")), IconName::Globe, "Page").title_menu(true, |_, _, _| {}).on_close(|_, _, _| {}))
+            .child(body)
+            .child(div().absolute().left(px(6.0)).top(px(34.0)).child(menu)),
+    )
+}
+
 pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let _ = window;
     let url = "http://localhost:3000/pricing";
@@ -96,10 +125,15 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let s5 = screen("Couldn’t load", W, err, cx);
     let narrow = v_flex().flex_1().child(nav("d6-nav-4", 280.0, false, None, cx)).child(page_ground());
     let s6 = screen("Narrow 280", 280.0, narrow, cx);
+    let recent = v_flex().flex_1().child(nav("d6-nav-5", W, false, None, cx)).child(page_ground());
+    let s7 = screen_recent("Recent pages", W, recent, cx);
+    let recent_narrow = v_flex().flex_1().child(nav("d6-nav-6", 280.0, false, None, cx)).child(page_ground());
+    let s8 = screen_recent("Recent pages, narrow", 280.0, recent_narrow, cx);
 
     v_flex()
         .gap(px(20.0))
         .child(h_flex().gap(px(16.0)).items_start().child(s1).child(s2).child(s3))
         .child(h_flex().gap(px(16.0)).items_start().child(s4).child(s5).child(s6))
+        .child(h_flex().gap(px(16.0)).items_start().child(s7).child(s8))
         .into_any_element()
 }

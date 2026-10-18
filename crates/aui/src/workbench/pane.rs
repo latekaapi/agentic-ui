@@ -66,11 +66,13 @@ pub struct PaneRow {
     name: SharedString,
     actions: Vec<AnyElement>,
     on_close: Option<Handler>,
+    /// The name as a menu button (Page: "Recent pages"): open, and its click.
+    title_menu: Option<(bool, Handler)>,
 }
 
 /// The pane row for a screen.
 pub fn pane_row(id: impl Into<ElementId>, glyph: IconName, name: impl Into<SharedString>) -> PaneRow {
-    PaneRow { id: id.into(), glyph, name: name.into(), actions: Vec::new(), on_close: None }
+    PaneRow { id: id.into(), glyph, name: name.into(), actions: Vec::new(), on_close: None, title_menu: None }
 }
 
 impl PaneRow {
@@ -85,6 +87,42 @@ impl PaneRow {
         self.on_close = Some(Box::new(f));
         self
     }
+
+    /// The name becomes a menu button (D6 Page, owner 2026-10-18): the name
+    /// and a 12 px chevron, 28 tall, r 6, hover 5 %, lit 9 % while `open`.
+    pub fn title_menu(mut self, open: bool, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.title_menu = Some((open, Box::new(f)));
+        self
+    }
+}
+
+/// The pane row's name as a menu button ([`PaneRow::title_menu`]).
+fn title_menu_button(id: ElementId, name: SharedString, open: bool, on_click: Handler, cx: &App) -> gpui::Stateful<gpui::Div> {
+    let p = cx.aui().colors;
+    h_flex()
+        .id(id)
+        .flex_none()
+        .h(px(28.0))
+        .ml(px(-4.0))
+        .pl(px(4.0))
+        .pr(px(6.0))
+        .gap(px(4.0))
+        .items_center()
+        .rounded(px(6.0))
+        .when(open, |d| d.bg(p.selected_overlay()))
+        .when(!open, |d| d.hover(|d| d.bg(p.hover_overlay())))
+        .cursor_pointer()
+        .role(gpui::Role::Button)
+        .aria_label(SharedString::from("Recent pages"))
+        .aria_expanded(open)
+        .font_family(scale::FONT_UI)
+        .text_px(NAME_TEXT)
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(p.fg)
+        .whitespace_nowrap()
+        .child(name)
+        .child(icon(IconName::ChevronDown).size(px(12.0)).color(p.fg_muted))
+        .on_click(move |e, w, cx| on_click(e, w, cx))
 }
 
 impl RenderOnce for PaneRow {
@@ -101,8 +139,13 @@ impl RenderOnce for PaneRow {
             .items_center()
             .bg(p.surface_2)
             .child(icon(self.glyph).size(px(GLYPH)).color(p.fg_muted))
-            .child(
-                div()
+            .child(match self.title_menu {
+                Some((open, on_click)) => h_flex()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .child(title_menu_button((self.id.clone(), "title").into(), self.name, open, on_click, cx))
+                    .into_any_element(),
+                None => div()
                     .flex_1()
                     .min_w(px(0.0))
                     .overflow_hidden()
@@ -112,8 +155,9 @@ impl RenderOnce for PaneRow {
                     .text_px(NAME_TEXT)
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(p.fg)
-                    .child(self.name),
-            )
+                    .child(self.name)
+                    .into_any_element(),
+            })
             .child(h_flex().flex_none().gap(px(PUSHED_GAP)).items_center().children(self.actions))
             .child(close_button((self.id, "close").into(), self.on_close))
     }
