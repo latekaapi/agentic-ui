@@ -429,6 +429,7 @@ impl WebviewState {
         self.url = SharedString::from(url.to_string());
         self.editing = false;
         self.navigation_pending = true;
+        self.load_failed = None;
         self.backend.navigate(url);
     }
 
@@ -998,12 +999,22 @@ impl WebviewState {
                     if !self.editing {
                         self.url = SharedString::from(url.clone());
                     }
+                    if !url.starts_with("chrome-error:") && self.load_failed.as_ref().is_some_and(|(failed, _)| failed.as_ref() != url) {
+                        self.load_failed = None;
+                    }
                     note_recent(&mut self.recent, &url);
                 }
                 WebEvent::Loading(loading) => {
+                    // A load start never clears a failure: Chromium's own
+                    // error page loads after the failure it reports (live
+                    // 2026-10-19, its page showed in place of Baaz's). A
+                    // navigation we ask for, or a different real address
+                    // committing, clears it.
                     self.loading = loading;
-                    if loading {
-                        self.load_failed = None;
+                    // A new document starts with the annotator off: while
+                    // annotate is lit, turn it back on (live 2026-10-19).
+                    if !loading && self.annotate {
+                        self.backend.set_annotate(true);
                     }
                     // Only the load end of a navigation we asked for clears
                     // the crash. The crash report itself arrives with a
@@ -1191,16 +1202,19 @@ impl WebviewState {
         match action {
             BrowserAction::Back => {
                 self.navigation_pending = true;
+                self.load_failed = None;
                 self.backend.back();
                 None
             }
             BrowserAction::Forward => {
                 self.navigation_pending = true;
+                self.load_failed = None;
                 self.backend.forward();
                 None
             }
             BrowserAction::Reload => {
                 self.navigation_pending = true;
+                self.load_failed = None;
                 self.backend.reload();
                 None
             }
@@ -1319,7 +1333,20 @@ fn normalize_url(typed: &str) -> String {
     if typed.contains("://") || typed.starts_with("about:") || typed.starts_with("data:") || typed.starts_with("file:") {
         return typed.to_string();
     }
-    if typed.contains(' ') || !typed.contains('.') {
+    if typed.contains(' ') {
+        return format!("https://duckduckgo.com/?q={}", urlencode(typed));
+    }
+    // `localhost`, `localhost:3000/checkout`, `127.0.0.1:8080`, `app.localhost`:
+    // the dev server the session's agent works on opens over http (live
+    // 2026-10-19: `localhost:3999` became a search). Any `host:port` is a host.
+    let host_port = typed.split(['/', '?', '#']).next().unwrap_or(typed);
+    let (host, port) = host_port.rsplit_once(':').map_or((host_port, None), |(h, p)| (h, Some(p)));
+    let port_ok = port.is_none_or(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+    let loopback = host == "localhost" || host.ends_with(".localhost") || host.starts_with("127.") || host == "[::1]";
+    if port_ok && loopback {
+        return format!("http://{typed}");
+    }
+    if !typed.contains('.') && !(port.is_some() && port_ok) {
         return format!("https://duckduckgo.com/?q={}", urlencode(typed));
     }
     format!("https://{typed}")
@@ -1634,6 +1661,7 @@ impl RenderOnce for WebviewPane {
                     &self.agent,
                     Some(act(AnnotatorAction::Clear)),
                     Some(act(AnnotatorAction::Send)),
+                    f32::from(self.state.read(cx).page_size.width) < 360.0,
                     cx,
                 )),
             );
@@ -1711,7 +1739,10 @@ mod tests {
     fn what_is_typed_in_the_url_field_becomes_a_url() {
         assert_eq!(normalize_url("https://example.com"), "https://example.com");
         assert_eq!(normalize_url("  example.com/pricing "), "https://example.com/pricing");
-        assert_eq!(normalize_url("localhost:3000/checkout"), "https://duckduckgo.com/?q=localhost%3A3000%2Fcheckout");
+        assert_eq!(normalize_url("localhost:3000/checkout"), "http://localhost:3000/checkout");
+        assert_eq!(normalize_url("localhost"), "http://localhost");
+        assert_eq!(normalize_url("127.0.0.1:8080"), "http://127.0.0.1:8080");
+        assert_eq!(normalize_url("devbox:8443/app"), "https://devbox:8443/app");
         assert_eq!(normalize_url("about:blank"), "about:blank");
         assert_eq!(normalize_url("file:///tmp/page.html"), "file:///tmp/page.html");
         assert_eq!(normalize_url("data:text/html,<b>hi</b>"), "data:text/html,<b>hi</b>");
@@ -2876,6 +2907,21 @@ mod tests {
         state.update(cx, |state, _| state.set_animating(false));
         assert_eq!(bounds.borrow().len(), 4, "the rest size lands exactly once");
         assert_eq!(bounds.borrow().last(), Some(&((40., 0.), (300., 600.))));
+    }
+
+    /// Live 2026-10-19: Chromium's error page loads after the failure it
+    /// reports; that load start must not clear Baaz's own error page.
+    #[gpui::test]
+    fn a_load_failure_survives_the_error_pages_own_load(cx: &mut TestAppContext) {
+        let (state, _, _, events) = native_state(cx);
+        state.update(cx, |s, _| s.navigate("http://localhost:9/"));
+        for e in [WebEvent::Loading(true), WebEvent::LoadFailed { url: "http://localhost:9/".into(), reason: "net::ERR_UNSAFE_PORT".into() }, WebEvent::Loading(true), WebEvent::Url("http://localhost:9/".into()), WebEvent::Loading(false)] {
+            events.borrow_mut().push(e);
+        }
+        tick(&state, cx);
+        assert!(state.update(cx, |s, _| s.load_failed().is_some()), "the failure stays up");
+        state.update(cx, |s, _| s.navigate("https://example.com/"));
+        assert!(state.update(cx, |s, _| s.load_failed().is_none()), "a new navigation clears it");
     }
 
     /// D6 recent pages: newest first, each address once with its last

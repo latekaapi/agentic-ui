@@ -107,7 +107,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             .child(div().absolute().left(px(22.0)).top(px(22.0)).child(annotate_outline(236.0, 38.0)))
             .child(div().absolute().left(px(246.0)).top(px(10.0)).child(annotate_pin(1)))
             .child(div().absolute().left(px(124.0)).top(px(178.0)).child(annotate_pin(2)))
-            .child(div().absolute().left(px(8.0)).right(px(8.0)).bottom(px(8.0)).child(notes_panel("d6-notes", &notes, "Muse", None, None, cx))),
+            .child(div().absolute().left(px(8.0)).right(px(8.0)).bottom(px(8.0)).child(notes_panel("d6-notes", &notes, "Muse", None, None, false, cx))),
     );
     let s2 = screen("Annotating", W, annot, cx);
 

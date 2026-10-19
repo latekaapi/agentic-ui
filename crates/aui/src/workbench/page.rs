@@ -240,7 +240,16 @@ type Click = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 /// page's bottom and sides; rows 13.2 (number cap 18 at 9 %, selector mono
 /// 12.1 muted, the note); a footer over a rule: "Click an element to pin a
 /// note" faint, Clear, **Send N to <agent>**. Dark in both themes.
-pub fn notes_panel(id: impl Into<ElementId>, notes: &[PageNote], agent: &str, on_clear: Option<Click>, on_send: Option<Click>, cx: &App) -> gpui::Stateful<gpui::Div> {
+#[allow(clippy::too_many_arguments)]
+pub fn notes_panel(
+    id: impl Into<ElementId>,
+    notes: &[PageNote],
+    agent: &str,
+    on_clear: Option<Click>,
+    on_send: Option<Click>,
+    compact: bool,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
     let d: Palette = dark();
     let _ = cx;
     let id: ElementId = id.into();
@@ -286,7 +295,9 @@ pub fn notes_panel(id: impl Into<ElementId>, notes: &[PageNote], agent: &str, on
         .hover(move |s| s.bg(d.hover_overlay()).text_color(d.fg))
         .child("Clear")
         .when_some(on_clear, |b, f| b.on_click(move |e, w, cx| f(e, w, cx)));
-    let label = format!("Send {} to {agent}", notes.len());
+    // `compact` (a narrow page): "Send N" and no hint, so the footer fits
+    // (live 2026-10-19: "Send 1 to Claude Code" ran off a 264 px panel).
+    let label = if compact { format!("Send {}", notes.len()) } else { format!("Send {} to {agent}", notes.len()) };
     let send = h_flex()
         .id((id.clone(), "send"))
         .role(gpui::Role::Button)
@@ -325,7 +336,16 @@ pub fn notes_panel(id: impl Into<ElementId>, notes: &[PageNote], agent: &str, on
                 .items_center()
                 .border_t_1()
                 .border_color(d.line)
-                .child(div().flex_1().min_w(px(0.0)).overflow_hidden().whitespace_nowrap().text_ellipsis().text_color(d.ink_4).child("Click an element to pin a note"))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .text_color(d.ink_4)
+                        .when(!compact, |d| d.child("Click an element to pin a note")),
+                )
                 .child(clear)
                 .child(send),
         )

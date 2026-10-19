@@ -109,6 +109,9 @@ struct Shared {
     /// is opened without one — Chromium's Inspect, ⌥⌘I, `show_dev_tools` — so
     /// every handler here also hears the DevTools browser.
     browser_id: Option<i32>,
+    /// The page scripts (ipc prelude, annotator, scrollbars) are registered
+    /// for new documents. False while the DevTools channel was not ready.
+    scripts_installed: bool,
     events: Vec<WebEvent>,
     elements: HashMap<usize, ElementInfo>,
     eval_results: Vec<(u64, Result<String, String>)>,
@@ -335,6 +338,43 @@ fn send(page: &Page, method: &str, params: Value, purpose: Pending) -> Option<i3
     Some(id)
 }
 
+/// The page scripts: wry's `window.ipc` over the CDP binding, the
+/// annotator, the overlay scrollbars.
+fn page_scripts() -> String {
+    format!("{IPC_PRELUDE}\n{ANNOTATOR_JS}\n{SCROLLBAR_JS}")
+}
+
+/// Register the binding and the page scripts for every new document; true
+/// when the DevTools channel took all three calls. `first` releases the
+/// first navigation when the last one is answered.
+fn install_page_scripts(page: &Page, first: bool) -> bool {
+    // Page.enable first: Chromium's page agent only evaluates on-new-document
+    // scripts while the Page domain is on (live 2026-10-19: the binding
+    // existed, `window.ipc` and the annotator never did).
+    let ok = send(page, "Page.enable", json!({}), Pending::Setup { last: false }).is_some()
+        && send(page, "Runtime.enable", json!({}), Pending::Setup { last: false }).is_some()
+        && send(page, "Runtime.addBinding", json!({ "name": BINDING }), Pending::Setup { last: false }).is_some()
+        && send(page, "Page.addScriptToEvaluateOnNewDocument", json!({ "source": page_scripts() }), Pending::Setup { last: first }).is_some();
+    if ok {
+        locked(page).scripts_installed = true;
+    }
+    ok
+}
+
+/// Live 2026-10-19: the channel was not ready when the browser was created,
+/// so no page ever had the annotator (`window.ipc` undefined) and annotate
+/// did nothing. Retried from each poll until it takes; the document already
+/// showing gets the scripts evaluated into it once.
+fn retry_page_scripts(page: &Page) {
+    let due = {
+        let s = locked(page);
+        !s.scripts_installed && s.browser.is_some() && !s.closed
+    };
+    if due && install_page_scripts(page, false) {
+        send(page, "Runtime.evaluate", json!({ "expression": page_scripts() }), Pending::Setup { last: false });
+    }
+}
+
 fn load(page: &Page, url: &str) {
     if let Some(frame) = browser_of(page).and_then(|b| b.main_frame()) {
         frame.load_url(Some(&CefString::from(url)));
@@ -510,6 +550,10 @@ fn on_devtools(page: &Page, message: &[u8]) {
             Pending::Setup { last } => {
                 if let Some(e) = error {
                     eprintln!("aui-cef: page setup call failed: {e}");
+                }
+                if std::env::var("AUI_CEF_SETUP_TRACE").as_deref() == Ok("1") {
+                    let raw = String::from_utf8_lossy(message);
+                    eprintln!("aui-cef: setup reply {}", &raw[..raw.len().min(300)]);
                 }
                 if last {
                     release_first_navigation(page);
@@ -1151,11 +1195,9 @@ wrap_life_span_handler! {
                 s.browser = Some(browser.clone());
                 s.registration = registration;
             }
-            send(&self.shared, "Runtime.enable", json!({}), Pending::Setup { last: false });
-            send(&self.shared, "Runtime.addBinding", json!({ "name": BINDING }), Pending::Setup { last: false });
-            let source = format!("{IPC_PRELUDE}\n{ANNOTATOR_JS}\n{SCROLLBAR_JS}");
-            if send(&self.shared, "Page.addScriptToEvaluateOnNewDocument", json!({ "source": source }), Pending::Setup { last: true }).is_none() {
-                // No DevTools channel: load anyway, unannotated.
+            if !install_page_scripts(&self.shared, true) {
+                // No DevTools channel yet: load anyway; the scripts follow
+                // from the next poll ([`retry_page_scripts`]).
                 release_first_navigation(&self.shared);
             }
         }
@@ -2145,6 +2187,7 @@ impl WebBackend for CefBackend {
     }
 
     fn poll_events(&mut self) -> Vec<WebEvent> {
+        retry_page_scripts(&self.page);
         std::mem::take(&mut locked(&self.page).events)
     }
 

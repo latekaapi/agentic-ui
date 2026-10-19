@@ -457,7 +457,13 @@ const SWIPE_DISTANCE: f32 = 48.0;
 struct Swipe {
     travel: f32,
     fired: bool,
+    /// The last wheel event: a pause longer than [`SWIPE_GAP`] starts a new
+    /// gesture, for a wheel that never reports touch phases (a mouse).
+    last: Option<std::time::Instant>,
 }
+
+/// A pause between wheel events that ends a swipe gesture.
+const SWIPE_GAP: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// A strip of screens. `width` is the pane's (the sheet's) width.
 pub fn pane_strip(id: impl Into<ElementId>, position: f32, width: Pixels, screens: Vec<Option<AnyElement>>) -> PaneStrip {
@@ -501,9 +507,12 @@ impl RenderOnce for PaneStrip {
                         gpui::ScrollDelta::Lines(d) => gpui::point(d.x * 20.0, d.y * 20.0),
                     };
                     let fire = swipe.update(cx, |s, _| {
-                        if e.touch_phase == TouchPhase::Started {
+                        let now = std::time::Instant::now();
+                        let paused = s.last.is_none_or(|t| now.duration_since(t) > SWIPE_GAP);
+                        if e.touch_phase == TouchPhase::Started || paused {
                             *s = Swipe::default();
                         }
+                        s.last = Some(now);
                         // Sideways only: a mostly vertical gesture scrolls the screen.
                         if s.fired || delta.x.abs() <= 2.0 * delta.y.abs() {
                             return None;

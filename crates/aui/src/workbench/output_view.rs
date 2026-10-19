@@ -281,9 +281,12 @@ pub fn image_view(
         // At 100 %: drag to pan (gpui has no zoom cursors; the open hand says "drag").
         let scroll = window.use_keyed_state((id.clone(), "pan-scroll"), cx, |_, _| gpui::ScrollHandle::new()).read(cx).clone();
         let drag = window.use_keyed_state((id.clone(), "pan-drag"), cx, |_, _| None::<gpui::Point<gpui::Pixels>>);
-        let (s_down, d_down) = (scroll.clone(), drag.clone());
-        let (s_move, d_move) = (scroll.clone(), drag.clone());
-        let d_up = drag.clone();
+        // Whether this press moved the picture: its release is then a pan,
+        // not the host's click (live 2026-10-19: a drag toggled back to fit).
+        let moved = window.use_keyed_state((id.clone(), "pan-moved"), cx, |_, _| false);
+        let (s_down, d_down, m_down) = (scroll.clone(), drag.clone(), moved.clone());
+        let (s_move, d_move, m_move) = (scroll.clone(), drag.clone(), moved.clone());
+        let (d_up, m_up) = (drag.clone(), moved.clone());
         div()
             .id((id.clone(), "pan"))
             .size_full()
@@ -294,6 +297,7 @@ pub fn image_view(
             .on_mouse_down(gpui::MouseButton::Left, move |e, _, cx| {
                 let _ = &s_down;
                 d_down.update(cx, |d, _| *d = Some(e.position));
+                m_down.update(cx, |m, _| *m = false);
             })
             .on_mouse_move(move |e, window, cx| {
                 let Some(last) = *d_move.read(cx) else { return };
@@ -302,12 +306,21 @@ pub fn image_view(
                     return;
                 }
                 let delta = e.position - last;
+                if f32::from(delta.x).abs() + f32::from(delta.y).abs() > 0.0 {
+                    m_move.update(cx, |m, _| *m = true);
+                }
                 let off = s_move.offset();
                 s_move.set_offset(gpui::point(off.x + delta.x, off.y + delta.y));
                 d_move.update(cx, |d, _| *d = Some(e.position));
                 window.refresh();
             })
-            .on_mouse_up(gpui::MouseButton::Left, move |_, _, cx| d_up.update(cx, |d, _| *d = None))
+            .on_mouse_up(gpui::MouseButton::Left, move |_, _, cx| {
+                d_up.update(cx, |d, _| *d = None);
+                if m_up.update(cx, |m, _| std::mem::take(m)) {
+                    // A pan: the host's click (fit ↔ 100 %) never sees it.
+                    cx.stop_propagation();
+                }
+            })
             .child(framed)
             .into_any_element()
     } else {
