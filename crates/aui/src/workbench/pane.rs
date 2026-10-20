@@ -448,7 +448,7 @@ pub struct PaneStrip {
 /// A swipe's handler: `+1` next screen, `-1` previous.
 type SwipeHandler = Box<dyn Fn(i32, &mut Window, &mut App) + 'static>;
 
-/// How far a two-finger sideways swipe travels before it moves one screen.
+/// How far a Shift + sideways swipe travels before it moves one screen.
 const SWIPE_DISTANCE: f32 = 48.0;
 
 /// One gesture's travel; `fired` once it has moved a screen, so the rest of
@@ -465,15 +465,39 @@ struct Swipe {
 /// A pause between wheel events that ends a swipe gesture.
 const SWIPE_GAP: std::time::Duration = std::time::Duration::from_millis(250);
 
+/// One wheel event of a Shift-swipe: the screen step it fires, once per
+/// gesture (a pause longer than [`SWIPE_GAP`] or a new touch starts the next).
+fn swipe_step(swipe: &gpui::Entity<Swipe>, phase: gpui::TouchPhase, dx: f32, cx: &mut App) -> Option<i32> {
+    swipe.update(cx, |s, _| {
+        let now = std::time::Instant::now();
+        let paused = s.last.is_none_or(|t| now.duration_since(t) > SWIPE_GAP);
+        if phase == gpui::TouchPhase::Started || paused {
+            *s = Swipe::default();
+        }
+        s.last = Some(now);
+        if s.fired {
+            return None;
+        }
+        s.travel += dx;
+        if s.travel.abs() < SWIPE_DISTANCE {
+            return None;
+        }
+        s.fired = true;
+        // Fingers moving left bring the next screen in.
+        Some(if s.travel < 0.0 { 1 } else { -1 })
+    })
+}
+
 /// A strip of screens. `width` is the pane's (the sheet's) width.
 pub fn pane_strip(id: impl Into<ElementId>, position: f32, width: Pixels, screens: Vec<Option<AnyElement>>) -> PaneStrip {
     PaneStrip { id: id.into(), position, width, screens, on_swipe: None }
 }
 
 impl PaneStrip {
-    /// A two-finger sideways swipe in the pane: `+1` toward the next screen,
-    /// `-1` toward the previous — once per gesture (snapping, one screen per
-    /// swipe). Vertical scrolling passes through untouched.
+    /// Shift + a two-finger sideways swipe in the pane: `+1` toward the next
+    /// screen, `-1` toward the previous — once per gesture (snapping, one
+    /// screen per swipe), and the content under it does not scroll. Without
+    /// Shift every swipe scrolls the content and never switches screens.
     pub fn on_swipe(mut self, f: impl Fn(i32, &mut Window, &mut App) + 'static) -> Self {
         self.on_swipe = Some(Box::new(f));
         self
@@ -499,36 +523,41 @@ impl RenderOnce for PaneStrip {
             .overflow_hidden()
             .rounded(px(8.0))
             .when(moving, |d| d.bg(p.surface_1))
+            // Owner, 2026-10-21: a plain sideways swipe scrolls what is under
+            // the pointer (a long code line, a diff, an image at 100 %) and
+            // never switches screens. Shift + a sideways swipe moves one
+            // screen, and only that: the listener runs in the capture phase
+            // and stops the event, so the content under it does not scroll.
             .when_some(self.on_swipe, |d, on_swipe| {
-                d.on_scroll_wheel(move |e, window, cx| {
-                    use gpui::TouchPhase;
-                    let delta = match e.delta {
-                        gpui::ScrollDelta::Pixels(d) => gpui::point(f32::from(d.x), f32::from(d.y)),
-                        gpui::ScrollDelta::Lines(d) => gpui::point(d.x * 20.0, d.y * 20.0),
-                    };
-                    let fire = swipe.update(cx, |s, _| {
-                        let now = std::time::Instant::now();
-                        let paused = s.last.is_none_or(|t| now.duration_since(t) > SWIPE_GAP);
-                        if e.touch_phase == TouchPhase::Started || paused {
-                            *s = Swipe::default();
-                        }
-                        s.last = Some(now);
-                        // Sideways only: a mostly vertical gesture scrolls the screen.
-                        if s.fired || delta.x.abs() <= 2.0 * delta.y.abs() {
-                            return None;
-                        }
-                        s.travel += delta.x;
-                        if s.travel.abs() < SWIPE_DISTANCE {
-                            return None;
-                        }
-                        s.fired = true;
-                        // Fingers moving left bring the next screen in.
-                        Some(if s.travel < 0.0 { 1 } else { -1 })
-                    });
-                    if let Some(dir) = fire {
-                        on_swipe(dir, window, cx);
-                    }
-                })
+                let on_swipe = std::rc::Rc::new(on_swipe);
+                d.child(
+                    gpui::canvas(
+                        |bounds, _, _| bounds,
+                        move |bounds, _, window, _| {
+                            let on_swipe = on_swipe.clone();
+                            let swipe = swipe.clone();
+                            window.on_mouse_event(move |e: &gpui::ScrollWheelEvent, phase, window, cx| {
+                                if phase != gpui::DispatchPhase::Capture || !e.modifiers.shift || !bounds.contains(&e.position) {
+                                    return;
+                                }
+                                let delta = match e.delta {
+                                    gpui::ScrollDelta::Pixels(d) => gpui::point(f32::from(d.x), f32::from(d.y)),
+                                    gpui::ScrollDelta::Lines(d) => gpui::point(d.x * 20.0, d.y * 20.0),
+                                };
+                                // Sideways only; Shift + a vertical swipe scrolls as usual.
+                                if delta.x.abs() <= 2.0 * delta.y.abs() {
+                                    return;
+                                }
+                                cx.stop_propagation();
+                                if let Some(dir) = swipe_step(&swipe, e.touch_phase, delta.x, cx) {
+                                    on_swipe(dir, window, cx);
+                                }
+                            });
+                        },
+                    )
+                    .absolute()
+                    .size_full(),
+                )
             })
             .children(self.screens.into_iter().enumerate().filter_map(|(i, s)| {
                 let s = s?;
@@ -600,4 +629,66 @@ pub fn filter_field(
             .child(crate::a11y_text::a11y_text_input(id, "Filter files", state, cx).flex_1().min_w(px(0.0)))
             .when_some(count, |d, c| d.child(div().flex_none().font_family(scale::FONT_MONO).text_px(12.1).text_color(p.ink_4).child(c))),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gpui::{point, px, Modifiers, Render, ScrollDelta, ScrollWheelEvent, TouchPhase};
+
+    use super::*;
+
+    /// A strip of two screens; the first counts the wheel events that reach
+    /// its content, the strip counts the screen steps it fires.
+    struct StripHost {
+        steps: Rc<Cell<i32>>,
+        content: Rc<Cell<u32>>,
+    }
+
+    impl Render for StripHost {
+        fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            let (steps, content) = (self.steps.clone(), self.content.clone());
+            let screen = div().id("content").size_full().on_scroll_wheel(move |_, _, _| content.set(content.get() + 1));
+            pane_strip("strip", 0.0, px(300.0), vec![Some(screen.into_any_element()), Some(div().into_any_element())])
+                .on_swipe(move |dir, _, _| steps.set(steps.get() + dir))
+        }
+    }
+
+    fn wheel(dx: f32, shift: bool, phase: TouchPhase) -> ScrollWheelEvent {
+        ScrollWheelEvent {
+            position: point(px(150.0), px(100.0)),
+            delta: ScrollDelta::Pixels(point(px(dx), px(0.0))),
+            modifiers: Modifiers { shift, ..Default::default() },
+            touch_phase: phase,
+        }
+    }
+
+    /// Owner, 2026-10-21: a plain sideways swipe scrolls the content and never
+    /// moves screens; Shift + a sideways swipe moves exactly one screen per
+    /// gesture and does not reach the content.
+    #[gpui::test]
+    fn only_a_shift_swipe_moves_screens(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+        let (steps, content) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0u32)));
+        let (_host, vcx) = cx.add_window_view({
+            let (steps, content) = (steps.clone(), content.clone());
+            move |_, _| StripHost { steps, content }
+        });
+        vcx.simulate_resize(gpui::size(px(300.0), px(200.0)));
+        vcx.run_until_parked();
+
+        for phase in [TouchPhase::Started, TouchPhase::Moved, TouchPhase::Moved, TouchPhase::Ended] {
+            vcx.simulate_event(wheel(-40.0, false, phase));
+        }
+        assert_eq!(steps.get(), 0, "a plain sideways swipe never moves screens");
+        assert_eq!(content.get(), 4, "and every event reaches the content");
+
+        for phase in [TouchPhase::Started, TouchPhase::Moved, TouchPhase::Moved, TouchPhase::Ended] {
+            vcx.simulate_event(wheel(-40.0, true, phase));
+        }
+        assert_eq!(steps.get(), 1, "Shift + a swipe moves one screen, once per gesture");
+        assert_eq!(content.get(), 4, "a Shift-swipe does not also scroll the content");
+    }
 }

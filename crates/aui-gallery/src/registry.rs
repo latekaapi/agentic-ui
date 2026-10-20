@@ -544,7 +544,7 @@ pub static ENTRIES: &[Entry] = &[
         id: "workbench/d6-pane",
         group: "Workbench",
         title: "D6 · Right pane chrome",
-        subtitle: "Transcript-row toggles drive the screen strip (240 ms slide, swipe), pane row, pushed-view row, state blocks (docs/43 §2.2–2.3)",
+        subtitle: "Transcript-row toggles drive the screen strip (240 ms slide, Shift + swipe), pane row, pushed-view row, state blocks (docs/43 §2.2–2.3)",
         width: 820.0,
         height: 440.0,
         theme: CardTheme::Both,
