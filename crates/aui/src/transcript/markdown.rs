@@ -15,8 +15,15 @@
 //! `http://` or `https://` become [`LinkTarget::Url`]; every other explicit
 //! destination becomes [`LinkTarget::Path`]. Bare `http(s)://` URLs and bare
 //! workspace paths (`a/b.rs`, with an optional `:line` or `:line:col`
-//! suffix) inside plain text are linkified too; code spans are never
-//! linkified, because paths inside code are copy targets, not navigation.
+//! suffix) inside plain text are linkified too. A code span is a link only
+//! when the whole span is one: a URL, an absolute / home / dot-relative path
+//! (`/Users/x/site/index.html`, `~/notes`, `./src/`), or a workspace path as
+//! above — it keeps its code face and gains the link underline
+//! ([`Span::CodeLink`]). Code that merely contains a path (`open a/b.html`)
+//! stays code: that is a command to copy, not a place to go. (Owner
+//! 2026-10-21: "the files or links should be clickable in the transcript" —
+//! answers write paths in backticks, so the old "code is never linkified"
+//! rule left nearly every path dead.)
 //! Clicks leave the component as [`Markdown::on_link`] intents — data in,
 //! intents out — so the app (which owns the workspace root and the browser)
 //! resolves them; the hover pointer comes free from
@@ -116,8 +123,8 @@ const HEADING_SIZES: [f32; 6] = [24.0 / 1.1, 20.0 / 1.1, 17.0 / 1.1, 16.0 / 1.1,
 const HEADING_LH: [f32; 6] = [1.3, 28.0 / 20.0, 24.0 / 17.0, 26.0 / 16.0, 26.0 / 16.0, 26.0 / 16.0];
 /// Extensions that make a `slash/path` token a workspace-path link.
 const PATH_EXTENSIONS: &[&str] = &[
-    "rs", "md", "toml", "json", "jsonl", "txt", "py", "ts", "tsx", "js", "css", "html", "yaml",
-    "yml", "sh",
+    "rs", "md", "toml", "json", "jsonl", "txt", "py", "ts", "tsx", "js", "css", "html", "htm", "yaml",
+    "yml", "sh", "svg", "png", "jpg", "jpeg", "gif", "webp", "pdf", "csv", "xml", "log",
 ];
 
 /// Where a link points.
@@ -143,6 +150,14 @@ pub enum Span {
     Italic(String),
     /// `~struck~` (strikethrough in the body face).
     Strikethrough(String),
+    /// An inline code span that is wholly a URL or a path: drawn as code,
+    /// underlined and clickable like a link (see the module docs).
+    CodeLink {
+        /// The code, drawn in the mono face on the code ground.
+        code: String,
+        /// Where a click goes.
+        target: LinkTarget,
+    },
     /// A clickable run: explicit `[label](dest)` / `<autolink>`, or a
     /// linkified bare URL / workspace path. The label is flattened text —
     /// emphasis inside a label does not get its own run, because gpui runs
@@ -301,6 +316,40 @@ fn is_path_token(core: &str) -> bool {
     PATH_EXTENSIONS.contains(&after_slash[dot + 1..].to_lowercase().as_str())
 }
 
+/// Where a whole code span points, when it is one URL or one path (see the
+/// module docs): `http(s)://` and `file://` URLs; absolute (`/a/b`), home
+/// (`~/a`) and dot-relative (`./a`, `../a`) paths, folders included; and
+/// workspace paths [`is_path_token`] accepts. A single-segment `/word` is a
+/// slash command, never a path.
+fn code_link_target(code: &str) -> Option<LinkTarget> {
+    if code.is_empty() || code.chars().any(char::is_whitespace) {
+        return None;
+    }
+    if code.starts_with("http://") || code.starts_with("https://") {
+        return (code.len() > "https://".len()).then(|| LinkTarget::Url(code.to_string()));
+    }
+    if code.starts_with("file://") {
+        return Some(LinkTarget::Path(code.to_string()));
+    }
+    let rooted = if let Some(rest) = code.strip_prefix('/') {
+        rest.trim_end_matches('/').contains('/') || (code.ends_with('/') && rest.len() > 1)
+    } else if let Some(rest) = code.strip_prefix("~/").or_else(|| code.strip_prefix("./")).or_else(|| code.strip_prefix("../")) {
+        !rest.is_empty()
+    } else {
+        false
+    };
+    (rooted || is_path_token(code)).then(|| LinkTarget::Path(code.to_string()))
+}
+
+/// An inline code span: a [`Span::CodeLink`] when the whole span is a URL
+/// or a path, else plain [`Span::Code`].
+fn code_span(code: &str) -> Span {
+    match code_link_target(code) {
+        Some(target) => Span::CodeLink { code: code.to_string(), target },
+        None => Span::Code(code.to_string()),
+    }
+}
+
 /// Splits plain text into text spans and bare-URL / bare-path links.
 /// Whitespace runs pass through untouched so offsets stay honest.
 fn linkify_text(text: &str) -> Vec<Frag> {
@@ -378,7 +427,7 @@ fn frag_text(frags: &[Frag]) -> String {
             | Frag::Span(Span::Bold(t))
             | Frag::Span(Span::Italic(t))
             | Frag::Span(Span::Strikethrough(t)) => s.push_str(t),
-            Frag::Span(Span::Link { label, .. }) => s.push_str(label),
+            Frag::Span(Span::Link { label, .. }) | Frag::Span(Span::CodeLink { code: label, .. }) => s.push_str(label),
             Frag::Image { alt, .. } => s.push_str(alt),
         }
     }
@@ -548,8 +597,7 @@ fn inline_until(events: &[Event], pos: &mut usize, end: &TagEnd, nested: u8) -> 
             }
             Event::Code(code) => {
                 *pos += 1;
-                // Code spans are never linkified: see the module docs.
-                push_frag(&mut out, Frag::Span(Span::Code(code.to_string())));
+                push_frag(&mut out, Frag::Span(code_span(code)));
             }
             Event::SoftBreak => {
                 *pos += 1;
@@ -626,7 +674,7 @@ fn paragraph_blocks(frags: Vec<Frag>) -> Vec<Block> {
                 | Span::Bold(t)
                 | Span::Italic(t)
                 | Span::Strikethrough(t) => t.as_str(),
-                Span::Link { label, .. } => label.as_str(),
+                Span::Link { label, .. } | Span::CodeLink { code: label, .. } => label.as_str(),
             })
             .collect();
         if !text.trim().is_empty() {
@@ -884,7 +932,7 @@ fn blocks_until(events: &[Event], pos: &mut usize, end: Option<&TagEnd>, nested:
                         }
                         Event::Code(code) => {
                             *pos += 1;
-                            push_frag(&mut frags, Frag::Span(Span::Code(code.to_string())));
+                            push_frag(&mut frags, Frag::Span(code_span(code)));
                         }
                         Event::SoftBreak => {
                             *pos += 1;
@@ -1142,6 +1190,20 @@ pub fn span_runs(
                     color: Some(style.ink),
                 }),
             },
+            // Code that is a link: the code face and ground, with the link's
+            // faint underline so it reads as clickable.
+            Span::CodeLink { code, .. } => TextRun {
+                len: code.len(),
+                font: mono.clone(),
+                color: style.code_ink,
+                background_color: Some(style.code_bg),
+                underline: Some(UnderlineStyle {
+                    thickness: px(LINK_UNDERLINE),
+                    color: Some(style.code_ink.alpha(LINK_UNDERLINE_ALPHA)),
+                    wavy: false,
+                }),
+                strikethrough: None,
+            },
             Span::Link { label, .. } => TextRun {
                 len: label.len(),
                 font: ui.clone(),
@@ -1164,7 +1226,7 @@ pub fn span_runs(
             | Span::Bold(s)
             | Span::Italic(s)
             | Span::Strikethrough(s) => (s, None),
-            Span::Link { label, target } => (label, Some(target)),
+            Span::Link { label, target } | Span::CodeLink { code: label, target } => (label, Some(target)),
         };
         if let Some(target) = is_link {
             let start = text.len();
@@ -1945,7 +2007,7 @@ fn spans_text(spans: &[Span]) -> String {
             | Span::Bold(s)
             | Span::Italic(s)
             | Span::Strikethrough(s) => s.as_str(),
-            Span::Link { label, .. } => label.as_str(),
+            Span::Link { label, .. } | Span::CodeLink { code: label, .. } => label.as_str(),
         })
         .collect()
 }
@@ -2479,13 +2541,36 @@ mod tests {
     }
 
     #[test]
-    fn code_spans_never_linkify() {
+    /// Owner 2026-10-21: "Created `/Users/…/kitchen-sink.html`" was dead
+    /// text. A code span that is wholly a path or URL links; code that only
+    /// contains one, or a slash command, stays code.
+    fn code_spans_link_when_they_are_a_path_or_url() {
+        let target = |md: &str| {
+            let blocks = parse_markdown(md);
+            let Block::Paragraph(spans) = &blocks[0] else {
+                panic!("expected a paragraph")
+            };
+            spans.iter().find_map(|span| match span {
+                Span::CodeLink { target, .. } => Some(target.clone()),
+                _ => None,
+            })
+        };
+        let path = |p: &str| Some(LinkTarget::Path(p.into()));
+        assert_eq!(target("Created `/Users/me/Sandbox/office-samples/kitchen-sink.html` — a page"), path("/Users/me/Sandbox/office-samples/kitchen-sink.html"));
+        assert_eq!(target("run `crates/aui/src/lib.rs:12` now"), path("crates/aui/src/lib.rs:12"));
+        assert_eq!(target("in `/Users/me/project/src/`"), path("/Users/me/project/src/"));
+        assert_eq!(target("see `~/notes/today.md`"), path("~/notes/today.md"));
+        assert_eq!(target("at `./docs`"), path("./docs"));
+        assert_eq!(target("served on `http://localhost:3000`"), Some(LinkTarget::Url("http://localhost:3000".into())));
+        assert_eq!(target("the report `docs/report.pdf`"), path("docs/report.pdf"));
+        for code in ["`open kitchen-sink.html`", "`/compact`", "`/`", "`kitchen-sink.html`", "`a / b`", "`https://`", "`fn main()`"] {
+            assert_eq!(target(code), None, "{code} stays code");
+        }
         let blocks = parse_markdown("run `crates/aui/src/lib.rs:12` now");
         let Block::Paragraph(spans) = &blocks[0] else {
             panic!("expected a paragraph")
         };
-        assert!(spans.iter().all(|span| !matches!(span, Span::Link { .. })));
-        assert!(spans.contains(&Span::Code("crates/aui/src/lib.rs:12".into())));
+        assert!(spans.contains(&Span::CodeLink { code: "crates/aui/src/lib.rs:12".into(), target: LinkTarget::Path("crates/aui/src/lib.rs:12".into()) }));
     }
 
     #[test]

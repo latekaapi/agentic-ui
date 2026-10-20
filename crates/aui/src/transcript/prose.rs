@@ -156,7 +156,7 @@ fn runs(spans: &[Span], style: &ProseStyle) -> (String, Vec<TextRun>) {
     for span in spans {
         let (s, run) = match span {
             Span::Text(s) => (s, TextRun { len: s.len(), font: ui.clone(), color: style.ink, background_color: None, underline: None, strikethrough: None }),
-            Span::Code(s) => (s, TextRun { len: s.len(), font: mono.clone(), color: style.code_ink, background_color: Some(style.code_bg), underline: None, strikethrough: None }),
+            Span::Code(s) | Span::CodeLink { code: s, .. } => (s, TextRun { len: s.len(), font: mono.clone(), color: style.code_ink, background_color: Some(style.code_bg), underline: None, strikethrough: None }),
             Span::Bold(s) => {
                 let mut f = ui.clone();
                 f.weight = FontWeight::SEMIBOLD;
