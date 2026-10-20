@@ -7,7 +7,7 @@ use std::sync::Arc;
 use aui::interact::{fluid_list, Axis};
 use aui::protocol::{ChangeKind, Diff, DiffKind, DiffLine, FileChange, Hunk};
 use aui::workbench::{
-    base_and_head, base_picker, branch_label, change_row, change_with_diff, changes_caption, commit_foot, commit_frame, commit_message_view,
+    base_and_head, base_picker, branch_label, change_row, changes_caption, diff_fold, commit_foot, commit_frame, commit_message_view,
     diff_body, draft_checkbox, form_field, hook_failed_note, pane_row, pane_row_fade, pr_card, primary_action, pushed_row, skeleton_bar,
     state_block, text_action, well_input, PrState,
 };
@@ -138,9 +138,8 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         let row = row.on_open_file(|_, _, _| {});
         let l2 = live.clone();
         let gap_open = st.gap;
-        let el = change_with_diff(
+        let fold = diff_fold(
             ("d6-chg-fold", i),
-            row,
             open,
             move || {
                 let mut body = diff_body(("d6-diff", i), right_diff()).on_gap(move |_, _, cx| {
@@ -157,8 +156,12 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             window,
             cx,
         );
-        list = list.item(ix, el);
+        list = list.item(ix, row);
         ix += 1;
+        if let Some(fold) = fold {
+            list = list.item_toolbar(ix, fold);
+            ix += 1;
+        }
     }
     let live_body = div().id("d6-chg-scroll").size_full().overflow_y_scroll().pt(px(4.0)).px(px(6.0)).pb(px(160.0)).child(list).into_any_element();
     let s1 = screen("Changes · live (click rows)", live_body, Some(commit_dirty("d6-c1", false, false, cx)), changes_row("d6-r1", cx), H, cx);

@@ -39,7 +39,7 @@ pub use docs::{
 };
 pub use citations::{cited_answer, citation, source_hover_card, sources_card, Citation, CitedAnswer, Source, SourceHoverCard, SourceTier, SourcesCard, ANSWER_MARGIN};
 pub use changes::{
-    ahead_behind, base_and_head, base_picker, branch_label, draft_checkbox, form_field, well_input, change_letter, change_row, change_with_diff, changes_caption, commit_foot, commit_frame, commit_message_view,
+    ahead_behind, base_and_head, base_picker, branch_label, draft_checkbox, form_field, well_input, change_letter, change_row, diff_fold, changes_caption, commit_foot, commit_frame, commit_message_view,
     diff_body, hook_failed_note, hunk_new_start, hunk_old_range, pr_card, primary_action, split_path, text_action, unchanged_between, ChangeRow,
     DiffBody, PrState, CHANGE_FOLDER_MIN_WIDTH,
 };

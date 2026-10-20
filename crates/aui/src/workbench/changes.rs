@@ -361,14 +361,23 @@ pub fn gutter_width(widest: u32) -> f32 {
     (digits * 8.5 + 8.0).ceil().max(36.0)
 }
 
-/// A change row with its diff folding open under it on D4's fold motion
-/// (height on `spring.moderate`, the body fading in 80 ms later).
-pub fn change_with_diff(id: impl Into<ElementId>, row: ChangeRow, open: bool, body: impl FnOnce() -> AnyElement, window: &mut Window, cx: &mut App) -> gpui::Div {
+/// A change row's diff folding open under it on D4's fold motion (height on
+/// `spring.moderate`, the body fading in 80 ms later); `None` once it has
+/// folded shut.
+///
+/// It is its own list entry, never one element with the row: put the row in
+/// the list with [`FluidList::item`](crate::interact::FluidList::item) and
+/// this right after it with
+/// [`FluidList::item_toolbar`](crate::interact::FluidList::item_toolbar), so
+/// the pointer over the diff lights nothing. Owner 2026-10-21: as one item
+/// (the old `change_with_diff`) the hover pill covered the row and every
+/// hunk, and its tint washed out the hunk headers that divide them.
+pub fn diff_fold(id: impl Into<ElementId>, open: bool, body: impl FnOnce() -> AnyElement, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
     let id: ElementId = id.into();
     let opacity = collapse_fluid_opacity((id.clone(), "fade"), open, window, cx);
     let child = div().opacity(opacity).child(body()).into_any_element();
     let (reveal, progress) = collapse_fluid((id, "fold"), open, child, window, cx);
-    v_flex().w_full().child(row).when(open || progress > 0.001, |d| d.child(reveal))
+    (open || progress > 0.001).then(|| div().w_full().child(reveal).into_any_element())
 }
 
 // ─────────────────────────────────────────────────────────────── commit box
@@ -818,5 +827,58 @@ mod tests {
     fn paths_split_into_name_and_folder() {
         assert_eq!(split_path("crates/baaz/src/right.rs"), ("right.rs".into(), "crates/baaz/src".into()));
         assert_eq!(split_path("README.md"), ("README.md".into(), "".into()));
+    }
+
+    /// Owner 2026-10-21: the pointer anywhere over an open file's diff lit
+    /// the whole file — row and every hunk — because the row and its diff
+    /// were one list item. Composed as the docs say (row = item, diff =
+    /// toolbar), the row still lights and the diff lights nothing.
+    mod hover {
+        use super::super::{change_row, diff_body, diff_fold};
+        use crate::interact::{fluid_list, Axis};
+        use aui_protocol::{ChangeKind, Diff, DiffKind, DiffLine, FileChange, Hunk};
+        use gpui::{div, prelude::*, px, Context, Window};
+        use std::cell::Cell;
+        use std::rc::Rc;
+        use std::sync::Arc;
+
+        struct Host {
+            lit: Rc<Cell<Option<usize>>>,
+        }
+
+        impl Render for Host {
+            fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                let lines = (1..=30).map(|n| DiffLine { kind: DiffKind::Context, old_no: Some(n), new_no: Some(n), text: format!("line {n}") }).collect();
+                let diff = Arc::new(Diff { path: "a.txt".into(), hunks: vec![Hunk { header: "@@ -1,30 +1,30 @@".into(), lines }], added: 0, removed: 0 });
+                let change = FileChange { path: "a.txt".into(), change: ChangeKind::Modified, added: 0, removed: 0 };
+                let fold = diff_fold("fold", true, move || diff_body("diff", diff).into_any_element(), window, cx).expect("an open diff shows");
+                let lit = self.lit.clone();
+                let list = fluid_list("list", Axis::Y)
+                    .gap(px(0.0))
+                    .item(0, change_row("row", change, true).width(px(380.0)))
+                    .item_toolbar(1, fold)
+                    .on_highlight(move |index, _, _| lit.set(index));
+                div().size_full().child(list)
+            }
+        }
+
+        #[gpui::test]
+        fn the_pointer_over_an_open_diff_lights_nothing(cx: &mut gpui::TestAppContext) {
+            cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+            let lit = Rc::new(Cell::new(None));
+            let host = lit.clone();
+            let (_view, vc) = cx.add_window_view(move |_, _| Host { lit: host });
+            vc.run_until_parked();
+            // The row is the first 32 px.
+            vc.simulate_mouse_move(gpui::point(px(100.0), px(14.0)), None, Default::default());
+            vc.run_until_parked();
+            assert_eq!(lit.get(), Some(0), "the row lights under the pointer");
+            // Down into the diff: a hunk header, then lines well inside it.
+            for y in [44.0, 120.0, 300.0, 500.0] {
+                vc.simulate_mouse_move(gpui::point(px(100.0), px(y)), None, Default::default());
+                vc.run_until_parked();
+                assert_eq!(lit.get(), None, "the pointer at y {y} over the diff lights nothing");
+            }
+        }
     }
 }
