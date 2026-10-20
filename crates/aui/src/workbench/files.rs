@@ -181,6 +181,18 @@ pub enum FileTreeAction {
 }
 
 type ActionHandler = Rc<dyn Fn(&FileTreeAction, &mut Window, &mut App)>;
+type MenuHandler = Rc<dyn Fn(&FileTreeMenu, &mut Window, &mut App)>;
+
+/// A secondary click on a row: the host opens its context menu there.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FileTreeMenu {
+    /// The row's id (usually the path).
+    pub id: SharedString,
+    /// Whether the row is a folder.
+    pub is_dir: bool,
+    /// Where the click landed, in window coordinates: the menu's seat.
+    pub at: gpui::Point<gpui::Pixels>,
+}
 
 /// The scroll offset of the row with `id` in a tree over `nodes`: the row's
 /// index in the flattened order times the row height (28 px), from the tree's
@@ -226,6 +238,7 @@ pub struct FileTree {
     scroll_token: u64,
     focused: Option<SharedString>,
     on_action: Option<ActionHandler>,
+    on_menu: Option<MenuHandler>,
 }
 
 /// What the tree remembers about its in-flight reveal: which request
@@ -239,7 +252,7 @@ struct TreeScrollState {
 
 /// A file tree over a flat list of pre-expanded rows.
 pub fn file_tree(id: impl Into<ElementId>, nodes: Vec<FileNode>) -> FileTree {
-    FileTree { id: id.into(), nodes, flush: false, scroll: None, scroll_to: None, scroll_token: 0, focused: None, on_action: None }
+    FileTree { id: id.into(), nodes, flush: false, scroll: None, scroll_to: None, scroll_token: 0, focused: None, on_action: None, on_menu: None }
 }
 
 impl FileTree {
@@ -252,6 +265,14 @@ impl FileTree {
     /// Called with every intent the tree emits.
     pub fn on_action(mut self, f: impl Fn(&FileTreeAction, &mut Window, &mut App) + 'static) -> Self {
         self.on_action = Some(Rc::new(f));
+        self
+    }
+
+    /// Called on a secondary click on a row (owner 2026-10-21: every file
+    /// gets Open in default app and Reveal in Finder). The tree draws no
+    /// menu itself; the host seats one at [`FileTreeMenu::at`].
+    pub fn on_context_menu(mut self, f: impl Fn(&FileTreeMenu, &mut Window, &mut App) + 'static) -> Self {
+        self.on_menu = Some(Rc::new(f));
         self
     }
 
@@ -340,7 +361,18 @@ impl RenderOnce for FileTree {
         let notes: Vec<bool> = self.nodes.iter().map(|n| n.note).collect();
         for (ix, node) in self.nodes.into_iter().enumerate() {
             let ring = focused == Some(ix) && crate::keys::keyboard_nav(cx);
+            let menu = self.on_menu.clone().filter(|_| !notes[ix]).map(|f| (f, node.id.clone(), node.is_dir()));
             let row = tree_row((id.clone(), node.id.clone()), node, ring, window, cx);
+            let row = match menu {
+                Some((f, row_id, is_dir)) => div()
+                    .on_mouse_down(gpui::MouseButton::Right, move |event, window, cx| {
+                        cx.stop_propagation();
+                        f(&FileTreeMenu { id: row_id.clone(), is_dir, at: event.position }, window, cx);
+                    })
+                    .child(row)
+                    .into_any_element(),
+                None => row.into_any_element(),
+            };
             list = if notes[ix] { list.item_static(ix, row) } else { list.item(ix, row) };
         }
         if let Some(f) = self.on_action {
@@ -455,6 +487,49 @@ fn tree_row(id: impl Into<ElementId>, node: FileNode, ring: bool, window: &mut W
 mod tests {
     use super::*;
     use aui_icons::FileType;
+
+    mod menu {
+        use super::super::{file_tree, FileNode, FileTreeMenu};
+        use aui_icons::FileType;
+        use gpui::{div, prelude::*, px, Context, Window};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        struct Host {
+            got: Rc<RefCell<Vec<FileTreeMenu>>>,
+        }
+
+        impl Render for Host {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let got = self.got.clone();
+                let nodes = vec![FileNode::dir("docs", "docs", false), FileNode::file("index.html", "index.html", FileType::Json)];
+                div().size_full().child(file_tree("tree", nodes).on_context_menu(move |menu, _, _| got.borrow_mut().push(menu.clone())))
+            }
+        }
+
+        /// A secondary click on a row reports the row, whether it is a
+        /// folder, and where the click landed; a primary click does not.
+        #[gpui::test]
+        fn a_secondary_click_asks_for_the_rows_menu(cx: &mut gpui::TestAppContext) {
+            cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+            let got = Rc::new(RefCell::new(Vec::new()));
+            let host = got.clone();
+            let (_view, vc) = cx.add_window_view(move |_, _| Host { got: host });
+            vc.run_until_parked();
+            // Rows are 28 tall under the tree's top padding: the second row.
+            let at = gpui::point(px(80.0), px(4.0 + 28.0 + 14.0));
+            vc.simulate_mouse_down(at, gpui::MouseButton::Left, Default::default());
+            vc.run_until_parked();
+            assert!(got.borrow().is_empty(), "a primary press opens no menu");
+            vc.simulate_mouse_down(at, gpui::MouseButton::Right, Default::default());
+            vc.run_until_parked();
+            assert_eq!(*got.borrow(), vec![FileTreeMenu { id: "index.html".into(), is_dir: false, at }]);
+            let folder = gpui::point(px(80.0), px(4.0 + 14.0));
+            vc.simulate_mouse_down(folder, gpui::MouseButton::Right, Default::default());
+            vc.run_until_parked();
+            assert_eq!(got.borrow().last().map(|m| (m.id.to_string(), m.is_dir)), Some(("docs".to_owned(), true)));
+        }
+    }
 
     fn sample_nodes() -> Vec<FileNode> {
         vec![
