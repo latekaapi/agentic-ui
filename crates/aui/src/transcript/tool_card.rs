@@ -18,6 +18,7 @@ use crate::data::{record_ax_label, spinner};
 use crate::icons::{icon, IconName};
 use crate::transcript::ansi::{ansi_runs, ansi_spans};
 use crate::transcript::caps::{cap_expanded, cut_preview_line, Remainder};
+use crate::transcript::selectable::{intersect_range, line_span_event, selectable_text, SelectionKey, SpanEvent};
 use crate::transcript::quiet_row::{status_check, status_cross, STATUS_GLYPH};
 use crate::transcript::transcript_card;
 
@@ -113,6 +114,19 @@ pub struct ToolCard {
     flat: bool,
     on_intent: Option<IntentHandler>,
     on_link: Option<LinkHandler>,
+    select: Option<OutSelect>,
+}
+
+type OutSpanHandler = std::rc::Rc<dyn Fn(SpanEvent, &mut Window, &mut App)>;
+
+/// The output Well as one selectable cell ([`ToolCard::selectable_output`]).
+#[derive(Clone)]
+struct OutSelect {
+    key: SelectionKey,
+    range: Option<std::ops::Range<usize>>,
+    color: Option<gpui::Hsla>,
+    strength: f32,
+    on_span: Option<OutSpanHandler>,
 }
 
 /// A card for one tool call.
@@ -130,6 +144,7 @@ pub fn tool_card(id: impl Into<ElementId>, verb: impl Into<SharedString>, target
         flat: false,
         on_intent: None,
         on_link: None,
+        select: None,
     }
 }
 
@@ -173,6 +188,33 @@ impl ToolCard {
     /// Intent handler.
     pub fn on_intent(mut self, f: impl Fn(ToolCardIntent, &mut Window, &mut App) + 'static) -> Self {
         self.on_intent = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Makes a shell or read body's output selectable as one cell, `key`
+    /// (D6 follow-up; docs/43 §0: a selection "inside a single code block or
+    /// Well output is a code quote"). Offsets are bytes over
+    /// [`output_text`] — the ANSI-stripped lines joined by newlines, folded
+    /// lines included — so they stay put when the body unfolds. `range` is
+    /// the visible selection there; `on_span` gets the line events remapped
+    /// to the whole output, as a fence's lines do.
+    pub fn selectable_output(
+        mut self,
+        key: SelectionKey,
+        range: Option<std::ops::Range<usize>>,
+        color: Option<gpui::Hsla>,
+        on_span: impl Fn(SpanEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.select = Some(OutSelect { key, range, color, strength: 1.0, on_span: Some(std::rc::Rc::new(on_span)) });
+        self
+    }
+
+    /// The output selection's tint at `strength` (0–1), for a host that
+    /// flashes a remembered span (a sent quote's source) fading out.
+    pub fn output_selection_strength(mut self, strength: f32) -> Self {
+        if let Some(select) = &mut self.select {
+            select.strength = strength;
+        }
         self
     }
 
@@ -328,8 +370,8 @@ impl RenderOnce for ToolCard {
 
         let unfolded = self.unfolded;
         let body: Option<gpui::AnyElement> = match &self.body {
-            ToolBody::Shell { output_lines, .. } => Some(shell_body(&p, output_lines, unfolded, emit.clone()).into_any_element()),
-            ToolBody::Read { output_lines, .. } if !output_lines.is_empty() => Some(read_body(&p, output_lines, unfolded, emit.clone()).into_any_element()),
+            ToolBody::Shell { output_lines, .. } => Some(well_body(&p, &id, output_lines, true, unfolded, self.select.as_ref(), emit.clone()).into_any_element()),
+            ToolBody::Read { output_lines, .. } if !output_lines.is_empty() => Some(well_body(&p, &id, output_lines, false, unfolded, self.select.as_ref(), emit.clone()).into_any_element()),
             ToolBody::Read { .. } | ToolBody::None => None,
             ToolBody::Edit { diff } => Some(diff_body(&p, diff, unfolded, emit.clone()).into_any_element()),
             ToolBody::Search { hits } => Some(search_body(&p, hits, unfolded, emit.clone()).into_any_element()),
@@ -404,47 +446,84 @@ pub fn search_capped_snippet(snippet: &str) -> String {
     cut_preview_line(snippet)
 }
 
-/// One plain or ANSI line of output on the Well.
-fn out_line(p: &Palette, line: &str, ansi: bool) -> impl IntoElement {
-    // An empty line still takes a line box.
-    let text = if line.is_empty() { " " } else { line };
-    let plain = || vec![gpui::TextRun { len: text.len(), font: gpui::font(scale::FONT_MONO), color: p.ink, background_color: None, underline: None, strikethrough: None }];
-    let (text, runs) = if ansi {
-        let (t, runs) = ansi_runs(&ansi_spans(text), p, scale::FONT_MONO);
-        let t = if t.is_empty() { " ".to_string() } else { t };
+/// A line's text and runs as the Well draws it: ANSI stripped into runs
+/// for shell output, one mono run for a read. An empty line is a space.
+fn out_text(p: &Palette, line: &str, ansi: bool) -> (String, Vec<gpui::TextRun>) {
+    let mono = |len: usize, color| vec![gpui::TextRun { len, font: gpui::font(scale::FONT_MONO), color, background_color: None, underline: None, strikethrough: None }];
+    if ansi {
+        let (t, runs) = ansi_runs(&ansi_spans(line), p, scale::FONT_MONO);
+        if t.is_empty() {
+            return (" ".to_string(), mono(1, p.ink));
+        }
         if runs.is_empty() || runs.iter().map(|r| r.len).sum::<usize>() != t.len() {
             let len = t.len();
-            (t, vec![gpui::TextRun { len, font: gpui::font(scale::FONT_MONO), color: p.ink, background_color: None, underline: None, strikethrough: None }])
-        } else {
-            (t, runs)
+            return (t, mono(len, p.ink));
         }
+        (t, runs)
     } else {
-        (text.to_string(), plain())
+        let text = if line.is_empty() { " ".to_string() } else { line.to_string() };
+        let len = text.len();
+        (text, mono(len, p.ink))
+    }
+}
+
+/// The output as one text: each line's drawn (ANSI-stripped) text, joined
+/// by newlines — what a selection's offsets count over, and what a host
+/// copies or quotes from ([`ToolCard::selectable_output`]).
+pub fn output_text(lines: &[String], ansi: bool) -> String {
+    lines
+        .iter()
+        .map(|line| if ansi { ansi_runs(&ansi_spans(line), &aui_tokens::dark(), scale::FONT_MONO).0 } else { line.clone() })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// One line of output on the Well; selectable when the card is. An empty
+/// line draws a space but owns no bytes, so `line_len` is its real length.
+#[allow(clippy::too_many_arguments)]
+fn out_line(p: &Palette, id: &ElementId, index: usize, line: &str, ansi: bool, line_start: usize, line_len: usize, select: Option<&OutSelect>) -> impl IntoElement {
+    let (text, runs) = out_text(p, line, ansi);
+    let empty = line_len == 0;
+    let body: gpui::AnyElement = match select {
+        Some(sel) => {
+            let local = sel.range.as_ref().and_then(|range| intersect_range(range, line_start, line_len));
+            let mut element = selectable_text((id.clone(), SharedString::from(format!("out-{index}"))), sel.key.clone(), text).runs(runs).selection(local);
+            let color = sel.color.unwrap_or(p.selection);
+            element = element.selection_color(color.alpha(color.a * sel.strength.clamp(0.0, 1.0)));
+            if let Some(emit) = sel.on_span.clone() {
+                let key = sel.key.clone();
+                element = element.on_span_event(move |event, window, cx| emit(line_span_event(event, &key, line_start, empty), window, cx));
+            }
+            element.into_any_element()
+        }
+        None => StyledText::new(text).with_runs(runs).into_any_element(),
     };
-    div().w_full().overflow_hidden().whitespace_nowrap().child(StyledText::new(text).with_runs(runs))
+    div().w_full().overflow_hidden().whitespace_nowrap().child(body)
 }
 
 /// Output lines on the Well: the [`SHELL_FOLD`] tail unless `unfolded`,
 /// then the "N more lines" row.
-fn well_body(p: &Palette, lines: &[String], ansi: bool, unfolded: bool, emit: impl Fn(ToolCardIntent) -> IntentClick) -> impl IntoElement {
-    let shown = if unfolded { lines } else { shell_visible_lines(lines) };
+fn well_body(p: &Palette, id: &ElementId, lines: &[String], ansi: bool, unfolded: bool, select: Option<&OutSelect>, emit: impl Fn(ToolCardIntent) -> IntentClick) -> impl IntoElement {
+    let skip = if unfolded { 0 } else { lines.len() - shell_visible_lines(lines).len() };
+    // Each line's start over the whole output (folded lines included), so
+    // a selection keeps its offsets when the body unfolds.
+    let mut start = 0usize;
+    let mut starts = Vec::with_capacity(lines.len());
+    for line in lines {
+        let drawn = if ansi { ansi_runs(&ansi_spans(line), p, scale::FONT_MONO).0.len() } else { line.len() };
+        starts.push((start, drawn));
+        start += drawn + 1;
+    }
     let mut out = v_flex().w_full().py(px(OUT_PAD_Y)).px(px(OUT_PAD_X)).mono(OUT_TEXT).line_height(relative(OUT_LH)).text_color(p.ink);
-    for line in shown {
-        out = out.child(out_line(p, line, ansi));
+    for (index, line) in lines.iter().enumerate().skip(skip) {
+        let (line_start, line_len) = starts[index];
+        out = out.child(out_line(p, id, index, line, ansi, line_start, line_len, select));
     }
     let mut body = v_flex().w_full().bg(p.well).child(out);
     if !unfolded && lines.len() > SHELL_FOLD {
         body = body.child(more_row(p, format!("{} more lines", lines.len() - SHELL_FOLD), emit));
     }
     body
-}
-
-fn shell_body(p: &Palette, lines: &[String], unfolded: bool, emit: impl Fn(ToolCardIntent) -> IntentClick) -> impl IntoElement {
-    well_body(p, lines, true, unfolded, emit)
-}
-
-fn read_body(p: &Palette, lines: &[String], unfolded: bool, emit: impl Fn(ToolCardIntent) -> IntentClick) -> impl IntoElement {
-    well_body(p, lines, false, unfolded, emit)
 }
 
 fn diff_body(p: &Palette, diff: &aui_protocol::Diff, unfolded: bool, emit: impl Fn(ToolCardIntent) -> IntentClick) -> impl IntoElement {
@@ -659,6 +738,66 @@ fn mcp_body(p: &Palette, params: &[(String, String)], result_json: &str, unfolde
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod selectable_output {
+        use super::super::{output_text, tool_card};
+        use crate::transcript::{SelectionKey, SpanEvent};
+        use aui_protocol::{ToolBody, ToolStatus};
+        use gpui::{div, point, prelude::*, px, Context, Modifiers, MouseButton, Window};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        fn lines() -> Vec<String> {
+            (0..10).map(|i| if i == 6 { "\u{1b}[32mok\u{1b}[0m line 6".to_string() } else { format!("line {i}") }).collect()
+        }
+
+        struct Host {
+            got: Rc<RefCell<Vec<SpanEvent>>>,
+        }
+
+        impl Render for Host {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let got = self.got.clone();
+                let body = ToolBody::Shell { output_lines: lines(), exit_code: Some(0), live: false };
+                div().w(px(500.0)).child(
+                    tool_card("card", "Ran", "echo", ToolStatus::Success, body)
+                        .selectable_output(SelectionKey::new("code0"), None, None, move |event, _, _| got.borrow_mut().push(event)),
+                )
+            }
+        }
+
+        /// D6 follow-up (docs/43 §0): a tool's output could not be selected,
+        /// so no code quote came from it. Its lines are one selectable cell
+        /// now; a press on the first shown line of a folded body reports an
+        /// offset past the four hidden lines, over the ANSI-stripped text.
+        #[gpui::test]
+        fn a_press_in_the_output_reports_its_offset_over_the_whole_output(cx: &mut gpui::TestAppContext) {
+            cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+            let got = Rc::new(RefCell::new(Vec::new()));
+            let host = got.clone();
+            let (_view, vc) = cx.add_window_view(move |_, _| Host { got: host });
+            vc.run_until_parked();
+            let text = output_text(&lines(), true);
+            assert!(text.contains("ok line 6") && !text.contains('\u{1b}'), "the drawn text, ANSI stripped");
+            let first_shown = text.find("line 4").expect("line 4");
+            // Find a row of output under the pointer: a press there is a span press.
+            let mut offset = None;
+            for y in (20..260).step_by(4) {
+                got.borrow_mut().clear();
+                vc.simulate_mouse_down(point(px(40.0), px(y as f32)), MouseButton::Left, Modifiers::default());
+                vc.simulate_mouse_up(point(px(40.0), px(y as f32)), MouseButton::Left, Modifiers::default());
+                vc.run_until_parked();
+                if let Some(SpanEvent::Press { cell, offset: at }) = got.borrow().first().cloned() {
+                    assert_eq!(cell, SelectionKey::new("code0"));
+                    offset = Some(at);
+                    break;
+                }
+            }
+            let offset = offset.expect("a press on the output reports a span event");
+            assert!(offset >= first_shown, "offset {offset} counts the hidden lines (line 4 starts at {first_shown})");
+            assert!(offset < text.len());
+        }
+    }
 
     #[test]
     fn durations_under_a_minute_print_tenths_of_a_second() {

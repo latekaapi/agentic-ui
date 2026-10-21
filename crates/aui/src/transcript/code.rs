@@ -16,8 +16,7 @@ use gpui_kit::base::{h_flex, v_flex};
 use crate::data::{button, pill, record_ax_label, PillVariant};
 use crate::icons::{icon, IconName};
 use crate::transcript::selectable::{
-    SelectionEndpoint, intersect_range, selectable_text, MessageSelection, SelectionHandler,
-    SelectionKey, SpanEvent, SpanHandler, TextSelection,
+    intersect_range, selectable_text, SelectionHandler, SelectionKey, SpanEvent, SpanHandler, TextSelection,
 };
 use crate::transcript::syntax::syntax_runs_in;
 use crate::util::{indexed_child, interaction_flags, TrackInteraction};
@@ -492,28 +491,7 @@ fn code_line_row(
                 let key = sel.key.clone();
                 let empty = line.is_empty();
                 element = element.on_span_event(move |event, window, cx| {
-                    // Empty lines render a phantom space with no bytes of
-                    // their own; anchor those events at the newline offset
-                    // so spans stay continuous.
-                    let at = |offset: usize| {
-                        if empty {
-                            line_start
-                        } else {
-                            line_start + offset
-                        }
-                    };
-                    let mapped = match event {
-                        SpanEvent::Press { offset, .. } => SpanEvent::Press { cell: key.clone(), offset: at(offset) },
-                        SpanEvent::Hover { offset, .. } => SpanEvent::Hover { cell: key.clone(), offset: at(offset) },
-                        SpanEvent::Release { hovered, link, .. } => SpanEvent::Release { cell: key.clone(), hovered, link },
-                        SpanEvent::Pick { selection } => SpanEvent::Pick {
-                            selection: selection.map(|single| MessageSelection {
-                                anchor: SelectionEndpoint { cell: key.clone(), offset: at(single.anchor.offset) },
-                                focus: SelectionEndpoint { cell: key.clone(), offset: at(single.focus.offset) },
-                            }),
-                        },
-                    };
-                    emit(mapped, window, cx);
+                    emit(crate::transcript::selectable::line_span_event(event, &key, line_start, empty), window, cx);
                 });
             }
             div().flex_1().min_w(px(0.0)).overflow_hidden().child(element).into_any_element()

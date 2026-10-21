@@ -433,6 +433,26 @@ pub(crate) fn clamp_range(range: Range<usize>, text: &str) -> Option<Range<usize
     }
 }
 
+/// One line's span event in the coordinates of a cell that spans many
+/// lines (a fence, a tool's output): offsets shift by `line_start`, the
+/// cell becomes `key`. An empty line renders a phantom space with no bytes
+/// of its own, so its events anchor at the line's start and a span dragged
+/// across it stays continuous.
+pub(crate) fn line_span_event(event: SpanEvent, key: &SelectionKey, line_start: usize, empty: bool) -> SpanEvent {
+    let at = |offset: usize| if empty { line_start } else { line_start + offset };
+    match event {
+        SpanEvent::Press { offset, .. } => SpanEvent::Press { cell: key.clone(), offset: at(offset) },
+        SpanEvent::Hover { offset, .. } => SpanEvent::Hover { cell: key.clone(), offset: at(offset) },
+        SpanEvent::Release { hovered, link, .. } => SpanEvent::Release { cell: key.clone(), hovered, link },
+        SpanEvent::Pick { selection } => SpanEvent::Pick {
+            selection: selection.map(|single| MessageSelection {
+                anchor: SelectionEndpoint { cell: key.clone(), offset: at(single.anchor.offset) },
+                focus: SelectionEndpoint { cell: key.clone(), offset: at(single.focus.offset) },
+            }),
+        },
+    }
+}
+
 /// Intersects a cell-global `range` with the local span `base..base + len`,
 /// returning local coordinates; `None` when they do not overlap. Fenced code
 /// lines use this to show their slice of the block-wide selection.

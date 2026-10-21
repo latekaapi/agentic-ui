@@ -46,6 +46,7 @@ pub use quote_bar::{quote_bar, quote_bar_top, QUOTE_BAR_GAP, QUOTE_BAR_H, QUOTE_
 pub use turns::{assistant_turn, quote_code, file_meta, footer_items, format_age, is_video, AnnotationBatch, AnnotationNote, turn_selected_text, turn_selected_text_settled, turn_span_selected_text, turn_span_selected_text_settled, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction, COPY_HOLD};
 pub use ansi::{ansi_runs, parse_ansi, AnsiSpan};
 pub use tool_card::{
+    output_text,
     arm_chip_probe, format_duration, mcp_visible_text, search_capped_snippet, search_visible_hits,
     shell_visible_lines, take_drawn_chips, tool_card, ToolCard, ToolCardIntent,
     MCP_BODY_CAP, SEARCH_BODY_CAP, SHELL_FOLD,
