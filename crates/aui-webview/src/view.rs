@@ -42,9 +42,6 @@ const COVER_POLL_INTERVAL: Duration = Duration::from_millis(8);
 /// its right edge, dropped a little so the pin stays visible.
 const NOTE_GAP: f32 = 14.0;
 const NOTE_DROP: f32 = 14.0;
-/// The note a saved pin keeps. The pane has no text field over the page yet,
-/// so Save keeps this stand-in rather than an empty row.
-const SAVED_NOTE: &str = "Note for the agent.";
 actions!(
     aui_webview,
     [
@@ -154,6 +151,11 @@ pub struct WebviewState {
     selected: Option<usize>,
     /// The pin whose note popover is open.
     note: Option<usize>,
+    /// The open note's text field (D6 follow-up: Save used to keep a fixed
+    /// stand-in). Made on the first render with a note open; one per page,
+    /// cleared for each new note. A host drawing the popover over a native
+    /// page (its own window) focuses and shows this same input.
+    note_input: Option<Entity<InputState>>,
     /// The last screenshot the backend produced.
     screenshot: Option<Vec<u8>>,
     /// The page's icon URL, if it has one ([`WebEvent::Favicon`]).
@@ -207,6 +209,7 @@ pub struct WebviewState {
     address: Option<Entity<InputState>>,
     /// Keeps the address input's commit/blur subscription alive.
     _address_sub: Option<Subscription>,
+    _note_sub: Option<Subscription>,
     /// Keeps the escape interceptor alive; see [`Self::new`].
     _intercept: Subscription,
     /// The keyboard focus the pane takes.
@@ -318,6 +321,7 @@ impl WebviewState {
             hovered: None,
             selected: None,
             note: None,
+            note_input: None,
             screenshot: None,
             favicon: None,
             progress: 0.0,
@@ -338,6 +342,7 @@ impl WebviewState {
             editing: false,
             address: None,
             _address_sub: None,
+            _note_sub: None,
             _intercept: intercept,
             focus: cx.focus_handle(),
             obscured: false,
@@ -1157,6 +1162,38 @@ impl WebviewState {
         self.obscured || self.visible_box.is_none()
     }
 
+    /// The open note, for a host that draws its popover over a native page:
+    /// the pin's position, its element path, and the element's box in page
+    /// coordinates (origin, size), plus the note's input once made.
+    pub fn open_note(&self) -> Option<OpenNote> {
+        let position = self.note?;
+        let info = self.elements.get(position)?.as_ref()?;
+        Some(OpenNote { position, path: info.path(), origin: info.origin, size: info.size, input: self.note_input.clone() })
+    }
+
+    /// Makes the note's input when a note is open and none exists, cleared
+    /// for the note (the pane's render calls this; it has the window).
+    pub fn ensure_note_input(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<Entity<InputState>> {
+        self.note?;
+        if self.note_input.is_none() {
+            let input = cx.new(|cx| InputState::new(window, cx));
+            let sub = cx.subscribe_in(&input, window, |this, _, event: &InputEvent, _, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.note_action(NoteAction::Save, cx);
+                }
+            });
+            self._note_sub = Some(sub);
+            self.note_input = Some(input);
+        }
+        self.note_input.clone()
+    }
+
+    /// Answers the open note's Cancel / Save (the popover's buttons, from
+    /// the host's window or the pane's).
+    pub fn answer_note(&mut self, action: NoteAction, cx: &mut Context<Self>) {
+        self.note_action(action, cx);
+    }
+
     /// Files a new pin and opens its note.
     fn push_annotation(&mut self, annotation: Annotation) {
         let info = self.backend.element_info(annotation.index);
@@ -1165,6 +1202,9 @@ impl WebviewState {
         let position = self.annotations.len() - 1;
         self.selected = Some(position);
         self.note = Some(position);
+        // A fresh note starts empty (the input is made, or reused, by the
+        // next render).
+        self.note_input = None;
     }
 
     /// A window position turned into page coordinates.
@@ -1283,9 +1323,10 @@ impl WebviewState {
                     self.selected = None;
                 }
                 NoteAction::Save => {
+                    let typed = self.note_input.as_ref().map(|input| input.read(cx).value().trim().to_string()).unwrap_or_default();
                     if let Some(annotation) = self.annotations.get_mut(position) {
                         annotation.pending = false;
-                        annotation.note = SharedString::from(SAVED_NOTE);
+                        annotation.note = SharedString::from(typed);
                     }
                 }
             }
@@ -1368,6 +1409,22 @@ fn urlencode(text: &str) -> String {
 
 type IntentHandler = Rc<dyn Fn(WebviewIntent, &mut Window, &mut App)>;
 
+/// The open note ([`WebviewState::open_note`]): for a host drawing its
+/// popover over a native page.
+#[derive(Clone)]
+pub struct OpenNote {
+    /// The pin's position in the annotation list.
+    pub position: usize,
+    /// The pinned element's path (`h1`, `div.card`).
+    pub path: SharedString,
+    /// The element's top-left in page coordinates.
+    pub origin: (f32, f32),
+    /// The element's size.
+    pub size: (f32, f32),
+    /// The note's field, once the pane's render has made it.
+    pub input: Option<Entity<InputState>>,
+}
+
 /// The browser pane. Build with [`webview_pane`].
 #[derive(IntoElement)]
 pub struct WebviewPane {
@@ -1426,7 +1483,7 @@ impl WebviewPane {
 }
 
 impl RenderOnce for WebviewPane {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let state = self.state.clone();
@@ -1649,15 +1706,18 @@ impl RenderOnce for WebviewPane {
             page = page.child(div().absolute().left(px(info.origin.0 + info.size.0 - 12.0)).top(px(info.origin.1 - 12.0)).child(aui::workbench::annotate_pin(annotation.index)));
         }
 
-        // The note popover sits inside the page area, clear of the pin.
-        let open_note = note.and_then(|position| Some((elements.get(position)?.as_ref()?, annotations.get(position)?)));
+        // The note popover sits inside the page area, clear of the pin. Over
+        // a native page the host draws it in a window of its own (the page
+        // window sits above everything drawn here), with this same input.
+        let note_input = if note.is_some() { state.update(cx, |state, cx| state.ensure_note_input(window, cx)) } else { None };
+        let open_note = note.filter(|_| !native).and_then(|position| Some((elements.get(position)?.as_ref()?, annotations.get(position)?)));
         if let Some((info, annotation)) = open_note {
             page = page.child(
                 div()
                     .absolute()
                     .left(px(info.origin.0 + info.size.0 + NOTE_GAP))
                     .top(px(info.origin.1 + NOTE_DROP))
-                    .child(note_popover((id.clone(), "note"), info.path(), annotation.note.clone()).on_action({
+                    .child(note_popover((id.clone(), "note"), info.path(), annotation.note.clone()).when_some(note_input, |p, input| p.input(input)).on_action({
                         let state = state.clone();
                         move |action, _, cx| {
                             state.update(cx, |state, cx| state.note_action(action, cx));
@@ -1790,6 +1850,31 @@ mod tests {
     /// A page's address moving is reported even when nothing else is: the
     /// host decides whether to cover the page from the address, so a hidden
     /// page that commits its first navigation must still wake the host.
+    /// D6 follow-up (docs/60 §3 item 3): Save kept a fixed stand-in, "Note
+    /// for the agent.", whatever was meant. The note has a real field now:
+    /// Save keeps what was typed, and a new pin starts with an empty field.
+    #[gpui::test]
+    fn a_saved_note_keeps_what_was_typed(cx: &mut gpui::TestAppContext) {
+        use gpui::AppContext as _;
+        cx.update(|cx| aui::init(aui_tokens::ThemeKind::Dark, cx));
+        let vc = cx.add_empty_window();
+        let state = vc.update(|_, cx| cx.new(|cx| WebviewState::new(Box::new(FakeWebBackend::new()), cx)));
+        vc.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state.push_annotation(aui::workbench::Annotation::new(1, "h1", "").pending(true));
+                let input = state.ensure_note_input(window, cx).expect("an open note has a field");
+                input.update(cx, |input, cx| input.set_value("make this heading blue", window, cx));
+                state.answer_note(aui::workbench::NoteAction::Save, cx);
+                assert_eq!(state.annotations[0].note.as_ref(), "make this heading blue");
+                assert!(!state.annotations[0].pending);
+                assert!(state.open_note().is_none(), "Save closes the note");
+                state.push_annotation(aui::workbench::Annotation::new(2, "p", "").pending(true));
+                let next = state.ensure_note_input(window, cx).expect("the next note's field");
+                assert_eq!(next.read(cx).value().as_ref(), "", "a new note starts empty");
+            })
+        });
+    }
+
     #[gpui::test]
     fn a_moved_address_is_reported_to_the_host(cx: &mut gpui::TestAppContext) {
         use gpui::AppContext as _;

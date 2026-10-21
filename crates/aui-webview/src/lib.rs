@@ -69,6 +69,6 @@ pub use backend::{
 };
 pub use fake::FakeWebBackend;
 pub use page::{fake_elements, FakeElement};
-pub use view::{bind_keys, webview_pane, FocusAddress, RecentPage, WebviewIntent, WebviewPane, WebviewState, RECENT_PAGES, WEBVIEW_CONTEXT};
+pub use view::{OpenNote, bind_keys, webview_pane, FocusAddress, RecentPage, WebviewIntent, WebviewPane, WebviewState, RECENT_PAGES, WEBVIEW_CONTEXT};
 #[cfg(feature = "wry")]
 pub use wry_backend::{WryBackend, ANNOTATOR_JS};

@@ -523,6 +523,7 @@ pub struct NotePopover {
     id: ElementId,
     path: SharedString,
     draft: SharedString,
+    input: Option<gpui::Entity<gpui_kit::base::input::InputState>>,
     visible: bool,
     on_action: Option<NoteHandler>,
 }
@@ -530,10 +531,17 @@ pub struct NotePopover {
 /// The 236 px popover that opens on a pinned element: its path, the note
 /// being typed, Cancel and Save note.
 pub fn note_popover(id: impl Into<ElementId>, path: impl Into<SharedString>, draft: impl Into<SharedString>) -> NotePopover {
-    NotePopover { id: id.into(), path: path.into(), draft: draft.into(), visible: true, on_action: None }
+    NotePopover { id: id.into(), path: path.into(), draft: draft.into(), input: None, visible: true, on_action: None }
 }
 
 impl NotePopover {
+    /// The note's real text field (D6 follow-up: the box was a stand-in and
+    /// Save kept a fixed placeholder). Without one the draft text shows.
+    pub fn input(mut self, input: gpui::Entity<gpui_kit::base::input::InputState>) -> Self {
+        self.input = Some(input);
+        self
+    }
+
     /// Whether the popover is open; it fades and rises 4 px on the enter timing.
     pub fn visible(mut self, visible: bool) -> Self {
         self.visible = visible;
@@ -600,7 +608,10 @@ impl RenderOnce for NotePopover {
                     .bg(p.surface_2)
                     .ui(scale::FS_12)
                     .line_height(relative(DRAFT_LINE_HEIGHT))
-                    .child(self.draft),
+                    .child(match &self.input {
+                        Some(input) => crate::a11y_text::a11y_text_input((id.clone(), "note-input"), "Note for the agent", input, cx).w_full().into_any_element(),
+                        None => self.draft.clone().into_any_element(),
+                    }),
             )
             .child(
                 h_flex()
