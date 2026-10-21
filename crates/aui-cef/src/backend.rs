@@ -1297,6 +1297,19 @@ wrap_life_span_handler! {
     }
 }
 
+/// Chromium's built-in PDF viewer: the component extension a PDF response
+/// is shown in (its id is fixed in Chromium, `extension_misc::kPdfExtensionId`).
+const PDF_VIEWER: &str = "chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/";
+
+/// What a CEF page may navigate to: the wry backend's schemes, the browser's
+/// own `chrome://` and `devtools://` pages, and the PDF viewer. Every other
+/// `chrome-extension://` stays cancelled. Owner 2026-10-21: a PDF showed as
+/// an empty grey page, over file:// and http alike — the viewer's frame was
+/// cancelled here like any other app scheme.
+fn cef_navigation_allowed(url: &str) -> bool {
+    navigation_allowed(url) || url.starts_with("chrome://") || url.starts_with("devtools://") || url.starts_with(PDF_VIEWER)
+}
+
 wrap_request_handler! {
     struct AuiRequest {
         shared: Page,
@@ -1323,7 +1336,7 @@ wrap_request_handler! {
             // Same scheme rule as the wry backend: a page (or an agent clicking
             // in it) never reaches `javascript:`, `data:`, app schemes.
             // chrome:// stays reachable for the browser's own pages.
-            if navigation_allowed(&url) || url.starts_with("chrome://") || url.starts_with("devtools://") {
+            if cef_navigation_allowed(&url) {
                 0
             } else {
                 1
@@ -2818,6 +2831,19 @@ mod tests {
         assert!(!opens_as_host_tab(WindowOpenDisposition::NEW_POPUP));
         assert!(!opens_as_host_tab(WindowOpenDisposition::NEW_WINDOW));
     }
+    /// The PDF viewer's frame is allowed; other extensions and app schemes
+    /// stay cancelled.
+    #[test]
+    fn the_pdf_viewer_may_load_and_other_extensions_may_not() {
+        use super::cef_navigation_allowed as ok;
+        assert!(ok("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html"));
+        assert!(ok("https://example.com/a.pdf"));
+        assert!(ok("file:///Users/me/report.pdf"));
+        assert!(ok("chrome://settings/"));
+        assert!(!ok("chrome-extension://abcdefghijklmnopabcdefghijklmnop/popup.html"));
+        assert!(!ok("javascript:alert(1)"));
+        assert!(!ok("data:text/html,hi"));
+    }
 }
 
 // Overlay-spike probes (examples/overlay.rs, S1 spike; additive). Declared
@@ -2834,3 +2860,4 @@ unsafe extern "C" {
     fn aui_overlay_frame(window: *mut c_void, x: *mut f64, y: *mut f64, w: *mut f64, h: *mut f64);
     fn aui_overlay_number(window: *mut c_void) -> std::os::raw::c_long;
 }
+
