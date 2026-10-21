@@ -42,6 +42,20 @@ const COVER_POLL_INTERVAL: Duration = Duration::from_millis(8);
 /// its right edge, dropped a little so the pin stays visible.
 const NOTE_GAP: f32 = 14.0;
 const NOTE_DROP: f32 = 14.0;
+/// The popover's box ([`aui::workbench::note_popover`]: 236 wide, about 132
+/// tall), which [`note_seat`] keeps inside the page.
+const NOTE_W: f32 = 236.0;
+const NOTE_H: f32 = 132.0;
+
+/// Where the note popover opens for an element at `origin` × `size` on a page
+/// of `page` (all page coordinates): clear of the element's right edge, then
+/// pulled back inside the page. A full-width heading put it past the pane's
+/// right edge, where nothing could be typed into it (owner 2026-10-21).
+fn note_seat(origin: (f32, f32), size: (f32, f32), page: (f32, f32)) -> (f32, f32) {
+    let left = (origin.0 + size.0 + NOTE_GAP).min(page.0 - NOTE_W - 8.0).max(8.0);
+    let top = (origin.1 + NOTE_DROP).min(page.1 - NOTE_H - 8.0).max(8.0);
+    (left, top)
+}
 actions!(
     aui_webview,
     [
@@ -1183,6 +1197,8 @@ impl WebviewState {
                 }
             });
             self._note_sub = Some(sub);
+            // The note takes the keyboard as it opens.
+            input.update(cx, |input, cx| input.focus(window, cx));
             self.note_input = Some(input);
         }
         self.note_input.clone()
@@ -1499,6 +1515,7 @@ impl RenderOnce for WebviewPane {
         let preview = view.preview_pins();
         let native = view.native;
         let obscured = view.obscured;
+        let page_size = (f32::from(view.page_size.width), f32::from(view.page_size.height));
         let corner_radius = px(view.corner_radius);
         let focus = view.focus.clone();
         // A blank page has nothing worth standing in for: its picture is
@@ -1677,7 +1694,12 @@ impl RenderOnce for WebviewPane {
         // The hovered element, unless it is already the selected one — that
         // one keeps the tighter selected outline instead.
         let selected_selector = selected.and_then(|position| elements.get(position)).and_then(|info| info.as_ref()).map(|info| info.selector.clone());
-        if annotate {
+        // Over a native page the page's own annotator draws the outline and
+        // the pins (and the cover picture carries them). Drawn here too they
+        // sat under the page, and showed as stray outlines over the bare
+        // ground whenever the page hid with no picture to stand in (owner
+        // recording 2026-10-21, sliding the pane's screens).
+        if annotate && !native {
             if let Some(info) = hovered.filter(|info| Some(&info.selector) != selected_selector.as_ref()) {
                 page = page.child(
                     div()
@@ -1689,7 +1711,7 @@ impl RenderOnce for WebviewPane {
             }
         }
 
-        for (position, annotation) in annotations.iter().enumerate() {
+        for (position, annotation) in annotations.iter().enumerate().filter(|_| !native) {
             let Some(info) = elements.get(position).and_then(|info| info.as_ref()) else { continue };
             let is_selected = selected == Some(position);
             if is_selected {
@@ -1707,16 +1729,19 @@ impl RenderOnce for WebviewPane {
         }
 
         // The note popover sits inside the page area, clear of the pin. Over
-        // a native page the host draws it in a window of its own (the page
-        // window sits above everything drawn here), with this same input.
+        // a native page it shows once the page is covered by its picture —
+        // the host covers the page while a note is open
+        // ([`WebviewState::open_note`]): typing then goes to this window's
+        // own field, as any field here does.
         let note_input = if note.is_some() { state.update(cx, |state, cx| state.ensure_note_input(window, cx)) } else { None };
-        let open_note = note.filter(|_| !native).and_then(|position| Some((elements.get(position)?.as_ref()?, annotations.get(position)?)));
+        let open_note = note.filter(|_| !native || obscured).and_then(|position| Some((elements.get(position)?.as_ref()?, annotations.get(position)?)));
         if let Some((info, annotation)) = open_note {
+            let (left, top) = note_seat(info.origin, info.size, page_size);
             page = page.child(
                 div()
                     .absolute()
-                    .left(px(info.origin.0 + info.size.0 + NOTE_GAP))
-                    .top(px(info.origin.1 + NOTE_DROP))
+                    .left(px(left))
+                    .top(px(top))
                     .child(note_popover((id.clone(), "note"), info.path(), annotation.note.clone()).when_some(note_input, |p, input| p.input(input)).on_action({
                         let state = state.clone();
                         move |action, _, cx| {
@@ -1729,8 +1754,10 @@ impl RenderOnce for WebviewPane {
         // D6: the notes collect in a panel 8 in from the page's foot
         // (docs/43 §2.7), over the page.
         // Over a native page the host draws the panel in an overlay window
-        // (the page window sits above everything gpui paints).
-        if annotate && !native {
+        // (the page window sits above everything gpui paints) — except while
+        // the page is covered by its picture (a note being typed), when it
+        // draws here like everything else.
+        if annotate && (!native || obscured) {
             let notes: Vec<aui::workbench::PageNote> = annotations
                 .iter()
                 .map(|a| aui::workbench::PageNote { index: a.index, selector: a.selector.clone(), note: a.note.clone() })
@@ -1850,6 +1877,20 @@ mod tests {
     /// A page's address moving is reported even when nothing else is: the
     /// host decides whether to cover the page from the address, so a hidden
     /// page that commits its first navigation must still wake the host.
+    /// Owner 2026-10-21: a pinned full-width heading opened its note past the
+    /// pane's right edge. The note stays inside the page whatever is pinned.
+    #[test]
+    fn a_note_opens_inside_the_page() {
+        use crate::view::{note_seat, NOTE_H, NOTE_W};
+        let page = (400.0, 600.0);
+        let (left, top) = note_seat((8.0, 20.0), (384.0, 40.0), page);
+        assert!(left >= 8.0 && left + NOTE_W <= page.0 - 8.0, "inside sideways: {left}");
+        assert_eq!(top, 34.0, "dropped below the pin as usual");
+        assert_eq!(note_seat((20.0, 20.0), (60.0, 20.0), page), (94.0, 34.0), "a small element keeps its seat beside it");
+        let (_, top) = note_seat((20.0, 580.0), (60.0, 20.0), page);
+        assert!(top + NOTE_H <= page.1 - 8.0, "inside at the foot: {top}");
+    }
+
     /// D6 follow-up (docs/60 §3 item 3): Save kept a fixed stand-in, "Note
     /// for the agent.", whatever was meant. The note has a real field now:
     /// Save keeps what was typed, and a new pin starts with an empty field.
