@@ -1376,12 +1376,16 @@ pub struct WebviewPane {
     on_intent: Option<IntentHandler>,
     nav: bool,
     agent: SharedString,
+    recent: Option<(bool, BarHandler)>,
+    close: Option<BarHandler>,
 }
+
+type BarHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// The pane for `state`: the nav row, the page with the annotator's overlays,
 /// and — only while annotate mode is on — the annotations panel.
 pub fn webview_pane(id: impl Into<ElementId>, state: &Entity<WebviewState>) -> WebviewPane {
-    WebviewPane { id: id.into(), state: state.clone(), on_intent: None, nav: true, agent: "the agent".into() }
+    WebviewPane { id: id.into(), state: state.clone(), on_intent: None, nav: true, agent: "the agent".into(), recent: None, close: None }
 }
 
 impl WebviewPane {
@@ -1395,6 +1399,22 @@ impl WebviewPane {
     /// The agent the notes go to ("Send 2 to Muse").
     pub fn agent(mut self, name: impl Into<SharedString>) -> Self {
         self.agent = name.into();
+        self
+    }
+
+    /// The Recent pages chevron at the address field's right end, lit while
+    /// `open`; `toggle` opens or closes the host's menu (the menu itself is
+    /// the host's, seated at [`aui::workbench::page_address_left`] /
+    /// [`aui::workbench::RECENT_MENU_TOP`]).
+    pub fn recent_pages(mut self, open: bool, toggle: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.recent = Some((open, Rc::new(toggle)));
+        self
+    }
+
+    /// The pane's ✕ at the bar's end, after a hairline: the host's pane row
+    /// is gone while a page shows (owner 2026-10-21, one bar per screen).
+    pub fn on_close(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.close = Some(Rc::new(f));
         self
     }
 
@@ -1464,10 +1484,13 @@ impl RenderOnce for WebviewPane {
             _ => {
                 record_ax_label("Address");
                 let nav_handler = nav_handler.clone();
-                aui::workbench::page_address((id.clone(), "url"), &view.url, cx)
+                let mut address = aui::workbench::page_address((id.clone(), "url"), &view.url, cx)
                     .debug_selector(|| "address-display".into())
-                    .on_click(move |_, window, cx| nav_handler(BrowserAction::FocusUrl, window, cx))
-                    .into_any_element()
+                    .on_click(move |_, window, cx| nav_handler(BrowserAction::FocusUrl, window, cx));
+                if let Some((open, toggle)) = self.recent.clone() {
+                    address = address.child(aui::workbench::recent_pages_chevron((id.clone(), "recent"), open, move |w, cx| toggle(w, cx), cx));
+                }
+                address.into_any_element()
             }
         };
         let nav = {
@@ -1481,6 +1504,14 @@ impl RenderOnce for WebviewPane {
                 annotate,
                 f32::from(view.page_size.width),
                 view.loading.then_some(0.6),
+                self.close.clone().map(|close| {
+                    aui::data::icon_button((id.clone(), "close"), aui_icons::IconName::X)
+                        .ghost()
+                        .icon_size(gpui::px(12.0))
+                        .accessibility_label("Close the pane")
+                        .on_click(move |_, w, cx| close(w, cx))
+                        .into_any_element()
+                }),
                 move |action, window, cx| {
                     use aui::workbench::PageNavAction as A;
                     let mapped = match action {

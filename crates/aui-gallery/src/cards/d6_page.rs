@@ -89,7 +89,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let _ = window;
     let url = "http://localhost:3000/pricing";
     let nav = |id: &str, w: f32, annot: bool, loading: Option<f32>, cx: &App| {
-        page_nav_row(SharedString::from(id.to_string()), page_address(SharedString::from(format!("{id}-addr")), url, cx).into_any_element(), true, false, annot, w, loading, |_, _, _| {}, cx)
+        page_nav_row(SharedString::from(id.to_string()), page_address(SharedString::from(format!("{id}-addr")), url, cx).into_any_element(), true, false, annot, w, loading, None, |_, _, _| {}, cx)
     };
 
     let with_pill = v_flex()

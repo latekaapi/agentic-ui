@@ -16,12 +16,58 @@ use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, spinner};
 
-/// The nav row.
-pub const PAGE_NAV_H: f32 = 36.0;
+/// The Page's one bar (owner 2026-10-21, canvas board `D6OneBar`): the old
+/// 32 px pane row and 36 px nav row merged into one bar at the pane row's
+/// metrics — back, forward, reload, the address (with the Recent pages
+/// chevron), annotate, screenshot, open in Browse, a hairline, ✕.
+pub const PAGE_NAV_H: f32 = 32.0;
 /// Under this pane width back / forward leave the nav row.
 pub const PAGE_NAV_NARROW: f32 = 300.0;
 /// Muse blue: the annotation outline.
 const ANNOTATE_BLUE: u32 = 0x3B6DF2;
+
+/// Where the address field starts in the bar, from the pane's left edge:
+/// padding 6, then back, forward and reload (28 each, gap 2) — reload only
+/// when the pane is narrow. The Recent pages menu hangs from here.
+pub fn page_address_left(width: f32) -> f32 {
+    if width > 0.0 && width < PAGE_NAV_NARROW {
+        6.0 + 28.0 + 2.0
+    } else {
+        6.0 + 3.0 * 28.0 + 3.0 * 2.0
+    }
+}
+
+/// The Recent pages menu's top: 2 px under the bar.
+pub const RECENT_MENU_TOP: f32 = PAGE_NAV_H + 2.0;
+
+/// The Recent pages button at the address field's right end: 22 square,
+/// r 4, the chevron 12 muted; hover 5 %, lit 9 % while the menu is open.
+/// Its click is its own — it never starts editing the address.
+pub fn recent_pages_chevron(id: impl Into<ElementId>, open: bool, on_click: impl Fn(&mut Window, &mut App) + 'static, cx: &App) -> gpui::Stateful<gpui::Div> {
+    let p = cx.aui().colors;
+    crate::data::record_ax_label("Recent pages");
+    div()
+        .id(id.into())
+        .size(px(22.0))
+        .flex_none()
+        .ml_auto()
+        .mr(px(-6.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(4.0))
+        .cursor_pointer()
+        .role(gpui::Role::Button)
+        .aria_label("Recent pages")
+        .when(open, |d| d.bg(p.selected_overlay()))
+        .when(!open, |d| d.hover(|d| d.bg(p.hover_overlay())))
+        .child(icon(IconName::ChevronDown).size(px(12.0)).color(p.fg_muted))
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(move |_, window, cx| {
+            cx.stop_propagation();
+            on_click(window, cx)
+        })
+}
 
 /// What a nav-row control asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,8 +110,16 @@ pub fn page_address(id: impl Into<ElementId>, url: &str, cx: &App) -> gpui::Stat
         .aria_label(format!("Address, {url}"))
         .cursor_pointer()
         .child(icon(IconName::Lock).size(px(12.0)).color(p.fg_muted))
-        .child(div().flex_none().text_color(p.fg).child(host))
-        .child(div().min_w(px(0.0)).overflow_hidden().text_ellipsis().text_color(p.fg_muted).child(path))
+        // Host and path ellipsis together, so a chevron after them keeps
+        // its place at any width.
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(gpui::StyledText::new(format!("{host}{path}")).with_highlights([(0..host.len(), gpui::HighlightStyle { color: Some(p.fg), ..Default::default() }), (host.len()..host.len() + path.len(), gpui::HighlightStyle { color: Some(p.fg_muted), ..Default::default() })])),
+        )
 }
 
 /// The address's frame, for the host's editing input to sit in.
@@ -104,8 +158,10 @@ fn dead_button(id: ElementId, glyph: IconName, label: &'static str, cx: &App) ->
         .child(icon(glyph).size(px(14.0)).color(p.ink_4))
 }
 
-/// The 36 px nav row (padding 0 6, gap 2). `address` is the host's slot —
-/// [`page_address`] at rest, the editing input in an [`address_frame`].
+/// The Page's one 32 px bar (padding 0 6, gap 2). `address` is the host's
+/// slot — [`page_address`] at rest, the editing input in an
+/// [`address_frame`]; `end` follows the actions after a 1 × 16 hairline
+/// (the pane's ✕).
 #[allow(clippy::too_many_arguments)]
 pub fn page_nav_row(
     id: impl Into<ElementId>,
@@ -115,6 +171,7 @@ pub fn page_nav_row(
     annotating: bool,
     width: f32,
     loading: Option<f32>,
+    end: Option<AnyElement>,
     on_action: impl Fn(PageNavAction, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
@@ -145,6 +202,9 @@ pub fn page_nav_row(
         })
         .child(button("shot", IconName::Camera, "Screenshot to the composer", PageNavAction::Screenshot))
         .child(button("browse", IconName::External, "Open in Browse", PageNavAction::OpenInBrowse));
+    if let Some(end) = end {
+        row = row.child(div().w(px(1.0)).h(px(16.0)).mx(px(4.0)).flex_none().bg(p.line)).child(end);
+    }
     if let Some(progress) = loading {
         // A 2 px muted bar grows under the address while the page loads.
         row = row.child(div().absolute().left(px(0.0)).bottom(px(0.0)).h(px(2.0)).w(relative(progress.clamp(0.0, 1.0))).bg(p.fg_muted));
@@ -465,4 +525,47 @@ mod tests {
         assert_eq!(split_url("https://example.com"), ("example.com".into(), "".into()));
         assert_eq!(split_url("example.com/a?b=1"), ("example.com".into(), "/a?b=1".into()));
     }
+
+    mod one_bar {
+        use super::super::{page_address, recent_pages_chevron};
+        use gpui::{div, point, prelude::*, px, Context, Window};
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        struct Host {
+            edits: Rc<Cell<u32>>,
+            menus: Rc<Cell<u32>>,
+        }
+
+        impl Render for Host {
+            fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                let (edits, menus) = (self.edits.clone(), self.menus.clone());
+                div().w(px(300.0)).child(
+                    page_address("addr", "https://example.com/pricing", cx)
+                        .on_click(move |_, _, _| edits.set(edits.get() + 1))
+                        .child(recent_pages_chevron("recent", false, move |_, _| menus.set(menus.get() + 1), cx)),
+                )
+            }
+        }
+
+        /// Owner 2026-10-21 (one bar): Recent pages moved into the address
+        /// field. Its chevron opens the menu and never starts an edit; the
+        /// rest of the field still does.
+        #[gpui::test]
+        fn the_chevron_opens_the_menu_without_editing_the_address(cx: &mut gpui::TestAppContext) {
+            cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+            let (edits, menus) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+            let (e, m) = (edits.clone(), menus.clone());
+            let (_view, vc) = cx.add_window_view(move |_, _| Host { edits: e, menus: m });
+            vc.run_until_parked();
+            // The chevron sits at the field's right end (300 wide, 22 square, 6 into the padding).
+            vc.simulate_click(point(px(300.0 - 13.0), px(14.0)), Default::default());
+            vc.run_until_parked();
+            assert_eq!((menus.get(), edits.get()), (1, 0), "the chevron opens the menu only");
+            vc.simulate_click(point(px(60.0), px(14.0)), Default::default());
+            vc.run_until_parked();
+            assert_eq!((menus.get(), edits.get()), (1, 1), "the address text starts an edit");
+        }
+    }
 }
+

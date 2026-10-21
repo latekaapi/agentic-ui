@@ -631,6 +631,53 @@ pub fn filter_field(
     )
 }
 
+/// Files' filter in the bar (owner 2026-10-21, canvas `D6OneBar`): while
+/// filtering, the pane row IS the field — the Well (28, r 6, the edge; the
+/// focus edge while focused), search glyph 12, the query, the match count
+/// faint mono at the right — then a 1 × 16 hairline and ✕, which closes the
+/// filter (as Esc does); the next ✕ closes the pane.
+pub fn filter_bar(
+    id: impl Into<ElementId>,
+    state: &gpui::Entity<gpui_kit::base::input::InputState>,
+    count: Option<SharedString>,
+    on_close: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    window: &Window,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    let p = cx.aui().colors;
+    let id: ElementId = id.into();
+    let focused = gpui::Focusable::focus_handle(state.read(cx), cx).is_focused(window);
+    h_flex()
+        .id(id.clone())
+        .w_full()
+        .h(px(PANE_ROW_H))
+        .flex_none()
+        .px(px(6.0))
+        .gap(px(6.0))
+        .items_center()
+        .bg(p.surface_2)
+        .child(
+            h_flex()
+                .flex_1()
+                .min_w(px(0.0))
+                .h(px(28.0))
+                .px(px(8.0))
+                .gap(px(8.0))
+                .items_center()
+                .rounded(px(6.0))
+                .bg(p.well)
+                .shadow(if focused { focus_edge(cx) } else { p.edge() })
+                .font_family(scale::FONT_UI)
+                .text_px(13.2)
+                .text_color(p.fg)
+                .child(icon(IconName::Search).size(px(12.0)).color(p.fg_muted))
+                .child(crate::a11y_text::a11y_text_input((id.clone(), "input"), "Filter files", state, cx).flex_1().min_w(px(0.0)))
+                .when_some(count, |d, c| d.child(div().flex_none().font_family(scale::FONT_MONO).text_px(12.1).text_color(p.ink_4).child(c))),
+        )
+        .child(div().w(px(1.0)).h(px(16.0)).mx(px(4.0)).flex_none().bg(p.line))
+        .child(icon_button((id, "close"), IconName::X).ghost().icon_size(px(12.0)).accessibility_label("Close the filter").on_click(move |e, w, cx| on_close(e, w, cx)))
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
