@@ -1873,6 +1873,8 @@ pub struct Markdown {
     selection: Option<TextSelection>,
     on_selection_change: Option<SelectionHandler>,
     span: Option<MessageSelection>,
+    /// The selection tint's strength, 0–1 ([`Markdown::selection_strength`]).
+    selection_strength: f32,
     on_span: Option<SpanHandler>,
     on_code_action: Option<FenceCodeHandler>,
     image_root: Option<SharedString>,
@@ -1893,6 +1895,7 @@ pub fn markdown(
         selection: None,
         on_selection_change: None,
         span: None,
+        selection_strength: 1.0,
         on_span: None,
         on_code_action: None,
         image_root: None,
@@ -1947,6 +1950,15 @@ impl Markdown {
     /// highlight from the span and [`selection`](Self::selection) is ignored.
     pub fn span_selection(mut self, selection: Option<&MessageSelection>) -> Self {
         self.span = selection.cloned();
+        self
+    }
+
+    /// The selection tint at `strength` (0–1) of its colour: a host fades a
+    /// span it paints as a flash rather than a held selection — a sent
+    /// quote's source, flashed once when the transcript scrolls back to it
+    /// (docs/43 §0).
+    pub fn selection_strength(mut self, strength: f32) -> Self {
+        self.selection_strength = strength;
         self
     }
 
@@ -2408,7 +2420,7 @@ impl RenderOnce for Markdown {
             selection: self.selection.clone(),
             on_change: self.on_selection_change.clone(),
             on_link: self.on_link.clone(),
-            color: palette.selection,
+            color: palette.selection.alpha(palette.selection.a * self.selection_strength.clamp(0.0, 1.0)),
             prefix: String::new(),
             span,
         };

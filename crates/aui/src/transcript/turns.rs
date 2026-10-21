@@ -171,7 +171,8 @@ type UserHandler = std::rc::Rc<dyn Fn(UserTurnAction, &mut Window, &mut App)>;
 type AssistantHandler = std::rc::Rc<dyn Fn(AssistantTurnAction, &mut Window, &mut App)>;
 type CodeHandler = std::rc::Rc<dyn Fn(CodeBlockAction, &mut Window, &mut App)>;
 type IndexHandler = std::rc::Rc<dyn Fn(usize, &mut Window, &mut App)>;
-type QuoteHandler = std::rc::Rc<dyn Fn(String, &mut Window, &mut App)>;
+/// A sent quote was pressed: its source turn and its words.
+type QuoteHandler = std::rc::Rc<dyn Fn(String, String, &mut Window, &mut App)>;
 
 /// The person's turn. Build with [`user_turn`].
 #[derive(IntoElement)]
@@ -191,6 +192,7 @@ pub struct UserTurn {
     selection: Option<TextSelection>,
     on_selection_change: Option<SelectionHandler>,
     span: Option<MessageSelection>,
+    span_strength: f32,
     on_span: Option<SpanHandler>,
     on_code_action: Option<CodeHandler>,
 }
@@ -214,6 +216,7 @@ pub fn user_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) ->
         selection: None,
         on_selection_change: None,
         span: None,
+        span_strength: 1.0,
         on_span: None,
         on_code_action: None,
     }
@@ -281,7 +284,7 @@ impl UserTurn {
 
     /// The quote at the bubble's top was pressed: the id of the turn it was
     /// quoted from, to scroll back to.
-    pub fn on_quote(mut self, f: impl Fn(String, &mut Window, &mut App) + 'static) -> Self {
+    pub fn on_quote(mut self, f: impl Fn(String, String, &mut Window, &mut App) + 'static) -> Self {
         self.on_quote = Some(std::rc::Rc::new(f));
         self
     }
@@ -310,6 +313,13 @@ impl UserTurn {
     /// The stored cross-cell span the markdown body highlights.
     pub fn span_selection(mut self, selection: Option<&MessageSelection>) -> Self {
         self.span = selection.cloned();
+        self
+    }
+
+    /// The span's tint at `strength` (0–1): see
+    /// [`Markdown::selection_strength`](super::markdown::Markdown::selection_strength).
+    pub fn span_strength(mut self, strength: f32) -> Self {
+        self.span_strength = strength;
         self
     }
 
@@ -535,12 +545,13 @@ fn quote_block(p: &Palette, id: ElementId, words: &str, code: Option<&str>, sour
         )
         .child(div().pl(px(QUOTE_PAD_L + QUOTE_RULE)).mt(px(4.0)).font_family(scale::FONT_UI).text_px(12.1).line_height(px(16.0)).text_color(p.ink_4).child(source_line));
     if let (Some(source), Some(on_quote)) = (source, on_quote) {
+        let words = words.to_owned();
         crate::data::record_ax_label("Show the quoted reply");
         block = block
             .cursor_pointer()
             .role(gpui::Role::Button)
             .aria_label("Show the quoted reply")
-            .on_click(move |_, w, cx| on_quote(source.clone(), w, cx));
+            .on_click(move |_, w, cx| on_quote(source.clone(), words.clone(), w, cx));
     }
     block
 }
@@ -705,7 +716,7 @@ impl RenderOnce for UserTurn {
                 if let Some(on_change) = self.on_selection_change.clone() {
                     body = body.on_selection_change(move |next, window, cx| on_change(next, window, cx));
                 }
-                body = body.span_selection(self.span.as_ref());
+                body = body.span_selection(self.span.as_ref()).selection_strength(self.span_strength);
                 if let Some(on_span) = self.on_span.clone() {
                     body = body.on_span_event(move |event, window, cx| on_span(event, window, cx));
                 }
@@ -763,6 +774,7 @@ pub struct AssistantTurn {
     selection: Option<TextSelection>,
     on_selection_change: Option<SelectionHandler>,
     span: Option<MessageSelection>,
+    span_strength: f32,
     on_span: Option<SpanHandler>,
     on_code_action: Option<CodeHandler>,
 }
@@ -782,6 +794,7 @@ pub fn assistant_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString
         selection: None,
         on_selection_change: None,
         span: None,
+        span_strength: 1.0,
         on_span: None,
         on_code_action: None,
     }
@@ -867,6 +880,13 @@ impl AssistantTurn {
     /// The stored cross-cell span the markdown body highlights.
     pub fn span_selection(mut self, selection: Option<&MessageSelection>) -> Self {
         self.span = selection.cloned();
+        self
+    }
+
+    /// The span's tint at `strength` (0–1): see
+    /// [`Markdown::selection_strength`](super::markdown::Markdown::selection_strength).
+    pub fn span_strength(mut self, strength: f32) -> Self {
+        self.span_strength = strength;
         self
     }
 
@@ -1098,7 +1118,7 @@ impl RenderOnce for AssistantTurn {
                     if let Some(on_change) = self.on_selection_change.clone() {
                         body = body.on_selection_change(move |next, window, cx| on_change(next, window, cx));
                     }
-                    body = body.span_selection(self.span.as_ref());
+                    body = body.span_selection(self.span.as_ref()).selection_strength(self.span_strength);
                     if let Some(on_span) = self.on_span.clone() {
                         body = body.on_span_event(move |event, window, cx| on_span(event, window, cx));
                     }

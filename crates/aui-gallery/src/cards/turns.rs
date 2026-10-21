@@ -213,7 +213,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 ])
                 .on_attachment(|_, _, _| {}),
         )
-        .child(user_turn("card31-user-quote", "Try that again.").attachments(vec![quote]).on_quote(|_, _, _| {}))
+        .child(user_turn("card31-user-quote", "Try that again.").attachments(vec![quote]).on_quote(|_, _, _, _| {}))
         .child(user_turn("card31-user-annotations", "").annotations(Some(batch)))
         .child(
             assistant_turn("card31-assistant", ASSISTANT_TEXT)

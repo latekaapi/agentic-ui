@@ -50,8 +50,8 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(user_turn("d6-q-sent", "Why does GB still fail on the space? Fix it the same way as CA.").attachments(vec![quote(
             "with focused tests over both. • CA outward codes accept the space form • GB outward codes still fail on the space",
             None,
-        )]).on_quote(|_, _, _| {}))
-        .child(user_turn("d6-q-sent-code", "Is the order of these two arms right?").attachments(vec![quote("Country::Ca => CA_RE.is_match(code),\nCountry::Gb => GB_RE.is_match(code),", Some("code:rust"))]).on_quote(|_, _, _| {}));
+        )]).on_quote(|_, _, _, _| {}))
+        .child(user_turn("d6-q-sent-code", "Is the order of these two arms right?").attachments(vec![quote("Country::Ca => CA_RE.is_match(code),\nCountry::Gb => GB_RE.is_match(code),", Some("code:rust"))]).on_quote(|_, _, _, _| {}));
 
     v_flex()
         .gap(px(20.0))
