@@ -1,10 +1,12 @@
 //! The project's file tree — D6's Files screen (docs/43 §2.4; canvas v49
 //! `D6Files`, `D6StatesFiles`). Rows 28, r 6, padding-right 8, padding-left
 //! 2 + 16 × depth, gap 6: a 16 px chevron slot (folders: chevron 12 muted),
-//! the glyph 14 muted, the name 14.3 (faint when ignored), and the git letter
-//! at the right in mono 12.1, 14 wide. Hover 5 % and selected 9 % are Fluid
-//! Functionalism's fluid list (one highlight that glides); keyboard focus adds
-//! a 1 px grey ring at 45 %. A capped folder ends with one faint 13.2 line.
+//! the glyph 14 muted, the name in the sidebar rows' Body role (13 / 20; owner
+//! 2026-10-21: "make it same as the sidebar items", over the canvas's 14.3),
+//! faint when ignored, and the git letter at the right in mono 12.1, 14 wide.
+//! Hover 5 % and selected 9 % are Fluid Functionalism's fluid list (one
+//! highlight that glides); keyboard focus adds a 1 px grey ring at 45 %. A
+//! capped folder ends with one faint Caption line.
 //!
 //! The screen's own row (glyph, "Files", filter, ✕) is the pane's
 //! ([`super::pane_row`]); the tree has no header, footer or refresh button.
@@ -16,7 +18,7 @@ use crate::util::ScrollAxisLock as _;
 use std::rc::Rc;
 
 use aui_icons::{icon, FileType, IconName};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Density, TextRole};
 use gpui::{div, prelude::*, px, App, BoxShadow, ElementId, Hsla, IntoElement, ScrollHandle, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -38,9 +40,6 @@ const CHEVRON_SLOT: f32 = 16.0;
 const CHEVRON: f32 = 12.0;
 /// The glyph.
 const GLYPH: f32 = 14.0;
-/// The name; the capped-folder line.
-const NAME_TEXT: f32 = 14.3;
-const NOTE_TEXT: f32 = 13.2;
 /// The git letter: mono 12.1, 14 wide.
 const BADGE_TEXT: f32 = 12.1;
 const BADGE_W: f32 = 14.0;
@@ -420,9 +419,7 @@ fn tree_row(id: impl Into<ElementId>, node: FileNode, ring: bool, window: &mut W
             .id(id)
             .w_full()
             .p(px(8.0))
-            .font_family(scale::FONT_UI)
-            .text_px(NOTE_TEXT)
-            .line_height(px(18.0))
+            .text_role_in(TextRole::Caption, Density::Standard)
             .text_color(p.ink_4)
             .child(node.name)
             .into_any_element();
@@ -440,8 +437,8 @@ fn tree_row(id: impl Into<ElementId>, node: FileNode, ring: bool, window: &mut W
         .items_center()
         .whitespace_nowrap()
         .cursor_pointer()
-        .font_family(scale::FONT_UI)
-        .text_px(NAME_TEXT)
+        // The sidebar's own row size, so the two lists read as one scale.
+        .text_role_in(TextRole::Body, Density::Standard)
         .text_color(if node.ignored { p.ink_4 } else { p.fg })
         .role(gpui::Role::TreeItem)
         .aria_label(match node.badge {
