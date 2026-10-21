@@ -116,6 +116,10 @@ void aui_cef_flatten_window(void *child_root_view);
 // Places the page's window over `x, y, w, h` — the parent view's coordinates,
 // top-left origin, logical pixels (what gpui lays out in) — adopting it as a
 // child window first. Returns 1 when placed.
+// Marks a window as a page placed over a host (aui_cef_place): what the wheel
+// router below looks for.
+static const void *kAuiCefPageKey = &kAuiCefPageKey;
+
 int aui_cef_place(void *parent_view, void *child_root_view, double x, double y, double w, double h) {
   NSView *pv = (__bridge NSView *)parent_view;
   NSWindow *pw = pv.window;
@@ -127,6 +131,7 @@ int aui_cef_place(void *parent_view, void *child_root_view, double x, double y, 
   if (cw.parentWindow != pw) {
     [pw addChildWindow:cw ordered:NSWindowAbove];
     aui_cef_flatten_window(child_root_view);
+    objc_setAssociatedObject(cw, kAuiCefPageKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   }
   if (!NSEqualRects(cw.frame, onScreen)) [cw setFrame:onScreen display:YES];
   return 1;
@@ -643,3 +648,38 @@ long aui_overlay_number(void *window) {
   if (!w) return -1;
   return (long)w.windowNumber;
 }
+
+// The wheel router (owner D6 follow-up, 2026-10-21): the page is its own
+// child window, so a wheel over it never reaches the host. A Shift + sideways
+// two-finger swipe over the right pane's page is the host's gesture (one
+// pane screen per swipe), not the page's. One local monitor per process sees
+// scroll-wheel events bound for a page window with Shift held and asks the
+// host, synchronously, whether it claims this one — with the point in the
+// host's content view (top-left origin, points), the precise deltas and the
+// gesture's phase. A claimed event is the host's and is swallowed; anything
+// else goes on to the page untouched. The host must answer without
+// touching UI state (it only queues the event).
+typedef int (*AuiCefWheelFn)(double x, double y, double dx, double dy, int phase, int momentum_phase, int precise);
+static AuiCefWheelFn aui_cef_wheel_fn = NULL;
+static id aui_cef_wheel_monitor = nil;
+
+void aui_cef_set_wheel_router(AuiCefWheelFn f) {
+  aui_cef_wheel_fn = f;
+  if (aui_cef_wheel_monitor || !f) return;
+  aui_cef_wheel_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskScrollWheel handler:^NSEvent *(NSEvent *event) {
+    AuiCefWheelFn route = aui_cef_wheel_fn;
+    NSWindow *cw = event.window;
+    if (!route || !cw) return event;
+    if (!(event.modifierFlags & NSEventModifierFlagShift)) return event;
+    if (![objc_getAssociatedObject(cw, kAuiCefPageKey) boolValue]) return event;
+    NSWindow *pw = cw.parentWindow;
+    NSView *pv = pw.contentView;
+    if (!pw || !pv) return event;
+    NSPoint onScreen = [cw convertPointToScreen:event.locationInWindow];
+    NSPoint inParent = [pv convertPoint:[pw convertPointFromScreen:onScreen] fromView:nil];
+    double y = pv.isFlipped ? inParent.y : NSHeight(pv.bounds) - inParent.y;
+    int claimed = route(inParent.x, y, event.scrollingDeltaX, event.scrollingDeltaY, (int)event.phase, (int)event.momentumPhase, event.hasPreciseScrollingDeltas ? 1 : 0);
+    return claimed ? nil : event;
+  }];
+}
+
