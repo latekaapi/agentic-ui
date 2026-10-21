@@ -42,6 +42,12 @@ gpui_platform = { workspace = true, features = ["test-support"] }
 aui-protocol.workspace = true
 # Only for the `minimal` example's `--screenshot`/`--screenshot-approval` flags.
 image.workspace = true
+# `benches/` (docs/51 P2 in the harness repo). No plots, no rayon.
+criterion = { version = "0.5.1", default-features = false }
+
+[[bench]]
+name = "markdown"
+harness = false
 
 [[example]]
 name = "minimal"
