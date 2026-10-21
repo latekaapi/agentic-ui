@@ -11,6 +11,7 @@
 //! splits the text once when the file loads and passes the lines in an `Arc`,
 //! so a render never re-splits or clones the file.
 
+use crate::util::ScrollAxisLock as _;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -169,6 +170,7 @@ impl RenderOnce for CodeView {
                 .collect()
         })
         .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
+        .scroll_axis_locked()
         .with_width_from_item(widest)
         .track_scroll(&handle)
         .size_full();

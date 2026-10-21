@@ -14,6 +14,7 @@
 //! [`GitAction`] / [`PrAction`] intents through one closure. Nothing here
 //! talks to git.
 
+use crate::util::ScrollAxisLock as _;
 use std::rc::Rc;
 
 use aui_motion::{spring_phase, SpringKind};
@@ -261,7 +262,7 @@ impl RenderOnce for GitChanges {
 
         // The file list takes the free space and scrolls; the draft, commit
         // and ahead/behind rows stay pinned top and bottom.
-        let mut rows = v_flex().id((id.clone(), "rows")).w_full().flex_1().min_h(px(0.0)).overflow_hidden().overflow_y_scroll();
+        let mut rows = v_flex().id((id.clone(), "rows")).w_full().flex_1().min_h(px(0.0)).overflow_hidden().overflow_y_scroll().scroll_axis_locked();
         for (file, on) in &self.files {
             let (letter, colour) = change_letter(file.change, &p);
             let path = SharedString::from(file.path.clone());

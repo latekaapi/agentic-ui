@@ -11,6 +11,7 @@
 //! the screens phase; they will reuse [`artifact_strip`] and
 //! [`pane_status_row`].
 
+use crate::util::ScrollAxisLock as _;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -1066,7 +1067,8 @@ impl RenderOnce for DocPane {
             .flex()
             .justify_center()
             .overflow_hidden()
-            .overflow_y_scroll();
+            .overflow_y_scroll()
+            .scroll_axis_locked();
         if self.flush {
             // Edge to edge: no gutters, on the paper's own ground so no
             // surface band shows below a short page. Top-aligned exactly

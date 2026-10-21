@@ -12,6 +12,7 @@
 //! expansion state and the filtering) and reports intents through
 //! [`FileTreeAction`]; it never touches a filesystem.
 
+use crate::util::ScrollAxisLock as _;
 use std::rc::Rc;
 
 use aui_icons::{icon, FileType, IconName};
@@ -397,6 +398,7 @@ impl RenderOnce for FileTree {
                     .flex_1()
                     .min_h(px(0.0))
                     .overflow_y_scroll()
+                    .scroll_axis_locked()
                     .track_scroll(&scroll)
                     .pt(px(TREE_PAD_TOP))
                     .px(px(TREE_PAD_X))

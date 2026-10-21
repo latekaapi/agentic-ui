@@ -7,6 +7,7 @@
 //! The segmented control ([`segmented`]) is exported on its own: cards 51 and
 //! 53 use the same track.
 
+use crate::util::ScrollAxisLock as _;
 use std::{cell::RefCell, rc::Rc};
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
@@ -784,7 +785,7 @@ impl RenderOnce for DiffReview {
             .child(button((id.clone(), "open"), "Open in editor").xs().ghost().on_click(emit(DiffReviewAction::OpenInEditor)))
             .child(button((id.clone(), "stage"), "Stage").xs().ghost().on_click(emit(DiffReviewAction::Stage)));
 
-        let mut body = v_flex().id((id.clone(), "body")).flex_1().min_w(px(0.0)).min_h(px(0.0)).h_full().overflow_hidden().overflow_y_scroll().mono(DIFF_TEXT).line_height(relative(DIFF_LH)).text_color(p.ink).child(file_head);
+        let mut body = v_flex().id((id.clone(), "body")).flex_1().min_w(px(0.0)).min_h(px(0.0)).h_full().overflow_hidden().overflow_y_scroll().scroll_axis_locked().mono(DIFF_TEXT).line_height(relative(DIFF_LH)).text_color(p.ink).child(file_head);
         for (h, hunk) in self.diff.hunks.iter().enumerate() {
             body = body.child(
                 h_flex()

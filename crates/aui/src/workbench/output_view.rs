@@ -2,6 +2,7 @@
 //! `D6Output`, `D6Image`, `D6StatesViews`). Both are pushed views: the
 //! transcript opens them on the screen the pane is showing.
 
+use crate::util::ScrollAxisLock as _;
 use std::sync::Arc;
 
 use aui_icons::IconName;
@@ -164,6 +165,7 @@ impl RenderOnce for OutputView {
                 .collect()
         })
         .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
+        .scroll_axis_locked()
         .with_width_from_item(widest)
         .track_scroll(&handle)
         .flex_1()
@@ -291,6 +293,7 @@ pub fn image_view(
             .id((id.clone(), "pan"))
             .size_full()
             .overflow_scroll()
+            .scroll_axis_locked()
             .track_scroll(&scroll)
             .p(px(16.0))
             .cursor(gpui::CursorStyle::OpenHand)

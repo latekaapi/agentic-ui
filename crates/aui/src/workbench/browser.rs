@@ -10,6 +10,7 @@
 //! element, clicking pins a numbered note, the side panel collects them and
 //! one action sends the batch — with metadata and a screenshot — to the agent.
 
+use crate::util::ScrollAxisLock as _;
 use std::rc::Rc;
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
@@ -751,7 +752,7 @@ impl RenderOnce for AnnotationsPanel {
             .bg(p.surface_1)
             .child(head);
 
-        let mut middle = v_flex().id((id.clone(), "rows")).w_full().flex_1().min_h(px(0.0)).overflow_hidden().overflow_y_scroll();
+        let mut middle = v_flex().id((id.clone(), "rows")).w_full().flex_1().min_h(px(0.0)).overflow_hidden().overflow_y_scroll().scroll_axis_locked();
         for (position, annotation) in self.annotations.iter().enumerate() {
             middle = middle.child(annotation_row((id.clone(), SharedString::from(format!("row-{position}"))), annotation, self.selected == Some(position), handler.clone(), window, cx));
         }
