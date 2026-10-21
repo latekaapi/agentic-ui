@@ -1291,6 +1291,24 @@ impl WebviewState {
         }
     }
 
+    /// Drops every pin and note — the panel's Clear, and what a host calls
+    /// once it has taken a [`WebviewIntent::SendAnnotations`] batch (the
+    /// batch moved into the composer; a panel still listing it read as
+    /// unsent, owner 2026-10-21). Annotate mode stays on.
+    pub fn clear_annotations(&mut self, cx: &mut Context<Self>) {
+        self.annotations.clear();
+        self.elements.clear();
+        self.selected = None;
+        self.note = None;
+        // The page's own pins go too (the annotator drops them when
+        // annotate mode cycles).
+        if self.annotate {
+            self.backend.set_annotate(false);
+            self.backend.set_annotate(true);
+        }
+        cx.notify();
+    }
+
     /// Handles the annotations panel, answering with the intent it raises.
     pub fn annotator_action(&mut self, action: AnnotatorAction, cx: &mut Context<Self>) -> Option<WebviewIntent> {
         cx.notify();
@@ -1300,16 +1318,7 @@ impl WebviewState {
                 Some(WebviewIntent::Annotate(false))
             }
             AnnotatorAction::Clear => {
-                self.annotations.clear();
-                self.elements.clear();
-                self.selected = None;
-                self.note = None;
-                // The page's own pins go too (the annotator drops them
-                // when annotate mode cycles).
-                if self.annotate {
-                    self.backend.set_annotate(false);
-                    self.backend.set_annotate(true);
-                }
+                self.clear_annotations(cx);
                 None
             }
             AnnotatorAction::Select(position) => {
@@ -1913,6 +1922,29 @@ mod tests {
                 let next = state.ensure_note_input(window, cx).expect("the next note's field");
                 assert_eq!(next.read(cx).value().as_ref(), "", "a new note starts empty");
             })
+        });
+    }
+
+    /// Owner 2026-10-21: after Send the batch sat in the composer and the
+    /// panel still listed it. The host clears it once taken; the batch it
+    /// took is whole, and annotate mode stays on for the next round.
+    #[gpui::test]
+    fn a_sent_batch_leaves_the_panel_empty(cx: &mut gpui::TestAppContext) {
+        use crate::view::WebviewIntent;
+        use aui::workbench::AnnotatorAction;
+        use gpui::AppContext as _;
+        let state = cx.new(|cx| WebviewState::new(Box::new(FakeWebBackend::new()), cx));
+        state.update(cx, |state, cx| {
+            state.set_annotate(true);
+            state.push_annotation(aui::workbench::Annotation::new(1, "p", "test"));
+            state.push_annotation(aui::workbench::Annotation::new(2, "li", "another message"));
+            let Some(WebviewIntent::SendAnnotations { annotations, .. }) = state.annotator_action(AnnotatorAction::Send, cx) else {
+                panic!("Send raises the batch");
+            };
+            assert_eq!(annotations.len(), 2, "the batch is whole");
+            state.clear_annotations(cx);
+            assert!(state.annotations().is_empty(), "the panel empties");
+            assert!(state.annotating(), "annotate stays on");
         });
     }
 
