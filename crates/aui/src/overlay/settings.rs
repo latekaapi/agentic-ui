@@ -484,7 +484,7 @@ impl RenderOnce for SettingsDialog {
                     kept.settled = true;
                 } else {
                     scroll.scroll_to_item(target);
-                    window.request_animation_frame();
+                    aui_motion::request_frame(window);
                 }
             }
         }

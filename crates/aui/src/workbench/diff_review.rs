@@ -337,7 +337,7 @@ impl RenderOnce for Segmented {
                 )
             }
             None => {
-                window.request_animation_frame();
+                aui_motion::request_frame(window);
                 None
             }
         };

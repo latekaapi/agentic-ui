@@ -492,7 +492,7 @@ impl RenderOnce for AppShell {
             state.update(cx, |s, _| *s = st);
         }
         if st.lead {
-            window.request_animation_frame();
+            aui_motion::request_frame(window);
         }
 
         // The column: ease-out both ways, the panel sliding with its edge.
@@ -545,7 +545,7 @@ impl RenderOnce for AppShell {
             });
         }
         if pending {
-            window.request_animation_frame();
+            aui_motion::request_frame(window);
         }
         if column != st.column || peeking != st.peeking {
             state.update(cx, |s, _| {

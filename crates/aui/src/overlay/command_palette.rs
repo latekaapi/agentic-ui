@@ -410,7 +410,7 @@ impl RenderOnce for CommandPalette {
                         scroll.scroll_to_item(target);
                         // The re-fire above may itself be dropped (see
                         // [`PaletteScroll`]); ask for the frame that retries it.
-                        window.request_animation_frame();
+                        aui_motion::request_frame(window);
                     }
                     _ => kept.settled = true,
                 }

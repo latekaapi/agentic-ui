@@ -444,7 +444,7 @@ impl RenderOnce for ToastStack {
                             stored.insert(toast_id.clone(), height);
                             // The fan reads these heights while rendering;
                             // ask for the frame that picks them up.
-                            window.request_animation_frame();
+                            aui_motion::request_frame(window);
                         }
                     }
                 })

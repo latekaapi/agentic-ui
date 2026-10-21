@@ -646,7 +646,7 @@ impl RenderOnce for FluidList {
         let (highlight, holding) = scroll_hold(&mut fluid.borrow_mut(), picked, keyboard, &bounds, std::time::Instant::now());
         let highlight = highlight.filter(|index| Some(*index) != inert && !toolbars.contains(index));
         if holding {
-            window.request_animation_frame();
+            aui_motion::request_frame(window);
         }
         if pointer.is_some() && keyboard.is_none() && fluid.borrow().reported != Some(highlight) {
             if let Some(report) = self.on_highlight.clone() {
@@ -733,7 +733,7 @@ impl RenderOnce for FluidList {
                 // tint clear and asks for another frame, which fades it in.
                 let fresh = std::mem::take(&mut fluid.borrow_mut().fresh);
                 if fresh {
-                    window.request_animation_frame();
+                    aui_motion::request_frame(window);
                 }
                 let tint = tint_fade(((id.clone(), "aui-hl"), sess.clone()), tint_on(highlight.is_some(), fresh), p.hover_overlay(), enter, window, cx);
                 let x_to = x;
@@ -778,7 +778,7 @@ impl RenderOnce for FluidList {
                 overlays.push(div().absolute().left(x).top(y).w(non_negative(w)).h(non_negative(h)).rounded(px(scale::SHAPE_ITEM)).bg(tint));
             }
         } else {
-            window.request_animation_frame();
+            aui_motion::request_frame(window);
         }
         fluid.borrow_mut().gliding = gliding;
 

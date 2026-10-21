@@ -619,7 +619,7 @@ fn virtual_code_body(
                     // One more frame so the deferred scroll paints; the
                     // attempts bound above is the only re-arm path, so this
                     // cannot chain beyond `CODE_SCROLL_ATTEMPTS` frames.
-                    window.request_animation_frame();
+                    aui_motion::request_frame(window);
                 }
             }
         }

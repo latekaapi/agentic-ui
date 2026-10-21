@@ -82,10 +82,15 @@ thread_local! {
 }
 
 /// The current phase in `0..=1` of a loop keyed by `id`.
+///
+/// Each redraw the loop's wake causes is counted against the caller's
+/// `file:line` in [`crate::frames`].
+#[track_caller]
 pub fn looping(id: impl Into<TransitionId>, config: Loop, window: &mut Window, cx: &mut App) -> f32 {
     if cx.reduce_motion() {
         return config.resting;
     }
+    let caller = std::panic::Location::caller();
     let id: ElementId = id.into().into();
     let now = cx.background_executor().now();
     let started = window.use_keyed_state(id, cx, |_, _| LoopEpoch(now)).read(cx).0;
@@ -107,7 +112,7 @@ pub fn looping(id: impl Into<TransitionId>, config: Loop, window: &mut Window, c
         }
         _ => SMOOTH_TICK,
     };
-    wake_after(window.window_handle(), window.current_view(), now + wait, wait, cx);
+    wake_after(window.window_handle(), window.current_view(), now + wait, wait, caller, cx);
     value
 }
 
@@ -119,6 +124,8 @@ thread_local! {
 /// A linear 0→1 phase on one clock shared by every caller — two shimmers
 /// on screen sweep together, as gpui's `repeat_synced` did — waking the
 /// rendering view at [`SMOOTH_TICK`]. Holds `resting` under reduced motion.
+/// Counted against the caller in [`crate::frames`], like [`looping`].
+#[track_caller]
 pub fn synced(period: Duration, resting: f32, window: &mut Window, cx: &mut App) -> f32 {
     if cx.reduce_motion() {
         return resting;
@@ -133,7 +140,8 @@ pub fn synced(period: Duration, resting: f32, window: &mut Window, cx: &mut App)
     });
     let elapsed = now.saturating_duration_since(epoch).as_secs_f64();
     let period = period.max(Duration::from_millis(1)).as_secs_f64();
-    wake_after(window.window_handle(), window.current_view(), now + SMOOTH_TICK, SMOOTH_TICK, cx);
+    let caller = std::panic::Location::caller();
+    wake_after(window.window_handle(), window.current_view(), now + SMOOTH_TICK, SMOOTH_TICK, caller, cx);
     ((elapsed / period).fract()) as f32
 }
 
@@ -143,8 +151,16 @@ pub fn synced(period: Duration, resting: f32, window: &mut Window, cx: &mut App)
 /// The timer only arms a next-frame callback: gpui stops a window's display
 /// link while the window is hidden or covered, so a covered window wakes
 /// nothing (a plain timer notify kept ticking behind other apps), and its
-/// loops resume on the first frame it draws again.
-fn wake_after(window: AnyWindowHandle, view: EntityId, at: Instant, wait: Duration, cx: &mut App) {
+/// loops resume on the first frame it draws again. The notify it sends is
+/// counted against `caller` (the loop's call site) in [`crate::frames`].
+fn wake_after(
+    window: AnyWindowHandle,
+    view: EntityId,
+    at: Instant,
+    wait: Duration,
+    caller: &'static std::panic::Location<'static>,
+    cx: &mut App,
+) {
     let scheduled = PENDING.with(|pending| {
         let mut pending = pending.borrow_mut();
         match pending.get(&view) {
@@ -174,6 +190,7 @@ fn wake_after(window: AnyWindowHandle, view: EntityId, at: Instant, wait: Durati
                     }
                 });
                 if due {
+                    crate::frames::record(caller);
                     cx.notify(view);
                 }
             });

@@ -242,7 +242,7 @@ impl RenderOnce for TabStrip {
                 Some(if in_shell_header { crate::overlay::popover_layer(bar).into_any_element() } else { bar.into_any_element() })
             }
             None => {
-                window.request_animation_frame();
+                aui_motion::request_frame(window);
                 None
             }
         };

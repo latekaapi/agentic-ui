@@ -173,7 +173,7 @@ impl Element for Reveal {
                 },
             );
             if changed {
-                window.request_animation_frame();
+                crate::request_frame(window);
             }
             self.child.prepaint(window, cx);
             return;
@@ -196,7 +196,7 @@ impl Element for Reveal {
             },
         );
         if changed {
-            window.request_animation_frame();
+            crate::request_frame(window);
         }
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
             self.child.prepaint_at(bounds.origin, window, cx);

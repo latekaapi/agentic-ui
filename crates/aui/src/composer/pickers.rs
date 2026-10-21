@@ -347,7 +347,7 @@ impl RenderOnce for PickerMenu {
             if since.elapsed() >= SUBMENU_DELAY {
                 nest.update(cx, |n, _| n.open = Some(row));
             } else {
-                window.request_animation_frame();
+                aui_motion::request_frame(window);
             }
         }
         let open_sub = self.force_sub.or(nest.read(cx).open).filter(|i| self.rows.get(*i).is_some_and(|r| r.submenu.is_some()));

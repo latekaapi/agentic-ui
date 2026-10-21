@@ -21,6 +21,7 @@
 //! | [`shake`] | ±4 px error shake | 500 ms |
 //! | [`check`] | check-mark draw | 320 ms ease-out |
 //! | [`looping`] | a 0→1 phase that repeats (spinners) | any |
+//! | [`frames`] | who asked for frames, by call site ([`request_frame`]) | — |
 //!
 //! Every primitive is a function you call while rendering; state is keyed by
 //! an element id and lives in the window, exactly like gpui-base. When the OS
@@ -35,6 +36,7 @@
 
 pub mod check;
 mod collapse;
+pub mod frames;
 mod icon_morph;
 mod looping;
 mod open_close;
@@ -50,6 +52,7 @@ mod tween;
 
 pub use aui_tokens::{durations, springs, Easing, Tier};
 pub use check::{check_draw, CheckDraw};
+pub use frames::request_frame;
 pub use collapse::{collapse, collapse_fluid, collapse_fluid_opacity, Reveal, COLLAPSE_CONTENT_DELAY, COLLAPSE_EXIT};
 pub use icon_morph::{icon_morph, IconMorph, MorphSample};
 pub use looping::{looping, synced, Loop, SMOOTH_TICK};

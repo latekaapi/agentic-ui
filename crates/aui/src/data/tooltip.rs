@@ -45,7 +45,7 @@ impl gpui::Render for Tip {
         let elapsed = self.born.elapsed();
         let opacity = (elapsed.as_secs_f32() / TIP_FADE.as_secs_f32()).min(1.0);
         if opacity < 1.0 {
-            window.request_animation_frame();
+            aui_motion::request_frame(window);
         }
         let chip = Shape::Item.rounded(
             div()

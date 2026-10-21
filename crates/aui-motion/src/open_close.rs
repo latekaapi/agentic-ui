@@ -67,7 +67,7 @@ pub fn open_close_with(id: impl Into<ElementId>, open: bool, enter: Enter, exit:
     }
     let (value, settled) = sample(run, spring, now);
     if !settled {
-        window.request_animation_frame();
+        crate::request_frame(window);
     }
     value
 }

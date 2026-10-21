@@ -344,7 +344,7 @@ impl RenderOnce for FileTree {
                             s.attempts = attempts + 1;
                             cx.notify();
                         });
-                        window.request_animation_frame();
+                        aui_motion::request_frame(window);
                     }
                 }
             }

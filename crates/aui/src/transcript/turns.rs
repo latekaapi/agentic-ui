@@ -1082,7 +1082,7 @@ impl RenderOnce for AssistantTurn {
                 _ => {
                     // Nothing measured yet: draw no caret and ask for the frame
                     // that will have the bounds.
-                    window.request_animation_frame();
+                    aui_motion::request_frame(window);
                     None
                 }
             }

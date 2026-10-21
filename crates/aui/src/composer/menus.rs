@@ -470,7 +470,7 @@ fn menu_scroll(id: &ElementId, counts: &[usize], active: usize, window: &mut Win
             scroll.scroll_to_item(target);
             // The re-fire above may itself be dropped (see [`MenuScroll`]);
             // ask for the frame that retries it.
-            window.request_animation_frame();
+            aui_motion::request_frame(window);
         }
     }
     scroll

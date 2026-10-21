@@ -195,7 +195,7 @@ impl RenderOnce for TerminalTabs {
             // geometry is missing; the springs drive every frame after that.
             None => {
                 if self.tabs.get(active).is_some() {
-                    window.request_animation_frame();
+                    aui_motion::request_frame(window);
                 }
                 None
             }

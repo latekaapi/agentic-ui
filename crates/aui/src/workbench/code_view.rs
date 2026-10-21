@@ -125,7 +125,7 @@ impl RenderOnce for CodeView {
                             s.waiting = None;
                         });
                     } else {
-                        window.request_animation_frame();
+                        aui_motion::request_frame(window);
                     }
                 }
             }
