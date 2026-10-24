@@ -137,6 +137,9 @@ pub enum LoginIntent {
     ChooseAnother,
     /// Abandon a flow that is already running; back to the method choice.
     Cancel,
+    /// The sheet's ✕ (sheet mode only): close the sheet. Escape is the
+    /// caller's key and should report this too.
+    Close,
 }
 
 type IntentHandler = Rc<dyn Fn(LoginIntent, &mut Window, &mut App)>;
@@ -170,6 +173,7 @@ pub struct Login {
     provider: Provider,
     api_key_field: Option<AnyElement>,
     timing: EnterExit,
+    sheet: bool,
     on_intent: Option<IntentHandler>,
 }
 
@@ -185,6 +189,7 @@ pub fn login(id: impl Into<ElementId>, state: LoginState) -> Login {
         provider: Provider::Claude,
         api_key_field: None,
         timing: EnterExit::DEFAULT,
+        sheet: false,
         on_intent: None,
     }
 }
@@ -226,6 +231,15 @@ impl Login {
     /// A button was pressed.
     pub fn on_intent(mut self, f: impl Fn(LoginIntent, &mut Window, &mut App) + 'static) -> Self {
         self.on_intent = Some(Rc::new(f));
+        self
+    }
+
+    /// Draws the sign-in as a sheet (D5 B3): the setup sheet's frame at 460
+    /// wide — the product mark and "Sign in to <product>" in the header with
+    /// a ✕ ([`LoginIntent::Close`]), no masthead, no subtitle — for the host
+    /// to lay over its own screen on a [`sheet_scrim`](super::sheet_scrim).
+    pub fn sheet(mut self) -> Self {
+        self.sheet = true;
         self
     }
 
@@ -274,8 +288,8 @@ fn api_key_slot(field: Option<AnyElement>) -> AnyElement {
 }
 
 /// One button, wired to `intent`.
-fn action(id: &ElementId, on_intent: &Option<IntentHandler>, key: &'static str, label: impl Into<SharedString>, intent: LoginIntent, primary: bool) -> impl IntoElement {
-    let mut b = button((id.clone(), key), label).size(ButtonSize::Md);
+fn action(id: &ElementId, on_intent: &Option<IntentHandler>, key: &'static str, label: impl Into<SharedString>, intent: LoginIntent, primary: bool, size: ButtonSize) -> impl IntoElement {
+    let mut b = button((id.clone(), key), label).size(size);
     if primary {
         b = b.primary();
     }
@@ -286,8 +300,8 @@ fn action(id: &ElementId, on_intent: &Option<IntentHandler>, key: &'static str, 
 }
 
 /// The API-key form's primary: "Sign in", disabled until `can_submit`.
-fn submit_action(id: &ElementId, on_intent: &Option<IntentHandler>, can_submit: bool) -> Button {
-    let mut submit = button((id.clone(), "submit"), "Sign in").size(ButtonSize::Md).primary().disabled(!can_submit);
+fn submit_action(id: &ElementId, on_intent: &Option<IntentHandler>, can_submit: bool, size: ButtonSize) -> Button {
+    let mut submit = button((id.clone(), "submit"), "Sign in").size(size).primary().disabled(!can_submit);
     if let Some(handler) = on_intent.clone() {
         submit = submit.on_click(move |_, w, cx| handler(LoginIntent::SubmitApiKey, w, cx));
     }
@@ -312,10 +326,24 @@ impl RenderOnce for Login {
         let headline = self.headline_text();
         // Destructured up front: the API-key slot moves the caller's field
         // out, and the buttons borrow the id and the intent handler.
-        let Login { id, state, subtitle, provider, api_key_field, timing, on_intent, .. } = self;
+        let Login { id, state, subtitle, provider, api_key_field, timing, sheet, on_intent, .. } = self;
+        let size = if sheet { ButtonSize::Row } else { ButtonSize::Md };
+        let (blocks, buttons) = state_content(&id, &p, state, api_key_field, &on_intent, sheet, size);
+
+        if sheet {
+            let mut frame = crate::screens::sheet_frame(id.clone(), provider, headline)
+                .width(crate::screens::SIGN_IN_W)
+                .child(v_flex().w_full().gap(px(scale::SP_4)).px(px(16.0)).pt(px(16.0)).children(blocks))
+                .actions(buttons)
+                .actions_top(18.0);
+            if let Some(handler) = on_intent.clone() {
+                frame = frame.on_close(move |w, cx| handler(LoginIntent::Close, w, cx));
+            }
+            return frame.into_any_element();
+        }
+
         let sample = presence((id.clone(), "presence"), true, timing, window, cx);
         let style = PresenceStyle::fade_rise(sample, CARD_RISE);
-
         let mut card = v_flex()
             .relative()
             .top(style.offset_y)
@@ -329,104 +357,120 @@ impl RenderOnce for Login {
             .bg(p.surface_2)
             .shadow(p.elevation_shadow(2))
             .text_color(p.ink)
-            .child(masthead(&p, provider, headline, subtitle));
+            .child(masthead(&p, provider, headline, subtitle))
+            .children(blocks);
+        if !buttons.is_empty() {
+            card = card.child(action_row(&p, None, buttons));
+        }
+        div().size_full().flex().items_center().justify_center().bg(p.bg).text_role(TextRole::Ui).child(card).into_any_element()
+    }
+}
 
-        match state {
-            LoginState::Choose => {
-                card = card
-                    .child(
-                        div()
-                            .w_full()
-                            .ui(STATUS_TEXT)
-                            .line_height(relative(scale::LH_UI))
-                            .text_center()
-                            .text_color(p.ink_3)
-                            .child("A Meta account draws on your Muse subscription. An API key bills usage to that key."),
-                    )
-                    .child(action_row(
-                        &p,
-                        None,
-                        vec![
-                            action(&id, &on_intent, "api-key", "Use an API key", LoginIntent::UseApiKey, false).into_any_element(),
-                            action(&id, &on_intent, "account", "Continue with Meta account", LoginIntent::StartAccount, true).into_any_element(),
-                        ],
-                    ));
-            }
-            LoginState::Starting => {
-                card = card
-                    .child(status_row((id.clone(), "starting").into(), &p, "Starting sign-in…"))
-                    .child(action_row(&p, None, vec![action(&id, &on_intent, "cancel", "Cancel", LoginIntent::Cancel, false).into_any_element()]));
-            }
-            LoginState::Device { url, code, expires, waiting } => {
-                card = card.child(url_row(&id, &p, url, on_intent.clone())).child(code_line(&p, code));
-                if waiting {
-                    card = card.child(status_row((id.clone(), "waiting").into(), &p, "Waiting for you to finish in the browser…"));
-                }
-                let hint: SharedString = expires.unwrap_or_else(|| "Approve the request in your browser, then come back here.".into());
-                card = card
-                    .child(div().w_full().ui(STATUS_TEXT).text_color(p.ink_3).child(hint))
-                    .child(action_row(
-                        &p,
-                        None,
-                        vec![
-                            action(&id, &on_intent, "cancel", "Cancel", LoginIntent::Cancel, false).into_any_element(),
-                            action(&id, &on_intent, "copy-code", "Copy code", LoginIntent::CopyCode, false).into_any_element(),
-                            action(&id, &on_intent, "open", "Open in browser", LoginIntent::OpenBrowser, true).into_any_element(),
-                        ],
-                    ));
-            }
-            LoginState::ApiKey { can_submit, error } => {
-                card = card
-                    .child(div().w_full().ui(FIELD_LABEL_TEXT).text_color(p.ink_3).child("Meta API key"))
-                    .child(api_key_slot(api_key_field))
-                    .child(
-                        div()
-                            .w_full()
-                            .ui(HINT_TEXT)
-                            .text_color(p.ink_3)
-                            .child("Saved by the muse CLI to ~/.config/muse/auth.json. Never logged."),
-                    );
-                if let Some(error) = error {
-                    card = card.child(error_box(&p, error));
-                }
-                card = card.child(action_row(
-                    &p,
-                    None,
-                    vec![
-                        action(&id, &on_intent, "back", "Back", LoginIntent::Back, false).into_any_element(),
-                        submit_action(&id, &on_intent, can_submit).into_any_element(),
-                    ],
-                ));
-            }
-            LoginState::Validating => {
-                card = card.child(status_row((id.clone(), "validating").into(), &p, "Checking the key…"));
-            }
-            LoginState::Success => {
-                card = card.child(
-                    h_flex()
+/// The body blocks and the action buttons for one state. The card draws them
+/// under its masthead with the action row; the sheet under its header.
+#[allow(clippy::too_many_arguments)]
+fn state_content(
+    id: &ElementId,
+    p: &Palette,
+    state: LoginState,
+    api_key_field: Option<AnyElement>,
+    on_intent: &Option<IntentHandler>,
+    sheet: bool,
+    size: ButtonSize,
+) -> (Vec<AnyElement>, Vec<AnyElement>) {
+    let mut blocks: Vec<AnyElement> = Vec::new();
+    let mut buttons: Vec<AnyElement> = Vec::new();
+    let act = |key: &'static str, label: &'static str, intent: LoginIntent, primary: bool| {
+        action(id, on_intent, key, label, intent, primary, size).into_any_element()
+    };
+    match state {
+        LoginState::Choose => {
+            if sheet {
+                // 14.3/21: the subscription sentence in ink, the API-key
+                // sentence muted after it (the board's two-tone line).
+                let first = "A Meta account draws on your Muse subscription. ";
+                let text = format!("{first}An API key bills every turn to that key.");
+                let muted = gpui::HighlightStyle { color: Some(p.ink_2), ..Default::default() };
+                blocks.push(
+                    div()
                         .w_full()
-                        .items_center()
-                        .gap(px(STATUS_GAP))
+                        .text_px(scale::FS_13)
+                        .line_height(px(21.0))
+                        .text_color(p.ink)
+                        .child(gpui::StyledText::new(text.clone()).with_highlights(vec![(first.len()..text.len(), muted)]))
+                        .into_any_element(),
+                );
+            } else {
+                blocks.push(
+                    div()
+                        .w_full()
                         .ui(STATUS_TEXT)
-                        .text_color(p.success)
-                        .child(glyph_ok())
-                        .child(div().flex_1().min_w(px(0.0)).child("Signed in.")),
+                        .line_height(relative(scale::LH_UI))
+                        .text_center()
+                        .text_color(p.ink_3)
+                        .child("A Meta account draws on your Muse subscription. An API key bills usage to that key.")
+                        .into_any_element(),
                 );
             }
-            LoginState::Error { message, method: _ } => {
-                card = card.child(error_box(&p, message)).child(action_row(
-                    &p,
-                    None,
-                    vec![
-                        action(&id, &on_intent, "choose", "Choose another way", LoginIntent::ChooseAnother, false).into_any_element(),
-                        action(&id, &on_intent, "retry", "Try again", LoginIntent::Retry, true).into_any_element(),
-                    ],
-                ));
-            }
+            buttons.push(act("api-key", "Use an API key", LoginIntent::UseApiKey, false));
+            buttons.push(act("account", "Continue with Meta account", LoginIntent::StartAccount, true));
         }
-
-        div().size_full().flex().items_center().justify_center().bg(p.bg).text_role(TextRole::Ui).child(card)
+        LoginState::Starting => {
+            blocks.push(status_row((id.clone(), "starting").into(), p, "Starting sign-in…").into_any_element());
+            buttons.push(act("cancel", "Cancel", LoginIntent::Cancel, false));
+        }
+        LoginState::Device { url, code, expires, waiting } => {
+            blocks.push(url_row(id, p, url, on_intent.clone()).into_any_element());
+            blocks.push(code_line(p, code).into_any_element());
+            if waiting {
+                blocks.push(status_row((id.clone(), "waiting").into(), p, "Waiting for you to finish in the browser…").into_any_element());
+            }
+            let hint: SharedString = expires.unwrap_or_else(|| "Approve the request in your browser, then come back here.".into());
+            blocks.push(div().w_full().ui(STATUS_TEXT).text_color(p.ink_3).child(hint).into_any_element());
+            buttons.push(act("cancel", "Cancel", LoginIntent::Cancel, false));
+            buttons.push(act("copy-code", "Copy code", LoginIntent::CopyCode, false));
+            buttons.push(act("open", "Open in browser", LoginIntent::OpenBrowser, true));
+        }
+        LoginState::ApiKey { can_submit, error } => {
+            blocks.push(div().w_full().ui(FIELD_LABEL_TEXT).text_color(p.ink_3).child("Meta API key").into_any_element());
+            blocks.push(api_key_slot(api_key_field));
+            blocks.push(
+                div()
+                    .w_full()
+                    .ui(HINT_TEXT)
+                    .text_color(p.ink_3)
+                    .child("Saved by the muse CLI to ~/.config/muse/auth.json. Never logged.")
+                    .into_any_element(),
+            );
+            if let Some(error) = error {
+                blocks.push(error_box(p, error).into_any_element());
+            }
+            buttons.push(act("back", "Back", LoginIntent::Back, false));
+            buttons.push(submit_action(id, on_intent, can_submit, size).into_any_element());
+        }
+        LoginState::Validating => {
+            blocks.push(status_row((id.clone(), "validating").into(), p, "Checking the key…").into_any_element());
+        }
+        LoginState::Success => {
+            blocks.push(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap(px(STATUS_GAP))
+                    .ui(STATUS_TEXT)
+                    .text_color(p.success)
+                    .child(glyph_ok())
+                    .child(div().flex_1().min_w(px(0.0)).child("Signed in."))
+                    .into_any_element(),
+            );
+        }
+        LoginState::Error { message, method: _ } => {
+            blocks.push(error_box(p, message).into_any_element());
+            buttons.push(act("choose", "Choose another way", LoginIntent::ChooseAnother, false));
+            buttons.push(act("retry", "Try again", LoginIntent::Retry, true));
+        }
     }
+    (blocks, buttons)
 }
 
 /// The product mark, the headline and the muted subtitle, all centred.

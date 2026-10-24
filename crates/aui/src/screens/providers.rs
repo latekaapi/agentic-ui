@@ -1,78 +1,121 @@
-//! Provider surfaces: the Settings card, the first-run connect screen and
-//! the account-menu usage card (`docs/23-providers-connect.md` §4).
+//! Provider surfaces: the first-run connect screen, the Settings provider
+//! card with its Details, the signed-out banner and the account-menu usage
+//! card (`docs/23-providers-connect.md` §4, redrawn as the D5 Providers board,
+//! harness docs/66 §3).
 //!
 //! Everything here is stateless like [`login`](super::login): the caller owns
-//! the statuses (it runs the probes, caches them and flips the enabled
-//! switch) and receives intent callbacks back. Nothing here opens a browser,
-//! runs an installer or writes state.
+//! the statuses (it runs the probes, caches them and words the status line)
+//! and receives intent callbacks back. Nothing here opens a browser, runs an
+//! installer, copies to the clipboard or writes state.
 //!
-//! Why a standalone row kind instead of a `SettingsRow::Provider` variant:
-//! `SettingsRow` is matched explicitly in `overlay::settings` (and in hosts),
-//! so a new variant would break exhaustive matches downstream. [`provider_card`]
-//! renders the same row shape — mark, name, status, account, version, switch,
-//! actions — reached through a builder, additively.
+//! Five concepts, no more (docs/65 §3): a **provider**, its **status line**
+//! ([`StatusLine`]: a tone and one line of text), its **one next action**
+//! ([`ProviderActionDef`]), the **setup sheet** where that action happens
+//! ([`setup_sheet`](super::setup_sheet)) and the **default provider** (the
+//! connect screen's footer picker, [`DefaultPicker`]).
 //!
-//! Every interactive element carries a role and a human label: action buttons
-//! via [`Button::accessibility_label`](crate::data::Button::accessibility_label)
-//! (which sets `role=Button`), the enabled switch via
-//! `Switch::accessibility_label`, and the Skip link via `role=Link` plus
-//! `aria_label`.
+//! Every interactive element carries a role and a human label: buttons via
+//! [`Button::accessibility_label`](crate::data::Button::accessibility_label)
+//! (which sets `role=Button`), the default picker and the Details disclosure
+//! as buttons with their state in the label, and the assist line's links as
+//! `role=Link`.
 //!
 //! ```ignore
-//! use aui::screens::{provider_card, ProviderAction, ProviderCardData, ProviderHeadline};
+//! use aui::screens::{provider_card, ProviderActionDef, ProviderCardData, StatusLine};
 //!
-//! provider_card("card-claude", &ProviderCardData {
-//!     id: "claude".into(),
-//!     provider: aui::icons::Provider::Claude,
-//!     headline: ProviderHeadline::Connected,
-//!     account: Some("Signed in as ada@example.com · Pro".into()),
-//!     version: Some("2.1.276".into()),
-//!     advisory: None,
-//!     enabled: true,
-//!     actions: vec![ProviderActionDef::sign_out(), ProviderActionDef::recheck()],
-//! })
+//! provider_card("card-claude", &ProviderCardData::new(
+//!     "claude",
+//!     aui::icons::Provider::Claude,
+//!     StatusLine::ok("Connected · ada@example.com · Max"),
+//! )
+//! .actions(vec![ProviderActionDef::recheck_text(), ProviderActionDef::sign_out()]))
 //! .on_intent(|intent, _, _| println!("{} -> {:?}", intent.id, intent.action))
 //! ```
 
 use std::rc::Rc;
 
-use aui_icons::{provider_mark, Provider};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_icons::{icon, provider_mark, IconName, Provider};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
-use gpui_kit::component::switch::Switch;
 
-use crate::composer::provider_display_name;
-use crate::data::{button, spinner, tag, ButtonSize};
+use crate::composer::{provider_display_name, provider_menu, PickerRow};
+use crate::data::{button, spinner, ButtonSize};
 
-/// Card padding and gaps, the settings page's measure.
-const CARD_PAD: f32 = scale::SP_4;
-const CARD_GAP: f32 = scale::SP_3;
-const ROW_GAP: f32 = scale::SP_2;
-/// The provider mark in card rows.
-const MARK: f32 = 20.0;
-/// The name line and the headline line.
-const NAME_TEXT: f32 = scale::FS_13;
-const HEADLINE_TEXT: f32 = scale::FS_11;
-/// The account and version lines under the headline.
-const DETAIL_TEXT: f32 = scale::FS_11;
-/// The status dot.
-const DOT: f32 = 7.0;
+// The board's measures (harness `docs/34-refs/v3-redo/canvas/gen_d5p.py`,
+// the `p5*` CSS). Text sizes are design pixels: the app's 1.1 scale turns
+// 13 into 14.3, 12 into 13.2, 18 into 19.8. Line heights are the board's
+// absolute pixels.
+
+/// The connect column.
+const CONNECT_W: f32 = 440.0;
+/// The column's gap between masthead, rows and footer.
+const COLUMN_GAP: f32 = 8.0;
+/// Title 19.8/26 semibold.
+const TITLE_TEXT: f32 = scale::FS_18;
+const TITLE_LH: f32 = 26.0;
+/// Body 14.3/20: names and the intro.
+const BODY_TEXT: f32 = scale::FS_13;
+const BODY_LH: f32 = 20.0;
+/// Caption 13.2/18: status lines, footers, details.
+const CAPTION_TEXT: f32 = scale::FS_12;
+const CAPTION_LH: f32 = 18.0;
+/// Mono 12.65: paths and codes.
+const MONO_TEXT: f32 = 11.5;
+/// The rows container and the card: radius 10.
+const PANEL_R: f32 = 10.0;
+/// A connect row: at least 60 tall, padded 12/14, gap 12.
+const ROW_MIN_H: f32 = 60.0;
+const ROW_PAD_Y: f32 = 12.0;
+const ROW_PAD_X: f32 = 14.0;
+const ROW_GAP: f32 = 12.0;
+/// The provider mark in rows and cards.
+const MARK: f32 = 24.0;
+/// The status dot and the gap after it.
+const DOT: f32 = 6.0;
+const DOT_GAP: f32 = 6.0;
 /// The checking spinner.
-const SPIN: f32 = 11.0;
-/// Usage bar geometry: full-width track, 4 px tall.
-const BAR_H: f32 = 4.0;
-const BAR_R: f32 = 2.0;
-/// The connect screen card width: room for a version line and two buttons.
-const CONNECT_W: f32 = 480.0;
+const SPIN: f32 = 12.0;
+/// Buttons in a cluster.
+const BUTTON_GAP: f32 = 8.0;
+/// The default picker: 24 tall, radius 6, a 16 px mark.
+const PICKER_H: f32 = 24.0;
+const PICKER_R: f32 = 6.0;
+const PICKER_MARK: f32 = 16.0;
+/// The footer's "nothing ready" note wraps at this width.
+const NOTHING_W: f32 = 230.0;
+const NOTHING_LH: f32 = 17.0;
+/// The card's top row padding and the Details block's.
+const CARD_PAD: f32 = 14.0;
+/// Details: a 96 px key column, gaps 6/12.
+const KEY_W: f32 = 96.0;
+const KV_GAP_Y: f32 = 6.0;
+const KV_GAP_X: f32 = 12.0;
+/// The advisory box inside Details and the banner: radius 8.
+const BOX_R: f32 = 8.0;
 /// The usage card's popover width.
 const USAGE_W: f32 = 300.0;
 /// Usage fills at or above this fraction wear the warning ink.
 const WARN_AT: f32 = 0.8;
+/// The usage card's own measures (unchanged by D5).
+const USAGE_PAD: f32 = scale::SP_4;
+const USAGE_GAP: f32 = scale::SP_2;
+const NAME_TEXT: f32 = scale::FS_13;
+const DETAIL_TEXT: f32 = scale::FS_11;
+const BAR_H: f32 = 4.0;
+const BAR_R: f32 = 2.0;
+
+/// A click reported with the window (row buttons, the banner's action).
+type ClickFn = Rc<dyn Fn(&mut Window, &mut App)>;
+/// A link reported by its key (assist lines).
+type LinkFn = Rc<dyn Fn(SharedString, &mut Window, &mut App)>;
+
+// ------------------------------------------------------------ status
 
 /// A provider's headline state, first match wins (design §2): Checking →
 /// Disabled → Not installed → Can't run → Signed out → Installed ·
-/// sign-in not verified → Connected.
+/// sign-in not verified → Connected. Hosts word the status line themselves
+/// ([`StatusLine`]); this names the state and its default tone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProviderHeadline {
     /// No probe result yet this launch and no cache.
@@ -92,7 +135,7 @@ pub enum ProviderHeadline {
 }
 
 impl ProviderHeadline {
-    /// The status line beside the dot, exactly as designed.
+    /// The short state name (Settings' overview rows, screen readers).
     pub fn label(self) -> &'static str {
         match self {
             ProviderHeadline::Checking => "Checking…",
@@ -104,9 +147,123 @@ impl ProviderHeadline {
             ProviderHeadline::Disabled => "Disabled",
         }
     }
+
+    /// The dot this state wears: ok when Connected, needs-action for Signed
+    /// out / Unverified, can't-check for Can't run, a spinner while
+    /// Checking, absent otherwise.
+    pub fn tone(self) -> StatusTone {
+        match self {
+            ProviderHeadline::Checking => StatusTone::Busy,
+            ProviderHeadline::Connected => StatusTone::Ok,
+            ProviderHeadline::SignedOut | ProviderHeadline::Unverified => StatusTone::Warn,
+            ProviderHeadline::CantRun => StatusTone::Bad,
+            ProviderHeadline::NotInstalled | ProviderHeadline::Disabled => StatusTone::Off,
+        }
+    }
 }
 
-/// What the person asked for on a provider row, always with the row id.
+/// The mark before a status line: a 6 px dot in one of four inks, or the
+/// 12 px spinner while something is in flight.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StatusTone {
+    /// Connected: the success ink.
+    Ok,
+    /// Needs an action (signed out, too old, an API-key login): warning.
+    Warn,
+    /// Absent (not installed, disabled): the faint ink.
+    Off,
+    /// Couldn't check: danger.
+    Bad,
+    /// Checking, or waiting on a flow: the spinner instead of a dot.
+    Busy,
+}
+
+/// One status line: its tone and its words (`"ada@example.com · Max"`,
+/// `"Not installed"`, `"Checking…"`). It never wraps; a long line ellipsizes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StatusLine {
+    /// The dot or spinner.
+    pub tone: StatusTone,
+    /// The line.
+    pub text: SharedString,
+}
+
+impl StatusLine {
+    /// A line in `tone`.
+    pub fn new(tone: StatusTone, text: impl Into<SharedString>) -> Self {
+        StatusLine { tone, text: text.into() }
+    }
+
+    /// A Connected line.
+    pub fn ok(text: impl Into<SharedString>) -> Self {
+        Self::new(StatusTone::Ok, text)
+    }
+
+    /// A needs-action line.
+    pub fn warn(text: impl Into<SharedString>) -> Self {
+        Self::new(StatusTone::Warn, text)
+    }
+
+    /// An absent line.
+    pub fn off(text: impl Into<SharedString>) -> Self {
+        Self::new(StatusTone::Off, text)
+    }
+
+    /// A couldn't-check line.
+    pub fn bad(text: impl Into<SharedString>) -> Self {
+        Self::new(StatusTone::Bad, text)
+    }
+
+    /// A line with the spinner (`"Checking…"`, `"Finish signing in…"`).
+    pub fn busy(text: impl Into<SharedString>) -> Self {
+        Self::new(StatusTone::Busy, text)
+    }
+
+    /// The headline's own default: its tone and its label.
+    pub fn headline(headline: ProviderHeadline) -> Self {
+        Self::new(headline.tone(), headline.label())
+    }
+}
+
+/// The dot colour for a tone (the spinner draws its own).
+fn tone_ink(tone: StatusTone, p: &Palette) -> gpui::Hsla {
+    match tone {
+        StatusTone::Ok => p.success,
+        StatusTone::Warn => p.warning,
+        StatusTone::Bad => p.danger,
+        StatusTone::Off | StatusTone::Busy => p.ink_4,
+    }
+}
+
+/// The status line: dot (or spinner) + 13.2/18 muted text, one line,
+/// ellipsized — never wrapped (the live check found "· Claude Max" wrapping).
+fn status_line(id: ElementId, line: &StatusLine, p: &Palette) -> AnyElement {
+    let lead: AnyElement = match line.tone {
+        StatusTone::Busy => spinner(id).size(px(SPIN)).into_any_element(),
+        tone => div().flex_none().size(px(DOT)).rounded_full().bg(tone_ink(tone, p)).into_any_element(),
+    };
+    h_flex()
+        .w_full()
+        .min_w(px(0.0))
+        .items_center()
+        .gap(px(DOT_GAP))
+        .child(lead)
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .truncate()
+                .text_px(CAPTION_TEXT)
+                .line_height(px(CAPTION_LH))
+                .text_color(p.ink_2)
+                .child(line.text.clone()),
+        )
+        .into_any_element()
+}
+
+// ------------------------------------------------------------ actions
+
+/// What the person asked for on a provider row or card, always with its id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProviderAction {
     /// Start the provider's sign-in flow.
@@ -116,289 +273,281 @@ pub enum ProviderAction {
     SignOut,
     /// Re-run the probes for this provider.
     Recheck,
-    /// Open the dock terminal with the vendor's install command typed, not run.
+    /// Open the setup sheet with the vendor's install command typed, not run.
     Install,
-    /// Open the provider's docs.
+    /// Open the setup sheet with the CLI's own update command typed, not run.
+    Update,
+    /// Abandon a sign-in that is waiting (Codex's in-row flow).
+    Cancel,
+    /// Open the provider's page in the browser (docs, or "Get Muse ↗").
     Docs,
     /// The enabled switch flipped; the value is the new state.
     SetEnabled(bool),
+    /// Open or close the card's Details.
+    ToggleDetails,
+    /// Details' "Change path…": pick the binary Baaz runs.
+    ChangePath,
+    /// Details' "Copy diagnostics".
+    CopyDiagnostics,
 }
 
 /// One provider intent: the row id plus what was pressed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProviderIntent {
-    /// The row's [`ProviderCardData::id`].
+    /// The row's or card's id.
     pub id: SharedString,
     /// What was pressed.
     pub action: ProviderAction,
 }
 
-/// One action button on a provider row.
+/// How an action's button is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActionStyle {
+    /// The light fill: Install, Sign in, Update, Continue, Done.
+    Primary,
+    /// The tinted button: Sign out, Cancel, Re-check on a row, Get Muse.
+    Secondary,
+    /// A text button: the card's Re-check, Skip for now.
+    Text,
+}
+
+/// One action button on a provider row or card.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProviderActionDef {
     /// What the button reports.
     pub action: ProviderAction,
     /// The button label.
     pub label: SharedString,
-    /// Whether the button is the row's primary.
-    pub primary: bool,
+    /// How the button is drawn.
+    pub style: ActionStyle,
+    /// Whether it leaves the app (a trailing ↗).
+    pub external: bool,
 }
 
 impl ProviderActionDef {
-    /// "Sign in" primary button.
+    /// An action in `style`.
+    pub fn new(action: ProviderAction, label: impl Into<SharedString>, style: ActionStyle) -> Self {
+        ProviderActionDef { action, label: label.into(), style, external: false }
+    }
+
+    /// "Sign in", primary.
     pub fn sign_in() -> Self {
-        ProviderActionDef { action: ProviderAction::SignIn, label: "Sign in".into(), primary: true }
+        Self::new(ProviderAction::SignIn, "Sign in", ActionStyle::Primary)
     }
 
-    /// "Sign out" button.
+    /// "Sign out", secondary.
     pub fn sign_out() -> Self {
-        ProviderActionDef { action: ProviderAction::SignOut, label: "Sign out".into(), primary: false }
+        Self::new(ProviderAction::SignOut, "Sign out", ActionStyle::Secondary)
     }
 
-    /// "Re-check" button.
+    /// "Re-check", secondary: a row whose check failed.
     pub fn recheck() -> Self {
-        ProviderActionDef { action: ProviderAction::Recheck, label: "Re-check".into(), primary: false }
+        Self::new(ProviderAction::Recheck, "Re-check", ActionStyle::Secondary)
     }
 
-    /// "Install" primary button.
+    /// "Re-check" as a text button: the card's standing re-check.
+    pub fn recheck_text() -> Self {
+        Self::new(ProviderAction::Recheck, "Re-check", ActionStyle::Text)
+    }
+
+    /// "Install", primary.
     pub fn install() -> Self {
-        ProviderActionDef { action: ProviderAction::Install, label: "Install".into(), primary: true }
+        Self::new(ProviderAction::Install, "Install", ActionStyle::Primary)
     }
 
-    /// "Docs" button.
+    /// "Update", primary: below the version floor.
+    pub fn update() -> Self {
+        Self::new(ProviderAction::Update, "Update", ActionStyle::Primary)
+    }
+
+    /// "Cancel", secondary: a sign-in that is waiting.
+    pub fn cancel() -> Self {
+        Self::new(ProviderAction::Cancel, "Cancel", ActionStyle::Secondary)
+    }
+
+    /// "Docs", secondary.
     pub fn docs() -> Self {
-        ProviderActionDef { action: ProviderAction::Docs, label: "Docs".into(), primary: false }
+        Self::new(ProviderAction::Docs, "Docs", ActionStyle::Secondary)
+    }
+
+    /// A secondary link out of the app with a trailing ↗ (`"Get Muse"`).
+    pub fn link(label: impl Into<SharedString>) -> Self {
+        ProviderActionDef { external: true, ..Self::new(ProviderAction::Docs, label, ActionStyle::Secondary) }
+    }
+
+    /// Details' "Change path…".
+    pub fn change_path() -> Self {
+        Self::new(ProviderAction::ChangePath, "Change path…", ActionStyle::Secondary)
+    }
+
+    /// Details' "Copy diagnostics".
+    pub fn copy_diagnostics() -> Self {
+        Self::new(ProviderAction::CopyDiagnostics, "Copy diagnostics", ActionStyle::Secondary)
     }
 }
 
-/// The data behind [`provider_card`]: the same shape the connect screen's
-/// compact rows render from (see [`ConnectRowData`]).
+/// A 28 px row button for `def`, labelled `"<provider> · <label>"` for
+/// screen readers, reporting `on_click`.
+fn action_button(
+    id: impl Into<ElementId>,
+    provider_name: &str,
+    def: &ProviderActionDef,
+    p: &Palette,
+    on_click: Option<ClickFn>,
+) -> AnyElement {
+    let mut btn = button(id, def.label.clone())
+        .size(ButtonSize::Row)
+        .accessibility_label(format!("{provider_name} · {}", def.label));
+    btn = match def.style {
+        ActionStyle::Primary => btn.primary(),
+        ActionStyle::Secondary => btn,
+        ActionStyle::Text => btn.ghost(),
+    };
+    if def.external {
+        btn = btn.trailing(icon(IconName::External).size(px(12.0)).color(p.ink_2));
+    }
+    if let Some(handler) = on_click {
+        btn = btn.on_click(move |_, w, cx| handler(w, cx));
+    }
+    btn.into_any_element()
+}
+
+/// The `✓ Connected` a Connected row shows instead of a button.
+fn connected_mark(p: &Palette) -> AnyElement {
+    h_flex()
+        .flex_none()
+        .items_center()
+        .gap(px(4.0))
+        .text_px(CAPTION_TEXT)
+        .line_height(px(CAPTION_LH))
+        .text_color(p.success)
+        .child(icon(IconName::Check).size(px(13.0)).color(p.success))
+        .child("Connected")
+        .into_any_element()
+}
+
+/// One piece of an assist line: plain muted text, a code in mono, or a
+/// link that reports its key.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ProviderCardData {
-    /// Stable identity, reported by the intent callback.
-    pub id: SharedString,
-    /// Which provider this row is for.
-    pub provider: Provider,
-    /// The status headline.
-    pub headline: ProviderHeadline,
-    /// `"Signed in as <email> · <plan>"`, if known.
-    pub account: Option<SharedString>,
-    /// The installed version, if known.
-    pub version: Option<SharedString>,
-    /// An advisory on the version (`"Too old — need ≥ 2.0"`), if any.
-    pub advisory: Option<SharedString>,
-    /// The person's enabled switch.
-    pub enabled: bool,
-    /// Up to three buttons; extras are ignored, never wrapped.
-    pub actions: Vec<ProviderActionDef>,
+pub enum AssistRun {
+    /// Muted text.
+    Text(SharedString),
+    /// A code or a path, in the mono face and the full ink.
+    Code(SharedString),
+    /// An underlined link: its key (reported) and its words.
+    Link(SharedString, SharedString),
 }
 
-type ProviderHandler = Rc<dyn Fn(ProviderIntent, &mut Window, &mut App)>;
-
-/// A Settings provider card: mark, name, status dot + headline, account
-/// line, version chip with optional advisory, enabled switch, and up to
-/// three action buttons. Build with [`provider_card`].
-#[derive(IntoElement)]
-pub struct ProviderCard {
-    id: ElementId,
-    data: ProviderCardData,
-    on_intent: Option<ProviderHandler>,
-}
-
-/// A provider card for a settings page, over `data`.
-pub fn provider_card(id: impl Into<ElementId>, data: &ProviderCardData) -> ProviderCard {
-    ProviderCard { id: id.into(), data: data.clone(), on_intent: None }
-}
-
-impl ProviderCard {
-    /// The intent callback: every button and the enabled switch report
-    /// through it with the row id.
-    pub fn on_intent(mut self, f: impl Fn(ProviderIntent, &mut Window, &mut App) + 'static) -> Self {
-        self.on_intent = Some(Rc::new(f));
-        self
-    }
-}
-
-/// The dot colour for a headline: success for Connected, danger for Can't
-/// run, warning for Signed out / Unverified, muted ink for the rest.
-fn headline_dot(headline: ProviderHeadline, p: &aui_tokens::Palette) -> gpui::Hsla {
-    match headline {
-        ProviderHeadline::Connected => p.success,
-        ProviderHeadline::CantRun => p.danger,
-        ProviderHeadline::SignedOut | ProviderHeadline::Unverified => p.warning,
-        ProviderHeadline::Checking | ProviderHeadline::NotInstalled | ProviderHeadline::Disabled => {
-            p.ink_3
-        }
-    }
-}
-
-impl RenderOnce for ProviderCard {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let p = cx.aui().colors;
-        let data = self.data;
-        let name = provider_display_name(data.provider);
-
-        // Status: a subtle spinner while checking (never "Not installed"
-        // while a probe is pending), else the dot + headline.
-        let status: AnyElement = if data.headline == ProviderHeadline::Checking {
-            h_flex()
-                .gap(px(ROW_GAP))
-                .items_center()
-                .child(spinner((self.id.clone(), "checking")).size(px(SPIN)))
-                .child(
+/// The one muted line under the rows (or a card's top row): "Browser didn't
+/// open? Copy the link · Use a code instead". Links report their key.
+fn assist_line(
+    id: &ElementId,
+    runs: &[AssistRun],
+    p: &Palette,
+    on_link: Option<LinkFn>,
+) -> AnyElement {
+    let mut line = h_flex()
+        .w_full()
+        .flex_wrap()
+        .items_center()
+        .gap(px(4.0))
+        .text_px(CAPTION_TEXT)
+        .line_height(px(CAPTION_LH))
+        .text_color(p.ink_2);
+    for run in runs {
+        line = match run {
+            AssistRun::Text(text) => line.child(div().child(text.clone())),
+            AssistRun::Code(code) => line.child(
+                div().font_family(scale::FONT_MONO).text_px(MONO_TEXT).text_color(p.ink).child(code.clone()),
+            ),
+            AssistRun::Link(key, label) => {
+                let handler = on_link.clone();
+                let key = key.clone();
+                line.child(
                     div()
-                        .text_px(HEADLINE_TEXT)
-                        .line_height(gpui::relative(scale::LH_UI))
-                        .text_color(p.ink_2)
-                        .child(ProviderHeadline::Checking.label()),
+                        .id((id.clone(), SharedString::from(format!("assist-{key}"))))
+                        .cursor_pointer()
+                        .underline()
+                        .role(gpui::Role::Link)
+                        .aria_label(label.clone())
+                        .hover(|s| s.text_color(p.ink))
+                        .on_click(move |_, w, cx| {
+                            if let Some(handler) = handler.clone() {
+                                handler(key.clone(), w, cx);
+                            }
+                        })
+                        .child(label.clone()),
                 )
-                .into_any_element()
-        } else {
-            h_flex()
-                .gap(px(ROW_GAP))
-                .items_center()
-                .child(
-                    div()
-                        .flex_none()
-                        .w(px(DOT))
-                        .h(px(DOT))
-                        .rounded_full()
-                        .bg(headline_dot(data.headline, &p)),
-                )
-                .child(
-                    div()
-                        .text_px(HEADLINE_TEXT)
-                        .line_height(gpui::relative(scale::LH_UI))
-                        .text_color(p.ink_2)
-                        .child(data.headline.label()),
-                )
-                .into_any_element()
+            }
         };
-
-        let mut body = v_flex().gap(px(2.0)).child(
-            div()
-                .text_px(NAME_TEXT)
-                .line_height(gpui::relative(scale::LH_UI))
-                .text_color(p.ink)
-                .medium()
-                .child(name.clone()),
-        ).child(status);
-        if let Some(account) = data.account.clone() {
-            body = body.child(
-                div()
-                    .text_px(DETAIL_TEXT)
-                    .line_height(gpui::relative(scale::LH_UI))
-                    .text_color(p.ink_3)
-                    .child(account),
-            );
-        }
-        if data.version.is_some() || data.advisory.is_some() {
-            let mut ver = h_flex().gap(px(ROW_GAP)).items_center();
-            if let Some(version) = data.version.clone() {
-                ver = ver.child(tag(version));
-            }
-            if let Some(advisory) = data.advisory.clone() {
-                ver = ver.child(
-                    div()
-                        .text_px(DETAIL_TEXT)
-                        .line_height(gpui::relative(scale::LH_UI))
-                        .text_color(p.warning)
-                        .child(advisory),
-                );
-            }
-            body = body.child(ver);
-        }
-
-        let mut actions = h_flex().gap(px(ROW_GAP)).items_center().flex_wrap();
-        for def in data.actions.iter().take(3) {
-            let row_id = data.id.clone();
-            let action = def.action;
-            let label = format!("{} · {}", name, def.label);
-            let mut btn = button((self.id.clone(), def.label.clone()), def.label.clone())
-                .size(ButtonSize::Sm)
-                .accessibility_label(label);
-            if def.primary {
-                btn = btn.primary();
-            }
-            if let Some(handler) = self.on_intent.clone() {
-                btn = btn.on_click(move |_, w, cx| {
-                    handler(ProviderIntent { id: row_id.clone(), action }, w, cx);
-                });
-            }
-            actions = actions.child(btn);
-        }
-
-        let switch_id = data.id.clone();
-        let switch_label: SharedString = format!("Enable {}", name).into();
-        let mut toggle = Switch::new((self.id.clone(), "enabled"))
-            .checked(data.enabled)
-            .color(p.accent_ring)
-            .accessibility_label(switch_label);
-        if let Some(handler) = self.on_intent.clone() {
-            toggle = toggle.on_click(move |next, w, cx| {
-                handler(
-                    ProviderIntent { id: switch_id.clone(), action: ProviderAction::SetEnabled(*next) },
-                    w,
-                    cx,
-                );
-            });
-        }
-
-        h_flex()
-            .id(self.id)
-            .w_full()
-            .items_start()
-            .gap(px(CARD_GAP))
-            .p(px(CARD_PAD))
-            .child(provider_mark(data.provider).size(px(MARK)))
-            .child(div().flex_1().min_w(px(0.0)).child(body))
-            .child(v_flex().gap(px(ROW_GAP)).items_end().child(toggle).child(actions))
     }
+    line.into_any_element()
 }
 
-/// One row of the connect screen: the card data in compact form — one
-/// primary action and an optional Docs secondary.
+// ------------------------------------------------------------ connect screen
+
+/// One row of the connect screen: mark, name, status line, one action.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConnectRowData {
     /// Stable identity, reported by the intent callback.
     pub id: SharedString,
     /// Which provider this row is for.
     pub provider: Provider,
-    /// The status headline.
-    pub headline: ProviderHeadline,
-    /// `"Signed in as <email> · <plan>"`, if known.
-    pub account: Option<SharedString>,
-    /// The row's primary action (`Install` / `Sign in` / `Re-check`);
-    /// `None` for Connected rows, which show a static `✓ Connected`.
-    pub primary: Option<ProviderActionDef>,
-    /// Whether the secondary Docs button shows.
-    pub docs: bool,
+    /// The status line under the name.
+    pub status: StatusLine,
+    /// The row's one action; `None` with an Ok status draws `✓ Connected`,
+    /// with any other status nothing (Checking).
+    pub action: Option<ProviderActionDef>,
+}
+
+/// The footer's "New sessions start in ⌄" picker: the Connected providers
+/// only, the current one checked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DefaultPicker {
+    /// The provider new sessions start in.
+    pub current: Provider,
+    /// The providers the menu lists (Connected only), in row order.
+    pub choices: Vec<Provider>,
+    /// Whether the menu is open (the caller owns it).
+    pub open: bool,
 }
 
 /// What the person asked for on the connect screen.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConnectIntent {
-    /// A row button or switch.
+    /// A row button.
     Provider(ProviderIntent),
     /// The primary Continue.
     Continue,
     /// "Skip for now".
     Skip,
+    /// The default picker was pressed: open (or close) its menu.
+    ToggleDefaultMenu,
+    /// A click outside the open menu.
+    CloseDefaultMenu,
+    /// A provider was picked in the menu.
+    SetDefault(Provider),
+    /// A link in the assist line, by its key.
+    Assist(SharedString),
 }
 
 type ConnectHandler = Rc<dyn Fn(ConnectIntent, &mut Window, &mut App)>;
 
-/// The first-run Connect screen: app mark, title, one intro line, a tally
-/// line, one compact row per provider, a primary Continue (enabled once any
-/// provider is Connected) and a "Skip for now" link. Build with
+/// The first-run Connect screen (D5 B1): the app's mark, title, one intro
+/// line, one rows container, an optional assist line, and the footer —
+/// the default picker (or the "nothing is ready" note), "Skip for now" and
+/// Continue (enabled once any row is Connected). Build with
 /// [`connect_providers`].
 #[derive(IntoElement)]
 pub struct ConnectScreen {
     id: ElementId,
     title: SharedString,
     intro: SharedString,
+    nothing_ready: SharedString,
     mark: Option<AnyElement>,
     rows: Vec<ConnectRowData>,
+    assist: Vec<AssistRun>,
+    picker: Option<DefaultPicker>,
     on_intent: Option<ConnectHandler>,
 }
 
@@ -407,9 +556,12 @@ pub fn connect_providers(id: impl Into<ElementId>, rows: Vec<ConnectRowData>) ->
     ConnectScreen {
         id: id.into(),
         title: "Connect your providers".into(),
-        intro: "Connect at least one provider to start working.".into(),
+        intro: "Baaz runs the coding agents you already use. Connect at least one to start.".into(),
+        nothing_ready: "Nothing is ready yet. Set up later in Settings › Providers.".into(),
         mark: None,
         rows,
+        assist: Vec::new(),
+        picker: None,
         on_intent: None,
     }
 }
@@ -427,277 +579,670 @@ impl ConnectScreen {
         self
     }
 
-    /// The app mark above the title (Baaz passes its own mark; the library
+    /// Overrides the footer note shown while nothing is Connected.
+    pub fn nothing_ready(mut self, text: impl Into<SharedString>) -> Self {
+        self.nothing_ready = text.into();
+        self
+    }
+
+    /// The app mark above the title (Baaz passes its mascot; the library
     /// draws no product glyph itself).
     pub fn mark(mut self, mark: impl IntoElement) -> Self {
         self.mark = Some(mark.into_any_element());
         self
     }
 
-    /// The intent callback: row buttons, Continue and Skip all report
-    /// through it.
+    /// The muted line under the rows ("Browser didn't open? Copy the link ·
+    /// Use a code instead"); links report [`ConnectIntent::Assist`].
+    pub fn assist(mut self, runs: Vec<AssistRun>) -> Self {
+        self.assist = runs;
+        self
+    }
+
+    /// The footer's default picker. Without one (nothing Connected) the
+    /// footer's left side reads the nothing-ready note.
+    pub fn default_picker(mut self, picker: Option<DefaultPicker>) -> Self {
+        self.picker = picker;
+        self
+    }
+
+    /// The intent callback: row buttons, the picker, Continue, Skip and the
+    /// assist links all report through it.
     pub fn on_intent(mut self, f: impl Fn(ConnectIntent, &mut Window, &mut App) + 'static) -> Self {
         self.on_intent = Some(Rc::new(f));
         self
     }
 }
 
-/// The tally line: `"1 connected · 1 needs sign-in · 1 not installed"`.
-/// Only non-zero segments show. Checking rows are omitted (they resolve
-/// without the person reading them as a state) as are Disabled rows (a
-/// choice, not a status).
-pub fn connect_tally(rows: &[ConnectRowData]) -> String {
-    let mut connected = 0;
-    let mut signin = 0;
-    let mut missing = 0;
-    let mut cant = 0;
-    for row in rows {
-        match row.headline {
-            ProviderHeadline::Connected => connected += 1,
-            ProviderHeadline::SignedOut | ProviderHeadline::Unverified => signin += 1,
-            ProviderHeadline::NotInstalled => missing += 1,
-            ProviderHeadline::CantRun => cant += 1,
-            ProviderHeadline::Checking | ProviderHeadline::Disabled => {}
-        }
-    }
-    let mut parts = Vec::new();
-    if connected > 0 {
-        parts.push(format!("{connected} connected"));
-    }
-    if signin > 0 {
-        parts.push(format!("{signin} needs sign-in"));
-    }
-    if missing > 0 {
-        parts.push(format!("{missing} not installed"));
-    }
-    if cant > 0 {
-        parts.push(format!("{cant} can't run"));
-    }
-    if parts.is_empty() {
-        "Checking providers…".to_string()
-    } else {
-        parts.join(" · ")
-    }
+/// Whether Continue is enabled: any row reads Ok with no action left —
+/// a Connected provider.
+pub fn connect_ready(rows: &[ConnectRowData]) -> bool {
+    rows.iter().any(|row| row.status.tone == StatusTone::Ok && row.action.is_none())
 }
 
 impl RenderOnce for ConnectScreen {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let any_connected = self.rows.iter().any(|r| r.headline == ProviderHeadline::Connected);
-        let tally = connect_tally(&self.rows);
+        let any_connected = connect_ready(&self.rows);
+        let on_intent = self.on_intent.clone();
 
-        let mut rows_el = v_flex().gap(px(ROW_GAP)).w_full();
-        for row in &self.rows {
-            rows_el = rows_el.child(connect_row(&self.id, row, &p, self.on_intent.clone()));
-        }
-
-        let mut cont =
-            button((self.id.clone(), "continue"), "Continue").accessibility_label("Continue");
-        cont = cont.primary().disabled(!any_connected);
-        if let Some(handler) = self.on_intent.clone() {
-            cont = cont.on_click(move |_, w, cx| handler(ConnectIntent::Continue, w, cx));
-        }
-        let skip_handler = self.on_intent.clone();
-        let skip_id = self.id.clone();
-        let skip = div()
-            .id((skip_id, "skip"))
-            .text_px(DETAIL_TEXT)
-            .line_height(gpui::relative(scale::LH_UI))
-            .text_color(p.ink_3)
-            .cursor_pointer()
-            .role(gpui::Role::Link)
-            .aria_label("Skip for now")
-            .on_click(move |_, w, cx| {
-                if let Some(handler) = skip_handler.clone() {
-                    handler(ConnectIntent::Skip, w, cx);
-                }
-            })
-            .child("Skip for now");
-
-        let mut masthead = v_flex().gap(px(ROW_GAP)).items_center().text_center();
+        let mut masthead = v_flex().w_full().items_center().gap(px(COLUMN_GAP));
         if let Some(mark) = self.mark {
-            masthead = masthead.child(mark);
+            masthead = masthead.child(div().mb(px(4.0)).child(mark));
         }
         masthead = masthead
             .child(
                 div()
-                    .text_px(scale::FS_18)
-                    .line_height(gpui::relative(scale::LH_UI))
+                    .text_px(TITLE_TEXT)
+                    .line_height(px(TITLE_LH))
+                    .semibold()
                     .text_color(p.ink)
-                    .medium()
                     .child(self.title),
             )
             .child(
                 div()
-                    .text_px(NAME_TEXT)
-                    .line_height(gpui::relative(scale::LH_UI))
+                    .mb(px(8.0))
+                    .text_center()
+                    .text_px(BODY_TEXT)
+                    .line_height(px(BODY_LH))
                     .text_color(p.ink_2)
                     .child(self.intro),
-            )
-            .child(
-                div()
-                    .text_px(DETAIL_TEXT)
-                    .line_height(gpui::relative(scale::LH_UI))
-                    .text_color(p.ink_3)
-                    .child(tally),
             );
+
+        let mut rows_el = v_flex()
+            .w_full()
+            .rounded(px(PANEL_R))
+            .bg(p.surface_2)
+            .shadow(p.edge())
+            .overflow_hidden();
+        for (n, row) in self.rows.iter().enumerate() {
+            rows_el = rows_el.child(connect_row(&self.id, row, n > 0, &p, on_intent.clone()));
+        }
+
+        let mut column = v_flex()
+            .w(px(CONNECT_W))
+            .max_w_full()
+            .items_center()
+            .gap(px(COLUMN_GAP))
+            .child(masthead)
+            .child(rows_el);
+        if !self.assist.is_empty() {
+            let handler = on_intent.clone();
+            let on_link: LinkFn = Rc::new(move |key, w, cx| {
+                if let Some(handler) = handler.clone() {
+                    handler(ConnectIntent::Assist(key), w, cx);
+                }
+            });
+            column = column.child(div().w_full().mt(px(6.0)).child(assist_line(&self.id, &self.assist, &p, Some(on_link))));
+        }
+        column = column.child(footer(&self.id, self.picker, self.nothing_ready, any_connected, &p, on_intent));
 
         div()
             .id(self.id)
             .size_full()
             .flex()
-            .flex_col()
             .items_center()
             .justify_center()
-            .bg(p.bg)
-            .child(
-                v_flex()
-                    .w(px(CONNECT_W))
-                    .max_w_full()
-                    .gap(px(CARD_GAP))
-                    .p(px(scale::SP_6))
-                    .child(masthead)
-                    .child(rows_el)
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .items_center()
-                            .justify_between()
-                            .gap(px(CARD_GAP))
-                            .child(skip)
-                            .child(cont),
-                    ),
-            )
+            .bg(p.surface_1)
+            .child(column)
     }
 }
 
-/// One compact connect row: mark, name, status (spinner while checking),
-/// account line, one primary action plus Docs.
+/// The footer: the default picker (or the nothing-ready note), a spacer,
+/// "Skip for now" and Continue.
+fn footer(
+    id: &ElementId,
+    picker: Option<DefaultPicker>,
+    nothing_ready: SharedString,
+    any_connected: bool,
+    p: &Palette,
+    on_intent: Option<ConnectHandler>,
+) -> AnyElement {
+    let left: AnyElement = match picker {
+        Some(picker) => default_picker(id, picker, p, on_intent.clone()),
+        None => div()
+            .max_w(px(NOTHING_W))
+            .text_px(CAPTION_TEXT)
+            .line_height(px(NOTHING_LH))
+            .text_color(p.ink_2)
+            .child(nothing_ready)
+            .into_any_element(),
+    };
+    let mut skip = button((id.clone(), "skip"), "Skip for now")
+        .size(ButtonSize::Row)
+        .ghost()
+        .accessibility_label("Skip for now");
+    let mut cont = button((id.clone(), "continue"), "Continue")
+        .size(ButtonSize::Row)
+        .primary()
+        .disabled(!any_connected)
+        .accessibility_label("Continue");
+    if let Some(handler) = on_intent.clone() {
+        skip = skip.on_click(move |_, w, cx| handler(ConnectIntent::Skip, w, cx));
+    }
+    if let Some(handler) = on_intent {
+        cont = cont.on_click(move |_, w, cx| handler(ConnectIntent::Continue, w, cx));
+    }
+    h_flex()
+        .w_full()
+        .mt(px(8.0))
+        .items_center()
+        .gap(px(BUTTON_GAP))
+        .child(left)
+        .child(div().flex_1())
+        .child(skip)
+        .child(cont)
+        .into_any_element()
+}
+
+/// "New sessions start in [mark Name ⌄]", the menu hanging above the chip
+/// while open.
+fn default_picker(id: &ElementId, picker: DefaultPicker, p: &Palette, on_intent: Option<ConnectHandler>) -> AnyElement {
+    let name = provider_display_name(picker.current);
+    let toggle = on_intent.clone();
+    let chip = h_flex()
+        .id((id.clone(), "default-picker"))
+        .flex_none()
+        .h(px(PICKER_H))
+        .pl(px(4.0))
+        .pr(px(6.0))
+        .gap(px(6.0))
+        .items_center()
+        .rounded(px(PICKER_R))
+        .bg(p.surface_4)
+        .shadow(p.edge())
+        .cursor_pointer()
+        .text_color(p.ink)
+        .role(gpui::Role::Button)
+        .aria_label(format!("New sessions start in {name}. Change"))
+        .hover(|s| s.bg(p.surface_5))
+        .on_click(move |_, w, cx| {
+            if let Some(handler) = toggle.clone() {
+                handler(ConnectIntent::ToggleDefaultMenu, w, cx);
+            }
+        })
+        .child(provider_mark(picker.current).size(px(PICKER_MARK)))
+        .child(name.clone())
+        .child(icon(IconName::ChevronDown).size(px(12.0)).color(p.ink_2));
+    let mut anchor = div().relative().flex_none().child(chip);
+    if picker.open {
+        let rows: Vec<PickerRow> = picker
+            .choices
+            .iter()
+            .map(|provider| PickerRow::new(provider_id(*provider), provider_display_name(*provider), "").mark(*provider))
+            .collect();
+        let selected = picker.choices.iter().position(|c| *c == picker.current).unwrap_or(0);
+        let choices = picker.choices.clone();
+        let pick = on_intent.clone();
+        let close = on_intent.clone();
+        anchor = anchor.child(
+            provider_menu((id.clone(), "default-menu"), rows, selected, true)
+                .title("New sessions start in")
+                .on_pick(move |row, w, cx| {
+                    let chosen = choices.iter().copied().find(|c| provider_id(*c) == row.as_ref());
+                    if let (Some(handler), Some(chosen)) = (pick.clone(), chosen) {
+                        handler(ConnectIntent::SetDefault(chosen), w, cx);
+                    }
+                })
+                .on_close(move |w, cx| {
+                    if let Some(handler) = close.clone() {
+                        handler(ConnectIntent::CloseDefaultMenu, w, cx);
+                    }
+                }),
+        );
+    }
+    h_flex()
+        .flex_none()
+        .items_center()
+        .gap(px(6.0))
+        .whitespace_nowrap()
+        .text_px(CAPTION_TEXT)
+        .line_height(px(CAPTION_LH))
+        .text_color(p.ink_2)
+        .child("New sessions start in")
+        .child(anchor)
+        .into_any_element()
+}
+
+/// A stable id for a provider in the picker menu.
+fn provider_id(provider: Provider) -> &'static str {
+    match provider {
+        Provider::Claude => "claude",
+        Provider::Codex => "codex",
+        Provider::Muse => "muse",
+        Provider::Gemini => "gemini",
+        Provider::Grok => "grok",
+        Provider::Pi => "pi",
+        Provider::Cursor => "cursor",
+    }
+}
+
+/// One connect row: mark, name over status line, the one action (or
+/// `✓ Connected`). Rows after the first carry a hairline above.
 fn connect_row(
     id: &ElementId,
     row: &ConnectRowData,
-    p: &aui_tokens::Palette,
+    rule: bool,
+    p: &Palette,
     on_intent: Option<ConnectHandler>,
 ) -> AnyElement {
     let name = provider_display_name(row.provider);
-    let status: AnyElement = if row.headline == ProviderHeadline::Checking {
-        h_flex()
-            .gap(px(ROW_GAP))
-            .items_center()
-            .child(spinner((id.clone(), SharedString::from(format!("{}-checking", row.id)))).size(px(SPIN)))
-            .child(
-                div()
-                    .text_px(HEADLINE_TEXT)
-                    .line_height(gpui::relative(scale::LH_UI))
-                    .text_color(p.ink_2)
-                    .child(ProviderHeadline::Checking.label()),
-            )
-            .into_any_element()
-    } else {
-        h_flex()
-            .gap(px(ROW_GAP))
-            .items_center()
-            .child(
-                div()
-                    .flex_none()
-                    .w(px(DOT))
-                    .h(px(DOT))
-                    .rounded_full()
-                    .bg(headline_dot(row.headline, p)),
-            )
-            .child(
-                div()
-                    .text_px(HEADLINE_TEXT)
-                    .line_height(gpui::relative(scale::LH_UI))
-                    .text_color(p.ink_2)
-                    .child(row.headline.label()),
-            )
-            .into_any_element()
+    let text = v_flex()
+        .flex_1()
+        .min_w(px(0.0))
+        .child(
+            div()
+                .text_px(BODY_TEXT)
+                .line_height(px(BODY_LH))
+                .semibold()
+                .text_color(p.ink)
+                .child(name.clone()),
+        )
+        .child(status_line((id.clone(), SharedString::from(format!("{}-status", row.id))).into(), &row.status, p));
+
+    let action: Option<AnyElement> = match &row.action {
+        Some(def) => {
+            let handler = on_intent.map(|handler| {
+                let row_id = row.id.clone();
+                let action = def.action;
+                Rc::new(move |w: &mut Window, cx: &mut App| {
+                    handler(ConnectIntent::Provider(ProviderIntent { id: row_id.clone(), action }), w, cx)
+                }) as ClickFn
+            });
+            Some(action_button((id.clone(), SharedString::from(format!("{}-action", row.id))), &name, def, p, handler))
+        }
+        None if row.status.tone == StatusTone::Ok => Some(connected_mark(p)),
+        None => None,
     };
 
-    let mut text = v_flex().gap(px(2.0)).child(
-        div()
-            .text_px(NAME_TEXT)
-            .line_height(gpui::relative(scale::LH_UI))
-            .text_color(p.ink)
-            .medium()
-            .child(name.clone()),
-    ).child(status);
-    if let Some(account) = row.account.clone() {
-        text = text.child(
-            div()
-                .text_px(DETAIL_TEXT)
-                .line_height(gpui::relative(scale::LH_UI))
-                .text_color(p.ink_3)
-                .child(account),
-        );
-    }
-
-    let mut actions = h_flex().gap(px(ROW_GAP)).items_center().flex_none();
-    if let Some(def) = row.primary.clone() {
-        let row_id = row.id.clone();
-        let action = def.action;
-        let label = format!("{} · {}", name, def.label);
-        let mut btn = button((id.clone(), SharedString::from(format!("{}-primary", row.id))), def.label.clone())
-            .size(ButtonSize::Sm)
-            .accessibility_label(label);
-        if def.primary {
-            btn = btn.primary();
-        }
-        if let Some(handler) = on_intent.clone() {
-            btn = btn.on_click(move |_, w, cx| {
-                handler(
-                    ConnectIntent::Provider(ProviderIntent { id: row_id.clone(), action }),
-                    w,
-                    cx,
-                );
-            });
-        }
-        actions = actions.child(btn);
-    } else if row.headline == ProviderHeadline::Connected {
-        actions = actions.child(
-            div()
-                .text_px(HEADLINE_TEXT)
-                .line_height(gpui::relative(scale::LH_UI))
-                .text_color(p.success)
-                .medium()
-                .child("✓ Connected"),
-        );
-    }
-    if row.docs {
-        let row_id = row.id.clone();
-        let label = format!("{} · Docs", name);
-        let mut docs = button((id.clone(), SharedString::from(format!("{}-docs", row.id))), "Docs")
-            .size(ButtonSize::Sm)
-            .accessibility_label(label);
-        if let Some(handler) = on_intent.clone() {
-            docs = docs.on_click(move |_, w, cx| {
-                handler(
-                    ConnectIntent::Provider(ProviderIntent {
-                        id: row_id.clone(),
-                        action: ProviderAction::Docs,
-                    }),
-                    w,
-                    cx,
-                );
-            });
-        }
-        actions = actions.child(docs);
-    }
-
-    h_flex()
+    let mut el = h_flex()
         .id((id.clone(), row.id.clone()))
         .w_full()
+        .min_h(px(ROW_MIN_H))
         .items_center()
-        .gap(px(CARD_GAP))
-        .p(px(CARD_PAD))
-        .rounded(px(scale::R_SM))
-        .border_1()
-        .border_color(p.line)
+        .gap(px(ROW_GAP))
+        .px(px(ROW_PAD_X))
+        .py(px(ROW_PAD_Y))
         .child(provider_mark(row.provider).size(px(MARK)))
-        .child(div().flex_1().min_w(px(0.0)).child(text))
-        .child(actions)
+        .child(text)
+        .children(action);
+    if rule {
+        el = el.border_t_1().border_color(p.line);
+    }
+    el.into_any_element()
+}
+
+// ------------------------------------------------------------ provider card
+
+/// One Details row: a faint key and its value (mono for paths).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DetailRow {
+    /// `"Version"`, `"Path"`, `"Found"`, `"Signed in"`.
+    pub key: SharedString,
+    /// The value.
+    pub value: SharedString,
+    /// Whether the value is a path or a command (mono 12.65).
+    pub mono: bool,
+}
+
+impl DetailRow {
+    /// A plain row.
+    pub fn new(key: impl Into<SharedString>, value: impl Into<SharedString>) -> Self {
+        DetailRow { key: key.into(), value: value.into(), mono: false }
+    }
+
+    /// A row whose value is a path or a command.
+    pub fn mono(key: impl Into<SharedString>, value: impl Into<SharedString>) -> Self {
+        DetailRow { mono: true, ..Self::new(key, value) }
+    }
+}
+
+/// The card's Details disclosure (closed by default; the caller owns the
+/// open flag and flips it on [`ProviderAction::ToggleDetails`]).
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct CardDetails {
+    /// Whether the disclosure is open.
+    pub open: bool,
+    /// The key/value rows.
+    pub rows: Vec<DetailRow>,
+    /// An advisory box under the rows (the API-key billing note), as runs.
+    pub notice: Vec<AssistRun>,
+    /// The buttons at the bottom ("Change path…", "Copy diagnostics").
+    pub actions: Vec<ProviderActionDef>,
+}
+
+/// The data behind [`provider_card`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProviderCardData {
+    /// Stable identity, reported by the intent callback.
+    pub id: SharedString,
+    /// Which provider this card is for.
+    pub provider: Provider,
+    /// The status line under the name.
+    pub status: StatusLine,
+    /// The top row's buttons, in order (the text Re-check, then the state's
+    /// action). Up to three; extras are ignored, never wrapped.
+    pub actions: Vec<ProviderActionDef>,
+    /// A muted line under the top row (Codex's "Browser didn't open?").
+    pub assist: Vec<AssistRun>,
+    /// The Details disclosure; `None` draws none.
+    pub details: Option<CardDetails>,
+}
+
+impl ProviderCardData {
+    /// A card with no actions and no Details.
+    pub fn new(id: impl Into<SharedString>, provider: Provider, status: StatusLine) -> Self {
+        ProviderCardData { id: id.into(), provider, status, actions: Vec::new(), assist: Vec::new(), details: None }
+    }
+
+    /// The top row's buttons.
+    pub fn actions(mut self, actions: Vec<ProviderActionDef>) -> Self {
+        self.actions = actions;
+        self
+    }
+
+    /// The muted line under the top row.
+    pub fn assist(mut self, runs: Vec<AssistRun>) -> Self {
+        self.assist = runs;
+        self
+    }
+
+    /// The Details disclosure.
+    pub fn details(mut self, details: CardDetails) -> Self {
+        self.details = Some(details);
+        self
+    }
+}
+
+type ProviderHandler = Rc<dyn Fn(ProviderIntent, &mut Window, &mut App)>;
+
+/// A Settings provider card (D5 B4): mark, name over the status line, the
+/// text Re-check and the state's action; then the Details disclosure —
+/// version, path, how it was found, how it is signed in, an optional
+/// advisory box, Change path… and Copy diagnostics. Build with
+/// [`provider_card`].
+#[derive(IntoElement)]
+pub struct ProviderCard {
+    id: ElementId,
+    data: ProviderCardData,
+    on_intent: Option<ProviderHandler>,
+    on_assist: Option<LinkFn>,
+}
+
+/// A provider card for a settings page, over `data`.
+pub fn provider_card(id: impl Into<ElementId>, data: &ProviderCardData) -> ProviderCard {
+    ProviderCard { id: id.into(), data: data.clone(), on_intent: None, on_assist: None }
+}
+
+impl ProviderCard {
+    /// The intent callback: every button and the Details disclosure report
+    /// through it with the card id.
+    pub fn on_intent(mut self, f: impl Fn(ProviderIntent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_intent = Some(Rc::new(f));
+        self
+    }
+
+    /// A link in the assist line was pressed; the argument is its key.
+    pub fn on_assist(mut self, f: impl Fn(SharedString, &mut Window, &mut App) + 'static) -> Self {
+        self.on_assist = Some(Rc::new(f));
+        self
+    }
+}
+
+impl RenderOnce for ProviderCard {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let p = cx.aui().colors;
+        let data = self.data;
+        let name = provider_display_name(data.provider);
+        let on_intent = self.on_intent.clone();
+        let report = |action: ProviderAction| -> Option<ClickFn> {
+            let handler = on_intent.clone()?;
+            let card_id = data.id.clone();
+            Some(Rc::new(move |w: &mut Window, cx: &mut App| {
+                handler(ProviderIntent { id: card_id.clone(), action }, w, cx)
+            }))
+        };
+
+        let mut top = h_flex()
+            .w_full()
+            .items_center()
+            .gap(px(ROW_GAP))
+            .p(px(CARD_PAD))
+            .child(provider_mark(data.provider).size(px(MARK)))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .child(
+                        div()
+                            .text_px(BODY_TEXT)
+                            .line_height(px(BODY_LH))
+                            .semibold()
+                            .text_color(p.ink)
+                            .child(name.clone()),
+                    )
+                    .child(status_line((self.id.clone(), "status").into(), &data.status, &p)),
+            );
+        for (n, def) in data.actions.iter().take(3).enumerate() {
+            top = top.child(action_button(
+                (self.id.clone(), SharedString::from(format!("action-{n}"))),
+                &name,
+                def,
+                &p,
+                report(def.action),
+            ));
+        }
+
+        let mut card = v_flex()
+            .id(self.id.clone())
+            .w_full()
+            .rounded(px(PANEL_R))
+            .bg(p.surface_2)
+            .shadow(p.edge())
+            .child(top);
+
+        if !data.assist.is_empty() {
+            card = card.child(
+                div()
+                    .px(px(CARD_PAD))
+                    .pb(px(12.0))
+                    .mt(px(-4.0))
+                    .child(assist_line(&self.id, &data.assist, &p, self.on_assist.clone())),
+            );
+        }
+
+        if let Some(details) = data.details {
+            card = card.child(details_block(&self.id, &name, &details, &p, report));
+        }
+        card
+    }
+}
+
+/// The Details disclosure under a hairline: the chevron + "Details"
+/// toggle, then (open) the key/value grid, the advisory box and the buttons.
+fn details_block(
+    id: &ElementId,
+    name: &str,
+    details: &CardDetails,
+    p: &Palette,
+    report: impl Fn(ProviderAction) -> Option<ClickFn>,
+) -> AnyElement {
+    let toggle = report(ProviderAction::ToggleDetails);
+    let chevron = if details.open { IconName::ChevronDown } else { IconName::Chev };
+    let head = h_flex()
+        .id((id.clone(), "details-toggle"))
+        .pt(px(6.0))
+        .items_center()
+        .gap(px(6.0))
+        .cursor_pointer()
+        .text_px(CAPTION_TEXT)
+        .line_height(px(CAPTION_LH))
+        .text_color(p.ink_2)
+        .hover(|s| s.text_color(p.ink))
+        .role(gpui::Role::Button)
+        .aria_label(format!("{name} details, {}", if details.open { "open" } else { "closed" }))
+        .on_click(move |_, w, cx| {
+            if let Some(handler) = toggle.clone() {
+                handler(w, cx);
+            }
+        })
+        .child(icon(chevron).size(px(12.0)).color(p.ink_2))
+        .child("Details");
+    let mut block = v_flex()
+        .w_full()
+        .border_t_1()
+        .border_color(p.line)
+        .px(px(CARD_PAD))
+        .pt(px(6.0))
+        .pb(px(12.0))
+        .child(head);
+    if !details.open {
+        return block.into_any_element();
+    }
+    let mut grid = v_flex().w_full().pt(px(8.0)).gap(px(KV_GAP_Y));
+    for row in &details.rows {
+        let value = div()
+            .flex_1()
+            .min_w(px(0.0))
+            .truncate()
+            .text_color(p.ink);
+        let value = if row.mono {
+            value.font_family(scale::FONT_MONO).text_px(MONO_TEXT)
+        } else {
+            value
+        };
+        grid = grid.child(
+            h_flex()
+                .w_full()
+                .gap(px(KV_GAP_X))
+                .text_px(CAPTION_TEXT)
+                .line_height(px(CAPTION_LH))
+                .child(div().flex_none().w(px(KEY_W)).text_color(p.ink_4).child(row.key.clone()))
+                .child(value.child(row.value.clone())),
+        );
+    }
+    block = block.child(grid);
+    if !details.notice.is_empty() {
+        block = block.child(
+            h_flex()
+                .w_full()
+                .mt(px(10.0))
+                .items_start()
+                .gap(px(8.0))
+                .px(px(10.0))
+                .py(px(8.0))
+                .rounded(px(BOX_R))
+                .bg(p.surface_3)
+                .shadow(p.edge())
+                .child(div().flex_none().mt(px(2.0)).child(icon(IconName::Alert).size(px(13.0)).color(p.warning)))
+                .child(div().flex_1().min_w(px(0.0)).child(notice_text(&details.notice, p))),
+        );
+    }
+    if !details.actions.is_empty() {
+        let mut row = h_flex().mt(px(12.0)).gap(px(BUTTON_GAP));
+        for (n, def) in details.actions.iter().enumerate() {
+            row = row.child(action_button(
+                (id.clone(), SharedString::from(format!("detail-action-{n}"))),
+                name,
+                def,
+                p,
+                report(def.action),
+            ));
+        }
+        block = block.child(row);
+    }
+    block.into_any_element()
+}
+
+/// The advisory box's text: one wrapping paragraph, codes in mono.
+fn notice_text(runs: &[AssistRun], p: &Palette) -> AnyElement {
+    let mut text = String::new();
+    let mut highlights = Vec::new();
+    for run in runs {
+        let (s, mono) = match run {
+            AssistRun::Text(s) | AssistRun::Link(_, s) => (s, false),
+            AssistRun::Code(s) => (s, true),
+        };
+        let start = text.len();
+        text.push_str(s);
+        if mono {
+            highlights.push((start..text.len(), gpui::HighlightStyle { color: Some(p.ink), ..Default::default() }));
+        }
+    }
+    div()
+        .text_px(CAPTION_TEXT)
+        .line_height(px(CAPTION_LH))
+        .text_color(p.ink_2)
+        .child(gpui::StyledText::new(text).with_highlights(highlights))
         .into_any_element()
+}
+
+// ------------------------------------------------------------ signed-out banner
+
+/// The one quiet banner above the composer when the session's provider is
+/// signed out (D5 B5): a warning dot, the line, and Sign in. Build with
+/// [`signed_out_banner`].
+#[derive(IntoElement)]
+pub struct SignedOutBanner {
+    id: ElementId,
+    text: SharedString,
+    action: SharedString,
+    on_action: Option<ClickFn>,
+}
+
+/// The banner reading `text` (`"Claude Code is signed out. Sign in to send."`).
+pub fn signed_out_banner(id: impl Into<ElementId>, text: impl Into<SharedString>) -> SignedOutBanner {
+    SignedOutBanner { id: id.into(), text: text.into(), action: "Sign in".into(), on_action: None }
+}
+
+impl SignedOutBanner {
+    /// Overrides the button's words.
+    pub fn action_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.action = label.into();
+        self
+    }
+
+    /// The button was pressed.
+    pub fn on_action(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_action = Some(Rc::new(f));
+        self
+    }
+}
+
+impl RenderOnce for SignedOutBanner {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let p = cx.aui().colors;
+        let mut btn = button((self.id.clone(), "action"), self.action.clone())
+            .size(ButtonSize::Row)
+            .primary()
+            .accessibility_label(format!("{} — {}", self.text, self.action));
+        if let Some(handler) = self.on_action {
+            btn = btn.on_click(move |_, w, cx| handler(w, cx));
+        }
+        h_flex()
+            .id(self.id)
+            .w_full()
+            .items_center()
+            .gap(px(10.0))
+            .pl(px(12.0))
+            .pr(px(8.0))
+            .py(px(8.0))
+            .rounded(px(BOX_R))
+            .bg(p.surface_3)
+            .shadow(p.edge())
+            .role(gpui::Role::Status)
+            .child(div().flex_none().size(px(DOT)).rounded_full().bg(p.warning))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .text_px(CAPTION_TEXT)
+                    .line_height(px(CAPTION_LH))
+                    .text_color(p.ink)
+                    .child(self.text),
+            )
+            .child(btn)
+    }
 }
 
 /// One usage window: a labelled quota bar.
@@ -810,7 +1355,7 @@ impl RenderOnce for UsageCard {
         let p = cx.aui().colors;
         let name = provider_display_name(self.provider);
 
-        let mut head = h_flex().gap(px(ROW_GAP)).items_center().child(
+        let mut head = h_flex().gap(px(USAGE_GAP)).items_center().child(
             provider_mark(self.provider).size(px(16.0)),
         ).child(
             div()
@@ -834,8 +1379,8 @@ impl RenderOnce for UsageCard {
             .id(self.id)
             .w(px(USAGE_W))
             .max_w_full()
-            .gap(px(ROW_GAP))
-            .p(px(CARD_PAD))
+            .gap(px(USAGE_GAP))
+            .p(px(USAGE_PAD))
             .rounded(px(scale::R_SM))
             .border_1()
             .border_color(p.line)
@@ -856,7 +1401,7 @@ impl RenderOnce for UsageCard {
             let bar_ink = if used >= WARN_AT { p.warning } else { p.ink_3 };
             card = card.child(
                 v_flex().gap(px(2.0)).w_full().child(
-                    h_flex().w_full().items_baseline().justify_between().gap(px(ROW_GAP)).child(
+                    h_flex().w_full().items_baseline().justify_between().gap(px(USAGE_GAP)).child(
                         div()
                             .text_px(DETAIL_TEXT)
                             .line_height(gpui::relative(scale::LH_UI))
@@ -910,79 +1455,48 @@ impl RenderOnce for UsageCard {
 mod tests {
     use super::*;
 
-    fn card_data(headline: ProviderHeadline) -> ProviderCardData {
-        ProviderCardData {
-            id: "claude".into(),
-            provider: Provider::Claude,
-            headline,
-            account: Some("Signed in as ada@example.com · Pro".into()),
-            version: Some("2.1.276".into()),
-            advisory: None,
-            enabled: true,
-            actions: vec![ProviderActionDef::sign_out(), ProviderActionDef::recheck()],
-        }
+    fn row(provider: Provider, status: StatusLine, action: Option<ProviderActionDef>) -> ConnectRowData {
+        ConnectRowData { id: provider_id(provider).into(), provider, status, action }
     }
 
     #[test]
-    fn headlines_read_as_designed() {
+    fn headlines_name_their_state_and_tone() {
         assert_eq!(ProviderHeadline::Checking.label(), "Checking…");
         assert_eq!(ProviderHeadline::Connected.label(), "Connected");
         assert_eq!(ProviderHeadline::SignedOut.label(), "Signed out");
         assert_eq!(ProviderHeadline::NotInstalled.label(), "Not installed");
-        assert_eq!(ProviderHeadline::CantRun.label(), "Can't run");
-        assert_eq!(
-            ProviderHeadline::Unverified.label(),
-            "Installed · sign-in not verified"
-        );
-        assert_eq!(ProviderHeadline::Disabled.label(), "Disabled");
+        assert_eq!(ProviderHeadline::Checking.tone(), StatusTone::Busy);
+        assert_eq!(ProviderHeadline::Connected.tone(), StatusTone::Ok);
+        assert_eq!(ProviderHeadline::SignedOut.tone(), StatusTone::Warn);
+        assert_eq!(ProviderHeadline::CantRun.tone(), StatusTone::Bad);
+        assert_eq!(ProviderHeadline::NotInstalled.tone(), StatusTone::Off);
     }
 
+    /// Continue waits for a Connected row: an Ok line with no action left.
+    /// A row still checking, or signed out, never enables it.
     #[test]
-    fn tally_counts_connected_signin_and_missing() {
-        let rows = vec![
-            ConnectRowData {
-                id: "a".into(),
-                provider: Provider::Claude,
-                headline: ProviderHeadline::Connected,
-                account: None,
-                primary: None,
-                docs: false,
-            },
-            ConnectRowData {
-                id: "b".into(),
-                provider: Provider::Codex,
-                headline: ProviderHeadline::SignedOut,
-                account: None,
-                primary: Some(ProviderActionDef::sign_in()),
-                docs: true,
-            },
-            ConnectRowData {
-                id: "c".into(),
-                provider: Provider::Muse,
-                headline: ProviderHeadline::NotInstalled,
-                account: None,
-                primary: Some(ProviderActionDef::install()),
-                docs: true,
-            },
+    fn continue_needs_a_connected_row() {
+        let checking = vec![
+            row(Provider::Claude, StatusLine::busy("Checking…"), None),
+            row(Provider::Codex, StatusLine::warn("Signed out"), Some(ProviderActionDef::sign_in())),
         ];
-        assert_eq!(
-            connect_tally(&rows),
-            "1 connected · 1 needs sign-in · 1 not installed"
-        );
+        assert!(!connect_ready(&checking));
+        let one = vec![row(Provider::Claude, StatusLine::ok("ada@example.com · Max"), None)];
+        assert!(connect_ready(&one));
     }
 
     #[test]
-    fn tally_skips_checking_and_empty_reports_checking() {
-        let rows = vec![ConnectRowData {
-            id: "a".into(),
-            provider: Provider::Claude,
-            headline: ProviderHeadline::Checking,
-            account: None,
-            primary: None,
-            docs: false,
-        }];
-        // Checking rows never read as "Not installed".
-        assert_eq!(connect_tally(&rows), "Checking providers…");
+    fn actions_carry_the_boards_styles() {
+        assert_eq!(ProviderActionDef::install().style, ActionStyle::Primary);
+        assert_eq!(ProviderActionDef::sign_in().style, ActionStyle::Primary);
+        assert_eq!(ProviderActionDef::update().style, ActionStyle::Primary);
+        assert_eq!(ProviderActionDef::recheck().style, ActionStyle::Secondary);
+        assert_eq!(ProviderActionDef::recheck_text().style, ActionStyle::Text);
+        assert_eq!(ProviderActionDef::sign_out().style, ActionStyle::Secondary);
+        let get = ProviderActionDef::link("Get Muse");
+        assert!(get.external);
+        assert_eq!(get.style, ActionStyle::Secondary);
+        assert_eq!(get.action, ProviderAction::Docs);
     }
 
     #[test]
@@ -990,7 +1504,6 @@ mod tests {
         assert!((WARN_AT - 0.8).abs() < f32::EPSILON);
         let w = UsageWindow::new("Weekly", 1.4, "2d");
         assert!((w.used_fraction - 1.4).abs() < f32::EPSILON, "stored raw, clamped on render");
-        let _ = card_data(ProviderHeadline::Connected);
     }
 
     #[test]
@@ -1009,13 +1522,6 @@ mod tests {
         .plan("Max");
         assert_eq!(row.provider, Provider::Claude);
         assert_eq!(row.plan, Some("Max".into()));
-        match &row.state {
-            UsageRowState::Windows(windows, as_of) => {
-                assert_eq!(windows.len(), 1);
-                assert_eq!(*as_of, None);
-            }
-            UsageRowState::Unavailable(_) => panic!("expected windows"),
-        }
         let missing = UsageRowData::new(Provider::Muse, UsageRowState::Unavailable("No reading yet".into()));
         assert_eq!(missing.plan, None);
     }

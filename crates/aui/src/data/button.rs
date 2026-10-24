@@ -82,13 +82,17 @@ pub enum ButtonSize {
     Sm,
     /// 20 px.
     Xs,
+    /// 28 px with the caption's 12 px text: the one action at the end of a
+    /// list row or card (D5 providers, `height:28px;font-size:13.2px` at
+    /// the app's 1.1 scale).
+    Row,
 }
 
 impl ButtonSize {
     fn height(self, cx: &App) -> Pixels {
         let m = &cx.aui().metrics;
         match self {
-            ButtonSize::Md => m.control_md,
+            ButtonSize::Md | ButtonSize::Row => m.control_md,
             ButtonSize::Sm => m.control_sm,
             ButtonSize::Xs => m.control_xs,
         }
@@ -97,7 +101,7 @@ impl ButtonSize {
     fn padding(self) -> f32 {
         match self {
             ButtonSize::Md => 11.0,
-            ButtonSize::Sm => 9.0,
+            ButtonSize::Sm | ButtonSize::Row => 9.0,
             ButtonSize::Xs => 7.0,
         }
     }
@@ -105,7 +109,7 @@ impl ButtonSize {
     fn font_size(self) -> f32 {
         match self {
             ButtonSize::Md => scale::FS_13,
-            ButtonSize::Sm => scale::FS_12,
+            ButtonSize::Sm | ButtonSize::Row => scale::FS_12,
             ButtonSize::Xs => scale::FS_11,
         }
     }
@@ -113,7 +117,7 @@ impl ButtonSize {
     /// The glyph inside an icon button: 14 px in md and sm, 12 px in xs.
     fn icon_size(self) -> f32 {
         match self {
-            ButtonSize::Md | ButtonSize::Sm => 14.0,
+            ButtonSize::Md | ButtonSize::Sm | ButtonSize::Row => 14.0,
             ButtonSize::Xs => 12.0,
         }
     }
