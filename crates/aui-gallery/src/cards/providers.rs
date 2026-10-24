@@ -42,7 +42,8 @@ fn frame(content: impl IntoElement, h: f32) -> AnyElement {
 }
 
 fn row(id: &'static str, provider: Provider, status: StatusLine, action: Option<ProviderActionDef>) -> ConnectRowData {
-    ConnectRowData { id: id.into(), provider, status, action }
+    let connected = status.tone == aui::screens::StatusTone::Ok;
+    ConnectRowData { id: id.into(), provider, status, action, connected }
 }
 
 fn claude_connected() -> ConnectRowData {

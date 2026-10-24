@@ -287,6 +287,8 @@ pub enum ProviderAction {
     ToggleDetails,
     /// Details' "Change path…": pick the binary Baaz runs.
     ChangePath,
+    /// Forget the chosen binary: back to the automatic search.
+    ClearPath,
     /// Details' "Copy diagnostics".
     CopyDiagnostics,
 }
@@ -495,9 +497,13 @@ pub struct ConnectRowData {
     pub provider: Provider,
     /// The status line under the name.
     pub status: StatusLine,
-    /// The row's one action; `None` with an Ok status draws `✓ Connected`,
-    /// with any other status nothing (Checking).
+    /// The row's one action; `None` draws `✓ Connected` on a connected row
+    /// and nothing otherwise (Checking).
     pub action: Option<ProviderActionDef>,
+    /// Whether the provider is Connected: it enables Continue, and with no
+    /// action the row shows `✓ Connected`. Separate from the tone, because
+    /// an API-key login is Connected with a warning dot.
+    pub connected: bool,
 }
 
 /// The footer's "New sessions start in ⌄" picker: the Connected providers
@@ -614,10 +620,9 @@ impl ConnectScreen {
     }
 }
 
-/// Whether Continue is enabled: any row reads Ok with no action left —
-/// a Connected provider.
+/// Whether Continue is enabled: any row is Connected.
 pub fn connect_ready(rows: &[ConnectRowData]) -> bool {
-    rows.iter().any(|row| row.status.tone == StatusTone::Ok && row.action.is_none())
+    rows.iter().any(|row| row.connected)
 }
 
 impl RenderOnce for ConnectScreen {
@@ -851,7 +856,7 @@ fn connect_row(
             });
             Some(action_button((id.clone(), SharedString::from(format!("{}-action", row.id))), &name, def, p, handler))
         }
-        None if row.status.tone == StatusTone::Ok => Some(connected_mark(p)),
+        None if row.connected => Some(connected_mark(p)),
         None => None,
     };
 
@@ -1456,7 +1461,8 @@ mod tests {
     use super::*;
 
     fn row(provider: Provider, status: StatusLine, action: Option<ProviderActionDef>) -> ConnectRowData {
-        ConnectRowData { id: provider_id(provider).into(), provider, status, action }
+        let connected = status.tone == StatusTone::Ok;
+        ConnectRowData { id: provider_id(provider).into(), provider, status, action, connected }
     }
 
     #[test]
