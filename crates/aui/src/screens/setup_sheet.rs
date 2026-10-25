@@ -214,6 +214,7 @@ pub struct SetupSheet {
     terminal: Option<AnyElement>,
     note: Option<SharedString>,
     on_close: Option<CloseHandler>,
+    next: Option<(SharedString, CloseHandler)>,
 }
 
 /// The setup sheet for `provider`, titled `title` (`"Install Claude Code"`,
@@ -227,6 +228,7 @@ pub fn setup_sheet(id: impl Into<ElementId>, provider: Provider, title: impl Int
         terminal: None,
         note: None,
         on_close: None,
+        next: None,
     }
 }
 
@@ -247,6 +249,14 @@ impl SetupSheet {
     /// The footnote under the terminal.
     pub fn note(mut self, note: impl Into<SharedString>) -> Self {
         self.note = Some(note.into());
+        self
+    }
+
+    /// The next step, once the status is Connected: a primary button
+    /// (`"Sign in to Codex"`) in place of Done, with Close beside it. For an
+    /// install that lands signed out whose sign-in happens elsewhere.
+    pub fn next_step(mut self, label: impl Into<SharedString>, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.next = Some((label.into(), Rc::new(f)));
         self
     }
 
@@ -284,14 +294,27 @@ impl RenderOnce for SetupSheet {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let done = matches!(self.status, SetupStatus::Connected(_));
-        let mut action = button((self.id.clone(), if done { "done" } else { "dismiss" }), if done { "Done" } else { "Close" })
+        let next = self.next.clone().filter(|_| done);
+        let finishes = done && next.is_none();
+        let mut action = button((self.id.clone(), if finishes { "done" } else { "dismiss" }), if finishes { "Done" } else { "Close" })
             .size(ButtonSize::Row)
-            .accessibility_label(if done { "Done" } else { "Close" });
-        if done {
+            .accessibility_label(if finishes { "Done" } else { "Close" });
+        if finishes {
             action = action.primary();
         }
         if let Some(handler) = self.on_close.clone() {
             action = action.on_click(move |_, w, cx| handler(w, cx));
+        }
+        let mut actions = vec![action.into_any_element()];
+        if let Some((label, handler)) = next {
+            actions.push(
+                button((self.id.clone(), "next"), label.clone())
+                    .size(ButtonSize::Row)
+                    .primary()
+                    .accessibility_label(label)
+                    .on_click(move |_, w, cx| handler(w, cx))
+                    .into_any_element(),
+            );
         }
         let well = div()
             .id((self.id.clone(), "terminal"))
@@ -322,7 +345,7 @@ impl RenderOnce for SetupSheet {
         if let Some(handler) = self.on_close {
             frame = frame.on_close(move |w, cx| handler(w, cx));
         }
-        frame.actions(vec![action.into_any_element()])
+        frame.actions(actions)
     }
 }
 

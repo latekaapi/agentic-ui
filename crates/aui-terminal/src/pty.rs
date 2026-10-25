@@ -228,6 +228,16 @@ unsetopt PROMPT_SP
 /// uses it); that form is bracketed element-wise. (There is no bash 5 on
 /// this machine, so the array branch is code-correctness, not something
 /// executed here.)
+/// The part of [`BASH_TEMPLATE`] that sources the user's login files, cut
+/// out for [`PtyConfig::without_user_rc`]. A test pins that it is present.
+const BASH_USER_CHAIN: &str = r#"if [ -f "$HOME/.bash_profile" ]; then . "$HOME/.bash_profile"
+elif [ -f "$HOME/.bash_login" ]; then . "$HOME/.bash_login"
+elif [ -f "$HOME/.profile" ]; then . "$HOME/.profile"
+else
+  [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"
+fi
+"#;
+
 const BASH_TEMPLATE: &str = r#"
 # OSC 133 shell integration for the aui block terminal (bash).
 # The shell runs as `bash --rcfile <this> -i` (never `-l`: bash ignores
@@ -580,13 +590,19 @@ pub struct PtyConfig {
     /// [`with_nonce`](Self::with_nonce) to pin one and [`nonce`](Self::nonce)
     /// to read it back.
     nonce: String,
+    /// Whether the shell runs the user's own startup files (the default).
+    /// Off ([`without_user_rc`](Self::without_user_rc)), the shell starts
+    /// with only the integration hooks and a plain `~ %` prompt: for a
+    /// terminal the host owns, where the user's prompt theme and rc noise
+    /// would only get in the way. `PATH` then comes from [`env`](Self::env).
+    pub user_rc: bool,
 }
 
 impl PtyConfig {
     /// A config for `shell` in `cwd`, with a fresh [`generate_nonce`] nonce
     /// and no extra environment.
     pub fn new(shell: impl Into<String>, cwd: impl Into<PathBuf>) -> Self {
-        Self { shell: shell.into(), cwd: cwd.into(), env: Vec::new(), nonce: generate_nonce() }
+        Self { shell: shell.into(), cwd: cwd.into(), env: Vec::new(), nonce: generate_nonce(), user_rc: true }
     }
 
     /// A config for the user's login shell (see [`login_shell`]) in `cwd`.
@@ -612,6 +628,16 @@ impl PtyConfig {
     /// The per-session token every emitted marker carries as `k=<nonce>`.
     pub fn nonce(&self) -> &str {
         &self.nonce
+    }
+
+    /// Starts the shell without the user's startup files: zsh skips every
+    /// global and user rc (`GLOBAL_RCS` off, a wrapper `ZDOTDIR` holding
+    /// only the hooks), bash gets an rcfile with only the hooks. The prompt
+    /// is the plain `~ %` (zsh) or `~ $` (bash). Pass `PATH` with
+    /// [`with_env`](Self::with_env): nothing else will set it.
+    pub fn without_user_rc(mut self) -> Self {
+        self.user_rc = false;
+        self
     }
 
     /// Adds one extra environment variable for the child.
@@ -649,6 +675,8 @@ pub struct Pty {
     nonce: String,
     /// Extra environment for the child, from [`PtyConfig::env`].
     extra_env: Vec<(String, String)>,
+    /// [`PtyConfig::user_rc`] for the next spawn.
+    user_rc: bool,
     exited: bool,
     /// Rung by the reader thread on every chunk and at end of output.
     ready: std::sync::Arc<Readiness>,
@@ -679,6 +707,7 @@ impl Pty {
             bash_dir: None,
             nonce,
             extra_env: Vec::new(),
+            user_rc: true,
             exited: false,
             ready: std::sync::Arc::new(Readiness::default()),
         }
@@ -711,6 +740,7 @@ impl Pty {
         assert_valid_nonce(&config.nonce);
         self.nonce = config.nonce.clone();
         self.extra_env = config.env.clone();
+        self.user_rc = config.user_rc;
         self.spawn_inner(&config.shell.clone(), &config.cwd.clone())
     }
 
@@ -766,7 +796,8 @@ impl Pty {
         if shell.ends_with("zsh") {
             cmd.arg("-l");
             cmd.arg("-i");
-            match Self::write_zdotdir(&nonce) {
+            let written = if self.user_rc { Self::write_zdotdir(&nonce) } else { Self::write_zdotdir_clean(&nonce) };
+            match written {
                 Ok(dir) => {
                     cmd.env("ZDOTDIR", dir.path());
                     self.zdotdir = Some(dir);
@@ -774,7 +805,8 @@ impl Pty {
                 Err(e) => eprintln!("aui-terminal: no shell integration ({e})"),
             }
         } else if shell.ends_with("bash") {
-            match Self::write_bash_rc(&nonce) {
+            let written = if self.user_rc { Self::write_bash_rc(&nonce) } else { Self::write_bash_rc_clean(&nonce) };
+            match written {
                 Ok(dir) => {
                     // No `-l`: bash ignores `--rcfile` for login shells, so
                     // the generated rcfile chains the user's login files
@@ -873,6 +905,27 @@ impl Pty {
              unset __aui_wrapper_zdotdir"
         );
         std::fs::write(dir.path().join(".zshenv"), body)?;
+        Ok(dir)
+    }
+
+    /// The no-user-files `ZDOTDIR` ([`PtyConfig::without_user_rc`]): its
+    /// `.zshenv` turns `GLOBAL_RCS` off (so `/etc/zprofile` and `/etc/zshrc`
+    /// never run either) and installs the hooks; its `.zshrc` sets the plain
+    /// `~ %` prompt. Nothing of the user's is read.
+    fn write_zdotdir_clean(nonce: &str) -> std::io::Result<TempDir> {
+        let dir = TempDir::new("aui-zdotdir")?;
+        let snippet = zsh_integration(nonce);
+        std::fs::write(dir.path().join(".zshenv"), format!("unsetopt GLOBAL_RCS\n{snippet}\n"))?;
+        std::fs::write(dir.path().join(".zshrc"), "PROMPT='%~ %# '\nRPROMPT=''\n")?;
+        Ok(dir)
+    }
+
+    /// The no-user-files bash rcfile: the hooks without the chain that
+    /// sources the user's login files, and a plain `~ $` prompt.
+    fn write_bash_rc_clean(nonce: &str) -> std::io::Result<TempDir> {
+        let dir = TempDir::new("aui-bashrc")?;
+        let hooks = bash_integration(nonce).replacen(BASH_USER_CHAIN, "", 1);
+        std::fs::write(dir.path().join(BASH_RC_NAME), format!("PS1='\\w \\$ '\n{hooks}"))?;
         Ok(dir)
     }
 
@@ -2434,6 +2487,33 @@ mod tests {
         let mut child = cmd.spawn().expect("bash runs");
         child.stdin.as_mut().expect("piped stdin").write_all(script.as_bytes()).expect("stdin write");
         child.wait_with_output().expect("bash finishes").stdout
+    }
+
+    /// `without_user_rc`: the user's rc files never run (their output never
+    /// appears), the prompt is the plain `~ %`, and the hooks still mark
+    /// the command — real zsh and bash, scratch homes.
+    #[test]
+    fn a_clean_shell_skips_the_users_files_but_keeps_the_marks() {
+        assert!(BASH_TEMPLATE.contains(BASH_USER_CHAIN), "the chain the clean rcfile cuts is still in the template");
+        let home = std::env::temp_dir().join(format!("aui-clean-home-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join(".zshrc"), "echo USER-ZSHRC-RAN\n").unwrap();
+        std::fs::write(home.join(".zshenv"), "echo USER-ZSHENV-RAN\n").unwrap();
+        std::fs::write(home.join(".bash_profile"), "echo USER-BASH-RAN\n").unwrap();
+        let nonce = "cleantest";
+        let zdot = Pty::write_zdotdir_clean(nonce).unwrap();
+        let out = String::from_utf8_lossy(&run_zsh_piped(&home, zdot.path(), "echo hi\n")).into_owned();
+        assert!(!out.contains("USER-ZSHRC-RAN") && !out.contains("USER-ZSHENV-RAN"), "{out}");
+        assert!(out.contains(&format!("\x1b]133;C;k={nonce}")), "the command is still marked: {out:?}");
+        if Path::new("/bin/bash").exists() {
+            let rc = Pty::write_bash_rc_clean(nonce).unwrap();
+            let out = run_bash_piped(&home, &rc.path().join(BASH_RC_NAME), "echo hi\n", &[]);
+            let out = String::from_utf8_lossy(&out);
+            assert!(!out.contains("USER-BASH-RAN"), "{out}");
+            assert!(out.contains(&format!("\x1b]133;C;k={nonce}")), "bash still marks: {out:?}");
+        }
+        assert!(!PtyConfig::login("/").without_user_rc().user_rc);
+        std::fs::remove_dir_all(&home).ok();
     }
 
     /// The zsh half of `run_bash_piped`: `ZDOTDIR` at the wrapper, `HOME`

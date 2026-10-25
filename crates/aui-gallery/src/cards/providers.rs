@@ -216,6 +216,15 @@ pub fn build_setup(_window: &mut Window, cx: &mut App) -> AnyElement {
         "Claude Code is ready. New sessions can start in it.",
         cx,
     );
+    let codex_next = {
+        let s = setup_sheet("g-sheet-codex", Provider::Codex, "Install Codex")
+            .status(SetupStatus::Connected("Installed · 0.153.2".into()))
+            .terminal(fake_terminal("~ % curl -fsSL https://chatgpt.com/codex/install.sh | sh\n…\nCodex 0.153.2 installed to ~/.local/bin/codex\n~ %", cx))
+            .note("Codex is installed. Sign in next: it opens your browser.")
+            .next_step("Sign in to Codex", |_, _| {})
+            .on_close(|_, _| {});
+        div().relative().size_full().child(nothing_ready("g-setup-under-codex")).child(sheet_scrim("g-sheet-codex-scrim", s, None)).into_any_element()
+    };
     let muse_rows = vec![
         claude_connected(),
         row("codex", Provider::Codex, StatusLine::warn("Signed out"), Some(ProviderActionDef::sign_in())),
@@ -232,6 +241,7 @@ pub fn build_setup(_window: &mut Window, cx: &mut App) -> AnyElement {
         band("Setup sheet · Sign in to Claude Code", frame(signin, FRAME_H)),
         band("Setup sheet · done", frame(done, FRAME_H)),
         band("Muse · sign-in sheet", frame(muse, FRAME_H)),
+        band("Setup sheet · Codex installed, sign in next", frame(codex_next, FRAME_H)),
     ])
 }
 
