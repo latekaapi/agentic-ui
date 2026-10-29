@@ -205,7 +205,7 @@ pub fn build_setup(_window: &mut Window, cx: &mut App) -> AnyElement {
         "Sign in to Claude Code",
         SetupStatus::Waiting("Waiting for sign-in…".into()),
         "~ % claude auth login\nOpening your browser to sign in…\n\nIf it doesn’t open, visit:\nhttps://claude.ai/oauth/authorize?code=true&…\n\nPaste code here if prompted >",
-        "Claude Code signs in through your browser. This terminal is Claude Code’s own; Baaz never sees your credentials.",
+        "Press Return to run it: Claude Code opens your browser to sign in. This terminal is Claude Code’s own; Baaz never sees your credentials.",
         cx,
     );
     let done = sheet(

@@ -86,7 +86,9 @@ const PICKER_MARK: f32 = 16.0;
 const NOTHING_W: f32 = 230.0;
 const NOTHING_LH: f32 = 17.0;
 /// The card's top row padding and the Details block's.
-const CARD_PAD: f32 = 14.0;
+const CARD_PAD: f32 = 18.0;
+/// The Details row's padding, top and bottom alike.
+const DETAILS_PAD_Y: f32 = 12.0;
 /// Details: a 96 px key column, gaps 6/12.
 const KEY_W: f32 = 96.0;
 const KV_GAP_Y: f32 = 6.0;
@@ -1076,7 +1078,6 @@ fn details_block(
     let chevron = if details.open { IconName::ChevronDown } else { IconName::Chev };
     let head = h_flex()
         .id((id.clone(), "details-toggle"))
-        .pt(px(6.0))
         .items_center()
         .gap(px(6.0))
         .cursor_pointer()
@@ -1098,8 +1099,9 @@ fn details_block(
         .border_t_1()
         .border_color(p.line)
         .px(px(CARD_PAD))
-        .pt(px(6.0))
-        .pb(px(12.0))
+        // The same air above and below the toggle (owner, 2026-10-29: the
+        // rows' top and bottom spacing read uneven).
+        .py(px(DETAILS_PAD_Y))
         .child(head);
     if !details.open {
         return block.into_any_element();

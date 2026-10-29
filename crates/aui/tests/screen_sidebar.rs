@@ -154,7 +154,10 @@ fn account_menu_opens_with_its_rows(cx: &mut TestAppContext) {
     let mut model = sample_model();
     model.account.menu_open = true;
     let labels = labels_of(cx, model);
-    assert_has(&labels, &["Account menu for Bharani", "Settings…", "Providers…", "Sign out of Muse"]);
+    assert_has(&labels, &["Account menu for Bharani", "Settings…", "Providers…"]);
+    // Providers sign out on their own cards: no one provider's sign-out
+    // stands in the app's account menu.
+    assert!(!labels.iter().any(|label| label.contains("Sign out")), "{labels:?}");
 }
 
 #[gpui::test]
@@ -429,5 +432,5 @@ fn account_menu_wording(cx: &mut TestAppContext) {
     let name = model.account.name.to_string();
     let labels = labels_of(cx, model);
     let header = format!("Account menu for {name}");
-    assert_has(&labels, &["Settings…", "Providers…", "Sign out of Muse", header.as_str()]);
+    assert_has(&labels, &["Settings…", "Providers…", header.as_str()]);
 }

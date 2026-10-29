@@ -306,7 +306,9 @@ fn provider_card(id: &ElementId, usage: &super::ProviderUsage, cx: &App) -> AnyE
 }
 
 /// The account menu above the footer: identity, every provider's usage,
-/// then Settings, Providers and Sign out, as Baaz's account panel has them.
+/// then Settings and Providers. No sign-out row: every provider signs in
+/// and out on its own card (Providers…), Muse included — one row naming one
+/// provider made it read as the app's account (owner, 2026-10-29).
 pub fn account_menu(id: impl Into<ElementId>, account: &Account, width: Pixels, on_intent: Option<IntentHandler>, _window: &mut Window, cx: &mut App) -> AnyElement {
     let id: ElementId = id.into();
     let p = cx.aui().colors;
@@ -332,7 +334,6 @@ pub fn account_menu(id: impl Into<ElementId>, account: &Account, width: Pixels, 
         vec![
             MenuRow::new("Settings…", SidebarIntent::AccountAction(AccountAction::Settings)).keys("⌘,").after_separator(),
             MenuRow::new("Providers…", SidebarIntent::AccountAction(AccountAction::Providers)),
-            MenuRow::new("Sign out of Muse", SidebarIntent::AccountAction(AccountAction::SignOut)).danger().after_separator(),
         ],
         &on_intent,
     );
