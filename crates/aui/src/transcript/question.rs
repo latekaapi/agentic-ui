@@ -17,7 +17,7 @@ use gpui_kit::base::{h_flex, v_flex};
 use crate::data::record_ax_label;
 use crate::icons::{icon, IconName};
 use crate::transcript::controls::{control, control_with, key_hints, ControlKind};
-use crate::transcript::quiet_row::{quiet_status_row, status_check, status_cross};
+use crate::transcript::quiet_row::{quiet_status_row, status_check, status_cross, QUIET_ROW_BLEED};
 use crate::transcript::ProseStyle;
 use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
 
@@ -622,19 +622,45 @@ pub struct AnsweredRow {
     id: ElementId,
     chips: Vec<SharedString>,
     outcome: QuestionOutcome,
+    question: Option<SharedString>,
+}
+
+/// The settled row's question line: the header and the prompt, joined by
+/// an em dash ("Language — What is your favorite programming language?"),
+/// either alone when the other is empty, `None` when both are. Whitespace
+/// runs (a prompt's line breaks) read as one space on the one line.
+pub fn settled_question_text(header: &str, prompt: &str) -> Option<SharedString> {
+    let squash = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let (header, prompt) = (squash(header), squash(prompt));
+    match (header.is_empty(), prompt.is_empty()) {
+        (true, true) => None,
+        (false, true) => Some(header.into()),
+        (true, false) => Some(prompt.into()),
+        (false, false) => Some(format!("{header} — {prompt}").into()),
+    }
 }
 
 /// The quiet row a settled question leaves (docs/41 §2.4): `✓ Answered
 /// <pick as inline code>`, `✓ Clarified <text>`; a non-answer reads what
 /// it was with a muted ✕. Not clickable.
 pub fn answered_row(id: impl Into<ElementId>, chips: Vec<SharedString>) -> AnsweredRow {
-    AnsweredRow { id: id.into(), chips, outcome: QuestionOutcome::Answered }
+    AnsweredRow { id: id.into(), chips, outcome: QuestionOutcome::Answered, question: None }
 }
 
 impl AnsweredRow {
     /// How the question settled; the default is [`QuestionOutcome::Answered`].
     pub fn outcome(mut self, outcome: QuestionOutcome) -> Self {
         self.outcome = outcome;
+        self
+    }
+
+    /// What was asked (see [`settled_question_text`]): drawn as the row's
+    /// first line, muted and cut with an ellipsis, with the outcome and
+    /// the answer on the line under it (owner 2026-10-31: "show the
+    /// question as well as the answer"). The full text is the row's
+    /// accessible name.
+    pub fn question(mut self, question: Option<SharedString>) -> Self {
+        self.question = question;
         self
     }
 }
@@ -650,6 +676,65 @@ impl RenderOnce for AnsweredRow {
         for chip in self.chips {
             row = row.part(div().flex_none().px(px(5.0)).py(px(1.0)).rounded(px(4.0)).bg(p.line).mono(scale::FS_12).child(chip));
         }
-        row
+        let Some(question) = self.question else {
+            return row.into_any_element();
+        };
+        // The question rides above the outcome row on the quiet row's own
+        // measure (the same bleed and padding, so its text starts on the
+        // outcome's glyph), one line, cut with an ellipsis; muted like the
+        // row's text. The answer line keeps its own 32 px, pulled up so the
+        // pair reads as one settled entry.
+        let ax = format!("{question}. {}", self.outcome.label());
+        record_ax_label(&ax);
+        v_flex()
+            .id((self.id.clone(), "settled"))
+            .w_full()
+            .role(gpui::Role::Group)
+            .aria_label(ax)
+            .child(
+                div()
+                    .id((self.id, "question"))
+                    .mx(px(-QUIET_ROW_BLEED))
+                    .px(px(QUIET_ROW_BLEED))
+                    .pt(px(SETTLED_QUESTION_PAD_TOP))
+                    .min_w(px(0.0))
+                    .ui(scale::FS_13)
+                    .text_color(p.ink_3)
+                    .truncate()
+                    .child(question),
+            )
+            .child(div().mt(px(-SETTLED_ANSWER_PULL)).child(row))
+            .into_any_element()
+    }
+}
+
+/// The question line's top padding over a settled row.
+const SETTLED_QUESTION_PAD_TOP: f32 = 6.0;
+/// How far the outcome row is pulled up under the question line.
+const SETTLED_ANSWER_PULL: f32 = 4.0;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_settled_line_reads_header_then_prompt() {
+        assert_eq!(
+            settled_question_text("Language", "What is your favorite programming language?").as_deref(),
+            Some("Language — What is your favorite programming language?")
+        );
+        assert_eq!(settled_question_text("", "Which file?").as_deref(), Some("Which file?"));
+        assert_eq!(settled_question_text("File", "  ").as_deref(), Some("File"));
+        assert_eq!(settled_question_text(" ", ""), None);
+        // A multi-line prompt reads as one line.
+        assert_eq!(settled_question_text("", "Pick one:\n  a or b").as_deref(), Some("Pick one: a or b"));
+    }
+
+    #[test]
+    fn a_row_without_a_question_keeps_its_one_line() {
+        let row = answered_row("q", vec!["Python".into()]);
+        assert!(row.question.is_none());
+        let row = row.question(settled_question_text("Language", "Favourite?"));
+        assert_eq!(row.question.as_deref(), Some("Language — Favourite?"));
     }
 }

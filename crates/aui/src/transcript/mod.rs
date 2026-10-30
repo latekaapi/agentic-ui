@@ -67,7 +67,7 @@ pub use handoff::{
     handoff_step_label, handoff_step_state_word, HandoffCard, HandoffIntent, HandoffStep, HandoffStepState,
     HANDOFF_CONFIRM_WIDTH, HANDOFF_FRESH_NOTE,
 };
-pub use question::{answered_row, question_card, AnsweredRow, QuestionCard, QuestionOutcome, Wizard};
+pub use question::{answered_row, question_card, settled_question_text, AnsweredRow, QuestionCard, QuestionOutcome, Wizard};
 pub use caps::{
     cap_expanded, cap_preview, cut_preview_line, Remainder, EXPANDED_LINE_CHARS,
     EXPANDED_MAX_CHARS, EXPANDED_MAX_LINES, PREVIEW_LINE_CHARS, PREVIEW_MAX_CHARS,
