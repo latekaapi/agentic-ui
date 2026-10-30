@@ -184,6 +184,8 @@ static void aui_cef_set_bubbles_hidden(NSWindow *cw, BOOL hidden) {
   }
 }
 
+static BOOL aui_cef_window_hidden(NSWindow *w);
+
 static id aui_cef_hole_monitor = nil;
 static void aui_cef_install_hole_monitor(void) {
   if (aui_cef_hole_monitor) return;
@@ -194,6 +196,9 @@ static void aui_cef_install_hole_monitor(void) {
   aui_cef_hole_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
     NSWindow *cw = event.window;
     if (!cw) return event;
+    // A hidden page's events are the hidden monitor's (below), never re-sent
+    // twice.
+    if (aui_cef_window_hidden(cw)) return event;
     NSArray *holes = objc_getAssociatedObject(cw, kAuiCefHolesKey);
     NSArray *zones = objc_getAssociatedObject(cw, kAuiCefZonesKey);
     if (holes.count == 0 && zones.count == 0) return event;
@@ -316,14 +321,116 @@ void aui_cef_set_hover_zones(void *child_root_view, const double *rects, int n) 
 
 // Hidden = invisible and click-through. CEF's own `Window::hide` does nothing
 // to an adopted child window (S1, shot 7); alpha does (S1, shot 6).
+//
+// Alpha and `ignoresMouseEvents` are not the whole of it: a hidden page still
+// sits over its old rect, and Chromium kept hovering links under the pointer
+// there — its link-status bubble changed as the pointer crossed the Sessions
+// screen (owner recording 2026-10-31). So a hidden page is also cut off from
+// input by the monitor below, whatever AppKit routes to it (a tracking area,
+// key-window moves, an `ignoresMouseEvents` Chromium reset), and the bubble
+// windows it already had are ordered out, not merely faded: Chromium animates
+// a bubble's alpha itself, so a zero alpha did not hold.
+static const void *kAuiCefHiddenKey = &kAuiCefHiddenKey;
+// The bubble windows a hide ordered out, so a show can give them their alpha
+// back (Chromium orders a bubble in itself when it next shows one).
+static const void *kAuiCefParkedBubblesKey = &kAuiCefParkedBubblesKey;
+
+static BOOL aui_cef_window_hidden(NSWindow *w) {
+  return w && [objc_getAssociatedObject(w, kAuiCefHiddenKey) boolValue];
+}
+
+// The hidden page an event is bound for: the page window itself or one of its
+// own children (a bubble). nil when the event belongs to anything else.
+static NSWindow *aui_cef_hidden_page_of(NSWindow *w) {
+  if (aui_cef_window_hidden(w)) return w;
+  if (aui_cef_window_hidden(w.parentWindow)) return w.parentWindow;
+  return nil;
+}
+
+// Counts the events the monitor kept from hidden pages (the probe reads it).
+static long aui_cef_hidden_dropped = 0;
+long aui_cef_hidden_drop_count(void) { return aui_cef_hidden_dropped; }
+
+static id aui_cef_hidden_monitor = nil;
+static void aui_cef_install_hidden_monitor(void) {
+  if (aui_cef_hidden_monitor) return;
+  NSEventMask mask = NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged |
+                     NSEventMaskRightMouseDown | NSEventMaskRightMouseUp | NSEventMaskRightMouseDragged |
+                     NSEventMaskOtherMouseDown | NSEventMaskOtherMouseUp | NSEventMaskOtherMouseDragged |
+                     NSEventMaskMouseMoved | NSEventMaskMouseEntered | NSEventMaskMouseExited |
+                     NSEventMaskCursorUpdate | NSEventMaskScrollWheel | NSEventMaskMagnify |
+                     NSEventMaskRotate | NSEventMaskSwipe | NSEventMaskSmartMagnify |
+                     NSEventMaskPressure | NSEventMaskBeginGesture | NSEventMaskEndGesture |
+                     NSEventMaskGesture | NSEventMaskTabletPoint | NSEventMaskTabletProximity;
+  aui_cef_hidden_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
+    NSWindow *page = aui_cef_hidden_page_of(event.window);
+    if (!page) return event;
+    aui_cef_hidden_dropped++;
+    // Whatever let the event through is undone: the page goes back to
+    // click-through and invisible, and a hidden page never stays key.
+    if (!page.ignoresMouseEvents) page.ignoresMouseEvents = YES;
+    if (page.alphaValue != 0.0) page.alphaValue = 0.0;
+    NSWindow *pw = page.parentWindow;
+    if (pw && page.isKeyWindow) [pw makeKeyWindow];
+    // A pointer event the host should have had goes to the host instead (it
+    // never got its own copy while the page took it); everything else — the
+    // page's tracking-area enters/exits, cursor updates, scrolls, gestures —
+    // simply ends here.
+    NSEventType t = event.type;
+    BOOL pointer = t == NSEventTypeMouseMoved || t == NSEventTypeLeftMouseDown || t == NSEventTypeLeftMouseUp ||
+                   t == NSEventTypeLeftMouseDragged || t == NSEventTypeRightMouseDown || t == NSEventTypeRightMouseUp ||
+                   t == NSEventTypeRightMouseDragged || t == NSEventTypeOtherMouseDown || t == NSEventTypeOtherMouseUp ||
+                   t == NSEventTypeOtherMouseDragged;
+    if (pointer && pw && event.window) {
+      NSPoint onScreen = [event.window convertPointToScreen:event.locationInWindow];
+      NSPoint inParent = [pw convertPointFromScreen:onScreen];
+      NSEvent *forwarded = [NSEvent mouseEventWithType:t
+                                              location:inParent
+                                         modifierFlags:event.modifierFlags
+                                             timestamp:event.timestamp
+                                          windowNumber:pw.windowNumber
+                                               context:nil
+                                           eventNumber:event.eventNumber
+                                            clickCount:(t == NSEventTypeMouseMoved ? 0 : event.clickCount)
+                                              pressure:(t == NSEventTypeMouseMoved ? 0 : event.pressure)];
+      if (forwarded) [pw sendEvent:forwarded];
+    }
+    return nil;
+  }];
+}
+
 void aui_cef_set_hidden(void *child_root_view, int hidden) {
   NSWindow *cw = window_of(child_root_view);
   if (!cw) return;
+  objc_setAssociatedObject(cw, kAuiCefHiddenKey, hidden ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  if (hidden) aui_cef_install_hidden_monitor();
   cw.alphaValue = hidden ? 0.0 : 1.0;
   cw.ignoresMouseEvents = hidden ? YES : NO;
   // Its own children (Chromium's link-status bubble) go with it: the bubble
   // stayed over the Sessions screen after a mode switch (seen live 2026-10-13).
   aui_cef_set_bubbles_hidden(cw, hidden);
+  if (hidden) {
+    NSMutableArray *parked = [NSMutableArray array];
+    for (NSWindow *child in [cw.childWindows copy]) {
+      [parked addObject:child];
+      [cw removeChildWindow:child];
+      [child orderOut:nil];
+    }
+    NSArray *before = objc_getAssociatedObject(cw, kAuiCefParkedBubblesKey);
+    if (before.count) [parked addObjectsFromArray:before];
+    objc_setAssociatedObject(cw, kAuiCefParkedBubblesKey, parked.count ? parked : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  } else {
+    // Alpha back, order left to Chromium: it orders a bubble in when it next
+    // shows one, and one it still thinks is up would otherwise reappear with
+    // a stale link on it.
+    for (NSWindow *child in objc_getAssociatedObject(cw, kAuiCefParkedBubblesKey)) child.alphaValue = 1.0;
+    objc_setAssociatedObject(cw, kAuiCefParkedBubblesKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  }
+}
+
+// 1 while the page is hidden (the probe and tests read it back).
+int aui_cef_is_hidden(void *child_root_view) {
+  return aui_cef_window_hidden(window_of(child_root_view)) ? 1 : 0;
 }
 
 int aui_cef_is_key(void *child_root_view) {
@@ -672,6 +779,8 @@ void aui_cef_set_wheel_router(AuiCefWheelFn f) {
     if (!route || !cw) return event;
     if (!(event.modifierFlags & NSEventModifierFlagShift)) return event;
     if (![objc_getAssociatedObject(cw, kAuiCefPageKey) boolValue]) return event;
+    // A hidden page takes no gesture, and the host's own window already saw it.
+    if (aui_cef_window_hidden(cw)) return event;
     NSWindow *pw = cw.parentWindow;
     NSView *pv = pw.contentView;
     if (!pw || !pv) return event;

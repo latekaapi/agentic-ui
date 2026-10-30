@@ -2278,6 +2278,15 @@ impl WebBackend for CefBackend {
         }
         locked(&self.page).visible = visible;
         place(&self.page);
+        if !visible {
+            // The renderer still thinks the pointer is where it last was: tell
+            // it the pointer left, so hover, the link-status text and the
+            // cursor it asked for all clear with the page (owner 2026-10-31).
+            // The shim's monitor keeps any further input away while hidden.
+            if let Some(host) = browser_of(&self.page).and_then(|b| b.host()) {
+                host.send_mouse_move_event(Some(&MouseEvent { x: -1, y: -1, modifiers: 0 }), 1);
+            }
+        }
     }
 
     fn set_focused(&mut self, focused: bool) {

@@ -1228,9 +1228,18 @@ impl WebviewState {
         (f32::from(position.x - self.page_origin.x), f32::from(position.y - self.page_origin.y))
     }
 
+    /// Whether pointer input over the pane may reach the page. A native page
+    /// that is hidden (covered, parked, another mode on screen) takes none:
+    /// what gpui sees there is its stand-in, and a hover or click handed to
+    /// the page behind it would act on a page nobody can see (owner
+    /// 2026-10-31: link hovers from a hidden Browse page over Sessions).
+    pub fn takes_pointer(&self) -> bool {
+        !self.native || self.shown
+    }
+
     /// The pointer moved over the page.
     fn pointer_moved(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        if !self.annotate {
+        if !self.annotate || !self.takes_pointer() {
             return;
         }
         self.backend.point_moved(Some(self.to_page(position)));
@@ -1243,7 +1252,7 @@ impl WebviewState {
 
     /// The pointer was pressed over the page.
     fn pointer_down(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        if !self.annotate {
+        if !self.annotate || !self.takes_pointer() {
             return;
         }
         let at = self.to_page(position);
@@ -2785,6 +2794,8 @@ mod tests {
         extra_events: Rc<RefCell<Vec<WebEvent>>>,
         captures: Rc<Cell<u32>>,
         stand_ins: Rc<Cell<u32>>,
+        /// Pointer moves and clicks the pane handed to the page.
+        pointer: Rc<Cell<u32>>,
     }
 
     impl NativeFake {
@@ -2800,6 +2811,7 @@ mod tests {
                 extra_events,
                 captures: Rc::new(Cell::new(0)),
                 stand_ins: Rc::new(Cell::new(0)),
+                pointer: Rc::new(Cell::new(0)),
             }
         }
     }
@@ -2863,9 +2875,11 @@ mod tests {
             self.inner.holds_keyboard()
         }
         fn point_moved(&mut self, at: Option<(f32, f32)>) {
+            self.pointer.set(self.pointer.get() + 1);
             self.inner.point_moved(at);
         }
         fn point_clicked(&mut self, at: (f32, f32)) {
+            self.pointer.set(self.pointer.get() + 1);
             self.inner.point_clicked(at);
         }
         fn hovered(&self) -> Option<ElementInfo> {
@@ -2874,6 +2888,44 @@ mod tests {
         fn element_info(&self, index: usize) -> Option<ElementInfo> {
             self.inner.element_info(index)
         }
+    }
+
+    /// A hidden native page takes no pointer input: over its stand-in, a
+    /// move or a click in annotate mode never reaches the page behind it
+    /// (owner 2026-10-31 — a hidden Browse page hovered links under the
+    /// Sessions screen); shown again, it does.
+    #[gpui::test]
+    fn a_hidden_native_page_takes_no_pointer_input(cx: &mut TestAppContext) {
+        let fake = NativeFake::new(Rc::new(RefCell::new(Vec::new())), Rc::new(RefCell::new(Vec::new())), Rc::new(RefCell::new(Vec::new())));
+        let pointer = fake.pointer.clone();
+        let state = cx.new(|cx| WebviewState::new(Box::new(fake), cx));
+        let frame = gpui::Bounds { origin: gpui::point(gpui::px(0.), gpui::px(0.)), size: gpui::size(gpui::px(400.), gpui::px(300.)) };
+        state.update(cx, |state, _| {
+            state.laid_out(frame, frame);
+            state.set_annotate(true);
+        });
+        let at = gpui::point(gpui::px(50.), gpui::px(60.));
+        state.update(cx, |state, cx| {
+            assert!(state.takes_pointer(), "a laid-out, uncovered page is on screen");
+            state.pointer_moved(at, cx);
+        });
+        assert_eq!(pointer.get(), 1, "a shown page gets the pointer");
+        state.update(cx, |state, cx| {
+            state.set_obscured(true, cx);
+            // A capture that never lands stops holding the live view at its
+            // deadline; skip the wait.
+            state.cover_capture_until = None;
+            state.sync_visibility();
+            assert!(!state.takes_pointer(), "a covered page is hidden");
+            state.pointer_moved(at, cx);
+            state.pointer_down(at, cx);
+        });
+        assert_eq!(pointer.get(), 1, "a hidden page gets no move and no click");
+        state.update(cx, |state, cx| {
+            state.set_obscured(false, cx);
+            state.pointer_moved(at, cx);
+        });
+        assert_eq!(pointer.get(), 2, "shown again, it does");
     }
 
     /// A hidden native webview never poll-notifies: ten idle ticks wake the
