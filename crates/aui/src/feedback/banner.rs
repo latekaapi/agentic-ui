@@ -11,7 +11,7 @@ use std::rc::Rc;
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, App, ElementId, FontWeight, HighlightStyle, Hsla, IntoElement, SharedString, StyledText, Window};
-use gpui_kit::base::h_flex;
+use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, status_dot, ButtonSize, Button};
 
@@ -27,6 +27,8 @@ const BANNER_GLYPH: f32 = 14.0;
 /// The connection banner's dot: `.dot.done.ic{width:7px;height:7px;margin:0 3px}`.
 const BANNER_DOT: f32 = 7.0;
 const BANNER_DOT_MARGIN: f32 = 3.0;
+/// A grown banner's line-to-body gap ([`Banner::body`]).
+const BANNER_BODY_GAP: f32 = 8.0;
 
 /// Which state a banner reports. The kind picks the icon, the ink and whether
 /// the row is tinted.
@@ -111,11 +113,12 @@ pub struct Banner {
     on_action: Option<ActionHandler>,
     secondary: Option<(SharedString, BannerActionStyle)>,
     on_secondary: Option<ActionHandler>,
+    body: Option<gpui::AnyElement>,
 }
 
 /// A one-line banner in `kind`'s colours, carrying `runs` as its message.
 pub fn banner(id: impl Into<ElementId>, kind: BannerKind, runs: Vec<BannerRun>) -> Banner {
-    Banner { id: id.into(), kind, runs, action: None, on_action: None, secondary: None, on_secondary: None }
+    Banner { id: id.into(), kind, runs, action: None, on_action: None, secondary: None, on_secondary: None, body: None }
 }
 
 impl Banner {
@@ -146,6 +149,16 @@ impl Banner {
     /// The second button was pressed.
     pub fn on_secondary(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_secondary = Some(Rc::new(f));
+        self
+    }
+
+    /// Grow the banner: `body` draws under the line, inside the same frame
+    /// and aligned with the message (past the glyph), for a banner that
+    /// has more to say than one line — a failure's output and the actions
+    /// it implies. The line keeps its own buttons; a grown banner usually
+    /// carries its buttons in the body instead.
+    pub fn body(mut self, body: impl IntoElement) -> Self {
+        self.body = Some(body.into_any_element());
         self
     }
 }
@@ -210,15 +223,6 @@ impl RenderOnce for Banner {
             .w_full()
             .items_center()
             .gap(px(BANNER_GAP))
-            .py(px(BANNER_PAD_Y))
-            .pl(px(BANNER_PAD_LEFT))
-            .pr(px(BANNER_PAD_RIGHT))
-            .rounded(px(BANNER_RADIUS))
-            .border_1()
-            .border_color(border)
-            .bg(ground)
-            .ui(BANNER_TEXT)
-            .text_color(p.ink)
             .child(leading)
             .child(message(&self.runs, &p));
         if let Some((label, style)) = self.secondary {
@@ -235,6 +239,24 @@ impl RenderOnce for Banner {
             }
             row = row.child(div().flex_none().child(b));
         }
-        row
+        let frame = v_flex()
+            .w_full()
+            .gap(px(BANNER_BODY_GAP))
+            .py(px(BANNER_PAD_Y))
+            .pl(px(BANNER_PAD_LEFT))
+            .pr(px(BANNER_PAD_RIGHT))
+            .rounded(px(BANNER_RADIUS))
+            .border_1()
+            .border_color(border)
+            .bg(ground)
+            .ui(BANNER_TEXT)
+            .text_color(p.ink)
+            .child(row);
+        match self.body {
+            // The body starts where the message does: past the glyph and
+            // the gap, so the grown banner reads as one column.
+            Some(body) => frame.child(div().w_full().min_w(px(0.0)).pl(px(BANNER_GLYPH + BANNER_GAP)).child(body)),
+            None => frame,
+        }
     }
 }
