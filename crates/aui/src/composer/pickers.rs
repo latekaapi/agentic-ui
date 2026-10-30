@@ -329,6 +329,9 @@ struct Nest {
     open: Option<usize>,
     panel: Option<gpui::Bounds<gpui::Pixels>>,
     rows: Vec<(usize, gpui::Pixels)>,
+    /// The open submenu's laid-out size, by its parent row: what the
+    /// window fit ([`crate::overlay::submenu_seat`]) measures against.
+    sub: Option<(usize, gpui::Size<gpui::Pixels>)>,
 }
 
 impl RenderOnce for PickerMenu {
@@ -415,14 +418,23 @@ impl RenderOnce for PickerMenu {
             let nest = nest.clone();
             div().on_prepaint(move |bounds, _, cx| nest.update(cx, |n, _| n.panel = Some(bounds))).child(panel)
         });
-        // The open submenu: 4 px right of the panel, its top on its row's.
+        // The open submenu: 4 px beside the panel, its first row level with
+        // its parent row — fitted inside the window (owner 2026-10-30: a
+        // submenu opened from the bottom composer ran past the window's
+        // bottom edge). The fit needs the submenu's own height, so a
+        // submenu not yet measured lays out invisibly for one frame.
         if let Some(index) = open_sub {
             let geometry = nest.read(cx).clone();
             if let (Some(sub), Some(panel_bounds)) = (self.rows[index].submenu.clone(), geometry.panel) {
                 let row_center = geometry.rows.iter().find(|(i, _)| *i == index).map(|(_, y)| *y).unwrap_or(panel_bounds.top());
                 // The submenu's first row lines up with its parent row: its
-                // top sits the panel padding and the caption header above.
-                let top = (row_center - px(18.0) - panel_bounds.top() - px(crate::interact::PANEL_PAD + SUB_HEADER_H)).max(px(0.0));
+                // top sits the panel padding and the caption header above,
+                // never above the panel's own top.
+                let row_top = (row_center - px(18.0) - px(crate::interact::PANEL_PAD + SUB_HEADER_H)).max(panel_bounds.top());
+                let measured = geometry.sub.filter(|(i, _)| *i == index).map(|(_, size)| size);
+                let wanted = measured.unwrap_or(gpui::size(px(SUBMENU_W), px(0.0)));
+                let prefer = if self.align_end { crate::overlay::SubmenuSide::Left } else { crate::overlay::SubmenuSide::Right };
+                let seat = crate::overlay::submenu_seat(panel_bounds, row_top, wanted, window.viewport_size(), px(SUBMENU_GAP), prefer);
                 let parent = self.rows[index].id.clone();
                 let mut subpanel = dropdown((id.clone(), "sub"), sub.title.clone())
                     .width(px(SUBMENU_W))
@@ -430,6 +442,13 @@ impl RenderOnce for PickerMenu {
                     .side(DropdownSide::Beside)
                     .at_rest()
                     .entry(DropdownEntry::Label(sub.title.clone()));
+                // Never taller than the window less an inset above and
+                // below: past that the rows scroll (less the surface's 1 px
+                // hairline at each end). Always applied, so the measured
+                // height is the capped one and the fit never flips between
+                // the two.
+                let cap = window.viewport_size().height - px(2.0 * crate::overlay::SUBMENU_INSET);
+                subpanel = subpanel.max_height((cap - px(2.0)).max(px(0.0)));
                 for (i, row) in sub.rows.iter().enumerate() {
                     let mut item = picker_item(row, sub.selected == Some(i), &p);
                     if let Some(handler) = self.on_pick_nested.clone() {
@@ -438,8 +457,25 @@ impl RenderOnce for PickerMenu {
                     }
                     subpanel = subpanel.entry(item);
                 }
-                let beside = div().absolute().top(top);
-                let beside = if self.align_end { beside.right(panel_bounds.size.width + px(SUBMENU_GAP)) } else { beside.left(panel_bounds.size.width + px(SUBMENU_GAP)) };
+                let nest = nest.clone();
+                let beside = div()
+                    .debug_selector(|| "picker-submenu".into())
+                    .absolute()
+                    .top(seat.origin.y - panel_bounds.top())
+                    .left(seat.origin.x - panel_bounds.left())
+                    .on_prepaint(move |bounds, _, cx| {
+                        nest.update(cx, |n, _| {
+                            if n.sub != Some((index, bounds.size)) {
+                                n.sub = Some((index, bounds.size));
+                            }
+                        })
+                    });
+                let beside = if measured.is_some() {
+                    beside
+                } else {
+                    aui_motion::request_frame(window);
+                    beside.opacity(0.0)
+                };
                 menu = menu.child(beside.child(subpanel));
             }
         }
@@ -753,5 +789,64 @@ mod slider_tests {
         assert_eq!(slider_stop(-40.0, 280.0, 8), 0);
         assert_eq!(slider_stop(900.0, 280.0, 8), 7);
         assert_eq!(slider_stop(50.0, 280.0, 1), 0);
+    }
+}
+
+#[cfg(test)]
+mod submenu_fit_tests {
+    use super::*;
+    use gpui::{size, Context, Render, TestAppContext};
+
+    /// A model chip 40 px above the bottom of an 800 × 600 window, its menu
+    /// open upward with the first row's eight-level submenu open — the
+    /// owner's 2026-10-30 screenshot, where the submenu ran down past the
+    /// window's bottom edge.
+    struct Host {
+        align_end: bool,
+    }
+
+    impl Render for Host {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let levels: Vec<PickerRow> = ["Default", "Minimal", "Low", "Medium", "High", "Extra high", "Max", "Ultra"]
+                .iter()
+                .map(|l| PickerRow::new(*l, *l, "What this level spends, in a line of detail."))
+                .collect();
+            let rows: Vec<PickerRow> = ["Muse Wonder 1.0", "Muse Spark 1.3", "Muse Spark 1.2"]
+                .iter()
+                .map(|m| PickerRow::new(*m, *m, "A model").submenu(PickerSubmenu { title: format!("Reasoning effort · {m}").into(), rows: levels.clone(), selected: None }))
+                .collect();
+            let menu = model_menu("fit-menu", rows, 0, true).at_rest().align_end(self.align_end).open_submenu(Some(0));
+            div().size_full().relative().child(div().absolute().left(px(380.0)).top(px(532.0)).w(px(90.0)).h(px(28.0)).child(menu))
+        }
+    }
+
+    fn painted(align_end: bool, cx: &mut TestAppContext) -> gpui::Bounds<gpui::Pixels> {
+        cx.update(|cx| crate::init(aui_tokens::ThemeKind::Dark, cx));
+        let window = cx.open_window(size(px(800.0), px(600.0)), move |_, _| Host { align_end });
+        let mut vc = gpui::VisualTestContext::from_window(window.into(), cx);
+        // Frame one measures the panel and the submenu; the next fit them.
+        for _ in 0..3 {
+            vc.update(|w, _| w.refresh());
+            vc.run_until_parked();
+        }
+        vc.debug_bounds("picker-submenu").expect("the open submenu paints")
+    }
+
+    fn assert_inside(b: gpui::Bounds<gpui::Pixels>) {
+        let inset = crate::overlay::SUBMENU_INSET;
+        assert!(f32::from(b.origin.y) >= inset - 0.5, "top inside the window: {b:?}");
+        assert!(f32::from(b.origin.y + b.size.height) <= 600.0 - inset + 0.5, "bottom inside the window: {b:?}");
+        assert!(f32::from(b.origin.x) >= 0.0 && f32::from(b.origin.x + b.size.width) <= 800.0, "inside horizontally: {b:?}");
+        assert!(b.size.height > px(200.0), "the submenu laid out its rows: {b:?}");
+    }
+
+    #[gpui::test]
+    fn a_bottom_composer_submenu_stays_inside_the_window_end_aligned(cx: &mut TestAppContext) {
+        assert_inside(painted(true, cx));
+    }
+
+    #[gpui::test]
+    fn a_bottom_composer_submenu_stays_inside_the_window_start_aligned(cx: &mut TestAppContext) {
+        assert_inside(painted(false, cx));
     }
 }
