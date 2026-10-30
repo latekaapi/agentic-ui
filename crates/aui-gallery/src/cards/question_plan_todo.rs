@@ -158,7 +158,10 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                         .on_clarify(|_, _, _| {})
                         .on_answer(|_, _, _| {}),
                 )
-                .child(answered_row("card36-answered", vec!["US ZIP".into(), "Canadian".into()]))
+                .child(
+                    answered_row("card36-answered", vec!["US ZIP".into(), "Canadian".into()])
+                        .question(aui::transcript::settled_question_text("Formats", "Which postal formats should the validator accept?")),
+                )
                 // The settlements that are not answers: MSP settles a prompt
                 // six ways and only one of them fills the chips.
                 .child(answered_row("card36-skipped", Vec::new()).outcome(QuestionOutcome::Skipped))
@@ -181,7 +184,16 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .child(
                     muse_question("card36-muse-clarify")
                         .clarify_open(true)
-                        .clarify_slot(Textarea::new(&clarify).text_size(aui_tokens::scaled(aui_tokens::scale::FS_12)))
+                        .clarify_slot(
+                            // The design system's field: the composer's quiet
+                            // edge, brightening with focus — never the kit's ring.
+                            aui::data::field_frame("card36-clarify-field", &clarify, window, cx).w_full().child(
+                                Textarea::new(&clarify)
+                                    .appearance(false)
+                                    .bordered(false)
+                                    .text_size(aui_tokens::scaled(aui_tokens::scale::FS_12)),
+                            ),
+                        )
                         .on_clarify(|_, _, _| {})
                         .on_skip(|_, _, _| {}),
                 ),

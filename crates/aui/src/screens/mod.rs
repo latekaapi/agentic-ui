@@ -17,7 +17,7 @@ pub mod sidebar;
 
 pub use login::{login, Login, LoginIntent, LoginMethod, LoginState};
 pub use providers::{
-    connect_providers, connect_ready, provider_card, signed_out_banner, usage_card, usage_warns,
+    connect_providers, connect_ready, default_provider_picker, provider_card, signed_out_banner, usage_card, usage_warns,
     ActionStyle, AssistRun, CardDetails, ConnectIntent, ConnectRowData, ConnectScreen,
     DefaultPicker, DetailRow, ProviderAction, ProviderActionDef, ProviderCard, ProviderCardData,
     ProviderHeadline, ProviderIntent, SignedOutBanner, StatusLine, StatusTone, UsageCard,

@@ -742,6 +742,21 @@ fn footer(
         .into_any_element()
 }
 
+/// The connect footer's "New sessions start in [mark Name ⌄]" picker on
+/// its own, for a host that offers the same choice elsewhere (Baaz's
+/// Settings › Providers): the same chip, the same Connected-only menu
+/// hanging above it, the same intents (`ToggleDefaultMenu`,
+/// `CloseDefaultMenu`, `SetDefault`). The host owns `picker.open`.
+pub fn default_provider_picker(
+    id: impl Into<ElementId>,
+    picker: DefaultPicker,
+    on_intent: impl Fn(ConnectIntent, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
+    let p = cx.aui().colors;
+    default_picker(&id.into(), picker, &p, Some(Rc::new(on_intent)))
+}
+
 /// "New sessions start in [mark Name ⌄]", the menu hanging above the chip
 /// while open.
 fn default_picker(id: &ElementId, picker: DefaultPicker, p: &Palette, on_intent: Option<ConnectHandler>) -> AnyElement {
