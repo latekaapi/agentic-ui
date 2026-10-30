@@ -12,6 +12,7 @@ mod button;
 mod chip;
 mod context_meter;
 mod dot;
+mod field;
 mod glyph;
 mod kbd;
 mod meter;
@@ -25,6 +26,7 @@ pub use button::{arm_ax_probe, button, icon_button, icon_content_button, record_
 pub use chip::{chip, Chip};
 pub use context_meter::{context_meter, ContextMeter, ContextMeterState, ContextPressure};
 pub use dot::{status_dot, StatusDot};
+pub use field::{field_edge, field_frame, FIELD_EDGE_FOCUSED, FIELD_EDGE_REST};
 pub use glyph::{glyph_err, glyph_ok, spinner, Glyph, GlyphKind, Spinner};
 pub use kbd::{kbd, Kbd};
 pub use meter::{usage_meter, UsageMeter};
