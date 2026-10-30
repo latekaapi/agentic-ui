@@ -351,9 +351,31 @@ static NSWindow *aui_cef_hidden_page_of(NSWindow *w) {
 static long aui_cef_hidden_dropped = 0;
 long aui_cef_hidden_drop_count(void) { return aui_cef_hidden_dropped; }
 
+// Orders a hidden page's child window (a bubble) out of the page.
+static void aui_cef_park_bubble(NSWindow *page, NSWindow *child) {
+  child.alphaValue = 0.0;
+  [page removeChildWindow:child];
+  [child orderOut:nil];
+}
+
 static id aui_cef_hidden_monitor = nil;
+static id aui_cef_bubble_observer = nil;
 static void aui_cef_install_hidden_monitor(void) {
   if (aui_cef_hidden_monitor) return;
+  // A hidden page can still be told to show a bubble: an agent hovering a
+  // link over DevTools, a page script moving focus. Whenever one of its
+  // children turns visible while it is hidden, it goes straight back out.
+  aui_cef_bubble_observer = [[NSNotificationCenter defaultCenter]
+      addObserverForName:NSWindowDidChangeOcclusionStateNotification
+                  object:nil
+                   queue:nil
+              usingBlock:^(NSNotification *note) {
+                NSWindow *w = note.object;
+                if (![w isKindOfClass:[NSWindow class]]) return;
+                NSWindow *page = w.parentWindow;
+                if (!aui_cef_window_hidden(page)) return;
+                if (w.occlusionState & NSWindowOcclusionStateVisible) aui_cef_park_bubble(page, w);
+              }];
   NSEventMask mask = NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged |
                      NSEventMaskRightMouseDown | NSEventMaskRightMouseUp | NSEventMaskRightMouseDragged |
                      NSEventMaskOtherMouseDown | NSEventMaskOtherMouseUp | NSEventMaskOtherMouseDragged |
@@ -413,8 +435,7 @@ void aui_cef_set_hidden(void *child_root_view, int hidden) {
     NSMutableArray *parked = [NSMutableArray array];
     for (NSWindow *child in [cw.childWindows copy]) {
       [parked addObject:child];
-      [cw removeChildWindow:child];
-      [child orderOut:nil];
+      aui_cef_park_bubble(cw, child);
     }
     NSArray *before = objc_getAssociatedObject(cw, kAuiCefParkedBubblesKey);
     if (before.count) [parked addObjectsFromArray:before];
