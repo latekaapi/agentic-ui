@@ -225,7 +225,7 @@ fn row_checkbox(id: ElementId, on: bool, p: &Palette, window: &mut Window, cx: &
         .flex()
         .items_center()
         .justify_center()
-        .when(phase > 0.0, |d| d.child(icon(IconName::CheckBold).size(px(mark)).color(gpui::white().alpha(phase))))
+        .when(phase > 0.0, |d| d.child(icon(IconName::CheckBold).size(px(mark)).color(p.bg.alpha(phase))))
 }
 
 /// The commit message, drawn as the card's static three-row field: paragraphs

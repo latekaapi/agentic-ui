@@ -127,8 +127,8 @@ pub enum CheckboxIntent {
 
 /// `.cb`: the 16 px skills checkbox. gpui-kit's box is boolean-only, so this
 /// is the library's own tri-state box in tokens: transparent + line-strong
-/// when [`CheckboxState::Off`], accent + white check when
-/// [`CheckboxState::On`], accent-soft + accent-ink dash when
+/// when [`CheckboxState::Off`], accent + a check in the page ground (the
+/// primary button's label colour) when [`CheckboxState::On`], accent-soft + accent-ink dash when
 /// [`CheckboxState::Mixed`]. Disabled is 45 % opacity like
 /// [`crate::data::Button`]. Enter / space on the focused box clicks it, the
 /// way a focused button does. Build with [`checkbox`].
@@ -197,7 +197,10 @@ impl RenderOnce for Checkbox {
         match self.state {
             CheckboxState::Off => {}
             CheckboxState::On => {
-                mark = Some(icon(IconName::Check).size(px(CHECK_GLYPH)).color(gpui::white()).into_any_element());
+                // The page ground on the accent fill, as the primary button
+                // draws its label: white on the dark theme's near-white
+                // accent was a check nobody could see.
+                mark = Some(icon(IconName::Check).size(px(CHECK_GLYPH)).color(p.bg).into_any_element());
             }
             CheckboxState::Mixed => {
                 mark = Some(
