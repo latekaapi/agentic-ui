@@ -15,6 +15,7 @@ mod controls;
 mod handoff;
 mod item;
 mod markdown;
+mod markdown_stream;
 mod memo;
 mod marker;
 mod plan;
@@ -40,6 +41,7 @@ pub use quiet_row::{quiet_row, quiet_status_row, status_check, status_cross, Qui
 pub use thinking::{thinking_block, ThinkingBlock};
 pub use prose::{caret_top_in_line, caret_visible, prose, ProseStyle, CARET_BASELINE_DROP, CARET_H, CARET_MARGIN_LEFT, CARET_W};
 pub use markdown::{last_block_runs, markdown, markdown_fences, markdown_fences_settled, markdown_selected_text, markdown_selected_text_settled, markdown_span_selected_text, message_select_all, message_select_all_settled, message_selected_text, message_selected_text_settled, parse_markdown, parse_markdown_settled, parsed_markdown, span_runs, Block, Block as MarkdownBlock, LinkHandler, LinkRange, LinkTarget, Markdown, MarkdownFence, Span, Span as MarkdownSpan, TableAlign};
+pub use markdown_stream::MarkdownStream;
 pub use selectable::{selectable_text, MessageSelection, SelectableText, SelectionEndpoint, SelectionHandler, SelectionKey, SpanEvent, SpanHandler, SpanSession, TextSelection};
 pub use marker::{marker_row, HandOff, MarkerRow};
 pub use quote_bar::{quote_bar, quote_bar_top, QUOTE_BAR_GAP, QUOTE_BAR_H, QUOTE_BAR_TOP_CLEARANCE};

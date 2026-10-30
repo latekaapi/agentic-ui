@@ -5,8 +5,10 @@
 //! `parsed_markdown` only saves the frames between chunks. These benches pin
 //! that cost so a parser change that makes it worse shows up as a regression
 //! in `cargo bench -p aui --bench markdown`, not as a stutter weeks later.
+//! `parse_markdown_stream/*` pins the incremental path (`MarkdownStream`)
+//! that streaming turns now take instead of the whole-answer re-parse.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 
 /// A realistic answer: headings, prose with inline code and links, a list, a
 /// table and fenced code, repeated to `bytes`.
@@ -48,5 +50,43 @@ fn settled_json(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, parse, settled_json);
+fn stream(c: &mut Criterion) {
+    // One ~200-byte chunk appended to a 100 KB answer: what a streaming turn
+    // pays per chunk. `full_reparse` is the old cost (parse the whole
+    // answer again); `append_chunk` is `MarkdownStream::push_str` plus
+    // `blocks()` (the concatenated Vec the renderer gets).
+    let base = answer(100 * 1024);
+    let next = answer(base.len() + 4096);
+    let chunk_end = (base.len() + 200..).find(|&i| next.is_char_boundary(i)).unwrap_or(next.len());
+    let chunk = &next[base.len()..chunk_end];
+    let full = &next[..chunk_end];
+    let primed = aui::transcript::MarkdownStream::from_source(&base);
+    let mut group = c.benchmark_group("parse_markdown_stream");
+    group.bench_function("full_reparse_at_102400", |b| {
+        b.iter(|| aui::transcript::parse_markdown(black_box(full)))
+    });
+    group.bench_function("append_chunk_at_102400", |b| {
+        b.iter_batched(
+            || primed.clone(),
+            |mut stream| {
+                stream.push_str(black_box(chunk));
+                stream.blocks()
+            },
+            BatchSize::LargeInput,
+        )
+    });
+    group.bench_function("append_chunk_at_102400_no_concat", |b| {
+        b.iter_batched(
+            || primed.clone(),
+            |mut stream| {
+                stream.push_str(black_box(chunk));
+                stream
+            },
+            BatchSize::LargeInput,
+        )
+    });
+    group.finish();
+}
+
+criterion_group!(benches, parse, settled_json, stream);
 criterion_main!(benches);

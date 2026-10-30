@@ -479,7 +479,7 @@ fn apply_strikethrough(frags: Vec<Frag>) -> Vec<Frag> {
 /// (footnotes, task lists, math, superscript, heading attributes, definition
 /// lists, metadata blocks) stays off, so that markup arrives as literal text
 /// instead of structure the transcript cannot render.
-fn parser_options() -> Options {
+pub(super) fn parser_options() -> Options {
     Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH
 }
 
@@ -722,7 +722,7 @@ fn parse_row(events: &[Event], pos: &mut usize, end: &TagEnd, nested: u8) -> Vec
 
 /// Collects blocks through the matching `end` (or the end of input when
 /// `end` is `None`), consuming the terminator.
-fn blocks_until(events: &[Event], pos: &mut usize, end: Option<&TagEnd>, nested: u8) -> Vec<Block> {
+pub(super) fn blocks_until(events: &[Event], pos: &mut usize, end: Option<&TagEnd>, nested: u8) -> Vec<Block> {
     let mut blocks = Vec::new();
     while let Some(event) = events.get(*pos) {
         match event {
@@ -1046,8 +1046,13 @@ pub fn parsed_markdown(source: &str, style: &ProseStyle) -> Arc<Vec<Block>> {
 
 /// [`parsed_markdown`] without the vestigial style argument: the one entry
 /// point every in-crate caller (renderers and the copy path alike) uses.
+///
+/// A miss goes through [`MarkdownStream`](super::MarkdownStream)'s small
+/// cache: when `source` extends a source parsed recently (the previous chunk
+/// of a streaming turn) only its open tail is re-parsed. The result is
+/// identical to [`parse_markdown`].
 pub(super) fn parsed_blocks(source: &str) -> Arc<Vec<Block>> {
-    PARSED.get_or_insert("", source, parse_markdown)
+    PARSED.get_or_insert("", source, super::markdown_stream::streamed_blocks)
 }
 
 /// One fenced code block in a markdown source, in document order.
