@@ -105,7 +105,8 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .w_full()
                 .gap(px(GRID_GAP))
                 .child(row(quiet(1, "card35-approving"), quiet(2, "card35-allowed")))
-                .child(row(quiet(3, "card35-denied"), card("card35-rule", &blocks[4]).into_any_element())),
+                .child(row(quiet(3, "card35-denied"), card("card35-rule", &blocks[4]).into_any_element()))
+                .child(row(quiet(5, "card35-cancelled"), div().into_any_element())),
         )
         .child(
             v_flex()

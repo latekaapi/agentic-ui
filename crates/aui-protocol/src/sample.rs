@@ -47,7 +47,8 @@ pub fn session() -> Session {
     }
 }
 
-/// The five approval states from card 35, for the gallery's state matrix.
+/// The approval states from card 35, for the gallery's state matrix: the
+/// five decided ones plus a request the agent abandoned undecided.
 pub fn approvals() -> Vec<Block> {
     let base = |state: ApprovalState, command: &str| {
         Block::approval(
@@ -71,6 +72,7 @@ pub fn approvals() -> Vec<Block> {
         ),
         base(ApprovalState::Denied, "rm -rf node_modules"),
         base(ApprovalState::AutoAllowed { rule: "pnpm test *".into() }, "pnpm test src/checkout"),
+        base(ApprovalState::Cancelled { reason: Some("Codex stopped".into()) }, "pnpm build"),
     ]
 }
 

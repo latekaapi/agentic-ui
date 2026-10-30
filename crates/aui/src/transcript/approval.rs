@@ -37,7 +37,7 @@ use gpui_kit::base::{h_flex, v_flex};
 use crate::data::{pill, spinner, PillVariant};
 use crate::icons::{icon, IconName};
 use crate::transcript::controls::{control, key_hints, ControlKind};
-use crate::transcript::quiet_row::{quiet_status_row, status_check, status_cross};
+use crate::transcript::quiet_row::{quiet_status_row, status_check, status_cross, status_skipped};
 
 /// `.ap .hd{padding:10px 12px;gap:10px}`.
 const HEAD_PAD_Y: f32 = 10.0;
@@ -352,6 +352,15 @@ fn resolution_title(by: ResolvedBy, allowed: bool) -> &'static str {
 }
 
 /// `8_200` → `8.2 s`, the way the resolved row spells a duration.
+/// The verdict of a request the agent abandoned undecided: "Not run", plus
+/// the host's reason when it gave one ("Not run — Codex stopped").
+fn cancelled_verdict(reason: Option<&str>) -> String {
+    match reason.map(str::trim).filter(|r| !r.is_empty()) {
+        Some(reason) => format!("Not run — {reason}"),
+        None => "Not run".to_string(),
+    }
+}
+
 fn duration_label(ms: u64) -> String {
     if ms < 60_000 {
         format!("{:.1} s", ms as f64 / 1000.0)
@@ -551,6 +560,11 @@ impl ApprovalCard {
             ),
             ApprovalState::AutoDenied { rule } => (status_cross(p.danger).into_any_element(), "Denied by rule".into(), Some(format!("· {rule}"))),
             ApprovalState::AutoAllowed { rule } => (status_check(p.success).into_any_element(), "Allowed by rule".into(), Some(format!("· {rule}"))),
+            ApprovalState::Cancelled { reason } => (
+                status_skipped(p.ink_3).into_any_element(),
+                cancelled_verdict(reason.as_deref()).into(),
+                None,
+            ),
             ApprovalState::Pending => unreachable!("a pending card is not a row"),
         };
         let mut row = quiet_status_row(id, glyph)
@@ -560,5 +574,17 @@ impl ApprovalCard {
             row = row.part(div().flex_none().mono(scale::FS_12).text_color(p.ink_4).child(tail));
         }
         row
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cancelled_verdict;
+
+    #[test]
+    fn a_cancelled_request_reads_not_run_with_its_reason() {
+        assert_eq!(cancelled_verdict(Some("Codex stopped")), "Not run — Codex stopped");
+        assert_eq!(cancelled_verdict(Some("  ")), "Not run");
+        assert_eq!(cancelled_verdict(None), "Not run");
     }
 }

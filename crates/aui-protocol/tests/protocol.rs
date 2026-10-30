@@ -812,3 +812,14 @@ fn turn_replaced_round_trips_through_json() {
     let back: Delta = serde_json::from_value(json).expect("deserialize");
     assert_eq!(back, delta);
 }
+
+#[test]
+fn a_cancelled_approval_round_trips_and_is_not_a_denial() {
+    let with = ApprovalState::Cancelled { reason: Some("Codex stopped".into()) };
+    let json = serde_json::to_string(&with).expect("serialises");
+    assert_eq!(json, r#"{"kind":"cancelled","reason":"Codex stopped"}"#);
+    assert_eq!(serde_json::from_str::<ApprovalState>(&json).expect("parses"), with);
+    let bare: ApprovalState = serde_json::from_str(r#"{"kind":"cancelled"}"#).expect("parses");
+    assert_eq!(bare, ApprovalState::Cancelled { reason: None });
+    assert_ne!(bare, ApprovalState::Denied);
+}

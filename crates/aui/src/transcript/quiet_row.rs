@@ -179,6 +179,13 @@ pub fn status_cross(color: Hsla) -> impl IntoElement {
     icon(IconName::X).size(px(STATUS_GLYPH)).color(color).lit(true)
 }
 
+/// The D4 neutral status glyph for something that never ran (a cancelled
+/// approval): the small stop square in `color` (a quiet ink, never danger),
+/// 14 px — no verdict, so no check and no cross.
+pub fn status_skipped(color: Hsla) -> impl IntoElement {
+    icon(IconName::Stop).size(px(STATUS_GLYPH)).color(color).lit(true)
+}
+
 /// The status glyph size in card headers and quiet rows.
 pub const STATUS_GLYPH: f32 = 14.0;
 

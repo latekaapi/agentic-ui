@@ -37,7 +37,7 @@ mod turns;
 pub use crate::data::{arm_ax_probe, record_ax_label, take_ax_labels};
 pub use activity::{activity_group, ActivityGroup};
 pub use card::{attention_edge, transcript_card, TranscriptCard, ATTENTION_RING_ALPHA, CARD_HEADER_H};
-pub use quiet_row::{quiet_row, quiet_status_row, status_check, status_cross, QuietLead, QuietRow, QUIET_ROW_BLEED, QUIET_ROW_H, STATUS_GLYPH};
+pub use quiet_row::{quiet_row, quiet_status_row, status_check, status_cross, status_skipped, QuietLead, QuietRow, QUIET_ROW_BLEED, QUIET_ROW_H, STATUS_GLYPH};
 pub use thinking::{thinking_block, ThinkingBlock};
 pub use prose::{caret_top_in_line, caret_visible, prose, ProseStyle, CARET_BASELINE_DROP, CARET_H, CARET_MARGIN_LEFT, CARET_W};
 pub use markdown::{last_block_runs, markdown, markdown_fences, markdown_fences_settled, markdown_selected_text, markdown_selected_text_settled, markdown_span_selected_text, message_select_all, message_select_all_settled, message_selected_text, message_selected_text_settled, parse_markdown, parse_markdown_settled, parsed_markdown, span_runs, Block, Block as MarkdownBlock, LinkHandler, LinkRange, LinkTarget, Markdown, MarkdownFence, Span, Span as MarkdownSpan, TableAlign};

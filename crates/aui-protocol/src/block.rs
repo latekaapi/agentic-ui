@@ -510,6 +510,15 @@ pub enum ApprovalState {
         /// The rule that refused it, e.g. `"deny_unmatched"`.
         rule: String,
     },
+    /// Never decided: the agent stopped (interrupted, crashed, turn ended)
+    /// while the request was still pending, so nothing ran and nobody said
+    /// no. Distinct from [`ApprovalState::Denied`], which tells the person
+    /// they refused something they may never have seen.
+    Cancelled {
+        /// Why, for the row's tail, e.g. `"Codex stopped"`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
 }
 
 /// One server-minted choice on an approval card (MSP `ApprovalChoice`).
