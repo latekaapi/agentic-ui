@@ -15,7 +15,7 @@ use aui::workbench::Annotation;
 use gpui::SharedString;
 
 use crate::agent_js::{json_string, CLICK_MARKER, LINKS_MARKER, PAGE_TEXT_MARKER, TYPE_MARKER};
-use crate::backend::{BackendFeature, DownloadState, ElementInfo, FindState, PageSecurity, PermissionDecision, PermissionKind, PermissionRequest, WebBackend, WebEvent};
+use crate::backend::{BackendFeature, DownloadState, ElementInfo, FindState, PageAutomation, PageEvent, PageSecurity, PermissionDecision, PermissionKind, PermissionRequest, WebBackend, WebEvent, PAGE_EVENT_LIMIT};
 use crate::page::{fake_elements, FakeElement};
 
 /// The page the mock opens on.
@@ -59,6 +59,16 @@ pub struct FakeWebBackend {
     queue: Vec<WebEvent>,
     /// Evaluation answers waiting for [`WebBackend::take_eval_results`].
     eval_results: Vec<(u64, Result<String, String>)>,
+    /// Protocol answers a test scripted, by method ([`Self::answer_call`]).
+    call_answers: HashMap<String, String>,
+    /// Every protocol call so far, as `(method, params JSON)`.
+    calls: Vec<(String, String)>,
+    /// Answers waiting for [`PageAutomation::take_answers`].
+    automation_answers: Vec<(u64, Result<String, String>)>,
+    /// Whether events are kept ([`PageAutomation::keep_events`]).
+    keeping_events: bool,
+    /// Kept events waiting for [`PageAutomation::take_events`].
+    page_events: Vec<PageEvent>,
     /// What [`crate::agent_js::type_text`] scripts have set, by selector.
     typed: HashMap<String, String>,
     /// Whether the page holds the keyboard: set by [`WebBackend::set_focused`]
@@ -113,6 +123,11 @@ impl FakeWebBackend {
             elements: HashMap::new(),
             queue: Vec::new(),
             eval_results: Vec::new(),
+            call_answers: HashMap::new(),
+            calls: Vec::new(),
+            automation_answers: Vec::new(),
+            keeping_events: false,
+            page_events: Vec::new(),
             typed: HashMap::new(),
             focused: false,
             focus_calls: Vec::new(),
@@ -260,6 +275,26 @@ impl FakeWebBackend {
         self.queue.push(WebEvent::Url(url.to_string()));
         self.queue.push(WebEvent::Title(self.title.to_string()));
         self.queue.push(WebEvent::Loading(false));
+    }
+
+    /// Scripts the `result` (JSON text) a protocol method answers with.
+    pub fn answer_call(&mut self, method: &str, result_json: &str) {
+        self.call_answers.insert(method.to_owned(), result_json.to_owned());
+    }
+
+    /// Every protocol call so far, as `(method, params JSON)`.
+    pub fn calls(&self) -> &[(String, String)] {
+        &self.calls
+    }
+
+    /// Raises a DevTools event, as a page would. Dropped unless events are kept.
+    pub fn raise_page_event(&mut self, method: &str, params_json: &str) {
+        if self.keeping_events {
+            if self.page_events.len() == PAGE_EVENT_LIMIT {
+                self.page_events.remove(0);
+            }
+            self.page_events.push(PageEvent { method: method.to_owned(), params: params_json.to_owned() });
+        }
     }
 
     /// Answers an [`WebBackend::eval_with_result`] script immediately.
@@ -484,6 +519,10 @@ impl WebBackend for FakeWebBackend {
         std::mem::take(&mut self.eval_results)
     }
 
+    fn automation(&mut self) -> Option<&mut dyn PageAutomation> {
+        Some(self)
+    }
+
     fn set_annotate(&mut self, on: bool) {
         self.annotate = on;
         if !on {
@@ -607,6 +646,32 @@ impl WebBackend for FakeWebBackend {
     }
 }
 
+impl PageAutomation for FakeWebBackend {
+    fn call(&mut self, request_id: u64, method: &str, params_json: &str) {
+        self.calls.push((method.to_owned(), params_json.to_owned()));
+        let answer = match self.call_answers.get(method) {
+            Some(result) => Ok(result.clone()),
+            None => Err(format!("{method} is not scripted in the fake page")),
+        };
+        self.automation_answers.push((request_id, answer));
+    }
+
+    fn take_answers(&mut self) -> Vec<(u64, Result<String, String>)> {
+        std::mem::take(&mut self.automation_answers)
+    }
+
+    fn keep_events(&mut self, keep: bool) {
+        self.keeping_events = keep;
+        if !keep {
+            self.page_events.clear();
+        }
+    }
+
+    fn take_events(&mut self) -> Vec<PageEvent> {
+        std::mem::take(&mut self.page_events)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -618,6 +683,34 @@ mod tests {
         let mut answers = backend.take_eval_results();
         assert_eq!(answers.len(), 1);
         answers.pop().expect("one answer")
+    }
+
+    #[test]
+    fn automation_answers_by_request_and_says_when_a_method_is_unscripted() {
+        let mut backend = FakeWebBackend::default();
+        backend.answer_call("Runtime.evaluate", r#"{"result":{"value":3}}"#);
+        let page = backend.automation().expect("the fake has a channel");
+        page.call(7, "Runtime.evaluate", "{}");
+        page.call(8, "Page.reload", "{}");
+        let answers = page.take_answers();
+        assert_eq!(answers[0], (7, Ok(String::from(r#"{"result":{"value":3}}"#))));
+        assert!(answers[1].1.as_ref().unwrap_err().contains("Page.reload"));
+        assert!(page.take_answers().is_empty(), "answers are taken once");
+    }
+
+    #[test]
+    fn events_are_dropped_until_kept_and_bounded_after() {
+        let mut backend = FakeWebBackend::default();
+        backend.raise_page_event("Log.entryAdded", "{}");
+        let page = backend.automation().unwrap();
+        assert!(page.take_events().is_empty(), "nobody asked to keep them");
+        page.keep_events(true);
+        for n in 0..(PAGE_EVENT_LIMIT + 5) {
+            backend.raise_page_event("Log.entryAdded", &format!("{{\"n\":{n}}}"));
+        }
+        let events = backend.automation().unwrap().take_events();
+        assert_eq!(events.len(), PAGE_EVENT_LIMIT);
+        assert_eq!(events[0].params, r#"{"n":5}"#, "the oldest go first");
     }
 
     #[test]

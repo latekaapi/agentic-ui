@@ -54,7 +54,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Instant;
 
 use aui::workbench::Annotation;
-use aui_webview::backend::OUTER_HTML_LIMIT;
+use aui_webview::backend::{PageAutomation, PageEvent, OUTER_HTML_LIMIT, PAGE_EVENT_LIMIT};
 use aui_webview::wry_backend::navigation_allowed;
 use aui_webview::{
     BackendFeature, CertificateInfo, DownloadState, DownloadStatus, ElementInfo, FindState, PageSecurity, PermissionDecision, PermissionKind, PermissionRequest, WebBackend, WebEvent,
@@ -98,6 +98,8 @@ enum Pending {
     /// logs the round trip): the PNG screenshot (`stand_in` false) or a
     /// cover's JPEG stand-in.
     Screenshot { asked: std::time::Instant, stand_in: bool },
+    /// An agent's [`PageAutomation::call`], by the host's request id.
+    Automation(u64),
     /// Setup calls; the last one releases the first real navigation.
     Setup { last: bool },
 }
@@ -115,6 +117,12 @@ struct Shared {
     events: Vec<WebEvent>,
     elements: HashMap<usize, ElementInfo>,
     eval_results: Vec<(u64, Result<String, String>)>,
+    /// Answers to [`PageAutomation::call`], waiting to be taken.
+    automation_answers: Vec<(u64, Result<String, String>)>,
+    /// Whether DevTools events are kept for an agent.
+    keeping_events: bool,
+    /// Kept events, oldest first, at most [`PAGE_EVENT_LIMIT`].
+    page_events: std::collections::VecDeque<PageEvent>,
     pending: HashMap<i32, Pending>,
     next_id: i32,
     browser: Option<Browser>,
@@ -547,6 +555,13 @@ fn on_devtools(page: &Page, message: &[u8]) {
                     _ => eprintln!("aui-cef: captureScreenshot returned no image ({})", error.unwrap_or_default()),
                 }
             }
+            Pending::Automation(request) => {
+                let answer = match error {
+                    Some(e) => Err(e),
+                    None => Ok(value.get("result").unwrap_or(&Value::Null).to_string()),
+                };
+                locked(page).automation_answers.push((request, answer));
+            }
             Pending::Setup { last } => {
                 if let Some(e) = error {
                     eprintln!("aui-cef: page setup call failed: {e}");
@@ -567,6 +582,17 @@ fn on_devtools(page: &Page, message: &[u8]) {
     {
         let payload = value.pointer("/params/payload").and_then(Value::as_str).unwrap_or_default().to_owned();
         on_annotator_message(&mut locked(page), &payload);
+        return;
+    }
+    if let Some(method) = value.get("method").and_then(Value::as_str) {
+        let mut shared = locked(page);
+        if shared.keeping_events {
+            if shared.page_events.len() == PAGE_EVENT_LIMIT {
+                shared.page_events.pop_front();
+            }
+            let params = value.get("params").unwrap_or(&Value::Null).to_string();
+            shared.page_events.push_back(PageEvent { method: method.to_owned(), params });
+        }
     }
 }
 
@@ -2145,6 +2171,35 @@ impl Drop for CefBackend {
     }
 }
 
+impl PageAutomation for CefBackend {
+    fn call(&mut self, request_id: u64, method: &str, params_json: &str) {
+        let answer = match serde_json::from_str::<Value>(params_json) {
+            Err(error) => Err(format!("{method}: the params are not JSON: {error}")),
+            Ok(params) => match send(&self.page, method, params, Pending::Automation(request_id)) {
+                Some(_) => return,
+                None => Err(String::from("the page is not ready")),
+            },
+        };
+        locked(&self.page).automation_answers.push((request_id, answer));
+    }
+
+    fn take_answers(&mut self) -> Vec<(u64, Result<String, String>)> {
+        std::mem::take(&mut locked(&self.page).automation_answers)
+    }
+
+    fn keep_events(&mut self, keep: bool) {
+        let mut shared = locked(&self.page);
+        shared.keeping_events = keep;
+        if !keep {
+            shared.page_events.clear();
+        }
+    }
+
+    fn take_events(&mut self) -> Vec<PageEvent> {
+        locked(&self.page).page_events.drain(..).collect()
+    }
+}
+
 impl WebBackend for CefBackend {
     fn navigate(&mut self, url: &str) {
         let ready = {
@@ -2193,6 +2248,10 @@ impl WebBackend for CefBackend {
 
     fn take_eval_results(&mut self) -> Vec<(u64, Result<String, String>)> {
         std::mem::take(&mut locked(&self.page).eval_results)
+    }
+
+    fn automation(&mut self) -> Option<&mut dyn PageAutomation> {
+        Some(self)
     }
 
     fn set_annotate(&mut self, on: bool) {
@@ -2494,6 +2553,36 @@ mod tests {
         on_devtools(&page, br#"{"id":10001,"result":{"result":{"type":"number","value":3}}}"#);
         on_devtools(&page, br#"{"id":10001,"result":{"result":{"type":"number","value":4}}}"#);
         assert_eq!(locked(&page).eval_results, vec![(7, Ok(String::from("3")))]);
+    }
+
+    #[test]
+    fn automation_answers_and_errors_route_by_request() {
+        let page: Page = Arc::new(Mutex::new(Shared::default()));
+        locked(&page).pending.insert(10_001, Pending::Automation(7));
+        locked(&page).pending.insert(10_002, Pending::Automation(8));
+        on_devtools(&page, br#"{"id":10001,"result":{"nodes":[]}}"#);
+        on_devtools(&page, br#"{"id":10002,"error":{"code":-32000,"message":"No node"}}"#);
+        let answers = std::mem::take(&mut locked(&page).automation_answers);
+        assert_eq!(answers[0], (7, Ok(String::from(r#"{"nodes":[]}"#))));
+        assert_eq!(answers[1], (8, Err(String::from("No node"))));
+    }
+
+    #[test]
+    fn events_are_kept_only_on_request_bounded_and_never_the_annotators() {
+        let page: Page = Arc::new(Mutex::new(Shared::default()));
+        let event = br#"{"method":"Log.entryAdded","params":{"entry":{"level":"error"}}}"#;
+        on_devtools(&page, event);
+        assert!(locked(&page).page_events.is_empty(), "no agent asked");
+        locked(&page).keeping_events = true;
+        for _ in 0..(PAGE_EVENT_LIMIT + 3) {
+            on_devtools(&page, event);
+        }
+        assert_eq!(locked(&page).page_events.len(), PAGE_EVENT_LIMIT);
+        assert_eq!(locked(&page).page_events[0].params, r#"{"entry":{"level":"error"}}"#);
+        locked(&page).page_events.clear();
+        let binding = json!({ "method": "Runtime.bindingCalled", "params": { "name": BINDING, "payload": "x" } }).to_string();
+        on_devtools(&page, binding.as_bytes());
+        assert!(locked(&page).page_events.is_empty(), "the annotator's binding stays private");
     }
 
     #[test]

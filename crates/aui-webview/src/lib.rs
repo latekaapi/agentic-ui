@@ -63,6 +63,7 @@ pub mod view;
 #[cfg(feature = "wry")]
 pub mod wry_backend;
 
+pub use backend::{PageAutomation, PageEvent, PAGE_EVENT_LIMIT};
 pub use backend::{
     BackendFeature, CertificateInfo, DOWNLOAD_EMIT_INTERVAL_MS, DownloadState, DownloadStatus, ElementInfo, FindState, PageSecurity, PermissionDecision,
     PermissionKind, PermissionRequest, WebBackend, WebEvent, download_emit_due, sanitize_download_name, unique_download_name,

@@ -400,6 +400,45 @@ pub enum BackendFeature {
     Security,
 }
 
+/// One DevTools event a page raised ([`PageAutomation::take_events`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageEvent {
+    /// The protocol method, such as `Runtime.consoleAPICalled`.
+    pub method: String,
+    /// Its `params` object, as JSON text.
+    pub params: String,
+}
+
+/// The agent's control of a page over the Chrome DevTools Protocol
+/// (harness docs/27 §6): one call channel and one event stream, in-process, with
+/// no debugging port. The host builds its tools on this.
+///
+/// JSON travels as text so this trait needs no JSON dependency in the crate.
+/// A backend without DevTools (WKWebView) has none: see
+/// [`WebBackend::automation`].
+pub trait PageAutomation {
+    /// Sends one protocol call. Its answer arrives through
+    /// [`Self::take_answers`] under `request_id`; a page with no channel yet
+    /// answers `Err` there, never silently.
+    fn call(&mut self, request_id: u64, method: &str, params_json: &str);
+
+    /// Takes every answer since the last call: the `result` object as JSON
+    /// text, or the protocol's error message.
+    fn take_answers(&mut self) -> Vec<(u64, Result<String, String>)>;
+
+    /// Starts or stops keeping events. Off (the default) drops them, so a page
+    /// no agent watches keeps no buffer.
+    fn keep_events(&mut self, keep: bool);
+
+    /// Takes the kept events, oldest first. The buffer is bounded: past
+    /// [`PAGE_EVENT_LIMIT`] the oldest go.
+    fn take_events(&mut self) -> Vec<PageEvent>;
+}
+
+/// How many unread events a page keeps. A busy page's network traffic must not
+/// grow without bound while no tool is reading.
+pub const PAGE_EVENT_LIMIT: usize = 4096;
+
 /// A page the [`crate::view::WebviewState`] can drive.
 ///
 /// Every method is a command; nothing returns a result, because a real webview
@@ -452,6 +491,11 @@ pub trait WebBackend {
 
     /// Takes everything the page has said since the last call.
     fn poll_events(&mut self) -> Vec<WebEvent>;
+
+    /// The agent's DevTools channel, on a backend that has one.
+    fn automation(&mut self) -> Option<&mut dyn PageAutomation> {
+        None
+    }
 
     /// Whether [`Self::back`] would go anywhere. Defaults to `false`.
     fn can_go_back(&self) -> bool {

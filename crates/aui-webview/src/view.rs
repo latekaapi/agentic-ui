@@ -504,6 +504,11 @@ impl WebviewState {
         std::mem::take(&mut self.eval_results)
     }
 
+    /// The agent's DevTools channel, when this backend has one.
+    pub fn automation(&mut self) -> Option<&mut dyn crate::backend::PageAutomation> {
+        self.backend.automation()
+    }
+
     /// The last screenshot the backend produced, PNG-encoded.
     pub fn screenshot(&self) -> Option<&[u8]> {
         self.screenshot.as_deref()
