@@ -231,7 +231,7 @@ impl BrowseStory {
         &self.tabs
     }
 
-    /// Whether the task folder is open.
+    #[cfg(test)]
     pub fn task_open(&self) -> bool {
         self.task_open
     }

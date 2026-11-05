@@ -14,10 +14,14 @@ use aui::browse::field::{
     completion, field, field_state, intent_for, rank, select_next, select_prev, FieldCommand, FieldHistory, FieldIntent,
     FieldKey, FieldModel, FieldRowKind, FieldSources, FieldTab,
 };
-use aui::browse::{
-    address_line, browse_footer, browse_nav_cluster, folder_row, pin_grid, split_address, tab_row, task_face, task_folder_row, Pin,
-    TabRowData, TaskFace, BROWSE_SIDEBAR_WIDTH,
+use aui::browse::{split_address, task_face, TaskFace};
+use aui::interact::FluidHandle;
+use aui::nav::sidebar_list_state;
+use aui::screens::sidebar::{
+    mode_switch, sample_model, screen_item_count, sidebar_screen, BrowseFolder, BrowseIntent, BrowseModel, BrowsePin,
+    BrowseSpace, BrowseTab, FolderKind, Mode, SidebarIntent, SidebarModel, SIDEBAR_WIDTH,
 };
+use aui_tokens::AgentState;
 use aui::composer::{composer_state_rows, ComposerChip, ComposerChipKind};
 use aui::data::{button, icon_button, record_ax_label, ButtonSize};
 use aui::keys::{Cancel, Confirm, SelectNext, SelectPrev, MENU_CONTEXT};
@@ -62,6 +66,27 @@ actions!(
 /// 250 ms the steps landed ~50 ms before the capture, so the previous
 /// highlight's fade was still mid-flight and two rows read as active.
 const STEPS_DELAY: std::time::Duration = std::time::Duration::from_millis(50);
+
+thread_local! {
+    /// The sidebar's list state per column, kept across renders as a host does.
+    static SIDEBAR_LISTS: std::cell::RefCell<std::collections::HashMap<&'static str, (gpui::ListState, FluidHandle)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// One pin tile.
+fn pin(id: &str, initial: &str, label: &str) -> BrowsePin {
+    BrowsePin { id: id.to_owned().into(), initial: initial.to_owned().into(), label: label.to_owned().into(), favicon: None }
+}
+
+/// The sidebar's status dot for a task face (the face itself stays on the line).
+fn agent_state(face: TaskFace) -> AgentState {
+    match face {
+        TaskFace::Reading | TaskFace::Typing => AgentState::Running,
+        TaskFace::NeedsYou => AgentState::Waiting,
+        TaskFace::Done => AgentState::Done,
+        TaskFace::Paused => AgentState::Idle,
+    }
+}
 
 /// Which space the sidebar shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,8 +163,6 @@ enum FocusKind {
 enum FootPop {
     /// The downloads button's quiet popover.
     Downloads,
-    /// The extensions button's quiet popover.
-    Extensions,
 }
 
 /// One sidebar tab: title, tile letter, page and address.
@@ -291,9 +314,6 @@ pub struct BrowseView {
     back: Vec<Shown>,
     forward: Vec<Shown>,
     ka_open: bool,
-    ledger_open: bool,
-    task_ui_open: bool,
-    sessions: bool,
     sidebar_open: bool,
     line_open: bool,
     /// After Done (or Stopped), the line re-opens as the Ask prompt.
@@ -404,9 +424,6 @@ impl BrowseView {
             back: Vec::new(),
             forward: Vec::new(),
             ka_open: true,
-            ledger_open: true,
-            task_ui_open: true,
-            sessions: false,
             sidebar_open: true,
             line_open: false,
             ask_after_done: false,
@@ -1101,240 +1118,189 @@ impl BrowseView {
 
     // ---- rendering ----
 
-    /// The `+ New tab ⌘T` row in the nav-row style.
-    fn new_tab_row(&self, cx: &mut Context<Self>) -> AnyElement {
-        let p = cx.aui().colors;
-        record_ax_label("New tab");
-        h_flex()
-            .id("browse-new-tab")
-            .h(px(30.0))
-            .flex_none()
-            .items_center()
-            .gap(px(4.0))
-            .px(px(8.0))
-            .mx(px(8.0))
-            .rounded(px(scale::R_SM))
-            .ui(scale::FS_13)
-            .text_color(p.ink_2)
-            .cursor_pointer()
-            .role(Role::Button)
-            .aria_label("New tab")
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_field(None, window, cx)))
-            .child(div().flex_none().w(px(20.0)).flex().items_center().justify_center().child("+"))
-            .child(div().flex_1().min_w(px(0.0)).truncate().child("+ New tab"))
-            .child(div().ui(scale::FS_11).text_color(p.ink_3).child("⌘T"))
-            .into_any_element()
-    }
-
-    /// The static Sessions | Browse switch; Browse is on, Sessions only
-    /// flips the visual state.
-    fn mode_switch(&self, cx: &mut Context<Self>) -> AnyElement {
-        let p = cx.aui().colors;
-        let (on_bg, off_bg) = (p.surface_3, gpui::transparent_black());
-        let seg = |label: &str, on: bool| {
-            record_ax_label(label);
-            div()
-                .id(SharedString::from(format!("browse-mode-{label}")))
-                .flex_1()
-                .h_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(scale::R_SM))
-                .bg(if on { on_bg } else { off_bg })
-                .ui(scale::FS_12)
-                .medium()
-                .text_color(if on { p.ink } else { p.ink_3 })
-                .cursor_pointer()
-                .role(Role::Button)
-                .aria_label(label)
-                .child(label.to_string())
-        };
-        h_flex()
-            .id("browse-mode")
-            .h(px(28.0))
-            .flex_none()
-            .items_center()
-            .gap(px(2.0))
-            .mx(px(8.0))
-            .my(px(4.0))
-            .p(px(2.0))
-            .rounded(px(scale::R_SM))
-            .bg(p.surface_2)
-            .child(seg("Sessions", self.sessions).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.sessions = true;
-                cx.notify();
-            })))
-            .child(seg("Browse", !self.sessions).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.sessions = false;
-                cx.notify();
-            })))
-            .into_any_element()
-    }
-
-    /// The sidebar column: switch, address, new tab, pins, tabs, folders,
-    /// task folders and the footer.
-    /// The sidebar column (see below).
-    fn render_sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
-        let p = cx.aui().colors;
-        let tabs = self.space_tabs();
+    /// The model the approved v3 sidebar draws from: the shown address, pins,
+    /// the space's tabs, Karnataka review and the two task folders. Everything
+    /// comes from the story and the one shown page, as Baaz's will come from
+    /// its registry; the ids below are read back in [`Self::browse_intent`].
+    fn sidebar_model(&self) -> SidebarModel {
+        let address = split_address(&self.shown_address());
         let highlight = self.highlighted();
-        let mut col = v_flex().size_full().id("browse-sidebar-scroll").overflow_y_scroll().py(px(4.0)).child(self.mode_switch(cx));
-        col = col.child(
-            address_line("browse-address", split_address(&self.shown_address()))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    let address = this.shown_address();
-                    this.open_field(Some(address), window, cx);
-                })),
-        );
-        col = col.child(self.new_tab_row(cx));
-        col = col.child(
-            pin_grid(
-                "browse-pins",
-                vec![
-                    Pin::new("u", "U", "UDISE+").position(1),
-                    Pin::new("p", "P", "PGI 2.0").position(2),
-                    Pin::new("d", "D", "data.gov.in").position(3),
-                    Pin::new("m", "M", "education.gov.in").position(4),
+        let tab = |id: String, title: SharedString, initial: &str, active: bool| BrowseTab {
+            id: id.into(),
+            title,
+            initial: SharedString::from(initial.to_owned()),
+            active,
+            loading: false,
+            favicon: None,
+        };
+        let tabs = self
+            .space_tabs()
+            .iter()
+            .enumerate()
+            .map(|(i, t)| tab(format!("tab-{i}"), t.title.clone(), t.letter.as_ref(), highlight == Highlight::Own(i)))
+            .collect();
+        let mut folders = Vec::new();
+        // The Karnataka folder belongs to Education: Personal shows only its
+        // own tabs (the task folders follow every space).
+        if self.space == Space::Education {
+            folders.push(BrowseFolder {
+                id: "ka".into(),
+                name: "Karnataka review".into(),
+                kind: FolderKind::Yours,
+                open: self.ka_open,
+                tabs: vec![
+                    tab("ka-0".into(), "KSEEB · SSLC results 2025".into(), "K", false),
+                    tab("ka-1".into(), "Samagra Shiksha · Karnataka".into(), "S", false),
                 ],
-            )
-            .on_select(cx.listener(|this, id: &SharedString, _, cx| {
+            });
+        }
+        let pgi_tabs = self
+            .story
+            .tabs()
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let letter = task_letter(&t.page);
+                tab(format!("task-{i}"), t.title.clone(), letter, highlight == Highlight::Task(i))
+            })
+            .collect();
+        let task_folders = vec![
+            BrowseFolder {
+                id: "pgi".into(),
+                name: "PGI vs school indicators · 5 states".into(),
+                kind: FolderKind::Task {
+                    state: agent_state(self.story.face()),
+                    status: self.story.status(),
+                    needs_you: matches!(self.story.face(), TaskFace::NeedsYou),
+                },
+                open: true,
+                tabs: pgi_tabs,
+            },
+            BrowseFolder {
+                id: "ledger".into(),
+                name: "Fix ledger chart".into(),
+                kind: FolderKind::Task {
+                    state: agent_state(TaskFace::Done),
+                    status: SharedString::from(format!("{} · 1 tab", TaskFace::Done.status_word())),
+                    needs_you: false,
+                },
+                open: true,
+                tabs: vec![tab("ledger-0".into(), "localhost:5173 · Ledger".into(), "L", false)],
+            },
+        ];
+        let mut model = sample_model();
+        model.mode = Mode::Browse;
+        model.browse = Some(BrowseModel {
+            host: address.host,
+            path: address.path,
+            can_go_back: !self.back.is_empty(),
+            can_go_forward: !self.forward.is_empty(),
+            pins: vec![
+                pin("u", "U", "UDISE+"),
+                pin("p", "P", "PGI 2.0"),
+                pin("d", "D", "data.gov.in"),
+                pin("m", "M", "education.gov.in"),
+            ],
+            tabs,
+            folders,
+            task_folders,
+            spaces: [Space::Education, Space::Personal]
+                .iter()
+                .map(|space| BrowseSpace { id: space.name().into(), name: space.name().into() })
+                .collect(),
+            space: match self.space {
+                Space::Personal => 1,
+                _ => 0,
+            },
+            hovered_today_header: false,
+            editing: None,
+            menu: None,
+            downloads: None,
+        });
+        model
+    }
+
+    /// What the sidebar's rows do, through the intents the real screen raises.
+    fn browse_intent(&mut self, intent: BrowseIntent, window: &mut Window, cx: &mut Context<Self>) {
+        match intent {
+            BrowseIntent::Address => {
+                let address = self.shown_address();
+                self.open_field(Some(address), window, cx);
+            }
+            BrowseIntent::NewTab => self.open_field(None, window, cx),
+            BrowseIntent::Back => self.go_back(cx),
+            BrowseIntent::Forward => self.go_forward(cx),
+            BrowseIntent::Reload => self.reload_page(cx),
+            BrowseIntent::Ask | BrowseIntent::OpenTaskChat(_) => {
+                self.line_open = true;
+                cx.notify();
+            }
+            BrowseIntent::OpenPin(id) => {
                 let (url, page) = match id.as_ref() {
                     "u" => ("https://udiseplus.gov.in/#/home", StoryPage::Udise),
                     "p" => ("https://pgi.udiseplus.gov.in/#/home", StoryPage::Pgi),
                     "d" => ("https://www.data.gov.in/catalog/school-education-indicators", StoryPage::Datagov),
                     _ => ("https://education.gov.in/", StoryPage::Generic("education.gov.in".into())),
                 };
-                this.navigate(url, page, cx);
-            })),
-        );
-        let mut position = 0usize;
-        for (i, tab) in tabs.iter().enumerate() {
-            position += 1;
-            let active = highlight == Highlight::Own(i);
-            let data = TabRowData::new(tab.title.clone(), tab.letter.clone()).position(position);
-            let data = if active { data.active() } else { data };
-            col = col.child(
-                tab_row(SharedString::from(format!("browse-tab-{i}")), data)
-                    .on_select(cx.listener(move |this, _: &SharedString, _, cx| {
-                        this.select_space_tab(i, cx);
-                    }))
-                    .on_close(cx.listener(move |this, _: &SharedString, _, cx| {
-                        this.close_space_tab(i, cx);
-                    })),
-            );
-        }
-        // The Karnataka folder belongs to Education: Personal shows only
-        // its own tabs (the task folders follow every space).
-        let show_ka = self.space == Space::Education;
-        if show_ka {
-            col = col.child(folder_row("browse-folder-ka", "Karnataka review", self.ka_open, 0).on_toggle(cx.listener(
-                |this, _: &SharedString, _, cx| {
-                    this.ka_open = !this.ka_open;
-                    cx.notify();
-                },
-            )));
-        }
-        if self.ka_open && show_ka {
-            for (i, title) in ["KSEEB · SSLC results 2025", "Samagra Shiksha · Karnataka"].iter().enumerate() {
-                position += 1;
-                let letter = if i == 0 { "K" } else { "S" };
-                let title = SharedString::from(*title);
-                let shown = title.clone();
-                col = col.child(
-                    tab_row(
-                        SharedString::from(format!("browse-tab-ka-{i}")),
-                        TabRowData::new(title, letter).depth(1).position(position),
-                    )
-                    .on_select(cx.listener(move |this, _: &SharedString, _, cx| {
-                        this.navigate(&page_url(&StoryPage::Generic(shown.clone())), StoryPage::Generic(shown.clone()), cx);
-                    })),
-                );
+                self.navigate(url, page, cx);
             }
-        }
-        col = col.child(div().flex_none().h(px(1.0)).mx(px(8.0)).my(px(4.0)).bg(p.line));
-        // The PGI task folder: closed with face Reading before Send.
-        let task_open = self.story.task_open() && self.task_ui_open;
-        col = col.child(
-            task_folder_row("browse-task-pgi", "PGI vs school indicators · 5 states", self.story.face(), self.story.status(), task_open)
-                .on_toggle(cx.listener(|this, _: &SharedString, _, cx| {
-                    this.task_ui_open = !this.task_ui_open;
-                    cx.notify();
-                }))
-                .on_open_chat(cx.listener(|this, _: &SharedString, _, cx| {
-                    this.line_open = true;
-                    cx.notify();
-                })),
-        );
-        if task_open {
-            for (i, tab) in self.story.tabs().iter().enumerate() {
-                position += 1;
-                let page = tab.page.clone();
-                let title = tab.title.clone();
-                let letter = SharedString::from(task_letter(&page));
-                let active = highlight == Highlight::Task(i);
-                let data = TabRowData::new(title.clone(), letter).depth(1).position(position);
-                let data = if active { data.active() } else { data };
-                // The row id follows the tab, not its index: index ids let
-                // one tab inherit another's keyed hover state and tint fade
-                // when tabs land or close (after `done` the Answer row would
-                // wear tab 0's id), so two rows could read as highlighted.
-                let row_id = SharedString::from(format!("browse-task-tab-{}", slugify(&title)));
-                col = col.child(
-                    tab_row(row_id, data).on_select(cx.listener(
-                        move |this, _: &SharedString, _, cx| {
-                            this.set_shown(Shown::Task(i));
-                            cx.notify();
-                        },
-                    )),
-                );
+            BrowseIntent::SelectTab(id) => self.select_row(id.as_ref(), cx),
+            BrowseIntent::CloseTab(id) => {
+                if let Some(index) = id.strip_prefix("tab-").and_then(|n| n.parse().ok()) {
+                    self.close_space_tab(index, cx);
+                }
             }
-        }
-        col = col.child(
-            task_folder_row(
-                "browse-task-ledger",
-                "Fix ledger chart",
-                TaskFace::Done,
-                SharedString::from(format!("{} · 1 tab", TaskFace::Done.status_word())),
-                self.ledger_open,
-            )
-            .on_toggle(cx.listener(|this, _: &SharedString, _, cx| {
-                this.ledger_open = !this.ledger_open;
+            BrowseIntent::ToggleFolder(id) => {
+                if id.as_ref() == "ka" {
+                    self.ka_open = !self.ka_open;
+                    cx.notify();
+                }
+            }
+            BrowseIntent::SwitchSpace(index) => {
+                self.switch_space(if index == 0 { Space::Education } else { Space::Personal }, cx);
+            }
+            BrowseIntent::Downloads(_) => {
+                self.foot = if self.foot == Some(FootPop::Downloads) { None } else { Some(FootPop::Downloads) };
                 cx.notify();
-            }))
-            .on_open_chat(cx.listener(|this, _: &SharedString, _, cx| {
-                this.line_open = true;
-                cx.notify();
-            })),
-        );
-        if self.ledger_open {
-            position += 1;
-            col = col.child(
-                tab_row(
-                    "browse-tab-ledger",
-                    TabRowData::new("localhost:5173 · Ledger", "L").depth(1).position(position).port(5173),
-                )
-                .on_select(cx.listener(|this, _: &SharedString, _, cx| {
-                    this.navigate("http://localhost:5173/", StoryPage::Ledger, cx);
-                })),
-            );
+            }
+            _ => {}
         }
-        col.child(div().flex_1())
-            .child(
-                browse_footer("browse-footer", self.space.name())
-                    .on_space(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.space_menu = !this.space_menu;
-                        cx.notify();
-                    }))
-                    .on_downloads(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.foot = if this.foot == Some(FootPop::Downloads) { None } else { Some(FootPop::Downloads) };
-                        cx.notify();
-                    }))
-                    .on_extensions(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.foot = if this.foot == Some(FootPop::Extensions) { None } else { Some(FootPop::Extensions) };
-                        cx.notify();
-                    })),
-            )
+    }
+
+    /// Shows the page behind a sidebar row id from [`Self::sidebar_model`].
+    fn select_row(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(index) = id.strip_prefix("tab-").and_then(|n| n.parse().ok()) {
+            self.select_space_tab(index, cx);
+        } else if let Some(index) = id.strip_prefix("task-").and_then(|n| n.parse().ok()) {
+            self.set_shown(Shown::Task(index));
+            cx.notify();
+        } else if id == "ledger-0" {
+            self.navigate("http://localhost:5173/", StoryPage::Ledger, cx);
+        } else {
+            let title = if id == "ka-0" { "KSEEB · SSLC results 2025" } else { "Samagra Shiksha · Karnataka" };
+            let shown = SharedString::from(title);
+            self.navigate(&page_url(&StoryPage::Generic(shown.clone())), StoryPage::Generic(shown), cx);
+        }
+    }
+
+    /// The approved sidebar for this story, in the open column or the peek.
+    fn render_sidebar(&self, id: &'static str, cx: &mut Context<Self>) -> AnyElement {
+        let model = self.sidebar_model();
+        let count = screen_item_count(&model);
+        let (list, fluid) = SIDEBAR_LISTS
+            .with(|c| c.borrow_mut().entry(id).or_insert_with(|| (sidebar_list_state(count), FluidHandle::new())).clone());
+        if list.item_count() != count {
+            list.reset(count);
+        }
+        let view = cx.entity().downgrade();
+        sidebar_screen(id, model, list, fluid)
+            .width(px(SIDEBAR_WIDTH))
+            .transparent()
+            .on_intent(move |intent, window, cx| {
+                if let SidebarIntent::Browse(intent) = intent {
+                    let _ = view.update(cx, |this, cx| this.browse_intent(intent, window, cx));
+                }
+            })
             .into_any_element()
     }
 
@@ -1343,7 +1309,6 @@ impl BrowseView {
         let pop = self.foot.expect("the footer popover renders only when set");
         let (id, text) = match pop {
             FootPop::Downloads => ("browse-foot-downloads", "No downloads yet"),
-            FootPop::Extensions => ("browse-foot-extensions", "Extensions: uBlock Origin Lite · Manage"),
         };
         record_ax_label(text);
         let p = cx.aui().colors;
@@ -1372,37 +1337,15 @@ impl BrowseView {
         .into_any_element()
     }
 
-    /// The centre: the drawn page (plus the split page), the empty page
-    /// when no tab shows, or the 28 px strip with the page's real title
-    /// when the sidebar hides.
+    /// The centre: the drawn page (plus the split page) or the empty page when
+    /// no tab shows. Hidden sidebar: nothing over the page (docs/40 §2); the
+    /// window's top-left corner or left edge peeks it.
     fn render_centre(&self, cx: &mut Context<Self>) -> AnyElement {
         let page = self.centre_page();
         let missing = self.own_missing();
         let title: SharedString = if missing { "No tabs".into() } else { page_title(&page) };
         let link = cx.aui().colors.accent;
-        let mut centre = v_flex().size_full();
-        if !self.sidebar_open {
-            record_ax_label(&title);
-            let p = cx.aui().colors;
-            centre = centre.child(
-                div()
-                    .id("browse-collapsed-strip")
-                    .flex_none()
-                    .h(px(28.0))
-                    .w_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .border_b_1()
-                    .border_color(p.line)
-                    .ui(scale::FS_12)
-                    .medium()
-                    .text_color(p.ink_2)
-                    .role(Role::Label)
-                    .aria_label(format!("Page, {title}"))
-                    .child(title.clone()),
-            );
-        }
+        let centre = v_flex().size_full();
         if missing {
             record_ax_label("No tabs — ⌘T for a new tab");
             let empty = div()
@@ -1724,7 +1667,7 @@ impl BrowseView {
     /// The page's left edge: the sidebar width while it shows, else zero,
     /// so centred overlays sit over the page rather than the window.
     fn page_left(&self) -> f32 {
-        if self.sidebar_open { BROWSE_SIDEBAR_WIDTH } else { 0.0 }
+        if self.sidebar_open { SIDEBAR_WIDTH } else { 0.0 }
     }
 
     /// The page's conceded right edge: the docked column's width while it
@@ -1743,10 +1686,13 @@ impl BrowseView {
             .left(px(self.page_left()))
             .right(px(self.page_right()))
             .bottom(px(22.0))
+            .px(px(12.0))
             .flex()
             .flex_row()
             .justify_center()
-            .child(child)
+            // Narrower than the line's 640 measure with the column docked: the
+            // line takes the page's width, never the sidebar's.
+            .child(div().flex_1().min_w(px(0.0)).max_w(px(640.0)).child(child))
     }
 
     /// The ⌘E card's layer: its bottom sits 22 px above the line's top
@@ -2105,14 +2051,11 @@ impl Render for BrowseView {
             };
             window.focus(&handle, cx);
         }
-        // Hidden means gone: with the sidebar closed the shell gets an
-        // empty pane (no rail), so the page takes the width.
-        let sidebar = if self.sidebar_open { self.render_sidebar(cx) } else { div().size_full().into_any_element() };
+        let sidebar = self.render_sidebar("browse-sidebar", cx);
+        let peek = self.render_sidebar("browse-peek", cx);
         let centre = self.render_centre(cx);
         let right_open = self.docked && self.card_open;
         let right = self.docked.then(|| self.render_column(cx));
-        let can_back = !self.back.is_empty();
-        let can_forward = !self.forward.is_empty();
         let toggle = icon_button("browse-hd-toggle", IconName::Sidebar)
             .ghost()
             .size(ButtonSize::Sm)
@@ -2121,23 +2064,16 @@ impl Render for BrowseView {
                 this.sidebar_open = !this.sidebar_open;
                 cx.notify();
             }));
-        let nav = browse_nav_cluster("browse-nav")
-            .can_go_back(can_back)
-            .can_go_forward(can_forward)
-            .on_back(cx.listener(|this, _: &ClickEvent, _, cx| this.go_back(cx)))
-            .on_forward(cx.listener(|this, _: &ClickEvent, _, cx| this.go_forward(cx)))
-            .on_reload(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.reload_page(cx);
-            }));
         let shell = app_shell("browse-shell")
-            .sidebar_width(px(BROWSE_SIDEBAR_WIDTH))
+            .sidebar_width(px(SIDEBAR_WIDTH))
             .resizing(self.scripted)
             .sidebar_open(self.sidebar_open)
-            .traffic_lights(true)
+            .traffic_lights(self.sidebar_open)
             .page_sheet(true)
             .chrome_lead(toggle)
-            .chrome_title(nav)
+            .chrome_switch(mode_switch("browse-switch", Mode::Browse))
             .sidebar(sidebar)
+            .peek(peek)
             .centre(centre)
             .right_width(px(RIGHT_W))
             .right_open(right_open);
@@ -2280,28 +2216,6 @@ mod tests {
         assert_eq!(highlight, Highlight::Own(1), "only row 1 is highlighted");
         assert_eq!(address, "https://udiseplus.gov.in/#/home", "the address follows the shown tab");
         assert_eq!(shown, Shown::Own(1));
-    }
-
-    /// H2: hidden means the sidebar is gone and the 28 px strip stays.
-    #[gpui::test]
-    fn hidden_sidebar_removes_sidebar_keeps_strip(cx: &mut TestAppContext) {
-        let (view, cx) = bare_view(cx);
-        arm_ax_probe(true);
-        take_ax_labels();
-        cx.update(|window, app| {
-            view.update(app, |v, cx| {
-                v.sidebar_open = false;
-                cx.notify();
-            });
-            window.simulate_next_frame(app);
-        });
-        let labels = take_ax_labels();
-        arm_ax_probe(false);
-        assert!(!labels.iter().any(|l| l.contains("New tab")), "no sidebar rows while hidden, got {labels:?}");
-        assert!(
-            labels.iter().any(|l| l.contains("PGI 2.0 · state scores 2023-24")),
-            "the strip names the shown page, got {labels:?}"
-        );
     }
 
     /// H3: after `field`, the Field editor is focused and one `down`
@@ -2612,14 +2526,11 @@ mod tests {
         assert!(labels.iter().any(|l| l == "Close right split"), "right pane has its ×, got {labels:?}");
     }
 
-    /// R3: hidden ⇒ no sidebar rows render, the strip names the shown
-    /// page, and the page layer starts at x = 0 with the shell told the
-    /// sidebar is closed.
+    /// R3: hidden ⇒ the shell is told the sidebar is closed and the page
+    /// layer starts at x = 0. Nothing sits over the page (docs/40 §2).
     #[gpui::test]
     fn hidden_sidebar_gives_page_full_width(cx: &mut TestAppContext) {
         let (view, cx) = bare_view(cx);
-        arm_ax_probe(true);
-        take_ax_labels();
         cx.update(|window, app| {
             view.update(app, |v, cx| {
                 v.sidebar_open = false;
@@ -2627,14 +2538,7 @@ mod tests {
             });
             window.simulate_next_frame(app);
         });
-        let labels = take_ax_labels();
-        arm_ax_probe(false);
         let (closed, left) = cx.update(|_, app| view.update(app, |v, _| (!v.sidebar_open, v.page_left())));
-        assert!(!labels.iter().any(|l| l.contains("New tab")), "no sidebar rows while hidden, got {labels:?}");
-        assert!(
-            labels.iter().any(|l| l.contains("PGI 2.0 · state scores 2023-24")),
-            "the strip names the shown page, got {labels:?}"
-        );
         assert!(closed, "the shell is told the sidebar is closed");
         assert_eq!(left, 0.0, "the page element's bounds start at x = 0");
     }
@@ -2764,7 +2668,7 @@ mod tests {
             "the line concedes the open right pane, got {docked_right}"
         );
         assert!(
-            (docked_left - super::BROWSE_SIDEBAR_WIDTH).abs() < 0.001,
+            (docked_left - super::SIDEBAR_WIDTH).abs() < 0.001,
             "the sidebar edge still holds while open, got {docked_left}"
         );
         cx.update(|_, app| {
@@ -2908,11 +2812,18 @@ mod tests {
         cx.update(|window, app| {
             window.simulate_next_frame(app);
         });
-        let labels = take_ax_labels();
+        take_ax_labels();
         arm_ax_probe(false);
-        let selected: Vec<_> = labels.iter().filter(|l| l.contains(", selected")).collect();
-        assert_eq!(selected.len(), 1, "exactly one row is highlighted, got {labels:?}");
-        assert!(selected[0].contains("dropout"), "the shown dropout tab keeps the highlight, got {selected:?}");
+        let model = cx.update(|_, app| view.update(app, |v, _| v.sidebar_model().browse.expect("browse mode")));
+        let selected: Vec<_> = model
+            .tabs
+            .iter()
+            .chain(model.folders.iter().flat_map(|f| &f.tabs))
+            .chain(model.task_folders.iter().flat_map(|f| &f.tabs))
+            .filter(|tab| tab.active)
+            .collect();
+        assert_eq!(selected.len(), 1, "exactly one row is highlighted, got {selected:?}");
+        assert!(selected[0].title.contains("dropout"), "the shown dropout tab keeps the highlight, got {selected:?}");
         // The row data behind the label: the highlight sits on task tab 2
         // and nothing else. (The keyed hover flags are not probe-able from
         // a test — `use_keyed_state` only runs during render — and close
