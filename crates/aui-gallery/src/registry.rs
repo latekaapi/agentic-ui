@@ -975,6 +975,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::browse_agent::build_line_states,
     },
     Entry {
+        id: "browse/line-narrow",
+        group: "Browse",
+        title: "Agent line, narrow",
+        subtitle: "The line and the approval card in a 260 px side pane, each in a frame exactly approval_height tall",
+        width: 340.0,
+        height: 640.0,
+        theme: CardTheme::Both,
+        build: crate::cards::browse_agent::build_line_narrow,
+    },
+    Entry {
         id: "browse/agent-card",
         group: "Browse",
         title: "Agent card",

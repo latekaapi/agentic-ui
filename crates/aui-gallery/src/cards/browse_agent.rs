@@ -2,7 +2,7 @@
 //! and the `⌘E` agent card with the sample PGI transcript.
 
 use aui::browse::agent_window::{
-    agent_card, agent_column, agent_line, AgentItem, AgentTranscript, ApprovalData, LineState, Step, StepState,
+    agent_card, agent_column, agent_line, approval_height, AgentItem, AgentTranscript, ApprovalData, LineState, Step, StepState,
 };
 use aui::browse::TaskFace;
 use aui::composer::{composer_state_rows, ComposerChip, ComposerChipKind};
@@ -126,6 +126,69 @@ pub fn build_line_states(window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
     div()
         .w(px(STRIP_W + STRIP_PAD * 2.0))
+        .bg(p.surface_2)
+        .rounded(px(scale::R_LG))
+        .p(px(STRIP_PAD))
+        .child(stack)
+        .into_any_element()
+}
+
+/// The width of a narrow side pane's line: Baaz's right pane at its
+/// narrowest leaves about this much once the line's margins are taken.
+const NARROW_W: f32 = 260.0;
+
+/// A page approval with no host (a local file), as the side pane shows it.
+fn pay_approval(host: &str) -> ApprovalData {
+    ApprovalData {
+        title: "Claude Code wants to press \u{201C}Pay \u{20AC}97\u{201D}".into(),
+        host: host.to_owned().into(),
+        line: host.to_owned().into(),
+        kind_pill: "Pay".into(),
+        hint: "Pay always asks".into(),
+        deny: "Don't allow".into(),
+        allow: "Pay".into(),
+        allow_always: None,
+    }
+}
+
+/// The line in a narrow pane: the working row, then three approvals (no
+/// host, a host, a long download), each seated in a frame exactly
+/// [`approval_height`] tall, the window a host opens for it. A card that
+/// overflows its frame is cut, the way the window would cut it.
+pub fn build_line_narrow(window: &mut Window, cx: &mut App) -> AnyElement {
+    let p = cx.aui().colors;
+    let approvals = [
+        pay_approval(""),
+        pay_approval("shop.example.com"),
+        match approval_state() {
+            LineState::Approval(data) => data,
+            _ => unreachable!(),
+        },
+    ];
+    let mut stack = v_flex().w(px(NARROW_W)).gap(px(STRIP_GAP));
+    let input = window.use_keyed_state("browse-narrow-row", cx, |window, cx| {
+        composer_state_rows("Ask about this page", 1, 1, window, cx)
+    });
+    stack = stack.child(
+        agent_line("browse-narrow-row", &LineState::from_task(TaskFace::Reading, "Claude Code is reading checkout.html"), &input)
+            .compact(true),
+    );
+    for (i, data) in approvals.into_iter().enumerate() {
+        let height = approval_height(&data, true, cx);
+        let id = SharedString::from(format!("browse-narrow-{i}"));
+        stack = stack.child(
+            div()
+                .w_full()
+                .h(px(height))
+                .overflow_hidden()
+                .flex()
+                .flex_col()
+                .justify_end()
+                .child(agent_line(id, &LineState::Approval(data), &input).compact(true)),
+        );
+    }
+    div()
+        .w(px(NARROW_W + STRIP_PAD * 2.0))
         .bg(p.surface_2)
         .rounded(px(scale::R_LG))
         .p(px(STRIP_PAD))

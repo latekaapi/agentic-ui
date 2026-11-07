@@ -686,3 +686,61 @@ fn question_arriving_mid_steer_keeps_input_focus(cx: &mut TestAppContext) {
     let value = vcx.update(|_, cx| host.read(cx).input.read(cx).value().to_string());
     assert_eq!(value, "202", "the digit must extend the steered text, proving the input kept focus");
 }
+
+/// A side pane's line: `compact`, inside a box `width` wide and exactly
+/// [`approval_height`] tall that clips what overflows, the way the host's
+/// window does.
+struct NarrowHost {
+    data: ApprovalData,
+    width: f32,
+    log: Log,
+}
+
+impl gpui::Render for NarrowHost {
+    fn render(&mut self, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let text = window.use_keyed_state("browse-narrow-text", cx, |window, cx| {
+            composer_state("Ask about this page", window, cx)
+        });
+        let log = self.log.clone();
+        let height = aui::browse::agent_window::approval_height(&self.data, true, cx);
+        gpui::div().w(px(self.width)).h(px(height)).overflow_hidden().child(
+            agent_line("narrow-line", &LineState::Approval(self.data.clone()), &text).compact(true).on_intent(
+                move |intent, _, _| {
+                    log.borrow_mut().push(format!("{intent:?}"));
+                },
+            ),
+        )
+    }
+}
+
+/// The 7 Nov owner report: in a 400 pt side pane the card kept its 560 px
+/// floor, so its window cut off both buttons and the agent waited on a click
+/// nobody could make. Narrow, both buttons sit inside the box the host sizes
+/// with `approval_height`, for a title with and without a host line.
+#[gpui::test]
+fn a_narrow_approval_keeps_both_buttons_inside_its_window(cx: &mut TestAppContext) {
+    init(cx);
+    for host in ["", "shop.example.com"] {
+        let data = ApprovalData {
+            title: "Claude Code wants to press \u{201C}Pay \u{20AC}97\u{201D}".into(),
+            host: host.into(),
+            line: host.into(),
+            kind_pill: "Pay".into(),
+            hint: "Pay always asks".into(),
+            deny: "Don't allow".into(),
+            allow: "Pay".into(),
+            allow_always: None,
+        };
+        let height = cx.update(|cx| aui::browse::agent_window::approval_height(&data, true, cx));
+        let log = log();
+        let (_host, vcx) = cx.add_window_view({
+            let log = log.clone();
+            move |_, _| NarrowHost { data, width: 260.0, log }
+        });
+        let vcx: &mut VisualTestContext = vcx;
+        sweep(vcx, 2.0, 258.0, 2.0, height - 2.0, 6.0, 4.0);
+        let entries = log.borrow().clone();
+        assert!(entries.iter().any(|e| e == "Allow"), "host {host:?}: Allow must be clickable inside 260 × {height}, got {entries:?}");
+        assert!(entries.iter().any(|e| e == "Deny"), "host {host:?}: Deny must be clickable inside 260 × {height}, got {entries:?}");
+    }
+}

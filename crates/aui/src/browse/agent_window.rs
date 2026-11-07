@@ -29,9 +29,18 @@ use crate::transcript::{activity_group, user_turn};
 
 /// The `⌘J` row height.
 const LINE_H: f32 = 48.0;
-/// The `⌘J` row measure, 560–640 px wide.
-const LINE_MIN_W: f32 = 560.0;
+/// The `⌘J` row's widest measure. It has no floor: the host's window sets the
+/// width, down to a narrow side pane's (about 260 px), and the line fits it.
 const LINE_MAX_W: f32 = 640.0;
+/// Below this width (the window's, shadow pad excluded) the approval card
+/// stacks: the title wraps to two lines, the hint gets its own row and the
+/// buttons sit under it. Hosts pass the choice through [`AgentLine::compact`]
+/// and size their window with [`approval_height`].
+pub const APPROVAL_COMPACT_BELOW: f32 = 480.0;
+/// The approval title's line height, fixed so a host can size the window.
+const TITLE_LH: f32 = 18.0;
+/// The detail and hint lines' height.
+const SMALL_LH: f32 = 16.0;
 /// The `⌘E` card measure.
 const CARD_W: f32 = 400.0;
 const CARD_H: f32 = 520.0;
@@ -329,14 +338,37 @@ pub struct AgentLine {
     state: LineState,
     input: Entity<TextareaState>,
     on_intent: Option<LineHandler>,
+    compact: bool,
 }
 
 /// The `⌘J` line: one 48 px row (a card for `Ask` and `Approval`).
 pub fn agent_line(id: impl Into<ElementId>, state: &LineState, input: &Entity<TextareaState>) -> AgentLine {
-    AgentLine { id: id.into(), state: state.clone(), input: input.clone(), on_intent: None }
+    AgentLine { id: id.into(), state: state.clone(), input: input.clone(), on_intent: None, compact: false }
+}
+
+/// The approval card's height for `data`, compact or not: a host opens its
+/// window this tall (plus its shadow pad) so nothing is cut off. Every line in
+/// the card has a fixed height, so this is exact for a one- or two-line title.
+pub fn approval_height(data: &ApprovalData, compact: bool, cx: &App) -> f32 {
+    let button = f32::from(cx.aui().metrics.control_md);
+    let detail = if data.line.trim().is_empty() { 0.0 } else { SMALL_LH + 8.0 };
+    // The 1 px attention border, top and bottom.
+    let border = 2.0;
+    border + if compact {
+        ROW_PAD_X * 2.0 + TITLE_LH * 2.0 + 8.0 + detail + SMALL_LH + 8.0 + button
+    } else {
+        ROW_PAD_X * 2.0 + FACE.max(TITLE_LH) + 8.0 + detail + button
+    }
 }
 
 impl AgentLine {
+    /// Lay out for a narrow window (below [`APPROVAL_COMPACT_BELOW`]): the
+    /// approval card stacks its rows instead of overflowing the window.
+    pub fn compact(mut self, compact: bool) -> Self {
+        self.compact = compact;
+        self
+    }
+
     /// Intent handler; every [`LineIntent`] variant reports here.
     pub fn on_intent(mut self, f: impl Fn(LineIntent, &mut Window, &mut App) + 'static) -> Self {
         self.on_intent = Some(Rc::new(f));
@@ -389,15 +421,16 @@ impl RenderOnce for AgentLine {
                 ask_card(&id, text, chips, site_actions, &self.input, handler, cx).into_any_element()
             }
             LineState::Driving { status, face } => {
+                // Narrow, the label needs the room the key hint takes.
                 let take_over = button((id.clone(), "take-over"), "Take over")
-                    .trailing(kbd("⌘."))
+                    .when(!self.compact, |b| b.trailing(kbd("⌘.")))
                     .on_click(click(handler.clone(), LineIntent::TakeOver));
                 work_row(&id, *face, div().child(status.clone()), vec![take_over.into_any_element()], handler, &p)
                     .into_any_element()
             }
             LineState::YouDrive => {
                 let hand_back = button((id.clone(), "hand-back"), "Hand back")
-                    .trailing(kbd("⌘↩"))
+                    .when(!self.compact, |b| b.trailing(kbd("⌘↩")))
                     .on_click(click(handler.clone(), LineIntent::HandBack));
                 let label = v_flex()
                     .gap(px(0.0))
@@ -413,7 +446,7 @@ impl RenderOnce for AgentLine {
                 work_row(&id, TaskFace::NeedsYou, label, vec![stop.into_any_element(), done.into_any_element()], handler, &p)
                     .into_any_element()
             }
-            LineState::Approval(data) => approval_card(&id, data, handler, window, cx).into_any_element(),
+            LineState::Approval(data) => approval_card(&id, data, self.compact, handler, window, cx).into_any_element(),
         }
     }
 }
@@ -442,7 +475,7 @@ fn work_row(
     h_flex()
         .id(id.clone())
         .w_full()
-        .min_w(px(LINE_MIN_W))
+        .min_w(px(0.0))
         .max_w(px(LINE_MAX_W))
         .h(px(LINE_H))
         .items_center()
@@ -452,7 +485,7 @@ fn work_row(
         .bg(p.overlay)
         .shadow(p.floating_shadow())
         .child(task_face(face))
-        .child(div().flex_1().min_w(px(0.0)).ui(BODY_TEXT).text_color(p.ink).child(label))
+        .child(div().flex_1().min_w(px(0.0)).truncate().ui(BODY_TEXT).text_color(p.ink).child(label))
         .children(actions)
         .child(expand_button(id, handler))
 }
@@ -500,7 +533,7 @@ fn ask_card(
         .key_context(MENU_CONTEXT)
         .on_action(confirm)
         .w_full()
-        .min_w(px(LINE_MIN_W))
+        .min_w(px(0.0))
         .max_w(px(LINE_MAX_W))
         .rounded(px(scale::R_XL))
         .bg(p.overlay)
@@ -628,6 +661,7 @@ fn chips_row(
 fn approval_card(
     id: &ElementId,
     data: &ApprovalData,
+    compact: bool,
     handler: Option<LineHandler>,
     window: &mut Window,
     cx: &mut App,
@@ -667,8 +701,19 @@ fn approval_card(
                 .justify_center()
                 .child(icon(IconName::Shield).size(px(FACE_GLYPH)).color(p.warning)),
         )
-        .child(div().flex_1().min_w(px(0.0)).font_weight(gpui::FontWeight::SEMIBOLD).ui(BODY_TEXT).child(data.title.clone()))
-        .child(pill(data.kind_pill.clone()));
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .ui(BODY_TEXT)
+                .line_height(px(TITLE_LH))
+                .when(compact, |d| d.line_clamp(2).max_h(px(TITLE_LH * 2.0)).overflow_hidden())
+                .when(!compact, |d| d.truncate())
+                .child(data.title.clone()),
+        )
+        // Narrow, the pill only repeats the allow button's word.
+        .when(!compact, |d| d.child(pill(data.kind_pill.clone())));
     let mut card = v_flex()
         .id(id.clone())
         .key_context(APPROVAL_CONTEXT)
@@ -707,8 +752,17 @@ fn approval_card(
             }
         });
     }
-    card.w_full()
-        .min_w(px(LINE_MIN_W))
+    let hint = div()
+        .min_w(px(0.0))
+        .truncate()
+        .ui(SMALL_TEXT)
+        .line_height(px(SMALL_LH))
+        .text_color(p.ink_3)
+        .child(data.hint.clone());
+    let buttons = h_flex().flex_none().items_center().gap(px(ROW_GAP)).children(always).child(deny).child(allow);
+    let card = card
+        .w_full()
+        .min_w(px(0.0))
         .max_w(px(LINE_MAX_W))
         .rounded(px(scale::R_XL))
         .border_1()
@@ -718,18 +772,12 @@ fn approval_card(
         .p(px(ROW_PAD_X))
         .gap(px(8.0))
         .child(head)
-        .child(approval_detail(data, cx))
-        .child(
-            h_flex()
-                .w_full()
-                .items_center()
-                .gap(px(ROW_GAP))
-                .child(div().min_w(px(0.0)).truncate().ui(SMALL_TEXT).text_color(p.ink_3).child(data.hint.clone()))
-                .child(div().flex_1())
-                .children(always)
-                .child(deny)
-                .child(allow),
-        )
+        .when(!data.line.trim().is_empty(), |d| d.child(approval_detail(data, cx)));
+    if compact {
+        card.child(hint).child(h_flex().w_full().justify_end().child(buttons))
+    } else {
+        card.child(h_flex().w_full().items_center().gap(px(ROW_GAP)).child(hint).child(div().flex_1()).child(buttons))
+    }
 }
 
 /// The approval's second line in `ink-2`, with the host in mono.
@@ -738,11 +786,13 @@ fn approval_detail(data: &ApprovalData, cx: &mut App) -> gpui::AnyElement {
     let host = data.host.to_string();
     match data.line.strip_prefix(host.as_str()) {
         Some(tail) => h_flex()
+            .min_w(px(0.0))
+            .h(px(SMALL_LH))
             .gap(px(4.0))
-            .child(div().mono(SMALL_TEXT).text_color(p.ink_2).child(data.host.clone()))
-            .child(div().ui(SMALL_TEXT).text_color(p.ink_2).child(tail.to_string()))
+            .child(div().flex_none().mono(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.ink_2).child(data.host.clone()))
+            .child(div().min_w(px(0.0)).truncate().ui(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.ink_2).child(tail.to_string()))
             .into_any_element(),
-        None => div().ui(SMALL_TEXT).text_color(p.ink_2).child(data.line.clone()).into_any_element(),
+        None => div().h(px(SMALL_LH)).truncate().ui(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.ink_2).child(data.line.clone()).into_any_element(),
     }
 }
 
