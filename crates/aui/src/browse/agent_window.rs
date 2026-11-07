@@ -483,6 +483,7 @@ fn work_row(
         .px(px(ROW_PAD_X))
         .rounded(px(scale::R_XL))
         .bg(p.overlay)
+        .text_color(p.ink)
         .shadow(p.floating_shadow())
         .child(task_face(face))
         .child(div().flex_1().min_w(px(0.0)).truncate().ui(BODY_TEXT).text_color(p.ink).child(label))
@@ -537,6 +538,7 @@ fn ask_card(
         .max_w(px(LINE_MAX_W))
         .rounded(px(scale::R_XL))
         .bg(p.overlay)
+        .text_color(p.ink)
         .shadow(p.floating_shadow())
         .pb(px(ROW_PAD_X))
         .child(row)
@@ -706,7 +708,9 @@ fn approval_card(
                 .flex_1()
                 .min_w(px(0.0))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
-                .ui(BODY_TEXT)
+                // The transcript approval's title: 13 px semibold in ink.
+                .ui(scale::FS_13)
+                .text_color(p.ink)
                 .line_height(px(TITLE_LH))
                 .when(compact, |d| d.line_clamp(2).max_h(px(TITLE_LH * 2.0)).overflow_hidden())
                 .when(!compact, |d| d.truncate())
@@ -768,6 +772,9 @@ fn approval_card(
         .border_1()
         .border_color(p.attention_border(p.warning))
         .bg(p.overlay)
+        // The card's own ink: a host window (Baaz's float over a page) has no
+        // themed root, and gpui's default text is black.
+        .text_color(p.ink)
         .shadow(p.floating_shadow())
         .p(px(ROW_PAD_X))
         .gap(px(8.0))

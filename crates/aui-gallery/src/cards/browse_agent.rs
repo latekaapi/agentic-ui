@@ -187,9 +187,13 @@ pub fn build_line_narrow(window: &mut Window, cx: &mut App) -> AnyElement {
                 .child(agent_line(id, &LineState::Approval(data), &input).compact(true)),
         );
     }
+    // Black text on the strip stands in for a bare host window (Baaz's float
+    // over a page has no themed root): anything the line does not colour
+    // itself shows up black here, as it did in Baaz on 7 Nov.
     div()
         .w(px(NARROW_W + STRIP_PAD * 2.0))
         .bg(p.surface_2)
+        .text_color(gpui::black())
         .rounded(px(scale::R_LG))
         .p(px(STRIP_PAD))
         .child(stack)
