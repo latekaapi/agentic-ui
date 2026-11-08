@@ -226,3 +226,87 @@ pub fn build_column(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(div().w(px(420.0)).h(px(640.0)).child(agent_column("browse-column", &transcript, &steer)))
         .into_any_element()
 }
+
+/// The R3 line states (harness R3 board 1a/1b/2b): the inline answer working
+/// and answered, and the landed draft, each in a frame exactly
+/// [`line_height`] tall — the window the host opens — at 640 and at the
+/// owner's 356 px line. Black ground text stands in for a bare host window.
+pub fn build_line_answer(window: &mut Window, cx: &mut App) -> AnyElement {
+    use aui::browse::agent_window::{line_height, APPROVAL_COMPACT_BELOW};
+    let p = cx.aui().colors;
+    let question: SharedString = "What's the refund window?".into();
+    let answer: SharedString = "Within 30 days of delivery. Final-sale items, gift cards and opened software can't be returned; the refund reaches your card 5–7 business days after the return arrives.".into();
+    let states = [
+        LineState::Answer { question: question.clone(), answer: None, source: None, text: "Ask about this page".into(), chips: vec![page_chip()] },
+        LineState::Answer {
+            question,
+            answer: Some(answer),
+            source: Some("Returns and refunds · paragraphs 1–2".into()),
+            text: "Ask about this page".into(),
+            chips: vec![page_chip()],
+        },
+        LineState::Drafted { label: "Draft ready".into() },
+    ];
+    let mut columns = h_flex().items_start().gap(px(24.0));
+    for (c, width) in [STRIP_W, 356.0].into_iter().enumerate() {
+        let compact = width < APPROVAL_COMPACT_BELOW;
+        let mut stack = v_flex().w(px(width)).gap(px(STRIP_GAP));
+        for (i, state) in states.iter().enumerate() {
+            let id = SharedString::from(format!("browse-answer-{c}-{i}"));
+            let input = window.use_keyed_state(id.clone(), cx, |window, cx| composer_state_rows("Ask about this page", 1, 1, window, cx));
+            let height = line_height(state, compact, width, window, cx);
+            stack = stack.child(
+                div()
+                    .w_full()
+                    .h(px(height))
+                    .overflow_hidden()
+                    .flex()
+                    .flex_col()
+                    .justify_end()
+                    .child(agent_line(id, state, &input).compact(compact)),
+            );
+        }
+        columns = columns.child(stack);
+    }
+    div()
+        .bg(p.surface_2)
+        .text_color(gpui::black())
+        .rounded(px(scale::R_LG))
+        .p(px(STRIP_PAD))
+        .child(columns)
+        .into_any_element()
+}
+
+/// The handoff (harness R3 board 3a/3b): the picker beside the card that
+/// has been handed off.
+pub fn build_handoff(window: &mut Window, cx: &mut App) -> AnyElement {
+    use aui::browse::handoff::{handoff_height, handoff_picker, HandoffRow};
+    use aui::icons::Provider;
+    let p = cx.aui().colors;
+    let query = window.use_keyed_state("browse-handoff-q", cx, |window, cx| composer_state_rows("Find a session or project", 1, 1, window, cx));
+    let sessions = vec![
+        HandoffRow { id: "s1".into(), title: "Fix login".into(), meta: "harness · 2 h".into(), provider: Some(Provider::Claude) },
+        HandoffRow { id: "s2".into(), title: "Checkout flow tests".into(), meta: "harness · yesterday".into(), provider: Some(Provider::Codex) },
+        HandoffRow { id: "s3".into(), title: "Sidebar polish".into(), meta: "agentic-ui · Tue".into(), provider: Some(Provider::Muse) },
+    ];
+    let projects = vec![
+        HandoffRow { id: "p1".into(), title: "harness".into(), meta: "Claude Code".into(), provider: None },
+        HandoffRow { id: "p2".into(), title: "agentic-ui".into(), meta: "Claude Code".into(), provider: None },
+    ];
+    let h = handoff_height(sessions.len(), projects.len());
+    let picker = div().flex_none().h(px(h)).overflow_hidden().child(handoff_picker("browse-handoff", &query, sessions, projects, 0));
+    let mut transcript = column_transcript();
+    transcript.items.truncate(4);
+    transcript.items.push(AgentItem::HandedOff {
+        title: "Fix login".into(),
+        detail: "harness · its 3 tabs are now in that session's task folder".into(),
+    });
+    let input = window.use_keyed_state("browse-handoff-card", cx, |window, cx| composer_state_rows("Ask something else here", 1, 1, window, cx));
+    div()
+        .bg(p.surface_2)
+        .text_color(gpui::black())
+        .rounded(px(scale::R_LG))
+        .p(px(STRIP_PAD))
+        .child(h_flex().items_start().gap(px(24.0)).child(picker).child(agent_card("browse-handoff-card", &transcript, &input)))
+        .into_any_element()
+}

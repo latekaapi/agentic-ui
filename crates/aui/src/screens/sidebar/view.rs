@@ -1361,7 +1361,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                     let turn = spring_phase((ctx.child(format!("folder-chevron-{}", folder.id)), "turn"), folder.open, SpringKind::Swap, window, cx);
                     ctx.lead(icon(IconName::ChevronDown).size(metrics.icon).color(if hovered { p.fg } else { p.fg_muted }).lit(hovered).rotate(radians(-std::f32::consts::FRAC_PI_2 * (1.0 - turn))), cx)
                 }
-                FolderKind::Task { state, .. } => ctx.dot(*state, cx),
+                FolderKind::Task { face, .. } => ctx.lead(crate::browse::task_face(*face), cx),
             };
             if let Some(editing) = naming {
                 return ctx.name_field(format!("folder-name-{}", folder.id), lead, &editing.draft, BrowseNaming::Folder(folder.id.clone()), "Folder name", false, cx);
@@ -1381,7 +1381,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                         .child(div().flex_1());
                     BrowseMenuTarget::Folder(folder.id.clone())
                 }
-                FolderKind::Task { state, status, needs_you } => {
+                FolderKind::Task { state, status, needs_you, .. } => {
                     head = head.child(div().flex_1());
                     if !status.is_empty() {
                         head = head.child(div().flex_none().role_in(TextRole::Caption, cx).text_color(if *needs_you { p.warning } else { p.fg_muted }).child(status.clone()));
@@ -1460,16 +1460,12 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                     ti += 1;
                 }
             }
-            // A title for the pane (owner 2026-10-11: "tell what it is"):
-            // the section label, fixed above its own scroll, with how many
-            // sessions hold tabs. 4 px under the divider, not a section's 12.
-            let count: SharedString = browse.task_folders.len().to_string().into();
-            let header = ctx.section("From sessions", Some(count), None, cx).mt(px(scale::SP_1)).id(ctx.child("task-head"));
+            // No heading (owner 2026-11-08): the hairline alone separates the
+            // task folders from your tabs, as docs/27 §4.3 draws it.
             let pane = v_flex()
                 .w_full()
                 .flex_none()
                 .child(div().mx(-metrics.item_px).h(px(1.0)).bg(p.line))
-                .child(header)
                 .child(
                     div()
                         .w_full()

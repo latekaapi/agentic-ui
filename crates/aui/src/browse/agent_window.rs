@@ -41,6 +41,17 @@ pub const APPROVAL_COMPACT_BELOW: f32 = 480.0;
 const TITLE_LH: f32 = 18.0;
 /// The detail and hint lines' height.
 const SMALL_LH: f32 = 16.0;
+/// The inline answer's line height.
+const ANSWER_LH: f32 = 20.0;
+/// The inline answer's cap: past this many lines the answer is cut and
+/// "Continue in a card" shows the rest.
+pub const ANSWER_MAX_LINES: usize = 8;
+/// The working row over a pending answer.
+const ANSWER_BUSY_H: f32 = 44.0;
+/// The chip row under the ask input: its top gap and the 28 px chip/`+`.
+const CHIPS_TOP: f32 = 6.0;
+/// The `ON THIS SITE` caption row and the site actions row.
+const SITE_CAPTION_H: f32 = 14.0;
 /// The `⌘E` card measure.
 const CARD_W: f32 = 400.0;
 const CARD_H: f32 = 520.0;
@@ -146,6 +157,29 @@ pub enum LineState {
     },
     /// The line grown into a card: shield, title, pill, detail, deny/allow.
     Approval(ApprovalData),
+    /// A small ask answered on the line (harness R3 board, 1a/1b): the line
+    /// grows upward into a card. While `answer` is `None` the top is one
+    /// working row with Stop and the ask row below shows the question; once
+    /// answered the top holds the text, where it came from, and Copy ·
+    /// Continue in a card · ×, and the ask row below is ready again.
+    Answer {
+        /// The question as sent.
+        question: SharedString,
+        /// The answer, `None` while it is being worked out.
+        answer: Option<SharedString>,
+        /// Where it came from (`Returns and refunds · paragraphs 1–2`).
+        source: Option<SharedString>,
+        /// The input's accessible name.
+        text: SharedString,
+        /// Context chips for the ask row below.
+        chips: Vec<ComposerChip>,
+    },
+    /// A draft landed in the page's own box, nothing sent (R3 board, 2b):
+    /// a ✓, the label, Undo and Done.
+    Drafted {
+        /// `Draft ready`.
+        label: SharedString,
+    },
 }
 
 impl LineState {
@@ -182,8 +216,14 @@ pub enum LineIntent {
     Deny,
     /// Remove one context chip, by id.
     ChipRemove(SharedString),
-    /// Expand the line into the card.
+    /// Expand the line into the card (also "Continue in a card" on an answer).
     Expand,
+    /// Copy the inline answer.
+    Copy,
+    /// Close the inline answer; the line goes back to asking.
+    Dismiss,
+    /// Take the landed draft back out of the page's box.
+    Undo,
 }
 
 /// One item of an agent transcript body.
@@ -197,6 +237,14 @@ pub enum AgentItem {
     Queued(SharedString),
     /// The agent's answer text.
     Answer(SharedString),
+    /// The chat was continued in a project session (R3 board, 3b): the
+    /// target's provider-free title, a detail line, and Open.
+    HandedOff {
+        /// `Fix login`.
+        title: SharedString,
+        /// `harness · its 3 tabs are now in that session's task folder`.
+        detail: SharedString,
+    },
     /// A question with choice buttons.
     Question {
         /// The question.
@@ -251,6 +299,10 @@ pub enum CardIntent {
     Model,
     /// Pick one question choice, by index.
     Choose(usize),
+    /// Open the handoff picker ("Continue in a session", R3 board 3a).
+    Handoff,
+    /// Open the session a handed-off row names.
+    OpenHandoff,
 }
 
 /// The one line saying what the agent is doing now: the last running step's
@@ -361,6 +413,50 @@ pub fn approval_height(data: &ApprovalData, compact: bool, cx: &App) -> f32 {
     }
 }
 
+/// The `Ask` card's height: the input row, the chip row, the bottom pad, and
+/// the site actions when there are any. Exact: every row has a fixed height.
+pub fn ask_height(has_site_actions: bool, cx: &App) -> f32 {
+    let control = f32::from(cx.aui().metrics.control_md);
+    let mut h = LINE_H + CHIPS_TOP + control + ROW_PAD_X;
+    if has_site_actions {
+        h += ROW_GAP + SITE_CAPTION_H + 4.0 + f32::from(cx.aui().metrics.control_sm);
+    }
+    h
+}
+
+/// The lines `answer` wraps to in a line `inner` px wide (shadow pad
+/// excluded), capped at [`ANSWER_MAX_LINES`].
+pub fn answer_lines(answer: &str, inner: f32, window: &Window, cx: &App) -> usize {
+    let width = (inner - ROW_PAD_X * 2.0).max(40.0);
+    let size = aui_tokens::scaled(BODY_TEXT).to_pixels(window.rem_size());
+    let font = gpui::font(scale::FONT_UI);
+    let run = gpui::TextRun { len: answer.len(), font, color: cx.aui().colors.ink, background_color: None, underline: None, strikethrough: None };
+    let lines = window
+        .text_system()
+        .shape_text(SharedString::from(answer.to_string()), size, &[run], Some(px(width)), None)
+        .map(|lines| lines.iter().map(|l| l.wrap_boundaries.len() + 1).sum::<usize>())
+        .unwrap_or(1);
+    lines.clamp(1, ANSWER_MAX_LINES)
+}
+
+/// The height of any line `state` in a window `inner` px wide: a host opens
+/// its window this tall (plus its shadow pad). Exact, like [`approval_height`].
+pub fn line_height(state: &LineState, compact: bool, inner: f32, window: &Window, cx: &App) -> f32 {
+    let button = f32::from(cx.aui().metrics.control_md);
+    match state {
+        LineState::Approval(data) => approval_height(data, compact, cx),
+        LineState::Ask { site_actions, .. } => ask_height(!site_actions.is_empty(), cx),
+        LineState::Answer { answer: None, .. } => ANSWER_BUSY_H + 1.0 + LINE_H,
+        LineState::Answer { answer: Some(answer), source, .. } => {
+            let text = ROW_PAD_X + answer_lines(answer, inner, window, cx) as f32 * ANSWER_LH;
+            let source = if source.is_some() { ROW_GAP + SMALL_LH } else { 0.0 };
+            let actions = ROW_GAP + button + ROW_GAP;
+            text + source + actions + 1.0 + ask_height(false, cx)
+        }
+        _ => LINE_H,
+    }
+}
+
 impl AgentLine {
     /// Lay out for a narrow window (below [`APPROVAL_COMPACT_BELOW`]): the
     /// approval card stacks its rows instead of overflowing the window.
@@ -447,6 +543,21 @@ impl RenderOnce for AgentLine {
                     .into_any_element()
             }
             LineState::Approval(data) => approval_card(&id, data, self.compact, handler, window, cx).into_any_element(),
+            LineState::Answer { question, answer, source, text, chips } => {
+                answer_card(&id, question, answer.as_ref(), source.as_ref(), text, chips, &self.input, self.compact, handler, cx)
+                    .into_any_element()
+            }
+            LineState::Drafted { label } => {
+                let undo = button((id.clone(), "undo"), "Undo").ghost().on_click(click(handler.clone(), LineIntent::Undo));
+                let done = button((id.clone(), "done"), "Done").primary().on_click(click(handler.clone(), LineIntent::Done));
+                let label = h_flex()
+                    .min_w(px(0.0))
+                    .gap(px(4.0))
+                    .child(div().flex_none().child(label.clone()))
+                    .child(div().flex_none().text_color(p.ink_3).child("·"))
+                    .child(div().min_w(px(0.0)).truncate().text_color(p.ink_2).child("not sent"));
+                drafted_row(&id, label, vec![undo.into_any_element(), done.into_any_element()], &p).into_any_element()
+            }
         }
     }
 }
@@ -547,7 +658,9 @@ fn ask_card(
             move |chip_id: SharedString| click(handler.clone(), LineIntent::ChipRemove(chip_id))
         }, click(handler.clone(), LineIntent::Plus), cx));
     if !site_actions.is_empty() {
-        let mut actions = h_flex().gap(px(ROW_GAP)).flex_wrap();
+        // One row of fixed height, so `ask_height` is exact; actions that do not
+        // fit are clipped rather than wrapped.
+        let mut actions = h_flex().h(cx.aui().metrics.control_sm).gap(px(ROW_GAP)).overflow_hidden();
         for (action_id, label) in site_actions {
             actions = actions.child(
                 button((id.clone(), SharedString::from(format!("site-{action_id}"))), label.clone())
@@ -562,11 +675,138 @@ fn ask_card(
                 .px(px(ROW_PAD_X))
                 .pt(px(ROW_GAP))
                 .gap(px(4.0))
-                .child(div().ui(CAPTION_TEXT).medium().text_color(p.ink_3).child("ON THIS SITE"))
+                .child(div().h(px(SITE_CAPTION_H)).ui(CAPTION_TEXT).line_height(px(SITE_CAPTION_H)).medium().text_color(p.ink_3).child("ON THIS SITE"))
                 .child(actions),
         );
     }
     card
+}
+
+/// The landed-draft row: a ✓ tile in the face's place, the label, the actions.
+/// No expand: a draft is done, there is nothing to grow into.
+fn drafted_row(id: &ElementId, label: impl IntoElement, actions: Vec<gpui::AnyElement>, p: &aui_tokens::Palette) -> gpui::Stateful<gpui::Div> {
+    h_flex()
+        .id(id.clone())
+        .w_full()
+        .min_w(px(0.0))
+        .max_w(px(LINE_MAX_W))
+        .h(px(LINE_H))
+        .items_center()
+        .gap(px(ROW_GAP))
+        .px(px(ROW_PAD_X))
+        .rounded(px(scale::R_XL))
+        .bg(p.overlay)
+        .text_color(p.ink)
+        .shadow(p.floating_shadow())
+        .child(crate::data::glyph_ok())
+        .child(div().flex_1().min_w(px(0.0)).ui(BODY_TEXT).child(label))
+        .children(actions)
+}
+
+/// The inline answer: the line grown upward. The top is the answer (or one
+/// working row while it is pending); a hairline; then the ask row, which
+/// shows the question while working and is ready for the next ask after.
+#[allow(clippy::too_many_arguments)]
+fn answer_card(
+    id: &ElementId,
+    question: &SharedString,
+    answer: Option<&SharedString>,
+    source: Option<&SharedString>,
+    text: &SharedString,
+    chips: &[ComposerChip],
+    input: &Entity<TextareaState>,
+    compact: bool,
+    handler: Option<LineHandler>,
+    cx: &mut App,
+) -> gpui::AnyElement {
+    let p = cx.aui().colors;
+    let top = match answer {
+        None => h_flex()
+            .w_full()
+            .h(px(ANSWER_BUSY_H))
+            .items_center()
+            .gap(px(ROW_GAP))
+            .px(px(ROW_PAD_X))
+            .child(crate::data::spinner((id.clone(), "spin")))
+            .child(div().flex_1().min_w(px(0.0)).truncate().ui(BODY_TEXT).text_color(p.ink_2).child("Reading this page…"))
+            .child(button((id.clone(), "stop"), "Stop").ghost().sm().on_click(click(handler.clone(), LineIntent::Stop)))
+            .into_any_element(),
+        Some(answer) => {
+            let mut col = v_flex()
+                .w_full()
+                .px(px(ROW_PAD_X))
+                .pt(px(ROW_PAD_X))
+                .child(
+                    div()
+                        .w_full()
+                        .ui(BODY_TEXT)
+                        .line_height(px(ANSWER_LH))
+                        .text_color(p.ink)
+                        .line_clamp(ANSWER_MAX_LINES)
+                        .child(answer.clone()),
+                );
+            if let Some(source) = source {
+                col = col.child(
+                    h_flex()
+                        .w_full()
+                        .h(px(SMALL_LH))
+                        .mt(px(ROW_GAP))
+                        .gap(px(6.0))
+                        .items_center()
+                        .child(icon(IconName::File).size(px(CHIP_GLYPH)).color(p.ink_3))
+                        .child(div().min_w(px(0.0)).truncate().ui(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.ink_2).child(format!("From {source}"))),
+                );
+            }
+            let cont = button((id.clone(), "continue"), "Continue in a card")
+                .when(!compact, |b| b.trailing(kbd("⌘E")))
+                .on_click(click(handler.clone(), LineIntent::Expand));
+            col = col.child(
+                h_flex()
+                    .w_full()
+                    .py(px(ROW_GAP))
+                    .gap(px(6.0))
+                    .items_center()
+                    .child(button((id.clone(), "copy"), "Copy").ghost().on_click(click(handler.clone(), LineIntent::Copy)))
+                    .child(div().flex_1())
+                    .child(cont)
+                    .child(
+                        icon_button((id.clone(), "dismiss"), IconName::X)
+                            .ghost()
+                            .xs()
+                            .accessibility_label("Close the answer")
+                            .on_click(click(handler.clone(), LineIntent::Dismiss)),
+                    ),
+            );
+            col.into_any_element()
+        }
+    };
+    let rule = div().w_full().h(px(1.0)).bg(p.line);
+    let below = match answer {
+        None => h_flex()
+            .w_full()
+            .h(px(LINE_H))
+            .items_center()
+            .gap(px(ROW_GAP))
+            .px(px(ROW_PAD_X))
+            .child(icon(IconName::Sparkle).size(px(FACE_GLYPH)).color(p.accent_ink))
+            .child(div().flex_1().min_w(px(0.0)).truncate().ui(BODY_TEXT).text_color(p.ink_2).child(question.clone()))
+            .into_any_element(),
+        Some(_) => ask_card(id, text, chips, &[], input, handler, cx).shadow(Vec::new()).into_any_element(),
+    };
+    v_flex()
+        .id((id.clone(), "answer"))
+        .w_full()
+        .min_w(px(0.0))
+        .max_w(px(LINE_MAX_W))
+        .rounded(px(scale::R_XL))
+        .bg(p.overlay)
+        .text_color(p.ink)
+        .shadow(p.floating_shadow())
+        .overflow_hidden()
+        .child(top)
+        .child(rule)
+        .child(below)
+        .into_any_element()
 }
 
 /// The single-line input: the composer's borderless text area inside the
@@ -930,6 +1170,13 @@ fn card_header(
                 ),
         )
         .child(
+            icon_button((id.clone(), "handoff"), IconName::External)
+                .ghost()
+                .xs()
+                .accessibility_label("Continue in a session")
+                .on_click(card_click(handler.clone(), CardIntent::Handoff)),
+        )
+        .child(
             icon_button((id.clone(), "dock"), dock_icon)
                 .ghost()
                 .xs()
@@ -994,6 +1241,37 @@ fn agent_body(
             AgentItem::Answer(text) => {
                 body = body.child(
                     div().w_full().ui(BODY_TEXT).line_height(relative(1.65)).text_color(p.ink).child(text.clone()),
+                );
+            }
+            AgentItem::HandedOff { title, detail } => {
+                body = body.child(
+                    h_flex()
+                        .w_full()
+                        .items_center()
+                        .gap(px(10.0))
+                        .px(px(ROW_PAD_X))
+                        .py(px(10.0))
+                        .rounded(px(scale::R_MD))
+                        .border_1()
+                        .border_color(p.line)
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .child(
+                                    h_flex()
+                                        .gap(px(4.0))
+                                        .ui(BODY_TEXT)
+                                        .text_color(p.ink)
+                                        .child("Continued in")
+                                        .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(title.clone())),
+                                )
+                                .child(div().ui(SMALL_TEXT).text_color(p.ink_2).child(detail.clone())),
+                        )
+                        .child(
+                            button((id.clone(), SharedString::from(format!("open-{i}"))), "Open")
+                                .on_click(card_click(handler.clone(), CardIntent::OpenHandoff)),
+                        ),
                 );
             }
             AgentItem::Question { text, choices } => {

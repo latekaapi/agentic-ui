@@ -166,11 +166,13 @@ pub struct BrowseFolder {
 pub enum FolderKind {
     /// A folder you made: chevron on the icon axis, folds on click.
     Yours,
-    /// A session's tabs: its status dot on the icon axis and its status word
-    /// at the row's end; always open; a click opens its chat.
+    /// A session's tabs: its round status face on the icon axis and its
+    /// status word at the row's end; always open; a click opens its chat.
     Task {
-        /// The session's state (the same dot as its Sessions row).
+        /// The session's state (whether Stop applies).
         state: AgentState,
+        /// The face drawn on the icon axis (docs/27 §4.3; owner 8 Nov: faces).
+        face: crate::browse::TaskFace,
         /// "reading", "typing", "needs you", "done"; empty for none.
         status: SharedString,
         /// The session is waiting on the person: the word takes `warning`.
@@ -772,14 +774,14 @@ pub fn sample_model() -> SidebarModel {
                 BrowseFolder {
                     id: "checklist".into(),
                     name: "Checklist run".into(),
-                    kind: FolderKind::Task { state: AgentState::Waiting, status: "needs you".into(), needs_you: true },
+                    kind: FolderKind::Task { state: AgentState::Waiting, face: crate::browse::TaskFace::NeedsYou, status: "needs you".into(), needs_you: true },
                     open: true,
                     tabs: vec![BrowseTab { id: "ledger".into(), title: "Ledger".into(), initial: "L".into(), active: false, loading: false, favicon: None }],
                 },
                 BrowseFolder {
                     id: "browser-audit".into(),
                     name: "Browser integration audit".into(),
-                    kind: FolderKind::Task { state: AgentState::Running, status: "reading".into(), needs_you: false },
+                    kind: FolderKind::Task { state: AgentState::Running, face: crate::browse::TaskFace::Reading, status: "reading".into(), needs_you: false },
                     open: true,
                     tabs: vec![BrowseTab { id: "pr".into(), title: "Pull request #412 · baaz".into(), initial: "G".into(), active: false, loading: false, favicon: None }],
                 },

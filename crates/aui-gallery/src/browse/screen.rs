@@ -767,6 +767,9 @@ impl BrowseView {
                 self.chips.retain(|chip| chip.id != id);
                 cx.notify();
             }
+            // The inline answer and the landed draft are host states the
+            // story never reaches (harness R3 wires them).
+            LineIntent::Copy | LineIntent::Dismiss | LineIntent::Undo => {}
         }
         cx.notify();
     }
@@ -798,6 +801,7 @@ impl BrowseView {
                 self.chips.retain(|chip| chip.id != id);
                 cx.notify();
             }
+            CardIntent::Handoff | CardIntent::OpenHandoff => {}
             CardIntent::Model => {
                 self.model = if self.model.as_ref() == "Claude Sonnet" { "Claude Haiku".into() } else { "Claude Sonnet".into() };
                 cx.notify();
@@ -1170,6 +1174,7 @@ impl BrowseView {
                 name: "PGI vs school indicators · 5 states".into(),
                 kind: FolderKind::Task {
                     state: agent_state(self.story.face()),
+                    face: self.story.face(),
                     status: self.story.status(),
                     needs_you: matches!(self.story.face(), TaskFace::NeedsYou),
                 },
@@ -1181,6 +1186,7 @@ impl BrowseView {
                 name: "Fix ledger chart".into(),
                 kind: FolderKind::Task {
                     state: agent_state(TaskFace::Done),
+                    face: TaskFace::Done,
                     status: SharedString::from(format!("{} · 1 tab", TaskFace::Done.status_word())),
                     needs_you: false,
                 },
