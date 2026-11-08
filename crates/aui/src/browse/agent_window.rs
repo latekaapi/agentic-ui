@@ -1239,9 +1239,17 @@ fn agent_body(
                 );
             }
             AgentItem::Answer(text) => {
-                body = body.child(
-                    div().w_full().ui(BODY_TEXT).line_height(relative(1.65)).text_color(p.ink).child(text.clone()),
-                );
+                // Markdown, as the transcript draws it: a summary comes back with
+                // headings, lists and links (harness R3).
+                let style = crate::transcript::ProseStyle {
+                    ink: p.ink,
+                    code_ink: p.ink,
+                    code_bg: p.surface_3,
+                    size: BODY_TEXT,
+                    line_height: 1.65,
+                    paragraph_gap: scale::SP_2,
+                };
+                body = body.child(div().w_full().text_color(p.ink).child(crate::transcript::markdown(item_id, text.clone(), style)));
             }
             AgentItem::HandedOff { title, detail } => {
                 body = body.child(
