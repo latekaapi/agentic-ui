@@ -429,7 +429,9 @@ pub fn ask_height(has_site_actions: bool, cx: &App) -> f32 {
 pub fn answer_lines(answer: &str, inner: f32, window: &Window, cx: &App) -> usize {
     let width = (inner - ROW_PAD_X * 2.0).max(40.0);
     let size = aui_tokens::scaled(BODY_TEXT).to_pixels(window.rem_size());
-    let font = gpui::font(scale::FONT_UI);
+    // The family the text actually draws in: the theme's, which gpui-kit's
+    // Root (and a host's float) puts on the tree — not `FONT_UI`.
+    let font = gpui::font(gpui_kit::component::ActiveTheme::theme(cx).font_family.clone());
     let run = gpui::TextRun { len: answer.len(), font, color: cx.aui().colors.ink, background_color: None, underline: None, strikethrough: None };
     let lines = window
         .text_system()
@@ -550,12 +552,21 @@ impl RenderOnce for AgentLine {
             LineState::Drafted { label } => {
                 let undo = button((id.clone(), "undo"), "Undo").ghost().on_click(click(handler.clone(), LineIntent::Undo));
                 let done = button((id.clone(), "done"), "Done").primary().on_click(click(handler.clone(), LineIntent::Done));
+                // Narrow, the words give way to the buttons: "not sent" goes
+                // first, then the label truncates.
                 let label = h_flex()
                     .min_w(px(0.0))
+                    .overflow_hidden()
                     .gap(px(4.0))
-                    .child(div().flex_none().child(label.clone()))
-                    .child(div().flex_none().text_color(p.ink_3).child("·"))
-                    .child(div().min_w(px(0.0)).truncate().text_color(p.ink_2).child("not sent"));
+                    .child(div().min_w(px(0.0)).flex_shrink(1.0).truncate().child(label.clone()))
+                    .child(
+                        div()
+                            .min_w(px(0.0))
+                            .flex_shrink(100.0)
+                            .truncate()
+                            .text_color(p.ink_2)
+                            .child(SharedString::from(format!("· {}", "not sent"))),
+                    );
                 drafted_row(&id, label, vec![undo.into_any_element(), done.into_any_element()], &p).into_any_element()
             }
         }
@@ -757,7 +768,9 @@ fn answer_card(
                         .child(div().min_w(px(0.0)).truncate().ui(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.ink_2).child(format!("From {source}"))),
                 );
             }
-            let cont = button((id.clone(), "continue"), "Continue in a card")
+            // Narrow, the row holds Copy, this and ×: the short label fits.
+            let cont = button((id.clone(), "continue"), if compact { "In a card" } else { "Continue in a card" })
+                .accessibility_label("Continue in a card")
                 .when(!compact, |b| b.trailing(kbd("⌘E")))
                 .on_click(click(handler.clone(), LineIntent::Expand));
             col = col.child(

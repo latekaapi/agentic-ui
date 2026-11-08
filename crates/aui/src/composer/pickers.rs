@@ -159,6 +159,8 @@ pub struct PickerMenu {
     width: f32,
     max_width: f32,
     align_end: bool,
+    /// Hang below the chip instead of above it.
+    drop_down: bool,
     force_sub: Option<usize>,
     detail_lines: usize,
 }
@@ -205,6 +207,7 @@ fn menu(id: impl Into<ElementId>, title: &'static str, rows: Vec<PickerRow>, sel
         width: MENU_W_MIN,
         max_width: MENU_W_MAX,
         align_end: false,
+        drop_down: false,
         force_sub: None,
         detail_lines: 1,
     }
@@ -225,6 +228,13 @@ impl PickerMenu {
     /// submenu then opens to the panel's left.
     pub fn align_end(mut self, end: bool) -> Self {
         self.align_end = end;
+        self
+    }
+
+    /// Hang below the chip instead of above it — for a chip near the top of
+    /// a page (a Settings row), where the panel above would leave the window.
+    pub fn drop_down(mut self, down: bool) -> Self {
+        self.drop_down = down;
         self
     }
 
@@ -413,7 +423,8 @@ impl RenderOnce for PickerMenu {
             }
             panel = panel.entry(item);
         }
-        let menu = div().id(id.clone()).absolute().bottom(px(MENU_BOTTOM)).max_w(px(self.max_width));
+        let menu = div().id(id.clone()).absolute().max_w(px(self.max_width));
+        let menu = if self.drop_down { menu.top(px(MENU_BOTTOM)) } else { menu.bottom(px(MENU_BOTTOM)) };
         let mut menu = if self.align_end { menu.right(px(0.0)) } else { menu.left(px(0.0)) }.child({
             let nest = nest.clone();
             div().on_prepaint(move |bounds, _, cx| nest.update(cx, |n, _| n.panel = Some(bounds))).child(panel)

@@ -248,7 +248,7 @@ pub fn build_line_answer(window: &mut Window, cx: &mut App) -> AnyElement {
         LineState::Drafted { label: "Draft ready".into() },
     ];
     let mut columns = h_flex().items_start().gap(px(24.0));
-    for (c, width) in [STRIP_W, 356.0].into_iter().enumerate() {
+    for (c, width) in [STRIP_W, 356.0, 190.0].into_iter().enumerate() {
         let compact = width < APPROVAL_COMPACT_BELOW;
         let mut stack = v_flex().w(px(width)).gap(px(STRIP_GAP));
         for (i, state) in states.iter().enumerate() {
