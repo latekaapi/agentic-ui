@@ -1224,8 +1224,28 @@ fn agent_body(
 ) -> gpui::AnyElement {
     let p = cx.aui().colors;
     let last = transcript.items.len().saturating_sub(1);
+    // Follow the tail: when the body gains content (a step, the answer, a
+    // question) it scrolls to its end, as a transcript does — unless the
+    // person scrolled up to read, in which case it stays put.
+    let follow = window.use_keyed_state((id.clone(), "body-follow"), cx, |_, _| BodyFollow::default());
+    let print = body_print(transcript);
+    let (scroll, changed) = follow.update(cx, |f, _| {
+        let changed = f.print != print;
+        f.print = print;
+        (f.scroll.clone(), changed)
+    });
+    if changed {
+        let max = scroll.max_offset().y;
+        let at_end = max <= px(1.0) || -scroll.offset().y >= max - px(24.0);
+        if at_end || follow.read(cx).first {
+            scroll.scroll_to_bottom();
+            aui_motion::request_frame(window);
+        }
+        follow.update(cx, |f, _| f.first = false);
+    }
     let mut body = v_flex()
         .id((id.clone(), "body"))
+        .track_scroll(&scroll)
         .flex_1()
         .min_h(px(0.0))
         .overflow_y_scroll()
@@ -1349,6 +1369,27 @@ fn agent_body(
     body.into_any_element()
 }
 
+/// The card body's scroll and what it last showed, for following the tail.
+struct BodyFollow {
+    scroll: gpui::ScrollHandle,
+    print: u64,
+    first: bool,
+}
+
+impl Default for BodyFollow {
+    fn default() -> Self {
+        Self { scroll: gpui::ScrollHandle::new(), print: 0, first: true }
+    }
+}
+
+/// A fingerprint of the body's content: changes when anything is added or grows.
+fn body_print(transcript: &AgentTranscript) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    format!("{:?}", transcript.items).hash(&mut h);
+    h.finish()
+}
+
 /// One steps card, reusing the transcript activity group: ✓/spinner rows
 /// under the running step's line (or `Done`).
 fn steps_card(id: impl Into<ElementId>, steps: &[Step]) -> impl IntoElement {
@@ -1394,6 +1435,36 @@ fn card_footer(
     cx: &mut App,
 ) -> gpui::AnyElement {
     let p = cx.aui().colors;
+    // ↩ steers now and ⌘↩ queues (docs/27 §4.5), as the line's ask row
+    // sends through `Confirm`; blank text sends nothing.
+    let current = {
+        let input = input.clone();
+        move |cx: &App| {
+            let text = input.read(cx).value().trim().to_string();
+            (!text.is_empty()).then_some(text)
+        }
+    };
+    let confirm = {
+        let handler = handler.clone();
+        let current = current.clone();
+        move |_: &Confirm, w: &mut Window, cx: &mut App| {
+            if let (Some(h), Some(text)) = (&handler, current(cx)) {
+                h(CardIntent::Send(text), w, cx);
+            }
+        }
+    };
+    let queue = {
+        let handler = handler.clone();
+        move |event: &gpui::KeyDownEvent, w: &mut Window, cx: &mut App| {
+            let k = &event.keystroke;
+            if k.key == "enter" && k.modifiers.platform {
+                if let (Some(h), Some(text)) = (&handler, current(cx)) {
+                    h(CardIntent::Queue(text), w, cx);
+                }
+                cx.stop_propagation();
+            }
+        }
+    };
     v_flex()
         .w_full()
         .gap(px(6.0))
@@ -1407,6 +1478,9 @@ fn card_footer(
                 .items_center()
                 .gap(px(ROW_GAP))
                 .px(px(ROW_PAD_X))
+                .key_context(MENU_CONTEXT)
+                .on_action(confirm)
+                .capture_key_down(queue)
                 .child(multiline_input((id.clone(), "steer"), "Steer the agent", input, window, cx))
                 .child(
                     icon_button((id.clone(), "send"), IconName::ArrowUp)
