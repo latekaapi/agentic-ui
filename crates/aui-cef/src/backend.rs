@@ -846,12 +846,6 @@ pub fn media_kinds_from_bits(bits: u32) -> Vec<PermissionKind> {
     kinds
 }
 
-/// Whether a popup disposition asks for the foreground tab: a new foreground
-/// tab — and a new window, which would have shown itself — does; background
-/// tabs, plain popups and everything else open behind. Pure, so the rule is
-/// unit-testable without a browser.
-/// Whether a popup request is a link opened in a new tab (cancelled and
-/// re-opened by the host as one of its tabs) rather than a scripted popup.
 /// Whether `browser` is some other browser than the page's own: DevTools,
 /// which CEF hands the page's client (see [`Shared::browser_id`]). Every
 /// handler that touches the page returns CEF's default for it, so DevTools
@@ -868,12 +862,28 @@ fn is_devtools_url(url: &str) -> bool {
     url.starts_with("devtools://") || url.starts_with("devtools:")
 }
 
+/// Whether a popup request is a link opened in a new tab (cancelled and
+/// re-opened by the host as one of its tabs) rather than a scripted popup.
 fn opens_as_host_tab(disposition: WindowOpenDisposition) -> bool {
     disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB
         || disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB
         || disposition == WindowOpenDisposition::SINGLETON_TAB
 }
 
+/// Whether a link the person opened specially (⌘-click, middle-click,
+/// ⇧-click: `OnOpenURLFromTab`) becomes a host tab: every new-tab or
+/// new-window disposition does — none has a script relationship to keep.
+/// The current tab and save-to-disk stay with Chromium.
+fn link_opens_as_host_tab(disposition: WindowOpenDisposition) -> bool {
+    opens_as_host_tab(disposition)
+        || disposition == WindowOpenDisposition::NEW_WINDOW
+        || disposition == WindowOpenDisposition::NEW_POPUP
+}
+
+/// Whether a popup disposition asks for the foreground tab: a new foreground
+/// tab — and a new window, which would have shown itself — does; background
+/// tabs, plain popups and everything else open behind. Pure, so the rule is
+/// unit-testable without a browser.
 fn popup_foreground(disposition: WindowOpenDisposition) -> bool {
     disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB || disposition == WindowOpenDisposition::NEW_WINDOW
 }
@@ -1367,6 +1377,40 @@ wrap_request_handler! {
             } else {
                 1
             }
+        }
+
+        // A link opened "in a new tab" by the person — ⌘-click, middle-click,
+        // ⇧-click — comes here, not to `on_before_popup` (that one sees only
+        // `target=_blank` and scripts). Left to Chrome style it opened its own
+        // top-level Chromium window, which ⌘W never reached and which left the
+        // page frozen behind it (owner, 9 Nov). Cancel it and hand the host
+        // the URL to open as one of its tabs, like a `target=_blank` link.
+        fn on_open_urlfrom_tab(
+            &self,
+            browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            target_url: Option<&CefString>,
+            target_disposition: WindowOpenDisposition,
+            _user_gesture: ::std::os::raw::c_int,
+        ) -> ::std::os::raw::c_int {
+            if foreign(&self.shared, browser.as_deref()) {
+                return 0;
+            }
+            let url = target_url.map(|u| u.to_string()).unwrap_or_default();
+            if std::env::var("AUI_CEF_POPUP_TRACE").as_deref() == Ok("1") {
+                eprintln!("aui-cef: open-from-tab {url} disposition={target_disposition:?}");
+            }
+            if !link_opens_as_host_tab(target_disposition) || url.is_empty() || is_devtools_url(&url) {
+                return 0;
+            }
+            if !cef_navigation_allowed(&url) {
+                return 1;
+            }
+            let foreground = popup_foreground(target_disposition);
+            let mut s = locked(&self.shared);
+            s.open_requests.push((url.clone(), foreground));
+            s.events.push(WebEvent::PopupOpened { url, foreground });
+            1
         }
 
         fn on_render_process_terminated(
@@ -2928,6 +2972,25 @@ mod tests {
         assert!(opens_as_host_tab(WindowOpenDisposition::NEW_BACKGROUND_TAB));
         assert!(!opens_as_host_tab(WindowOpenDisposition::NEW_POPUP));
         assert!(!opens_as_host_tab(WindowOpenDisposition::NEW_WINDOW));
+    }
+
+    /// ⌘-click, middle-click and ⇧-click on a link (`OnOpenURLFromTab`) open
+    /// a host tab, never Chromium's own window; the current tab and
+    /// save-to-disk stay Chromium's (owner 9 Nov: ⌘-click opened a window).
+    #[test]
+    fn links_opened_specially_become_host_tabs() {
+        for disposition in [
+            WindowOpenDisposition::NEW_BACKGROUND_TAB,
+            WindowOpenDisposition::NEW_FOREGROUND_TAB,
+            WindowOpenDisposition::SINGLETON_TAB,
+            WindowOpenDisposition::NEW_WINDOW,
+            WindowOpenDisposition::NEW_POPUP,
+        ] {
+            assert!(link_opens_as_host_tab(disposition), "{disposition:?} should become a host tab");
+        }
+        for disposition in [WindowOpenDisposition::CURRENT_TAB, WindowOpenDisposition::SAVE_TO_DISK] {
+            assert!(!link_opens_as_host_tab(disposition), "{disposition:?} stays with Chromium");
+        }
     }
     /// The PDF viewer's frame is allowed; other extensions and app schemes
     /// stay cancelled.
