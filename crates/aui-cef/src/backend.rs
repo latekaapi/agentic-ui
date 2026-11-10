@@ -619,6 +619,19 @@ fn eval_answer(result: &Value) -> Result<String, String> {
 /// Chrome's zoom menu steps, in percent.
 pub const ZOOM_STEPS: [u16; 17] = [25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500];
 
+/// Tell every open page's window that Chromium's theme changed, as macOS
+/// does on an appearance or display change — `CefWindow::ThemeChanged`. A
+/// capture seam: the page ground must stay white through it (owner, 9 Nov:
+/// Hacker News drew dark margins after a long session).
+pub fn notify_theme_changed() {
+    let windows: Vec<cef::Window> = OPEN.with(|open| {
+        open.borrow().iter().filter_map(Weak::upgrade).filter_map(|page| locked(&page).window.clone()).collect()
+    });
+    for window in windows {
+        window.theme_changed();
+    }
+}
+
 /// Snaps `percent` to the nearest Chrome zoom step (ties go to the smaller step).
 pub fn snap_zoom_percent(percent: u16) -> u16 {
     let mut best = ZOOM_STEPS[0];
@@ -1940,7 +1953,18 @@ wrap_browser_view_delegate! {
         popup_id: Option<i32>,
     }
 
-    impl ViewDelegate {}
+    // A theme change (a macOS appearance switch, light ⇄ dark) re-applies
+    // Chromium's theme colours to every view AFTER ours: the page view's
+    // ground went to the dark theme's grey, so a page with no background of
+    // its own (Hacker News' margins) drew dark until relaunch (owner 9 Nov,
+    // reproduced by switching Appearance). Put the white ground back each time.
+    impl ViewDelegate {
+        fn on_theme_changed(&self, view: Option<&mut View>) {
+            if let Some(view) = view {
+                view.set_background_color(PAGE_GROUND);
+            }
+        }
+    }
 
     impl BrowserViewDelegate {
         fn chrome_toolbar_type(&self, _browser_view: Option<&mut BrowserView>) -> ChromeToolbarType {
@@ -2027,11 +2051,31 @@ wrap_window_delegate! {
         browser_view: RefCell<Option<BrowserView>>,
     }
 
-    impl ViewDelegate {}
+    // The page window's ground after a theme change (see `AuiViewDelegate`).
+    impl ViewDelegate {
+        fn on_theme_changed(&self, view: Option<&mut View>) {
+            if let Some(view) = view {
+                view.set_background_color(PAGE_GROUND);
+            }
+        }
+    }
 
     impl PanelDelegate {}
 
     impl WindowDelegate {
+        // Called once the OS or Chrome theme colours have been applied to
+        // the window: the window and its page view both get the white
+        // ground back (the views' own `on_theme_changed` does too; this
+        // covers a view CEF re-themes without notifying its delegate).
+        fn on_theme_colors_changed(&self, window: Option<&mut cef::Window>, _chrome_theme: ::std::os::raw::c_int) {
+            if let Some(window) = window {
+                window.set_background_color(PAGE_GROUND);
+            }
+            if let Some(view) = self.browser_view.borrow().clone() {
+                View::from(&view).set_background_color(PAGE_GROUND);
+            }
+        }
+
         fn on_window_created(&self, window: Option<&mut cef::Window>) {
             let view = self.browser_view.borrow().clone();
             let (Some(window), Some(view)) = (window, view) else { return };
