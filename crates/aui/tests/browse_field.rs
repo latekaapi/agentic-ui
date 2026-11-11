@@ -49,6 +49,8 @@ fn kinds(rows: &[FieldRow]) -> Vec<String> {
             FieldRowKind::Tab { id } => format!("tab:{id}"),
             FieldRowKind::History { url } => format!("history:{url}"),
             FieldRowKind::Command { id } => format!("command:{id}"),
+            FieldRowKind::Bookmark { url } => format!("bookmark:{url}"),
+            FieldRowKind::Folder { id } => format!("folder:{id}"),
         })
         .collect()
 }
