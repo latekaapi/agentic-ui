@@ -972,7 +972,28 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                         .child(div().text_color(p.fg).child(browse.host.clone()))
                         .child(div().truncate().text_color(p.fg_muted).child(browse.path.clone())),
                 )
-                .when(model.hovered.as_deref() == Some("address"), |d| d.child(ctx.chip("⌘L", cx)));
+                .when(browse.bookmarked, |d| {
+                    // The filled ★: this page is bookmarked; a click opens
+                    // the bookmark popover (name, folder, Remove).
+                    let c = ctx.clone();
+                    record_ax_label("Edit bookmark");
+                    d.child(
+                        div()
+                            .id(ctx.child("bookmark"))
+                            .flex_none()
+                            .cursor_pointer()
+                            .role(gpui::Role::Button)
+                            .aria_label("Edit bookmark")
+                            .tooltip(crate::data::tip_within("Edit bookmark  ⌘D", ctx.width))
+                            .tooltip_show_delay(crate::data::TIP_DELAY)
+                            .on_click(move |_, w, cx| {
+                                cx.stop_propagation();
+                                c.emit(SidebarIntent::Browse(BrowseIntent::Bookmark), w, cx);
+                            })
+                            .child(icon(IconName::StarFill).size(px(14.0)).color(p.fg)),
+                    )
+                })
+.when(model.hovered.as_deref() == Some("address"), |d| d.child(ctx.chip("⌘L", cx)));
             record_ax_label("Address");
             list = list.item(next, surface(2, address).shape(Shape::Item).into_any_element());
             targets.insert(next, Target::Intent(SidebarIntent::Browse(BrowseIntent::Address)));

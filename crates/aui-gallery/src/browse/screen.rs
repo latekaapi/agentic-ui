@@ -892,7 +892,7 @@ impl BrowseView {
                     let page = StoryPage::Generic(url.clone().into());
                     self.navigate(&url, page, cx);
                 }
-                FieldRowKind::History { url } => {
+                FieldRowKind::History { url } | FieldRowKind::Bookmark { url } => {
                     let url = url.to_string();
                     let title = url.split('/').nth(2).unwrap_or(&url).to_string();
                     let page = StoryPage::Generic(title.into());
@@ -918,6 +918,7 @@ impl BrowseView {
                     self.want_focus = Some(FocusKind::Line);
                     cx.notify();
                 }
+                FieldRowKind::Folder { .. } => {}
                 FieldRowKind::Command { id } => {
                     self.field_open = false;
                     match id.as_ref() {
@@ -938,8 +939,8 @@ impl BrowseView {
                         index.and_then(|i| self.space_tabs().get(i).map(|t| t.url.clone()))
                     }
                     FieldRowKind::Open { url } | FieldRowKind::Clipboard { url } => Some(url.to_string()),
-                    FieldRowKind::History { url } => Some(url.to_string()),
-                    FieldRowKind::Ask | FieldRowKind::Search | FieldRowKind::Task | FieldRowKind::Command { .. } => None,
+                    FieldRowKind::History { url } | FieldRowKind::Bookmark { url } => Some(url.to_string()),
+                    FieldRowKind::Ask | FieldRowKind::Search | FieldRowKind::Task | FieldRowKind::Command { .. } | FieldRowKind::Folder { .. } => None,
                 };
                 if let Some(url) = url {
                     let tag = self.space.tag();
@@ -959,6 +960,7 @@ impl BrowseView {
                     self.field_editor.update(cx, |state, cx| state.set_value(full.as_str(), window, cx));
                 }
             }
+            FieldIntent::Unscope => {}
             FieldIntent::Close => {
                 self.field_open = false;
                 cx.notify();
@@ -1199,6 +1201,7 @@ impl BrowseView {
         model.browse = Some(BrowseModel {
             host: address.host,
             path: address.path,
+            bookmarked: false,
             can_go_back: !self.back.is_empty(),
             can_go_forward: !self.forward.is_empty(),
             pins: vec![

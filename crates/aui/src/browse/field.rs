@@ -68,6 +68,18 @@ pub enum FieldRowKind {
         /// The address the entry points at.
         url: SharedString,
     },
+    /// Open a bookmark (R4). Its hint is the folder it sits in, as plain
+    /// text like a history row's word.
+    Bookmark {
+        /// The address the bookmark points at.
+        url: SharedString,
+    },
+    /// A bookmarks folder in the scoped Bookmarks view (R4): confirming
+    /// opens it in place. Its hint is the count, as plain text.
+    Folder {
+        /// Stable identity, echoed back to the host.
+        id: SharedString,
+    },
     /// Run a browser command or setting.
     Command {
         /// The command the host runs.
@@ -368,7 +380,7 @@ pub fn completion(query: &str, rows: &[FieldRow]) -> Option<String> {
                 Some(host) => host,
                 None => continue,
             },
-            FieldRowKind::History { url } => url,
+            FieldRowKind::History { url } | FieldRowKind::Bookmark { url } => url,
             _ => continue,
         };
         let candidate_folded = candidate.to_lowercase();
@@ -436,6 +448,8 @@ pub enum FieldIntent {
     Complete,
     /// Close the Field.
     Close,
+    /// Leave the scope pill's scope (R4), back to every kind of row.
+    Unscope,
 }
 
 /// The intent one [`FieldKey`] means over `model`, or `None` when the key
@@ -588,6 +602,7 @@ pub struct Field {
     selected: usize,
     complete_to: Option<String>,
     query_slot: Option<gpui::AnyElement>,
+    scope: Option<SharedString>,
     on_choose: Option<ChooseHandler>,
     on_close: Option<CloseHandler>,
     on_query_change: Option<QueryHandler>,
@@ -610,6 +625,7 @@ pub fn field(id: impl Into<ElementId>, model: &FieldModel) -> Field {
         selected: model.selected,
         complete_to,
         query_slot: None,
+        scope: None,
         on_choose: None,
         on_close: None,
         on_query_change: None,
@@ -622,6 +638,14 @@ impl Field {
     /// The ink-4 text shown in the input row while the query is empty.
     pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
         self.placeholder = placeholder.into();
+        self
+    }
+
+    /// A scope pill before the query (R4: `Bookmarks`, `History`): the
+    /// rows are only that kind. The host owns leaving the scope (⌫ on an
+    /// empty query, the pill's ×) through [`FieldIntent::Unscope`].
+    pub fn scope(mut self, scope: Option<SharedString>) -> Self {
+        self.scope = scope;
         self
     }
 
@@ -687,6 +711,8 @@ fn group_caption(kind: &FieldRowKind) -> Option<&'static str> {
     match kind {
         FieldRowKind::Open { .. } | FieldRowKind::Clipboard { .. } | FieldRowKind::Ask | FieldRowKind::Search | FieldRowKind::Task => None,
         FieldRowKind::Tab { .. } => Some("TABS"),
+        FieldRowKind::Bookmark { .. } => Some("BOOKMARKS"),
+        FieldRowKind::Folder { .. } => Some("FOLDERS"),
         FieldRowKind::History { .. } => Some("HISTORY"),
         FieldRowKind::Command { .. } => Some("COMMANDS"),
     }
@@ -702,6 +728,8 @@ fn row_icon(kind: &FieldRowKind) -> IconName {
         FieldRowKind::Task => IconName::Zap,
         FieldRowKind::Tab { .. } => IconName::Globe,
         FieldRowKind::History { .. } => IconName::Clock,
+        FieldRowKind::Bookmark { .. } => IconName::StarFill,
+        FieldRowKind::Folder { .. } => IconName::Folder,
         FieldRowKind::Command { .. } => IconName::Slash,
     }
 }
@@ -789,6 +817,7 @@ impl RenderOnce for Field {
                 &self.placeholder,
                 &self.complete_to,
                 self.query_slot,
+                self.scope.clone(),
                 &self.on_close,
                 &self.on_query_change,
                 &self.on_intent,
@@ -879,10 +908,35 @@ fn input_row(
     placeholder: &SharedString,
     complete_to: &Option<String>,
     slot: Option<gpui::AnyElement>,
+    scope: Option<SharedString>,
     on_close: &Option<CloseHandler>,
     on_query_change: &Option<QueryHandler>,
     on_intent: &Option<IntentHandler>,
 ) -> impl IntoElement {
+    let pill = scope.map(|scope| {
+        let label = SharedString::from(format!("Only {scope}, leave scope"));
+        record_ax_label(&label);
+        let glyph = if scope.as_ref() == "Bookmarks" { IconName::StarFill } else { IconName::Clock };
+        let mut pill = h_flex()
+            .id((id.clone(), "scope"))
+            .flex_none()
+            .h(px(22.0))
+            .gap(px(5.0))
+            .px(px(7.0))
+            .rounded(px(scale::R_SM))
+            .bg(p.surface_3)
+            .ui(scale::FS_12)
+            .text_color(p.ink_2)
+            .child(icon(glyph).size(px(11.0)).color(p.ink_3))
+            .child(scope.clone())
+            .child(div().text_color(p.ink_3).child("×"))
+            .role(gpui::Role::Button)
+            .aria_label(label);
+        if let Some(handler) = on_intent.clone() {
+            pill = pill.cursor_pointer().on_click(move |_, w, cx| handler(FieldIntent::Unscope, w, cx));
+        }
+        pill
+    });
     let mut esc = div().id((id.clone(), "esc")).flex_none().ml_auto().child(kbd("esc"));
     if let Some(handler) = on_intent.clone() {
         esc = esc
@@ -913,6 +967,7 @@ fn input_row(
         .border_color(p.line)
         .ui(Q_TEXT)
         .child(icon(IconName::Search).size(px(Q_ICON)).color(p.ink_3))
+        .children(pill)
         .child(text)
         .child(esc)
 }
@@ -1000,9 +1055,10 @@ fn field_row(
     if let Some(detail) = &row.detail {
         el = el.child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().mono(DETAIL_TEXT).text_color(p.ink_3).child(detail.clone()));
     }
-    // A history row's hint is a relative word, not a keystroke: plain faint
-    // text at the right edge. Every other hint is a keycap.
-    if matches!(row.kind, FieldRowKind::History { .. }) {
+    // A history row's hint is a relative word, a bookmark's its folder, a
+    // folder's its count: plain faint text at the right edge. Every other
+    // hint is a keycap.
+    if matches!(row.kind, FieldRowKind::History { .. } | FieldRowKind::Bookmark { .. } | FieldRowKind::Folder { .. }) {
         el = el.child(div().flex_none().ml_auto().ui(DETAIL_TEXT).text_color(p.ink_3).child(row.hint.clone()));
     } else {
         el = el.child(div().flex_none().ml_auto().child(kbd(row.hint.clone())));

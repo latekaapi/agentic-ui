@@ -337,6 +337,9 @@ pub struct BrowseModel {
     pub host: SharedString,
     /// The path after it, drawn muted.
     pub path: SharedString,
+    /// The page is bookmarked (R4): the address line keeps a filled ★,
+    /// which opens the bookmark popover.
+    pub bookmarked: bool,
     /// Whether Back is enabled.
     pub can_go_back: bool,
     /// Whether Forward is enabled.
@@ -544,6 +547,8 @@ pub enum BrowseIntent {
     /// The site button (the shield) was clicked: open the site-information
     /// panel — connection and certificate, like Chrome's.
     SiteInfo,
+    /// The address line's ★ was clicked (R4): open the bookmark popover.
+    Bookmark,
     /// Back.
     Back,
     /// Forward.
@@ -747,6 +752,7 @@ pub fn sample_model() -> SidebarModel {
         browse: Some(BrowseModel {
             host: "pgi.udiseplus.gov.in".into(),
             path: "/#/home".into(),
+            bookmarked: false,
             can_go_back: true,
             can_go_forward: false,
             pins: vec![
