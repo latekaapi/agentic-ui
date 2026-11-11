@@ -407,12 +407,18 @@ pub fn browse_menu(id: impl Into<ElementId>, browse: &BrowseModel, on_intent: Op
             (format!("task-{session}"), format!("Task folder {name}").into(), rows, None)
         }
         BrowseMenuTarget::Space { id: space, last } => {
-            let name = browse.spaces.iter().find(|s| &s.id == space).map(|s| s.name.clone()).unwrap_or_default();
+            let found = browse.spaces.iter().find(|s| &s.id == space);
+            let name = found.map(|s| s.name.clone()).unwrap_or_default();
+            let own = found.is_some_and(|s| s.own_signins);
             let act = |a: SpaceAction| b(BrowseIntent::Space(space.clone(), a));
             (
                 format!("space-{space}"),
                 format!("Space {name}").into(),
-                vec![MenuRow::new("Rename", act(SpaceAction::Rename)), MenuRow::new("Delete space", act(SpaceAction::Delete)).danger().disabled(*last).after_separator()],
+                vec![
+                    MenuRow::new("Rename", act(SpaceAction::Rename)),
+                    MenuRow::new(if own { "Share sign-ins with other spaces…" } else { "Use its own sign-ins…" }, act(SpaceAction::SignIns)),
+                    MenuRow::new("Delete space", act(SpaceAction::Delete)).danger().disabled(*last).after_separator(),
+                ],
                 None,
             )
         }
@@ -497,7 +503,7 @@ pub fn browse_menu_size(menu: &BrowseMenu, folders: usize, cx: &App) -> gpui::Si
         }
         BrowseMenuTarget::Folder(_) => (3, 1, None),
         BrowseMenuTarget::TaskFolder { running, .. } => (2 + usize::from(*running), 1, None),
-        BrowseMenuTarget::Space { .. } => (2, 1, None),
+        BrowseMenuTarget::Space { .. } => (3, 1, None),
         BrowseMenuTarget::Page { safari, devtools, .. } => (3 + usize::from(*safari) + 2 + usize::from(*devtools) + 1, 3, None),
     };
     let height = metrics.control * rows as f32 + separator * separators as f32 + inset;
@@ -561,8 +567,9 @@ mod tests {
             close(browse_menu_size(&task_run, 0, cx).height - browse_menu_size(&task_idle, 0, cx).height, control);
             let space = menu(BrowseMenuTarget::Space { id: "p".into(), last: true });
             let folder = menu(BrowseMenuTarget::Folder("f".into()));
-            close(browse_menu_size(&folder, 0, cx).height - browse_menu_size(&space, 0, cx).height, control);
-            close(browse_menu_size(&task_idle, 0, cx).height, browse_menu_size(&space, 0, cx).height);
+            // R4: the space menu gained "Use its own sign-ins…" — three rows, like a folder's.
+            close(browse_menu_size(&folder, 0, cx).height - browse_menu_size(&space, 0, cx).height, px(0.0));
+            close(browse_menu_size(&task_idle, 0, cx).height + control, browse_menu_size(&space, 0, cx).height);
             // The folder count only matters through the tab menu's submenu.
             assert_eq!(browse_menu_size(&folder, 5, cx), browse_menu_size(&folder, 0, cx));
         });

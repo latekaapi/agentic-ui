@@ -1215,7 +1215,7 @@ impl BrowseView {
             task_folders,
             spaces: [Space::Education, Space::Personal]
                 .iter()
-                .map(|space| BrowseSpace { id: space.name().into(), name: space.name().into() })
+                .map(|space| BrowseSpace { id: space.name().into(), name: space.name().into(), own_signins: false })
                 .collect(),
             space: match self.space {
                 Space::Personal => 1,

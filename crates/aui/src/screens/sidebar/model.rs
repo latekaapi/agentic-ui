@@ -187,6 +187,9 @@ pub struct BrowseSpace {
     pub id: SharedString,
     /// The chip's label.
     pub name: SharedString,
+    /// R4: the space keeps its own sign-ins (cookies and site data): the chip
+    /// wears a lock.
+    pub own_signins: bool,
 }
 
 /// What a Browse name field is naming.
@@ -328,6 +331,8 @@ pub enum SpaceAction {
     Rename,
     /// Delete space.
     Delete,
+    /// R4: give the space its own sign-ins, or share them again.
+    SignIns,
 }
 
 /// Browse mode's rows.
@@ -362,9 +367,9 @@ pub struct BrowseModel {
     pub editing: Option<BrowseEditing>,
     /// The open right-click menu.
     pub menu: Option<BrowseMenu>,
-    /// The downloads button in the page controls, before ✦ and ⋯ (docs/41
-    /// §2.11): `None` while no download is listed; `Some(true)` draws its
-    /// 6 px foreground dot while one runs.
+    /// The downloads button, in the footer (R4, board R4Daily 4a; it was in
+    /// the page controls): always there; `Some(true)` draws its 6 px
+    /// foreground dot while one runs. Its popover opens above it.
     pub downloads: Option<bool>,
 }
 
@@ -562,6 +567,9 @@ pub enum BrowseIntent {
     /// The downloads button, with its bounds in window coordinates: the
     /// popover opens under it. A click while it is open closes it.
     Downloads(Option<gpui::Bounds<gpui::Pixels>>),
+    /// The footer's extensions button (R4), with its bounds in window
+    /// coordinates: the popover opens above it.
+    Extensions(Option<gpui::Bounds<gpui::Pixels>>),
     /// The page menu (the page controls' ⋯), with the button's bounds in
     /// window coordinates: the menu opens under it (FF: 6 px below, right
     /// edges aligned). A click while it is open closes it.
@@ -793,9 +801,9 @@ pub fn sample_model() -> SidebarModel {
                 },
             ],
             spaces: vec![
-                BrowseSpace { id: "personal".into(), name: "Personal".into() },
-                BrowseSpace { id: "work".into(), name: "Work".into() },
-                BrowseSpace { id: "lakshya".into(), name: "Lakshya".into() },
+                BrowseSpace { id: "personal".into(), name: "Personal".into(), own_signins: false },
+                BrowseSpace { id: "work".into(), name: "Work".into(), own_signins: true },
+                BrowseSpace { id: "lakshya".into(), name: "Lakshya".into(), own_signins: false },
             ],
             space: 0,
             editing: None,

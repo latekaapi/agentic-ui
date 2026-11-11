@@ -1027,29 +1027,6 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 .child(control(ctx, "reload", IconName::Refresh, "Reload", BrowseIntent::Reload, true, cx))
                 .child(control(ctx, "new-tab-button", IconName::Plus, "New tab", BrowseIntent::NewTab, true, cx))
                 .child(div().flex_1())
-                // Downloads (docs/41 §2.11): present only while downloads
-                // list; a 6 px foreground dot at the glyph's top-right while
-                // one runs. Its popover opens under it.
-                .children(browse.downloads.map(|running| {
-                    let anchor: Rc<Cell<Option<gpui::Bounds<Pixels>>>> = Rc::new(Cell::new(None));
-                    let at = anchor.clone();
-                    let c = ctx.clone();
-                    let button = icon_button(ctx.child("browse-downloads"), IconName::Download)
-                        .tooltip_within(ctx.width)
-                        .ghost()
-                        .size(ButtonSize::Md)
-                        .icon_size(cx.aui().metrics.icon)
-                        .accessibility_label(if running { "Downloads, one running" } else { "Downloads" })
-                        .on_click(move |_, w, cx| {
-                            cx.stop_propagation();
-                            c.emit(SidebarIntent::Browse(BrowseIntent::Downloads(at.get())), w, cx);
-                        });
-                    div()
-                        .relative()
-                        .on_prepaint(move |bounds, _, _| anchor.set(Some(bounds)))
-                        .child(button)
-                        .when(running, |d| d.child(div().absolute().top(px(7.0)).right(px(7.0)).size(px(6.0)).rounded_full().bg(p.fg)))
-                }))
                 .child(control(ctx, "ask", IconName::Sparkle, "Ask Claude about this page", BrowseIntent::Ask, true, cx))
                 .child({
                     // The page menu opens under its button, so the click
@@ -1515,8 +1492,10 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 .flex()
                 .items_center()
                 .role_in(TextRole::Caption, cx)
+                .gap(px(scale::SP_1))
                 .text_color(if on { p.fg } else { p.fg_muted })
-                .child(space.name.clone());
+                .child(space.name.clone())
+                .when(space.own_signins, |d| d.child(icon(IconName::Lock).size(px(11.0)).color(p.fg_muted)));
             let chip: AnyElement = if on { surface(3, chip).shape(Shape::Pill).into_any_element() } else { chip.into_any_element() };
             let c = ctx.clone();
             chips = chips.child(
@@ -1525,7 +1504,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                         .role("tab")
                         .shape(Shape::Pill)
                         .selected(on)
-                        .label(format!("Space {}", space.name))
+                        .label(if space.own_signins { format!("Space {}, its own sign-ins", space.name) } else { format!("Space {}", space.name) })
                         .on_click(move |_, w, cx| {
                             cx.stop_propagation();
                             c.emit(SidebarIntent::Browse(BrowseIntent::SwitchSpace(i)), w, cx);
@@ -1536,7 +1515,34 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
         if let Some(editing) = naming_space.filter(|e| e.target == BrowseNaming::Space(None)) {
             chips = chips.child(ctx.space_field(&editing.draft, editing.target.clone(), cx));
         } else {
-            chips = chips.child(div().flex_1()).child(ctx.action("new-space".into(), IconName::Plus, "New space".into(), SidebarIntent::Browse(BrowseIntent::NewSpace), cx));
+            chips = chips.child(div().flex_1());
+            // R4 (board R4Daily 4a): downloads and extensions live in the
+            // footer; each popover opens above its button.
+            let running = browse.downloads == Some(true);
+            let foot_button = |id: &str, glyph: IconName, label: &'static str, intent: fn(Option<gpui::Bounds<Pixels>>) -> BrowseIntent, dot: bool, cx: &mut App| {
+                let anchor: Rc<Cell<Option<gpui::Bounds<Pixels>>>> = Rc::new(Cell::new(None));
+                let at = anchor.clone();
+                let c = ctx.clone();
+                let button = icon_button(ctx.child(id.to_owned()), glyph)
+                    .tooltip_within(ctx.width)
+                    .ghost()
+                    .size(ButtonSize::Sm)
+                    .icon_size(cx.aui().metrics.icon)
+                    .accessibility_label(label)
+                    .on_click(move |_, w, cx| {
+                        cx.stop_propagation();
+                        c.emit(SidebarIntent::Browse(intent(at.get())), w, cx);
+                    });
+                div()
+                    .relative()
+                    .on_prepaint(move |bounds, _, _| anchor.set(Some(bounds)))
+                    .child(button)
+                    .when(dot, |d| d.child(div().absolute().top(px(5.0)).right(px(5.0)).size(px(6.0)).rounded_full().bg(p.fg)))
+            };
+            chips = chips
+                .child(foot_button("browse-downloads", IconName::Download, if running { "Downloads, one running" } else { "Downloads" }, BrowseIntent::Downloads, running, cx))
+                .child(foot_button("browse-extensions", IconName::Puzzle, "Extensions", BrowseIntent::Extensions, false, cx))
+                .child(ctx.action("new-space".into(), IconName::Plus, "New space".into(), SidebarIntent::Browse(BrowseIntent::NewSpace), cx));
         }
         // Always under a divider spanning the sidebar edge to edge, the
         // task pane's own (owner 2026-10-11): the strip is the foot's, not

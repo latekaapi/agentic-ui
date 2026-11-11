@@ -169,6 +169,8 @@ struct Shared {
     /// Loads the request blocker vetoed on this page (R4), since the last
     /// main-frame navigation.
     blocked: u32,
+    /// The page was pressed since the host last asked (R4, `take_clicked`).
+    clicked: bool,
     /// The link (else media source) URL the open context menu points at, as
     /// `on_before_context_menu` last saw it.
     menu_link: Option<String>,
@@ -362,6 +364,9 @@ fn page_scripts() -> String {
 /// live 11 Nov), so the page catches it in the capture phase, cancels the
 /// default and posts the address through the binding.
 const LINK_GESTURE_JS: &str = r#"(function () {
+  document.addEventListener("mousedown", function () {
+    if (window.top === window) window.ipc.postMessage(JSON.stringify({ __aui_click: 1 }));
+  }, true);
   document.addEventListener("click", function (e) {
     if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
     var a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
@@ -532,6 +537,11 @@ struct HitRect {
 fn on_annotator_message(shared: &mut Shared, body: &str) {
     // R4: a page link gesture (`LINK_GESTURE_JS`), not an annotator hit.
     if let Ok(value) = serde_json::from_str::<Value>(body) {
+        if value.get("__aui_click").is_some() {
+            shared.clicked = true;
+            shared.events.push(WebEvent::GotFocus);
+            return;
+        }
         if value.get("__aui_link").and_then(Value::as_str) == Some("split") {
             if let Some(url) = value.get("url").and_then(Value::as_str).filter(|u| cef_navigation_allowed(u)) {
                 shared.link_gestures.push((url.to_owned(), aui_webview::LinkGesture::Split));
@@ -1404,6 +1414,34 @@ const PDF_VIEWER: &str = "chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/";
 /// cancelled here like any other app scheme.
 fn cef_navigation_allowed(url: &str) -> bool {
     navigation_allowed(url) || url.starts_with("chrome://") || url.starts_with("devtools://") || url.starts_with(PDF_VIEWER)
+}
+
+thread_local! {
+    /// One request context per own-sign-ins profile folder, made once (CEF's
+    /// UI thread is the host's main thread).
+    static SPACE_CONTEXTS: RefCell<std::collections::HashMap<String, RequestContext>> = RefCell::new(std::collections::HashMap::new());
+}
+
+/// The request context for the profile folder `name` under the profile
+/// root, made on first use. `None` (the shared profile) when CEF has no
+/// configured root or the folder name could escape it.
+fn space_context(name: &str) -> Option<RequestContext> {
+    if name.is_empty() || name.contains("..") || name.starts_with('/') {
+        return None;
+    }
+    if let Some(found) = SPACE_CONTEXTS.with(|map| map.borrow().get(name).cloned()) {
+        return Some(found);
+    }
+    let path = crate::runtime::cache_root()?.join(name);
+    let _ = std::fs::create_dir_all(&path);
+    let settings = RequestContextSettings {
+        cache_path: CefString::from(path.to_string_lossy().as_ref()),
+        persist_session_cookies: 1,
+        ..Default::default()
+    };
+    let context = request_context_create_context(Some(&settings), None)?;
+    SPACE_CONTEXTS.with(|map| map.borrow_mut().insert(name.to_owned(), context.clone()));
+    Some(context)
 }
 
 /// R4: the host's veto over sub-resource loads (ad and tracker blocking).
@@ -2340,6 +2378,22 @@ impl CefBackend {
         size: (f32, f32),
         rgba: (u8, u8, u8, u8),
     ) -> Result<Self, String> {
+        Self::new_at_in(parent, url, origin, size, rgba, None)
+    }
+
+    /// [`Self::new_at`] in its own sign-ins (R4 Spaces): `profile` names a
+    /// folder under the profile root (`Spaces/work`) that keeps this page's
+    /// cookies, storage and cache apart from every other context. `None` is
+    /// the shared profile. Pages it opens (popups) inherit it.
+    pub fn new_at_in<W: HasWindowHandle>(
+        parent: &W,
+        url: &str,
+        origin: (f32, f32),
+        size: (f32, f32),
+        rgba: (u8, u8, u8, u8),
+        profile: Option<&str>,
+    ) -> Result<Self, String> {
+        let profile = profile.map(str::to_owned);
         let parent_view = match parent.window_handle().map_err(|e| e.to_string())?.as_raw() {
             RawWindowHandle::AppKit(handle) => handle.ns_view.as_ptr() as usize,
             _ => return Err(String::from("aui-cef: not an AppKit window")),
@@ -2374,12 +2428,13 @@ impl CefBackend {
             let mut client = AuiClient::new(pending.clone());
             // The page's own delegate: owner and id both itself/empty.
             let mut view_delegate = AuiViewDelegate::new(pending.clone(), pending.clone(), None);
+            let mut context = profile.as_deref().and_then(space_context);
             let Some(browser_view) = browser_view_create(
                 Some(&mut client),
                 Some(&CefString::from("about:blank")),
                 Some(&settings),
                 None,
-                None,
+                context.as_mut(),
                 Some(&mut view_delegate),
             ) else {
                 eprintln!("aui-cef: browser_view_create failed");
@@ -2738,6 +2793,10 @@ impl WebBackend for CefBackend {
 
     fn take_open_requests(&mut self) -> Vec<(String, bool)> {
         std::mem::take(&mut locked(&self.page).open_requests)
+    }
+
+    fn take_clicked(&mut self) -> bool {
+        std::mem::take(&mut locked(&self.page).clicked)
     }
 
     fn take_link_gestures(&mut self) -> Vec<(String, aui_webview::LinkGesture)> {

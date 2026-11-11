@@ -44,6 +44,12 @@ pub enum State {
     ShutDown,
 }
 
+/// The profile root CEF was configured with (R4: a space's own sign-ins live
+/// in a folder under it, as Chromium requires).
+pub(crate) fn cache_root() -> Option<PathBuf> {
+    CONFIG.with(|slot| slot.borrow().as_ref().map(|config| config.cache_dir.clone()))
+}
+
 /// What the host decides before the first page.
 #[derive(Clone, Debug)]
 pub struct Config {

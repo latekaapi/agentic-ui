@@ -622,6 +622,11 @@ impl WebviewState {
         self.backend.take_popup_backends()
     }
 
+    /// Whether the page was clicked since the last call (R4).
+    pub fn take_clicked(&mut self) -> bool {
+        self.backend.take_clicked()
+    }
+
     /// Takes the ⇧/⌥-clicked links the backend saw, oldest first (R4).
     pub fn take_link_gestures(&mut self) -> Vec<(String, crate::backend::LinkGesture)> {
         self.backend.take_link_gestures()

@@ -686,6 +686,12 @@ pub trait WebBackend {
         Vec::new()
     }
 
+    /// Whether the person pressed the mouse in the page since the last call
+    /// (R4: Split's halves follow the click). False by default.
+    fn take_clicked(&mut self) -> bool {
+        false
+    }
+
     /// Takes the "open this URL" requests queued since the last call, oldest
     /// first: each is `(url, foreground)`. Context-menu "open in new tab"
     /// lands here (the page cannot open it), and the host makes a tab for it
