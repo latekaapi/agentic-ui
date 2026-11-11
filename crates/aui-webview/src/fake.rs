@@ -97,6 +97,8 @@ pub struct FakeWebBackend {
     /// "Open this URL" requests waiting for
     /// [`WebBackend::take_open_requests`], oldest first.
     open_requests: Vec<(String, bool)>,
+    /// Scripted link gestures for [`WebBackend::take_link_gestures`].
+    link_gestures: Vec<(String, crate::backend::LinkGesture)>,
     /// Every [`WebBackend::answer_permission`] call, oldest first.
     answers: Vec<(u64, PermissionDecision)>,
     /// Every [`WebBackend::cancel_download`] id, oldest first.
@@ -138,6 +140,7 @@ impl FakeWebBackend {
             devtools_calls: 0,
             popups: Vec::new(),
             open_requests: Vec::new(),
+            link_gestures: Vec::new(),
             answers: Vec::new(),
             cancelled_downloads: Vec::new(),
         };
@@ -241,6 +244,12 @@ impl FakeWebBackend {
     /// [`WebBackend::take_open_requests`] (no event: the host asked for it).
     pub fn script_open_request(&mut self, url: &str, foreground: bool) {
         self.open_requests.push((url.to_owned(), foreground));
+    }
+
+    /// Queues a ⇧/⌥-clicked link for [`WebBackend::take_link_gestures`].
+    pub fn script_link_gesture(&mut self, url: &str, gesture: crate::backend::LinkGesture) {
+        self.link_gestures.push((url.to_owned(), gesture));
+        self.queue.push(WebEvent::LinkGesture);
     }
 
     /// Queues a [`WebEvent::Permission`].
@@ -630,6 +639,10 @@ impl WebBackend for FakeWebBackend {
 
     fn take_open_requests(&mut self) -> Vec<(String, bool)> {
         std::mem::take(&mut self.open_requests)
+    }
+
+    fn take_link_gestures(&mut self) -> Vec<(String, crate::backend::LinkGesture)> {
+        std::mem::take(&mut self.link_gestures)
     }
 
     fn answer_permission(&mut self, id: u64, decision: PermissionDecision) {

@@ -164,6 +164,11 @@ struct Shared {
     /// "Open this URL" requests from the context menu
     /// ([`WebBackend::take_open_requests`]), oldest first.
     open_requests: Vec<(String, bool)>,
+    /// ⇧/⌥-clicked links ([`WebBackend::take_link_gestures`]), oldest first.
+    link_gestures: Vec<(String, aui_webview::LinkGesture)>,
+    /// Loads the request blocker vetoed on this page (R4), since the last
+    /// main-frame navigation.
+    blocked: u32,
     /// The link (else media source) URL the open context menu points at, as
     /// `on_before_context_menu` last saw it.
     menu_link: Option<String>,
@@ -349,8 +354,23 @@ fn send(page: &Page, method: &str, params: Value, purpose: Pending) -> Option<i3
 /// The page scripts: wry's `window.ipc` over the CDP binding, the
 /// annotator, the overlay scrollbars.
 fn page_scripts() -> String {
-    format!("{IPC_PRELUDE}\n{ANNOTATOR_JS}\n{SCROLLBAR_JS}")
+    format!("{IPC_PRELUDE}\n{ANNOTATOR_JS}\n{SCROLLBAR_JS}\n{LINK_GESTURE_JS}")
 }
+
+/// R4: ⌥-click on a link opens it in Split. Chromium in CEF neither downloads
+/// nor reports it (no `SAVE_TO_DISK` reaches `on_open_urlfrom_tab`, found
+/// live 11 Nov), so the page catches it in the capture phase, cancels the
+/// default and posts the address through the binding.
+const LINK_GESTURE_JS: &str = r#"(function () {
+  document.addEventListener("click", function (e) {
+    if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    var a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+    if (!a || !/^https?:/i.test(a.href)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    window.ipc.postMessage(JSON.stringify({ __aui_link: "split", url: a.href }));
+  }, true);
+})();"#;
 
 /// Register the binding and the page scripts for every new document; true
 /// when the DevTools channel took all three calls. `first` releases the
@@ -510,6 +530,16 @@ struct HitRect {
 /// One annotator click, as `ANNOTATOR_JS` posts it (same handling as the wry
 /// backend's `on_ipc`, minus eval answers, which CDP returns directly).
 fn on_annotator_message(shared: &mut Shared, body: &str) {
+    // R4: a page link gesture (`LINK_GESTURE_JS`), not an annotator hit.
+    if let Ok(value) = serde_json::from_str::<Value>(body) {
+        if value.get("__aui_link").and_then(Value::as_str) == Some("split") {
+            if let Some(url) = value.get("url").and_then(Value::as_str).filter(|u| cef_navigation_allowed(u)) {
+                shared.link_gestures.push((url.to_owned(), aui_webview::LinkGesture::Split));
+                shared.events.push(WebEvent::LinkGesture);
+            }
+            return;
+        }
+    }
     let Ok(hit) = serde_json::from_str::<Hit>(body) else { return };
     let index = shared.elements.len() + 1;
     let mut outer_html = hit.outer_html;
@@ -887,6 +917,19 @@ fn opens_as_host_tab(disposition: WindowOpenDisposition) -> bool {
 /// ⇧-click: `OnOpenURLFromTab`) becomes a host tab: every new-tab or
 /// new-window disposition does — none has a script relationship to keep.
 /// The current tab and save-to-disk stay with Chromium.
+/// The R4 gesture a link click's disposition means: ⇧-click arrives as
+/// `NEW_WINDOW` (Peek), ⌥-click as `SAVE_TO_DISK` (Split). Pure, so the
+/// mapping is unit-testable without a browser.
+fn link_gesture(disposition: WindowOpenDisposition) -> Option<aui_webview::LinkGesture> {
+    if disposition == WindowOpenDisposition::NEW_WINDOW {
+        Some(aui_webview::LinkGesture::Peek)
+    } else if disposition == WindowOpenDisposition::SAVE_TO_DISK {
+        Some(aui_webview::LinkGesture::Split)
+    } else {
+        None
+    }
+}
+
 fn link_opens_as_host_tab(disposition: WindowOpenDisposition) -> bool {
     opens_as_host_tab(disposition)
         || disposition == WindowOpenDisposition::NEW_WINDOW
@@ -1015,6 +1058,10 @@ wrap_client! {
 
         fn download_handler(&self) -> Option<DownloadHandler> {
             Some(AuiDownloads::new(self.shared.clone()))
+        }
+
+        fn focus_handler(&self) -> Option<FocusHandler> {
+            Some(AuiFocus::new(self.shared.clone()))
         }
 
         fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
@@ -1359,12 +1406,120 @@ fn cef_navigation_allowed(url: &str) -> bool {
     navigation_allowed(url) || url.starts_with("chrome://") || url.starts_with("devtools://") || url.starts_with(PDF_VIEWER)
 }
 
+/// R4: the host's veto over sub-resource loads (ad and tracker blocking).
+/// Asked on Chromium's IO thread with `(url, initiator, type)`, where type is
+/// the Adblock Plus request type (`script`, `image`, `stylesheet`,
+/// `xmlhttprequest`, `subdocument`, `font`, `media`, `ping`, `other`).
+/// Navigations of the main frame are never asked.
+pub type RequestBlocker = dyn Fn(&str, &str, &str) -> bool + Send + Sync;
+
+fn blocker_slot() -> &'static std::sync::RwLock<Option<Arc<RequestBlocker>>> {
+    static SLOT: std::sync::OnceLock<std::sync::RwLock<Option<Arc<RequestBlocker>>>> = std::sync::OnceLock::new();
+    SLOT.get_or_init(|| std::sync::RwLock::new(None))
+}
+
+/// Installs (or, with `None`, removes) the request blocker for every page.
+pub fn set_request_blocker(blocker: Option<Arc<RequestBlocker>>) {
+    if let Ok(mut slot) = blocker_slot().write() {
+        *slot = blocker;
+    }
+}
+
+/// The Adblock Plus request type for a CEF resource type.
+fn abp_request_type(kind: ResourceType) -> &'static str {
+    match kind {
+        ResourceType::SUB_FRAME => "subdocument",
+        ResourceType::STYLESHEET => "stylesheet",
+        ResourceType::SCRIPT | ResourceType::WORKER | ResourceType::SHARED_WORKER | ResourceType::SERVICE_WORKER => "script",
+        ResourceType::IMAGE | ResourceType::FAVICON => "image",
+        ResourceType::FONT_RESOURCE => "font",
+        ResourceType::MEDIA => "media",
+        ResourceType::XHR => "xmlhttprequest",
+        ResourceType::PING | ResourceType::CSP_REPORT => "ping",
+        ResourceType::OBJECT | ResourceType::PLUGIN_RESOURCE => "object",
+        _ => "other",
+    }
+}
+
+/// Whether the installed blocker vetoes this load.
+fn blocked(url: &str, initiator: &str, kind: ResourceType) -> bool {
+    if kind == ResourceType::MAIN_FRAME {
+        return false;
+    }
+    let blocker = blocker_slot().read().ok().and_then(|slot| slot.clone());
+    blocker.is_some_and(|f| f(url, initiator, abp_request_type(kind)))
+}
+
+// R4: the page took the keyboard (a click into it). The event wakes the host
+// view, so a quiet window still takes the frame that notices (Split's halves).
+wrap_focus_handler! {
+    struct AuiFocus {
+        shared: Page,
+    }
+
+    impl FocusHandler {
+        fn on_got_focus(&self, browser: Option<&mut Browser>) {
+            if foreign(&self.shared, browser.as_deref()) {
+                return;
+            }
+            locked(&self.shared).events.push(WebEvent::GotFocus);
+        }
+    }
+}
+
+// Cancels the one request it is handed (a blocked ad or tracker).
+wrap_resource_request_handler! {
+    struct AuiBlocked {
+        _unit: (),
+    }
+
+    impl ResourceRequestHandler {
+        fn on_before_resource_load(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _request: Option<&mut Request>,
+            _callback: Option<&mut Callback>,
+        ) -> ReturnValue {
+            ReturnValue::CANCEL
+        }
+    }
+}
+
 wrap_request_handler! {
     struct AuiRequest {
         shared: Page,
     }
 
     impl RequestHandler {
+        fn resource_request_handler(
+            &self,
+            browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            is_navigation: ::std::os::raw::c_int,
+            is_download: ::std::os::raw::c_int,
+            request_initiator: Option<&CefString>,
+            _disable_default_handling: Option<&mut ::std::os::raw::c_int>,
+        ) -> Option<ResourceRequestHandler> {
+            if is_download != 0 || foreign(&self.shared, browser.as_deref()) {
+                return None;
+            }
+            let request = request?;
+            let kind = request.resource_type();
+            if is_navigation != 0 && kind == ResourceType::MAIN_FRAME {
+                return None;
+            }
+            let url = CefString::from(&request.url()).to_string();
+            let initiator = request_initiator.map(|i| i.to_string()).unwrap_or_default();
+            if blocked(&url, &initiator, kind) {
+                locked(&self.shared).blocked += 1;
+                Some(AuiBlocked::new(()))
+            } else {
+                None
+            }
+        }
+
         fn on_before_browse(
             &self,
             browser: Option<&mut Browser>,
@@ -1413,7 +1568,23 @@ wrap_request_handler! {
             if std::env::var("AUI_CEF_POPUP_TRACE").as_deref() == Ok("1") {
                 eprintln!("aui-cef: open-from-tab {url} disposition={target_disposition:?}");
             }
-            if !link_opens_as_host_tab(target_disposition) || url.is_empty() || is_devtools_url(&url) {
+            if url.is_empty() || is_devtools_url(&url) {
+                return 0;
+            }
+            // R4: ⇧-click (NEW_WINDOW) peeks and ⌥-click (SAVE_TO_DISK, which
+            // Chromium would download) splits. Context-menu opens never come
+            // through here (`on_context_menu_command`), so its "Open Link in
+            // New Window" stays a tab.
+            if let Some(gesture) = link_gesture(target_disposition) {
+                if !cef_navigation_allowed(&url) {
+                    return 1;
+                }
+                let mut s = locked(&self.shared);
+                s.link_gestures.push((url, gesture));
+                s.events.push(WebEvent::LinkGesture);
+                return 1;
+            }
+            if !link_opens_as_host_tab(target_disposition) {
                 return 0;
             }
             if !cef_navigation_allowed(&url) {
@@ -2569,6 +2740,10 @@ impl WebBackend for CefBackend {
         std::mem::take(&mut locked(&self.page).open_requests)
     }
 
+    fn take_link_gestures(&mut self) -> Vec<(String, aui_webview::LinkGesture)> {
+        std::mem::take(&mut locked(&self.page).link_gestures)
+    }
+
     fn answer_permission(&mut self, id: u64, decision: PermissionDecision) {
         let stored = locked(&self.page).permissions.remove(&id);
         let Some(stored) = stored else { return };
@@ -3036,6 +3211,34 @@ mod tests {
             assert!(!link_opens_as_host_tab(disposition), "{disposition:?} stays with Chromium");
         }
     }
+    /// R4: ⇧-click peeks, ⌥-click splits; every other disposition is no gesture.
+    #[test]
+    fn an_alt_clicked_link_from_the_page_is_a_split_gesture() {
+        let mut shared = Shared::default();
+        on_annotator_message(&mut shared, r#"{"__aui_link":"split","url":"https://example.org/a"}"#);
+        on_annotator_message(&mut shared, r#"{"__aui_link":"split","url":"javascript:alert(1)"}"#);
+        assert_eq!(shared.link_gestures, vec![(String::from("https://example.org/a"), aui_webview::LinkGesture::Split)]);
+        assert!(page_scripts().contains("__aui_link"));
+    }
+
+    #[test]
+    fn resource_types_map_to_adblock_request_types() {
+        assert_eq!(abp_request_type(ResourceType::SCRIPT), "script");
+        assert_eq!(abp_request_type(ResourceType::XHR), "xmlhttprequest");
+        assert_eq!(abp_request_type(ResourceType::SUB_FRAME), "subdocument");
+        assert_eq!(abp_request_type(ResourceType::IMAGE), "image");
+        assert!(!blocked("https://ads.example/x.js", "https://a.example", ResourceType::MAIN_FRAME), "never a navigation");
+    }
+
+    #[test]
+    fn shift_click_peeks_and_alt_click_splits() {
+        assert_eq!(link_gesture(WindowOpenDisposition::NEW_WINDOW), Some(aui_webview::LinkGesture::Peek));
+        assert_eq!(link_gesture(WindowOpenDisposition::SAVE_TO_DISK), Some(aui_webview::LinkGesture::Split));
+        for d in [WindowOpenDisposition::NEW_FOREGROUND_TAB, WindowOpenDisposition::NEW_BACKGROUND_TAB, WindowOpenDisposition::CURRENT_TAB] {
+            assert_eq!(link_gesture(d), None, "{d:?}");
+        }
+    }
+
     /// The PDF viewer's frame is allowed; other extensions and app schemes
     /// stay cancelled.
     #[test]

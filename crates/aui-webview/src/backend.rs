@@ -87,6 +87,16 @@ impl ElementInfo {
     }
 }
 
+/// What a modified link click asks for (R4, docs/27 §5): ⇧-click peeks the
+/// link over the page, ⌥-click opens it in Split beside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkGesture {
+    /// ⇧-click: the link in a Peek over the page.
+    Peek,
+    /// ⌥-click: the link beside the page, in Split.
+    Split,
+}
+
 /// Something the page told the pane about itself.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WebEvent {
@@ -135,6 +145,11 @@ pub enum WebEvent {
     Find(FindState),
     /// The page's zoom, in percent (100 is normal).
     Zoom(u16),
+    /// The page took the keyboard (a click into it, R4). Only wakes the view.
+    GotFocus,
+    /// A link was ⇧- or ⌥-clicked (R4): the host drains it through
+    /// [`WebBackend::take_link_gestures`]; the event only wakes the view.
+    LinkGesture,
     /// The page opened a popup. The host makes a tab for it out of
     /// [`WebBackend::take_popup_backends`]: `foreground` asks for the tab to
     /// be selected (`window.open` into a foreground tab), otherwise it opens
@@ -660,6 +675,14 @@ pub trait WebBackend {
     /// next to the opener. Announced by [`WebEvent::PopupOpened`]; empty by
     /// default.
     fn take_popup_backends(&mut self) -> Vec<(String, bool, Box<dyn WebBackend>)> {
+        Vec::new()
+    }
+
+    /// Takes the link gestures the page saw since the last call, oldest
+    /// first: a ⇧-clicked link (Peek) or an ⌥-clicked one (Split). The
+    /// engine opened nothing of its own for them; the host decides. Empty by
+    /// default.
+    fn take_link_gestures(&mut self) -> Vec<(String, LinkGesture)> {
         Vec::new()
     }
 

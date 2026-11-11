@@ -622,6 +622,11 @@ impl WebviewState {
         self.backend.take_popup_backends()
     }
 
+    /// Takes the ⇧/⌥-clicked links the backend saw, oldest first (R4).
+    pub fn take_link_gestures(&mut self) -> Vec<(String, crate::backend::LinkGesture)> {
+        self.backend.take_link_gestures()
+    }
+
     /// Takes the "open this URL" requests the backend queued, oldest first.
     pub fn take_open_requests(&mut self) -> Vec<(String, bool)> {
         self.backend.take_open_requests()
@@ -685,6 +690,12 @@ impl WebviewState {
     /// [`WebBackend::holds_keyboard`](crate::backend::WebBackend::holds_keyboard).
     pub fn holds_keyboard(&self) -> bool {
         self.backend.holds_keyboard()
+    }
+
+    /// Moves the keyboard into the native page (R4: a Peek takes it as it
+    /// opens, so its keys — and the host's claimed ones — come from there).
+    pub fn focus_page(&mut self) {
+        self.backend.set_focused(true);
     }
 
     /// Gives the keyboard back to the host view. A no-op unless the page
@@ -1074,6 +1085,7 @@ impl WebviewState {
                     }
                 }
                 WebEvent::Zoom(percent) => self.zoom = percent,
+                WebEvent::LinkGesture | WebEvent::GotFocus => {}
                 WebEvent::PopupOpened { .. } => {
                     // The host drains the page itself through
                     // `take_popup_backends`; the event only wakes the view.
