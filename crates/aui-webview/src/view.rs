@@ -1859,6 +1859,11 @@ impl RenderOnce for WebviewPane {
             .size_full()
             .min_h(px(0.0))
             .bg(p.surface_1)
+            // With no nav row the pane is the page: its ground takes the
+            // page's radius, or a square ground showed at the corners of a
+            // rounded page set over a dimmed backdrop (the Peek card, owner
+            // 12 Nov).
+            .when(!show_nav, |pane| pane.rounded(corner_radius))
             .when(show_nav, |pane| pane.child(nav))
             .child(h_flex().flex_1().w_full().min_h(px(0.0)).items_stretch().child(page))
     }

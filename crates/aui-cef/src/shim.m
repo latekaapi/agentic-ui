@@ -278,7 +278,11 @@ void aui_cef_set_holes(void *child_root_view, const double *rects, int n) {
       double fy = cv.isFlipped ? y : b.size.height - y - h;
       double rr = fmin(r, fmin(w, h) / 2.0);
       CGMutablePathRef path = CGPathCreateMutable();
-      CGPathAddRect(path, NULL, b);
+      // The outline keeps the page's own corner radius: a mask replaces the
+      // layer's rounded clip, so a page with a hole (the Peek's ×) drew square
+      // corners beside the rounded page under it (owner, 12 Nov).
+      double cr = fmin(cv.layer.cornerRadius, fmin(b.size.width, b.size.height) / 2.0);
+      if (cr > 0) CGPathAddRoundedRect(path, NULL, b, cr, cr); else CGPathAddRect(path, NULL, b);
       CGPathAddRoundedRect(path, NULL, CGRectMake(x, fy, w, h), rr, rr);
       [kept addObject:[NSValue valueWithRect:NSMakeRect(x, fy, w, h)]];
       // Reuse the layer already at this link of the chain, else make one.

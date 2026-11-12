@@ -387,6 +387,12 @@ fn install_page_scripts(page: &Page, first: bool) -> bool {
     let ok = send(page, "Page.enable", json!({}), Pending::Setup { last: false }).is_some()
         && send(page, "Runtime.enable", json!({}), Pending::Setup { last: false }).is_some()
         && send(page, "Runtime.addBinding", json!({ "name": BINDING }), Pending::Setup { last: false }).is_some()
+        // The page's own base colour is the ground's white. The white a person
+        // sees behind a page with no background of its own (Hacker News'
+        // margins) is the view's ground, which `Page.captureScreenshot` never
+        // draws: the JPEG stand-in had transparent margins, i.e. black, while
+        // a Peek or a popover covered the page (owner, 12 Nov).
+        && send(page, "Emulation.setDefaultBackgroundColorOverride", json!({ "color": { "r": 255, "g": 255, "b": 255, "a": 1 } }), Pending::Setup { last: false }).is_some()
         && send(page, "Page.addScriptToEvaluateOnNewDocument", json!({ "source": page_scripts() }), Pending::Setup { last: first }).is_some();
     if ok {
         locked(page).scripts_installed = true;
