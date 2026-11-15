@@ -81,7 +81,7 @@ fn sessions_mode_labels_every_interactive_element(cx: &mut TestAppContext) {
             "Pinned",
             "Open session Design v2 tokens",
             "Project harness",
-            "Account Bharani · Max",
+            "Account Ada · Max",
         ],
     );
     assert!(labels.iter().all(|l| !l.is_empty()), "unlabelled control: {labels:?}");
@@ -152,7 +152,7 @@ fn account_menu_opens_with_its_rows(cx: &mut TestAppContext) {
     let mut model = sample_model();
     model.account.menu_open = true;
     let labels = labels_of(cx, model);
-    assert_has(&labels, &["Account menu for Bharani", "Settings…", "Providers…"]);
+    assert_has(&labels, &["Account menu for Ada", "Settings…", "Providers…"]);
     // Providers sign out on their own cards: no one provider's sign-out
     // stands in the app's account menu.
     assert!(!labels.iter().any(|label| label.contains("Sign out")), "{labels:?}");
@@ -284,8 +284,8 @@ fn account_footer_drops_an_empty_plan(cx: &mut TestAppContext) {
     let mut model = sample_model();
     model.account.plan = "".into();
     let labels = labels_of(cx, model);
-    assert_has(&labels, &["Account Bharani"]);
-    assert!(!labels.iter().any(|l| l.starts_with("Account Bharani ·")), "{labels:?}");
+    assert_has(&labels, &["Account Ada"]);
+    assert!(!labels.iter().any(|l| l.starts_with("Account Ada ·")), "{labels:?}");
 }
 
 fn date_model(groups: Vec<DateGroup>) -> SidebarModel {
@@ -344,8 +344,8 @@ fn account_footer_label_with_email_equal_to_name_is_unchanged(cx: &mut TestAppCo
     let mut model = sample_model();
     model.account.email = model.account.name.clone();
     let labels = labels_of(cx, model);
-    assert_has(&labels, &["Account Bharani · Max"]);
-    assert!(!labels.iter().any(|l| l.contains("Bharani Bharani")), "{labels:?}");
+    assert_has(&labels, &["Account Ada · Max"]);
+    assert!(!labels.iter().any(|l| l.contains("Ada Ada")), "{labels:?}");
 }
 
 /// Moving the pointer over a session row reports `Hover(Some(id), Some(bounds))`

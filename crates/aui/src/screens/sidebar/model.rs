@@ -723,8 +723,8 @@ pub fn sample_model() -> SidebarModel {
         view_options: ViewOptions::default(),
         bylines: Bylines::All,
         account: Account {
-            name: "Bharani".into(),
-            email: "bharani91@gmail.com".into(),
+            name: "Ada".into(),
+            email: "ada@example.com".into(),
             plan: "Max".into(),
             initial: "B".into(),
             tint: 5,
