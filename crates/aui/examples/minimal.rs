@@ -428,8 +428,6 @@ fn main() {
         // 2. One call does gpui_kit::init, the fonts, the themes and the
         //    keymap. Nothing before it, and no window before it.
         aui::init(ThemeKind::Dark, cx);
-        // 3. Optional: the product text scale (1.1); parity renders use 1.0.
-        aui_tokens::AuiTheme::set_text_scale(scale::TEXT_SCALE, None, cx);
 
         // 4. The window. `TitleBar::window_options()` gives the frameless
         //    window the shell's own traffic lights and header expect.

@@ -1,7 +1,7 @@
 //! The shared chrome of the modal overlays: the flat scrim, the card ground
 //! and the enter/exit motion.
 //!
-//! [`Dialog`](super::Dialog) and [`SettingsDialog`](super::SettingsDialog)
+//! [`Dialog`](super::Dialog)
 //! draw through these pieces so the two cards stay identical. Neither adds
 //! its own scrim, radius, shadow or motion; each only fills the card shell
 //! with its own header and body.

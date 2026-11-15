@@ -41,8 +41,6 @@ pub mod marks;
 pub mod parser;
 #[cfg(feature = "pty")]
 pub mod pty;
-#[cfg(feature = "tui")]
-pub mod tui_grid;
 pub mod view;
 
 pub use backend::{Readiness, TermEvent, TerminalBackend};

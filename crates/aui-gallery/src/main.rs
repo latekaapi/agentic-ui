@@ -41,9 +41,6 @@ struct Args {
     window_shot: Option<PathBuf>,
     /// `--screenshot-delay <ms>`: how long to wait before capturing (default 350).
     delay_ms: u64,
-    /// `--text-scale <factor>`: text size multiplier. Defaults to the product
-    /// default (1.1) interactively and to 1.0 for parity screenshots.
-    text_scale: Option<f32>,
     /// `--idle-frames <ms>`: count the frames the settled card draws over this
     /// window, print the count and quit. See [`idle`].
     idle_ms: Option<u64>,
@@ -54,7 +51,7 @@ struct Args {
 
 fn parse_args() -> Args {
     let mut args = std::env::args().skip(1);
-    let mut out = Args { theme: None, entry: None, screenshot: None, window_shot: None, delay_ms: 350, text_scale: None, idle_ms: None, width: None };
+    let mut out = Args { theme: None, entry: None, screenshot: None, window_shot: None, delay_ms: 350, idle_ms: None, width: None };
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--theme" => {
@@ -83,10 +80,6 @@ fn parse_args() -> Args {
                 let value = args.next().unwrap_or_default();
                 out.idle_ms = Some(value.parse().unwrap_or_else(|_| usage("--idle-frames needs milliseconds")));
             }
-            "--text-scale" => {
-                let value = args.next().unwrap_or_default();
-                out.text_scale = Some(value.parse().unwrap_or_else(|_| usage("--text-scale needs a factor such as 1.1")));
-            }
             "--width" => {
                 let value = args.next().unwrap_or_default();
                 out.width = Some(value.parse().unwrap_or_else(|_| usage("--width needs pixels such as 280")));
@@ -109,7 +102,7 @@ fn usage(err: &str) -> ! {
         eprintln!("error: {err}\n");
     }
     eprintln!(
-        "usage: aui-gallery [--theme light|dark] [--entry <id>] [--screenshot <id> <out.png>] [--screenshot-window <out.png>] [--screenshot-delay <ms>] [--idle-frames <ms>] [--text-scale <factor>] [--width <px>] [--list]"
+        "usage: aui-gallery [--theme light|dark] [--entry <id>] [--screenshot <id> <out.png>] [--screenshot-window <out.png>] [--screenshot-delay <ms>] [--idle-frames <ms>] [--width <px>] [--list]"
     );
     std::process::exit(if err.is_empty() { 0 } else { 2 });
 }
@@ -119,9 +112,6 @@ fn main() {
     let screenshot = args.screenshot.clone();
     let window_shot = args.window_shot.clone();
     let delay = std::time::Duration::from_millis(args.delay_ms);
-    let text_scale = args
-        .text_scale
-        .unwrap_or(if args.screenshot.is_some() { 1.0 } else { aui_tokens::scale::TEXT_SCALE });
     let entry = args.entry;
     let idle_ms = args.idle_ms;
     // The idle count has to see the card exactly as a capture does: bare, at
@@ -136,7 +126,6 @@ fn main() {
 
     gpui_kit::application().with_assets(aui::assets::AuiAssets).run(move |cx| {
         aui::init(theme, cx);
-        aui_tokens::AuiTheme::set_text_scale(text_scale, None, cx);
 
         let window_size = match (bare_mode, entry) {
             (true, Some(e)) => size(px(args.width.unwrap_or(e.width)), px(e.height)),

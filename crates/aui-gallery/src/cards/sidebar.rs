@@ -1,9 +1,9 @@
-//! Card 21 · Sidebar. The 256 px sidebar, the 48 px collapsed rail and the
-//! legend. Reproduces `design/src/cards/sidebar/21-sidebar.html` at 760×640.
+//! Card 21 · Sidebar. The 48 px collapsed rail, the legend and the row
+//! densities (the old `nav::sidebar` panel was deleted in docs/82 1.3; Baaz
+//! draws `screens::sidebar`). Reproduces `design/src/cards/sidebar/21-sidebar.html` at 760×640.
 
 use aui::nav::{
-    compact_session_row, rail, session_detail, sidebar, sidebar_footer, MetaItem, RailItem, RowDensity, RowStatusKind, SessionSummary,
-    SidebarAccount, SidebarGroup, SidebarNav, SidebarNavItem,
+    compact_session_row, rail, session_detail, sidebar_footer, RailItem, RowDensity, RowStatusKind, SessionSummary,
 };
 use aui_icons::{IconName, Provider};
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette};
@@ -31,45 +31,6 @@ const PANEL_PAD: f32 = 8.0;
 /// The panel caption sits this far above its box.
 const CAPTION_GAP: f32 = 8.0;
 
-/// The card's sample sidebar.
-fn sample_nav() -> SidebarNav {
-    SidebarNav::new(
-        "acme",
-        SidebarAccount::new("A", "Alex Rivera · Max", Provider::Claude, 0.78).plan("Power Usage", false),
-    )
-    .item(SidebarNavItem::new("tasks", "Tasks", IconName::List).count("7"))
-    .item(SidebarNavItem::new("automations", "Automations", IconName::Zap))
-    .item(SidebarNavItem::new("inbox", "Inbox", IconName::Inbox).count("2").warning())
-    .group(
-        SidebarGroup::new("pinned", "Pinned")
-            .count("3")
-            .session(
-                SessionSummary::new("checkout", "checkout-flow-v2", AgentState::Running, "49m")
-                    .pulse()
-                    .repo("acme-web")
-                    .branch("feature/checkout-flow-v2"),
-            )
-            .session(
-                SessionSummary::new("notifier", "infra/notifier", AgentState::Waiting, "3h")
-                    .pulse()
-                    .meta(MetaItem::Warning("awaiting permission".into())),
-            )
-            .session(
-                SessionSummary::new("auth", "auth-session-refresh", AgentState::Done, "4h")
-                    .meta(MetaItem::Text("PR #2491 open".into())),
-            ),
-    )
-    .group(
-        SidebarGroup::new("acme-web", "acme-web")
-            .count("4")
-            .trailing("main")
-            .session(SessionSummary::new("cart", "cart-recovery-email", AgentState::Running, "12m"))
-            .session(SessionSummary::new("baseline", "checkout-baseline", AgentState::Idle, "3d")),
-    )
-    .group(SidebarGroup::new("acme-internal", "acme-internal").count("4").closed())
-    .group(SidebarGroup::new("done", "Done").count("37").closed())
-}
-
 /// Builds the card content.
 pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
@@ -86,7 +47,6 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         .w_full()
         .items_start()
         .gap(px(WRAP_GAP))
-        .child(sidebar("card21-side", sample_nav()))
         .child(rail("card21-rail", items).avatar("B"))
         .child(legend(p));
     // One density at the sidebar's narrow end, Two at the wide end, then

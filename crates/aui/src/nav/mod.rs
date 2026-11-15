@@ -9,7 +9,6 @@ mod project_mark;
 mod rail;
 mod roles;
 mod session_row;
-mod sidebar;
 mod types;
 mod view_menu;
 mod views;
@@ -29,7 +28,6 @@ pub use parts::{
 pub use session_row::{compact_session_row, compact_row_ground, compact_row_title_ink, context_line_kind, dense_field, project_branch_text, row_trailing_kind, second_line_kind, session_row, CompactSessionRow, ContextLineKind, RowAction, RowDensity, RowTrailing, SecondLineKind, SessionRow, DENSE_FIELD_H};
 pub use types::{Activity, ActivityKind, Byline, MetaItem, RowStatus, RowStatusKind, SessionSummary};
 pub use rail::{rail, Rail, RailItem, RAIL_WIDTH};
-pub use sidebar::{sidebar, Sidebar, SidebarAccount, SidebarGroup, SidebarNav, SidebarNavItem, SIDEBAR_WIDTH};
 pub use roles::{knowledge_card, project_row, role_section, role_session_row, KnowledgeCard, Project, ProjectRow, Role, RoleIntent, RoleSection, RoleSession, RoleSessionRow, SessionKind};
 pub use view_menu::{view_menu, view_submenu, view_submenu_rows, MenuRow, ViewMenu, ViewSubmenu};
 pub use views::{

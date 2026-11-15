@@ -3,7 +3,7 @@
 //! Design tokens for the Agentic UI (`aui`) library. Everything visual that a
 //! component needs comes from here: the two colour palettes, the type scale,
 //! spacing, radii, control heights, elevation, motion durations, easings and
-//! springs, the bundled Geist / Geist Mono fonts, and the gpui-kit theme that
+//! springs, the bundled Inter / Geist Mono fonts, and the gpui-kit theme that
 //! makes gpui-kit's own components (Dock, Editor, TextView, Input…) match the
 //! design.
 //!

@@ -262,18 +262,6 @@ impl AuiTheme {
         }
     }
 
-    /// Deprecated v1 text-scale setter. Now a no-op that only refreshes, so
-    /// hosts that call it keep compiling. Type sizes come from the per-role
-    /// `t-*-fs` tokens and [`AuiTheme::set_density`]; a later lane removes
-    /// this function.
-    pub fn set_text_scale(_text_scale: f32, window: Option<&mut Window>, cx: &mut App) {
-        if let Some(window) = window {
-            window.refresh();
-        } else {
-            cx.refresh_windows();
-        }
-    }
-
     /// Pushes the body/mono sizes for `density` into gpui-kit, whose `Root`
     /// sets the window rem size from them.
     fn push_type_sizes(density: Density, cx: &mut App) {
