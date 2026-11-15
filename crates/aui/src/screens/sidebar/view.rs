@@ -262,8 +262,9 @@ impl SidebarScreen {
     }
 
     /// Draws no ground of its own: for a host that embeds the sidebar on
-    /// an elevated surface (the collapsed peek). By default the sidebar
-    /// paints the window ground, `bg`.
+    /// a column or surface that paints its own fill (the shell's sidebar
+    /// column, the collapsed peek). By default the sidebar paints the
+    /// `sidebar` fill.
     pub fn transparent(mut self) -> Self {
         self.ground = false;
         self
@@ -1643,25 +1644,11 @@ impl Ctx {
     }
 }
 
-/// How far the sidebar list's scroll edges fade (see [`list_host`]).
-const LIST_EDGE_FADE: f32 = 24.0;
-
 /// The virtualised list, filling its slot in the row list.
 fn list_host(ctx: &Ctx, render: impl Fn(usize, &mut Window, &mut App) -> AnyElement + 'static, cx: &App) -> AnyElement {
-    // The list's two scroll edges fade into the column (owner 2026-10-14,
-    // after Claude Desktop): rows passing under the Projects header or the
-    // footer dissolve instead of being cut mid-glyph. Each edge fades only
-    // while there is more beyond it, so a list at rest shows its first row
-    // whole.
+    // No scroll fade at the list's edges (docs/83 §1 rule 1): rows pass
+    // under the Projects header and the footer's line, cut flat.
     let state = ctx_state(ctx);
-    let top = state.logical_scroll_top();
-    let scrolled = top.item_ix > 0 || top.offset_in_item > px(0.5);
-    let more_below = !state.is_scrolled_to_end().unwrap_or(true);
-    let ground = cx.aui().colors.surface_1;
-    let edge = |down: bool| {
-        let (from, to) = if down { (ground, ground.alpha(0.0)) } else { (ground.alpha(0.0), ground) };
-        div().absolute().left(px(0.0)).right(px(0.0)).h(px(LIST_EDGE_FADE)).bg(gpui::linear_gradient(180.0, gpui::linear_color_stop(from, 0.0), gpui::linear_color_stop(to, 1.0)))
-    };
     div()
         .id(ctx.child("virtual"))
         .relative()
@@ -1670,8 +1657,6 @@ fn list_host(ctx: &Ctx, render: impl Fn(usize, &mut Window, &mut App) -> AnyElem
         .flex_1()
         .min_h(px(0.0))
         .child(list(state, render).w_full().h_full())
-        .when(scrolled, |d| d.child(edge(true).top(px(0.0))))
-        .when(more_below, |d| d.child(edge(false).bottom(px(0.0))))
         // The bar stands in the body's right gutter (owner 2026-10-11): its
         // host reaches past the rows by the body's padding, so the track is
         // flush with the sidebar's edge like FF's on its scroll container,
@@ -1734,8 +1719,8 @@ impl RenderOnce for SidebarScreen {
         let rows = build_list(&ctx, rows, window, cx);
         let body = div().w_full().flex_1().min_h(px(0.0)).flex().flex_col().px(metrics.item_px).pt(metrics.item_px).relative().child(rows);
 
-        // Footer: avatar · name · plan · chevron. No rule above it (v3: the
-        // sheet's edge is the sidebar's only divider).
+        // Footer: avatar · name · plan · chevron, in a 44 px row with a 1 px
+        // `line-region` on top (docs/83 §3).
         let account = &self.model.account;
         let who = h_flex()
             .flex_1()
@@ -1763,22 +1748,27 @@ impl RenderOnce for SidebarScreen {
             .child(project_mark(account.initial.clone(), p.label(account.tint)).size(metrics.icon + px(scale::SP_2)))
             .child(who)
             .child(icon(IconName::ChevronDown).size(metrics.icon).color(p.fg_muted).rotate(radians(std::f32::consts::PI)));
-        let footer = v_flex()
+        let footer = h_flex()
             .w_full()
+            .h(metrics.bar)
             .flex_none()
+            .items_center()
+            .px(metrics.item_px)
+            .border_t_1()
+            .border_color(p.line_region)
             .child(
-                div().p(metrics.item_px).child(
+                div().flex_1().min_w(px(0.0)).child(
                     interactive(ctx.child("footer"), foot_row)
                         .label(foot_label)
                         .on_click(move |_, w, cx| foot_ctx.emit(SidebarIntent::Account, w, cx)),
                 ),
             );
 
-        let mut column = v_flex().w(self.width).h_full().relative().when(self.ground, |d| d.bg(p.bg)).child(body).child(footer);
+        let mut column = v_flex().w(self.width).h_full().relative().when(self.ground, |d| d.bg(p.sidebar)).child(body).child(footer);
 
         // Menus, positioned from the ladder: the view-options menu under
         // the Projects header, the account menu standing on the footer's
-        // hairline (no gap: list text showed through one, seen live). Both
+        // line (no gap: list text showed through one, seen live). Both
         // paint on gpui's top layer (`deferred`), so a submenu can reach
         // past the sidebar's edge and nothing clips them.
         let menu_w = self.width - metrics.item_px * 2.0;
@@ -1814,7 +1804,7 @@ impl RenderOnce for SidebarScreen {
                     .absolute()
                     .left(metrics.item_px)
                     .right(metrics.item_px)
-                    .bottom(list_row_height(cx) + metrics.item_px * 2.0 + px(1.0))
+                    .bottom(metrics.bar)
                     .occlude()
                     .on_mouse_down_out(dismiss(&ctx))
                     .child(account_menu(ctx.child("account-menu"), account, menu_w, self.on_intent.clone(), window, cx)),

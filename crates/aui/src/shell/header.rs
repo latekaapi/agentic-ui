@@ -68,9 +68,9 @@ pub fn header_cell(id: impl Into<ElementId>) -> HeaderCell {
 }
 
 impl HeaderCell {
-    /// The v3 sheet's title row ([`crate::shell::AppShell::sheets`]): the
-    /// row owns the height (32) and the side insets (16 / 10), so the cell
-    /// fills it with no padding of its own.
+    /// The centre column's header ([`crate::shell::AppShell::chrome_title`]):
+    /// the shell's row owns the height (44) and the side insets (16 / 10), so
+    /// the cell fills it with no padding of its own.
     pub fn bare(mut self, bare: bool) -> Self {
         self.bare = bare;
         self

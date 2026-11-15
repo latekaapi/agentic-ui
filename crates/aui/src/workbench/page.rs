@@ -20,8 +20,9 @@ use crate::data::{icon_button, spinner};
 /// The Page's one bar (owner 2026-10-21, canvas board `D6OneBar`): the old
 /// 32 px pane row and 36 px nav row merged into one bar at the pane row's
 /// metrics — back, forward, reload, the address (with the Recent pages
-/// chevron), annotate, screenshot, open in Browse, a hairline, ✕.
-pub const PAGE_NAV_H: f32 = 32.0;
+/// chevron), annotate, screenshot, open in Browse, a hairline, ✕. It is the
+/// right column's header (docs/83 §3), so it is the bar's 44 incl. its line.
+pub const PAGE_NAV_H: f32 = scale::BAR_DEFAULT;
 /// Under this pane width back / forward leave the nav row.
 pub const PAGE_NAV_NARROW: f32 = 300.0;
 /// Muse blue: the annotation outline.
@@ -184,7 +185,7 @@ pub fn page_nav_row(
         icon_button((id.clone(), key), glyph).ghost().accessibility_label(label).on_click(move |_, w, cx| on(action, w, cx))
     };
     let narrow = width > 0.0 && width < PAGE_NAV_NARROW;
-    let mut row = h_flex().id(id.clone()).relative().w_full().h(px(PAGE_NAV_H)).flex_none().px(px(6.0)).gap(px(2.0)).items_center().bg(p.surface_2);
+    let mut row = crate::workbench::pane_header(cx).id(id.clone()).relative().h(px(PAGE_NAV_H)).px(px(6.0)).gap(px(2.0));
     if !narrow {
         row = row
             .child(if can_back { button("back", IconName::ArrowLeft, "Back", PageNavAction::Back).into_any_element() } else { dead_button((id.clone(), "back").into(), IconName::ArrowLeft, "Back", cx).into_any_element() })

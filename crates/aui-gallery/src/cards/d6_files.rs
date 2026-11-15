@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use aui::workbench::{
-    code_skeleton, code_view, file_tree, filter_field, markdown_view, pane_action, pane_row, pane_row_fade, pushed_row, secondary_action,
+    code_skeleton, code_view, file_tree, filter_field, markdown_view, pane_action, pane_row, pushed_row, secondary_action,
     state_block, FileNode, FileTreeAction, GitBadge,
 };
 use aui_icons::{FileType, IconName};
@@ -70,7 +70,6 @@ fn screen(label: &str, body: impl IntoElement, row: impl IntoElement, cx: &App) 
                 .flex_col()
                 .child(row)
                 .child(div().flex_1().min_h(px(0.0)).child(body))
-                .child(pane_row_fade(cx)),
         )
 }
 

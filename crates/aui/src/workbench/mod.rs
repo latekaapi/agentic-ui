@@ -53,9 +53,9 @@ pub use page::{
     page_address_left, page_nav_row, recent_menu_width, recent_pages_chevron, RECENT_MENU_TOP, recent_pages_menu, split_url, PageNavAction, PageNote, RecentRow, RecentSelect, PAGE_NAV_H, PAGE_NAV_NARROW,
 };
 pub use pane::{
-    pane_action, pane_row, pane_row_fade, pane_strip, pane_toggle, pushed_row, pushed_row_with, secondary_action, skeleton_bar, skeleton_rows,
-    state_block, strip_moving, strip_position, strip_visible, filter_bar, filter_field, field_border, PaneRow, PaneStrip, PushedRow, StateBlock, CONTEXT_MIN_WIDTH, PANE_ROW_FADE,
-    PANE_ROW_H, STRIP_GAP, STRIP_SLIDE,
+    pane_action, pane_header, pane_row, pane_strip, pane_toggle, pushed_row, pushed_row_with, secondary_action, skeleton_bar, skeleton_rows,
+    state_block, strip_moving, strip_position, strip_visible, filter_bar, filter_field, field_border, PaneRow, PaneStrip, PushedRow, StateBlock, CONTEXT_MIN_WIDTH,
+    STRIP_GAP, STRIP_SLIDE,
 };
 pub use pdf::{pdf_pane, PdfAction, PdfControls, PdfPage, PdfPane, PdfRun};
 pub use sheet::{sheet_pane, SheetCell, SheetPane};

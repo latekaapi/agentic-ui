@@ -638,10 +638,10 @@ pub fn pr_card(
         .child(meta)
 }
 
-/// The foot that holds the commit box: padding 8 on the sheet, the 24 px fade
-/// above it, pinned to the bottom of the screen.
+/// The foot that holds the commit box: padding 8 on the pane's ground, the
+/// 24 px fade above it, pinned to the bottom of the screen.
 pub fn commit_foot(child: impl IntoElement, cx: &App) -> gpui::Div {
-    let ground = cx.aui().colors.surface_2;
+    let ground = cx.aui().colors.surface_1;
     div()
         .absolute()
         .left(px(0.0))

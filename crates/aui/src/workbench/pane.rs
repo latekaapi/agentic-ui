@@ -1,8 +1,10 @@
 //! The right pane's chrome (D6, docs/43 §2.2 and §2.11; canvas "Baaz v3" v49,
-//! boards `D6Header` and `D6States*`).
+//! boards `D6Header` and `D6States*`; flat since docs/83 §3).
 //!
 //! There is no tab bar: toggles in the transcript's title row choose the
-//! screen ([`pane_toggle`]). Each screen draws one 32 px row — [`pane_row`]
+//! screen ([`pane_toggle`]). Each screen draws one row — the column's 44 px
+//! header ([`pane_header`]), ending in a 1 px `line-region` at the same y as
+//! the centre's — [`pane_row`]
 //! (glyph, name, the screen's own actions, ✕) or, for a view pushed on top of
 //! it, [`pushed_row`] (←, title, context, ≤ 2 actions, ✕). Empty, error and
 //! loading states share [`state_block`] and [`skeleton_bar`].
@@ -15,10 +17,14 @@ use gpui_kit::base::{h_flex, v_flex};
 use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{icon_button, Button};
 
-/// The pane row's height (the sheet's own row, on the lights' line).
-pub const PANE_ROW_H: f32 = 32.0;
-/// The fade under the pane row, to the sheet colour.
-pub const PANE_ROW_FADE: f32 = 24.0;
+/// The right column's header (docs/83 §3): the bar's 44 px on the ground,
+/// its last pixel the 1 px `line-region` that every column's header ends in,
+/// so the centre's and the pane's lines share one y. Every screen row (the
+/// pane row, a pushed row, the filter bar, the Page's one bar) is built on it.
+pub fn pane_header(cx: &App) -> gpui::Div {
+    let p = cx.aui().colors;
+    h_flex().w_full().h(cx.aui().metrics.bar).flex_none().items_center().bg(p.surface_1).border_b_1().border_color(p.line_region)
+}
 /// The pane row: 12 in on the left (to the glyph), 6 on the right (to ✕).
 const ROW_PAD_LEFT: f32 = 12.0;
 const ROW_PAD_RIGHT: f32 = 6.0;
@@ -59,7 +65,7 @@ fn close_button(id: ElementId, on_close: Option<Handler>) -> Button {
 }
 
 /// The screen's row: glyph 14 muted, name 14.3 / 600, spacer, the screen's
-/// own actions, ✕. Opaque on the sheet; [`pane_row_fade`] goes under it.
+/// own actions, ✕. Opaque on the ground: a [`pane_header`].
 #[derive(IntoElement)]
 pub struct PaneRow {
     id: ElementId,
@@ -128,16 +134,11 @@ fn title_menu_button(id: ElementId, name: SharedString, open: bool, on_click: Ha
 impl RenderOnce for PaneRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        h_flex()
+        pane_header(cx)
             .id(self.id.clone())
-            .w_full()
-            .h(px(PANE_ROW_H))
-            .flex_none()
             .pl(px(ROW_PAD_LEFT))
             .pr(px(ROW_PAD_RIGHT))
             .gap(px(ROW_GAP))
-            .items_center()
-            .bg(p.surface_2)
             .child(icon(self.glyph).size(px(GLYPH)).color(p.fg_muted))
             .child(match self.title_menu {
                 Some((open, on_click)) => h_flex()
@@ -261,33 +262,15 @@ impl RenderOnce for PushedRow {
         if let Some(context) = self.context.filter(|_| show_context) {
             title = title.child(div().min_w(px(0.0)).overflow_hidden().text_ellipsis().text_px(CONTEXT_TEXT).text_color(p.fg_muted).child(context));
         }
-        h_flex()
+        pane_header(cx)
             .id(self.id.clone())
-            .w_full()
-            .h(px(PANE_ROW_H))
-            .flex_none()
             .px(px(ROW_PAD_RIGHT))
             .gap(px(PUSHED_GAP))
-            .items_center()
-            .bg(p.surface_2)
             .child(back)
             .child(title)
             .children(self.actions)
             .child(close_button((self.id, "close").into(), self.on_close))
     }
-}
-
-/// The 24 px fade from the sheet colour under a pane row; place it absolutely
-/// at the row's foot, over the body.
-pub fn pane_row_fade(cx: &App) -> gpui::Div {
-    let ground = cx.aui().colors.surface_2;
-    div()
-        .absolute()
-        .top(px(PANE_ROW_H))
-        .left(px(0.0))
-        .right(px(0.0))
-        .h(px(PANE_ROW_FADE))
-        .bg(gpui::linear_gradient(180.0, gpui::linear_color_stop(ground, 0.0), gpui::linear_color_stop(ground.alpha(0.0), 1.0)))
 }
 
 /// An empty / error / not-shown state (docs/43 §2.11): centred, padding 0 32,
@@ -412,7 +395,7 @@ pub fn skeleton_rows(rows: &[(usize, f32)], cx: &App) -> gpui::Div {
     }))
 }
 
-/// The gap between screens on the strip (the frame colour shows in it while
+/// The gap between screens on the strip (the column ground shows in it while
 /// the strip moves).
 pub const STRIP_GAP: f32 = 6.0;
 /// The slide: 240 ms ease-out (docs/43 §3).
@@ -516,14 +499,13 @@ impl RenderOnce for PaneStrip {
         let p = cx.aui().colors;
         let step = f32::from(self.width) + STRIP_GAP;
         let swipe = window.use_keyed_state((self.id.clone(), "swipe"), cx, |_, _| Swipe::default());
-        let moving = self.screens.iter().enumerate().any(|(i, s)| s.is_some() && (i as f32 - self.position).abs() > 0.001);
+        // Flat (docs/83 §3): the screens sit square on the column's ground,
+        // with the gap between two in motion showing that same ground.
         div()
             .id(self.id)
             .relative()
             .size_full()
             .overflow_hidden()
-            .rounded(px(8.0))
-            .when(moving, |d| d.bg(p.surface_1))
             // Owner, 2026-10-21: a plain sideways swipe scrolls what is under
             // the pointer (a long code line, a diff, an image at 100 %) and
             // never switches screens. Shift + a sideways swipe moves one
@@ -570,9 +552,8 @@ impl RenderOnce for PaneStrip {
                         .bottom(px(0.0))
                         .left(px(left))
                         .w(self.width)
-                        .rounded(px(8.0))
                         .overflow_hidden()
-                        .bg(p.surface_2)
+                        .bg(p.surface_1)
                         .child(s),
                 )
             }))
@@ -636,15 +617,10 @@ pub fn filter_bar(
     let p = cx.aui().colors;
     let id: ElementId = id.into();
     let focused = gpui::Focusable::focus_handle(state.read(cx), cx).is_focused(window);
-    h_flex()
+    pane_header(cx)
         .id(id.clone())
-        .w_full()
-        .h(px(PANE_ROW_H))
-        .flex_none()
         .px(px(6.0))
         .gap(px(6.0))
-        .items_center()
-        .bg(p.surface_2)
         .child(
             h_flex()
                 .flex_1()

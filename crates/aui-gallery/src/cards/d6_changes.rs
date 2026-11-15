@@ -8,7 +8,7 @@ use aui::interact::row_list;
 use aui::protocol::{ChangeKind, Diff, DiffKind, DiffLine, FileChange, Hunk};
 use aui::workbench::{
     base_and_head, base_picker, branch_label, change_row, changes_caption, diff_fold, commit_foot, commit_frame, commit_message_view,
-    diff_body, draft_checkbox, form_field, hook_failed_note, pane_row, pane_row_fade, pr_card, primary_action, pushed_row, skeleton_bar,
+    diff_body, draft_checkbox, form_field, hook_failed_note, pane_row, pr_card, primary_action, pushed_row, skeleton_bar,
     state_block, text_action, well_input, PrState,
 };
 use aui_icons::IconName;
@@ -88,7 +88,6 @@ fn screen(label: &str, body: AnyElement, foot: Option<AnyElement>, row: AnyEleme
             .flex_col()
             .child(row)
             .child(div().flex_1().min_h(px(0.0)).child(body))
-            .child(pane_row_fade(cx))
             .when_some(foot, |d, f| d.child(commit_foot(f, cx))),
     )
 }

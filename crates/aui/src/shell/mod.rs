@@ -13,9 +13,7 @@ mod tab_strip;
 
 pub use app_shell::{
     app_shell, clamp_right_width, clamp_sidebar_width, place_native_lights, AppShell, OverlayBoundsHandler, CHROME_LEAD, CHROME_SWITCH_INSET,
-    COLUMN_EASE, CONTACT_W, LIST_FADE, PEEK_STRIP, RIGHT_MAX_WIDTH, RIGHT_MIN_WIDTH, RIGHT_WIDTH, SHEET_FADE_BELOW,
-    SHEET_INSET, SHEET_RADIUS, SHEET_ROW_H, SHEET_ROW_PAD_LEFT, SHEET_ROW_PAD_RIGHT, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH,
-    SIDEBAR_WIDTH,
+    COLUMN_EASE, PEEK_STRIP, RIGHT_MAX_WIDTH, RIGHT_MIN_WIDTH, RIGHT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_WIDTH,
 };
 pub use drag_region::{drag_region, DragRegion};
 pub use composer_dock::{docked_composer, DockedComposer, DockedComposerIntent};

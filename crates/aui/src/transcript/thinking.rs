@@ -99,7 +99,8 @@ impl RenderOnce for ThinkingBlock {
         let mut viewport = div().relative().w_full().pl(px(TRACE_INDENT)).pr(px(TRACE_INDENT_RIGHT)).pt(px(2.0)).pb(px(VP_PAD_BOTTOM));
         if thinking {
             // Capped while it streams, content bottom-aligned so new text
-            // pushes up, with a 34 px fade to the sheet over the top edge.
+            // pushes up, with a 34 px fade to the transcript's ground over
+            // the top edge.
             viewport = viewport
                 .max_h(px(VIEWPORT_MAX))
                 .overflow_hidden()
@@ -111,7 +112,7 @@ impl RenderOnce for ThinkingBlock {
                         .left_0()
                         .right_0()
                         .h(px(FADE_H))
-                        .bg(linear_gradient(180.0, linear_color_stop(p.surface_2, 0.0), linear_color_stop(p.surface_2.alpha(0.0), 1.0))),
+                        .bg(linear_gradient(180.0, linear_color_stop(p.surface_1, 0.0), linear_color_stop(p.surface_1.alpha(0.0), 1.0))),
                 );
         } else {
             viewport = viewport.child(paragraphs);

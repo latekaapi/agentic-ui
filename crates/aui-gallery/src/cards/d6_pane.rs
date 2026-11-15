@@ -5,8 +5,8 @@
 //! the shared state blocks.
 
 use aui::workbench::{
-    pane_action, pane_row, pane_row_fade, pane_strip, pane_toggle, pushed_row, secondary_action, skeleton_rows, state_block, strip_position,
-    strip_visible, PANE_ROW_H,
+    pane_action, pane_row, pane_strip, pane_toggle, pushed_row, secondary_action, skeleton_rows, state_block, strip_position,
+    strip_visible,
 };
 use aui_icons::IconName;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
@@ -46,7 +46,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     }
     let title_row = h_flex()
         .w_full()
-        .h(px(PANE_ROW_H))
+        .h(cx.aui().metrics.bar)
         .pl(px(16.0))
         .pr(px(10.0))
         .items_center()
@@ -91,7 +91,6 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                     .flex_col()
                     .child(row)
                     .child(div().flex_1().min_h(px(0.0)).child(body))
-                    .child(pane_row_fade(cx))
                     .into_any_element()
             })
         })

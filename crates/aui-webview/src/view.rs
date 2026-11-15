@@ -1663,7 +1663,7 @@ impl RenderOnce for WebviewPane {
         // rounded page (owner 2026-10-13: "a slight weird border at all the 4
         // rounded edges").
         let base = if native {
-            div().relative().flex_1().min_w(px(0.0)).overflow_hidden().rounded(corner_radius).bg(p.surface_2)
+            div().relative().flex_1().min_w(px(0.0)).overflow_hidden().rounded(corner_radius).bg(p.surface_1)
         } else {
             page_body()
         };
@@ -1719,7 +1719,7 @@ impl RenderOnce for WebviewPane {
         // screenshot stands in for it, and a flat surface stands in for that
         // when the page has not been captured yet.
         if native && obscured {
-            let cover = div().absolute().inset_0().overflow_hidden().rounded(corner_radius).bg(p.surface_2);
+            let cover = div().absolute().inset_0().overflow_hidden().rounded(corner_radius).bg(p.surface_1);
             page = page.child(match stand_in {
                 // Never stretched: the page's rect can change while it is
                 // covered (the window resized, the sidebar toggled), and a

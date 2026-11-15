@@ -1,43 +1,45 @@
-//! The app shell (canvas "Baaz v3", chrome revised 2026-10-13, round 3): the
-//! **sidebar column** full height on the frame, its top row the chrome row
-//! (the window's lights, the host's toggle at x 84, the mode switch ending
-//! 12 px before the column's right edge), and the work area as a **sheet**
-//! 6 px in from the window and the column, radius 8, with its own 32 px
-//! title row (title at 16, actions at the right) centred on the lights'
-//! line; the right pane is a second sheet beside it.
+//! The app shell (docs/83 §3, "lines, not layers"): one flat window of
+//! columns. The **sidebar column** runs full height on the `sidebar` fill
+//! with a 1 px `line-region` on its right edge; its top row is the chrome
+//! row (the window's lights, the host's toggle at x 84, the mode switch
+//! ending 12 px before the column's right edge). The centre and the right
+//! pane are plain columns on the ground, the right one split from the
+//! centre by a 1 px `line-region`. Every column's 44 px header ends in a
+//! 1 px `line-region`, and the three lines share one y. No inset, no
+//! radius, no contact shadow, no scroll fade.
 //!
-//! Closing removes the column; the sheet grows into the space and nothing
+//! Closing removes the column; the centre grows into the space and nothing
 //! else is drawn — no row, no toggle, and the host hides the window's lights
-//! (owner 2026-10-13, round 7). A 150 ms rest on the window's top edge (the
-//! frame band above the sheet) or its left edge peeks the whole sidebar as
-//! the frame-coloured column flush with the window's left, top and bottom,
-//! rounded 8 at the bottom right with a drop to its right, its own row
-//! riding in with it; after a toggle the peek waits for the pointer to leave
-//! and come back.
+//! (owner 2026-10-13, round 7). A 150 ms rest on the window's top edge or
+//! its left edge peeks the whole sidebar as a floating surface flush with
+//! the window's left, top and bottom: the `sidebar` fill, a 1 px
+//! `line-strong` right edge, the float shadow, rounded at the bottom right,
+//! its own row riding in with it; after a toggle the peek waits for the
+//! pointer to leave and come back.
 //!
 //! Motion (Emil Kowalski's rules, owner 2026-10-13: smooth or none): the
 //! column opens and closes on an ease-out tween, 260 / 220 ms, the panel
-//! sliding with the column's edge; while it moves, the sheet's content is
+//! sliding with the column's edge; while it moves, the centre's content is
 //! laid out once at the width it will have at rest and slides with the
-//! sheet's edge, so no frame re-lays out the transcript (the build before
+//! column's edge, so no frame re-lays out the transcript (the build before
 //! re-measured per frame and managed four frames per close).
 
 use aui_motion::{open_close, open_close_with, spring_px, Enter, SpringKind};
-use aui_tokens::{ActiveAui, Easing};
+use aui_tokens::{scale, ActiveAui, Easing};
 use gpui::{div, prelude::*, px, AnyElement, App, Div, ElementId, IntoElement, Pixels, Window};
 use gpui_kit::base::h_flex;
 
 use super::drag_region::drag_region;
 
-/// Sidebar column width: Fluid Functionalism's 16rem (owner 2026-10-11).
+/// Sidebar column width (docs/83 §2.5: 256, resizable 220–360).
 pub const SIDEBAR_WIDTH: f32 = 256.0;
 /// Right column width in the app.
 pub const RIGHT_WIDTH: f32 = 400.0;
-/// Minimum sidebar width while resizing: rows need ~200 px at 12.5 px text.
+/// Minimum sidebar width while resizing (docs/83 §2.5).
 /// Clamp every drag move with [`clamp_sidebar_width`].
-pub const SIDEBAR_MIN_WIDTH: f32 = 180.0;
-/// Maximum sidebar width while resizing: keeps the transcript usable.
-pub const SIDEBAR_MAX_WIDTH: f32 = 420.0;
+pub const SIDEBAR_MIN_WIDTH: f32 = 220.0;
+/// Maximum sidebar width while resizing (docs/83 §2.5).
+pub const SIDEBAR_MAX_WIDTH: f32 = 360.0;
 
 /// Clamps a drag width into the resizable range. The shell clamps its own
 /// target the same way, but call this on every drag move before notifying so
@@ -61,38 +63,21 @@ pub fn clamp_right_width(width: f32) -> f32 {
     width.clamp(RIGHT_MIN_WIDTH, RIGHT_MAX_WIDTH)
 }
 
-/// The sheet's inset from the window and the sidebar column.
-pub const SHEET_INSET: f32 = 6.0;
-/// The sheet's corner radius.
-pub const SHEET_RADIUS: f32 = 8.0;
-/// The sheet's own title row (open): height, the title's inset from the
-/// sheet's left, the actions' from its right; its centre is the lights'
-/// line (window y 22 = 6 + 16).
-pub const SHEET_ROW_H: f32 = 32.0;
-/// See [`SHEET_ROW_H`].
-pub const SHEET_ROW_PAD_LEFT: f32 = 16.0;
-/// See [`SHEET_ROW_H`].
-pub const SHEET_ROW_PAD_RIGHT: f32 = 10.0;
-/// The scroll fade under the sheet's title row: the row's own height is
-/// opaque ground — content never shows behind the title (owner 2026-10-14:
-/// the old 64 px ramp left the title at ~69 % cover, so text collided with
-/// it) — then this many pixels fade to clear, as Claude Desktop does.
-pub const SHEET_FADE_BELOW: f32 = 24.0;
+/// The centre header: the title's inset from the column's left, the
+/// actions' from its right.
+const HEADER_PAD_LEFT: f32 = 16.0;
+const HEADER_PAD_RIGHT: f32 = 10.0;
+/// A region divider's thickness (docs/83 §1 rule 2: one 1 px hairline).
+const HAIRLINE: f32 = 1.0;
 /// The chrome row: the host's toggle starts here, past the window's lights
 /// (the v2 sidebar's title bar put it at the same x).
 pub const CHROME_LEAD: f32 = 84.0;
 /// The mode switch ends this far before the sidebar's right edge.
 pub const CHROME_SWITCH_INSET: f32 = 12.0;
-/// Depth (docs/37): the sheet's contact shadow onto the frame beside the
-/// open sidebar — width, and its strength at the sheet's edge per theme.
-pub const CONTACT_W: f32 = 20.0;
-const CONTACT_ALPHA_DARK: f32 = 0.16;
-const CONTACT_ALPHA_LIGHT: f32 = 0.06;
-/// The fade a list scrolls under at the sidebar column's top and at the peek
-/// card's content top.
-pub const LIST_FADE: f32 = 24.0;
-/// The peek: its hover strip on the window's left, arm and dismiss delays.
+/// The peek: its hover strip on the window's left, the band along the
+/// window's top edge, arm and dismiss delays.
 pub const PEEK_STRIP: f32 = 12.0;
+const PEEK_TOP_BAND: f32 = 6.0;
 const PEEK_ARM: std::time::Duration = std::time::Duration::from_millis(150);
 const PEEK_DISMISS: std::time::Duration = std::time::Duration::from_millis(250);
 /// The column's open and close: ease-out (Emil: ease-out for what the
@@ -132,12 +117,12 @@ pub struct AppShell {
     on_hover_zones: Option<HoverZonesHandler>,
 }
 
-/// The chrome over the sheet's rects with their corner radii.
+/// The chrome's rects over the centre with their corner radii.
 type OverlayRects = Vec<(gpui::Bounds<Pixels>, Pixels)>;
 
-/// Called each frame with the rects of the shell's chrome over the sheet
-/// (window coordinates: the peek card while it shows, with its corner
-/// radius) — a host with a native surface under it cuts matching holes.
+/// Called each frame with the rects of the shell's chrome over the centre
+/// (window coordinates: the peek while it shows, with its corner radius) —
+/// a host with a native surface under it cuts matching holes.
 pub type OverlayBoundsHandler = std::rc::Rc<dyn Fn(Vec<(gpui::Bounds<Pixels>, Pixels)>, &mut Window, &mut App)>;
 /// The host's handler for the shell's hover zones (window coordinates): the
 /// regions where a pointer should reach the shell even over a native page
@@ -229,7 +214,7 @@ impl AppShell {
         self
     }
 
-    /// Whether the right sheet shows.
+    /// Whether the right column shows.
     pub fn right_open(mut self, open: bool) -> Self {
         self.right_open = open;
         self
@@ -255,9 +240,8 @@ impl AppShell {
         self
     }
 
-    /// The sheet is a web page (Browse): white, its edge a 50 % black ring (a
-    /// white highlight cannot show on white), no fade; the host's native page
-    /// covers it.
+    /// The centre is a web page (Browse): no header row; the host's native
+    /// page fills the column edge to edge (docs/83 §3).
     pub fn page_sheet(mut self, on: bool) -> Self {
         self.page_sheet = on;
         self
@@ -278,7 +262,7 @@ impl AppShell {
         self
     }
 
-    /// Reports the chrome's rects over the sheet every frame they paint
+    /// Reports the chrome's rects over the centre every frame they paint
     /// (see [`OverlayBoundsHandler`]); an empty list when none shows.
     pub fn on_overlay_bounds(mut self, f: impl Fn(Vec<(gpui::Bounds<Pixels>, Pixels)>, &mut Window, &mut App) + 'static) -> Self {
         self.on_overlay_bounds = Some(std::rc::Rc::new(f));
@@ -287,7 +271,7 @@ impl AppShell {
 
     /// Reports the shell's hover zones each frame: the rects (window
     /// coordinates) where a resting pointer arms the peek while the sidebar
-    /// is closed. A host with a native page over the sheet forwards pointer
+    /// is closed. A host with a native page in the centre forwards pointer
     /// moves inside them to its own window, so the peek still arms there.
     /// An empty list when the sidebar is open.
     pub fn on_hover_zones(mut self, f: impl Fn(Vec<gpui::Bounds<Pixels>>, &mut Window, &mut App) + 'static) -> Self {
@@ -311,22 +295,22 @@ impl AppShell {
         self
     }
 
-    /// The title, in the sheet's own title row (at 16 from the sheet's
-    /// left) while the sidebar is open.
+    /// The title, in the centre column's 44 px header (at 16 from the
+    /// column's left), in every sidebar state.
     pub fn chrome_title(mut self, el: impl IntoElement) -> Self {
         self.chrome_title = Some(el.into_any_element());
         self
     }
 
-    /// The actions, at the sheet row's right while the sidebar is open.
+    /// The actions, at the centre header's right.
     pub fn chrome_right(mut self, el: impl IntoElement) -> Self {
         self.chrome_right = Some(el.into_any_element());
         self
     }
 
-    /// The peek — the sidebar (without its title bar) as a Floating card
-    /// (radius 8, 6 px from the window's left, top and bottom, behind the
-    /// bar's controls and the window's lights) that slides in while the
+    /// The peek — the sidebar (without its title bar) as a floating surface
+    /// (flush with the window's left, top and bottom, rounded at the bottom
+    /// right, behind the bar's controls and the window's lights) that slides in while the
     /// pointer rests on the toggle or the window's left 12 px for 150 ms and
     /// leaves 250 ms after it goes (FF `peek="hover"`, `moderate` /
     /// `moderate.exit`).
@@ -335,7 +319,7 @@ impl AppShell {
         self
     }
 
-    /// The right sheet's header row (the pane's tab strip).
+    /// The right column's 44 px header row (the pane's tab strip).
     pub fn header_right(mut self, el: impl IntoElement) -> Self {
         self.header_right = Some(el.into_any_element());
         self
@@ -347,13 +331,13 @@ impl AppShell {
         self
     }
 
-    /// The centre pane, in the sheet.
+    /// The centre pane, in the centre column under its header.
     pub fn centre(mut self, el: impl IntoElement) -> Self {
         self.centre = Some(el.into_any_element());
         self
     }
 
-    /// The right pane, in the right sheet under its header row.
+    /// The right pane, in the right column under its header row.
     pub fn right(mut self, el: impl IntoElement) -> Self {
         self.right = Some(el.into_any_element());
         self
@@ -536,12 +520,11 @@ impl RenderOnce for AppShell {
             });
         }
 
-        // The right sheet on the moderate tier (FF: panel width).
+        // The right column on the moderate tier (FF: panel width): exactly
+        // the pane's width, its left edge the divider.
         let right_lo = f32::from(shell.right_min);
         let right_rest = px(f32::from(shell.right_width).clamp(right_lo, f32::from(shell.right_max).max(right_lo)));
-        // The right column: its gap from the centre sheet, the sheet at the
-        // pane's width, its gap from the window.
-        let right_target = if shell.right_open { right_rest + px(2.0 * SHEET_INSET) } else { px(0.0) };
+        let right_target = if shell.right_open { right_rest } else { px(0.0) };
         let right_w = if shell.resizing || !shell.animate {
             right_target
         } else {
@@ -549,47 +532,30 @@ impl RenderOnce for AppShell {
         };
         let right_mounted = shell.right_open || right_w > px(0.5);
 
-        // The sheet's content width at rest for the state the shell is
-        // heading to: laid out once, it slides with the sheet's edge instead
+        // The centre's content width at rest for the state the shell is
+        // heading to: laid out once, it slides with the column's edge instead
         // of re-measuring on every frame of the column's motion.
         let left_at_rest = if shell.sidebar_open { rest } else { px(0.0) };
-        let right_at_rest = if shell.right_open { right_rest + px(2.0 * SHEET_INSET) } else { px(SHEET_INSET) };
-        let content_w = (win_w - left_at_rest - px(SHEET_INSET) - right_at_rest).max(px(0.0));
+        let right_at_rest = if shell.right_open { right_rest } else { px(0.0) };
+        let content_w = (win_w - left_at_rest - right_at_rest).max(px(0.0));
 
-        // A sheet's edge is a 1 px `line` hairline (docs/83 §2.3: no inset
-        // edge shadow). The page sheet carries none: the native page covers
-        // it to the edge, and a ring only ever showed through the page's
-        // anti-aliased corners as a fringe (owner 2026-10-13: "a slight
-        // weird border at all 4 rounded edges").
-        let sheet_box = |page: bool| {
-            div()
-                .relative()
-                .size_full()
-                .rounded(px(SHEET_RADIUS))
-                .overflow_hidden()
-                .bg(if page { gpui::Hsla::from(gpui::rgb(0xFAFAFA)) } else { p.surface_2 })
-                .when(!page, |d| d.border_1().border_color(p.line))
-        };
-        // The fade's top corners follow the sheet's radius: `overflow_hidden`
-        // clips to a rectangle, so a square fade painted the sheet's rounded
-        // top corners back in (owner 2026-10-13: "the top corners are not
-        // rounded properly compared to the bottom").
-        let fade = |ground: gpui::Hsla, h: f32| {
-            div()
-                .absolute()
-                .top(px(0.0))
-                .left(px(0.0))
-                .right(px(0.0))
-                .h(px(h))
-                .rounded_tl(px(SHEET_RADIUS))
-                .rounded_tr(px(SHEET_RADIUS))
-                .bg(gpui::linear_gradient(180.0, gpui::linear_color_stop(ground, 0.0), gpui::linear_color_stop(ground.alpha(0.0), 1.0)))
+        // Region dividers (docs/83 §1 rule 2): one 1 px `line-region`.
+        let hairline = px(HAIRLINE);
+        // A header's foot: the line over the last pixel of the 44 px row
+        // (docs/83 §2.5: 44 incl. its line), so every column's line sits at
+        // the same y and every row's content stays centred on the lights.
+        let header_line = |left: Pixels, w: Option<Pixels>| {
+            let line = div().absolute().top(row_h - hairline).h(hairline).left(left).bg(p.line_region);
+            match w {
+                Some(w) => line.w(w),
+                None => line.right(px(0.0)),
+            }
         };
 
-        // The sidebar column, full height: its top row is the chrome row
-        // (drawn by the shell over everything, below); the panel keeps its
-        // resting width and slides with the column's edge; rows fade under
-        // the row.
+        // The sidebar column, full height on the `sidebar` fill: its top row
+        // is the chrome row (drawn by the shell over everything, below) with
+        // its header line; the panel keeps its resting width and slides with
+        // the column's edge; the right edge is the divider, full height.
         let show_sidebar = shell.sidebar_open || column > 0.0005;
         let sidebar_column = div()
             .w(sidebar_w)
@@ -598,104 +564,88 @@ impl RenderOnce for AppShell {
             .relative()
             .overflow_hidden()
             .when(show_sidebar, |d| {
-                d.child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(sidebar_w - rest).w(rest).pt(row_h).children(shell.sidebar))
-                    .child(fade(p.surface_1, LIST_FADE).top(row_h).left(sidebar_w - rest).w(rest))
+                d.bg(p.sidebar)
+                    .child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(sidebar_w - rest).w(rest).pt(row_h).children(shell.sidebar))
+                    .child(header_line(px(0.0), None))
+                    .child(div().absolute().top(px(0.0)).bottom(px(0.0)).right(px(0.0)).w(hairline).bg(p.line_region))
             });
 
-        // The centre sheet, its content at the resting width; fully open it
-        // carries its own title row (title at 16, the actions at the right)
-        // over a fade; closed, the content runs to the sheet's bare top
-        // through a taller fade.
-        let mut centre_sheet = sheet_box(shell.page_sheet).child(div().absolute().top(px(0.0)).bottom(px(0.0)).left(px(0.0)).w(content_w).children(shell.centre));
-        if !shell.page_sheet {
-            // Opaque under the row, then the ramp. The solid part carries
-            // the sheet's top radius (a square fill repaints the corners).
-            let ground = p.surface_2;
-            centre_sheet = centre_sheet.child(
-                div()
-                    .absolute()
-                    .top(px(0.0))
-                    .left(px(0.0))
-                    .right(px(0.0))
-                    .child(div().w_full().h(px(SHEET_ROW_H)).bg(ground).rounded_tl(px(SHEET_RADIUS)).rounded_tr(px(SHEET_RADIUS)))
-                    .child(div().w_full().h(px(SHEET_FADE_BELOW)).bg(gpui::linear_gradient(180.0, gpui::linear_color_stop(ground, 0.0), gpui::linear_color_stop(ground.alpha(0.0), 1.0)))),
-            );
-        }
-        // The sheet's title row stands in every state of a work sheet — the
-        // sidebar closed too (owner 2026-10-14: "bring back the title and the
-        // icons as seen when sidebar is expanded") — and never on a page
-        // sheet (Browse), which is the page.
+        // The centre column on the ground, its content at the resting
+        // width. A work column carries its 44 px header (title at 16, the
+        // actions at the right) ending in its line, in every sidebar state
+        // (owner 2026-10-14: "bring back the title and the icons as seen when
+        // sidebar is expanded"), and its content starts under it. A page
+        // column (Browse) has no header: the page is the column, edge to
+        // edge.
         let row_shown = !shell.page_sheet;
+        let content_top = if row_shown { row_h } else { px(0.0) };
+        let mut centre_column = div()
+            .flex_1()
+            .h_full()
+            .min_w(px(0.0))
+            .relative()
+            .overflow_hidden()
+            .child(div().absolute().top(content_top).bottom(px(0.0)).left(px(0.0)).w(content_w).children(shell.centre));
         if row_shown {
             let row = h_flex()
                 .w_full()
-                .h(px(SHEET_ROW_H))
-                .pl(px(SHEET_ROW_PAD_LEFT))
-                .pr(px(SHEET_ROW_PAD_RIGHT))
+                .h(row_h)
+                .pl(px(HEADER_PAD_LEFT))
+                .pr(px(HEADER_PAD_RIGHT))
                 .items_center()
                 .child(div().flex_1().min_w(px(0.0)).overflow_hidden().flex().items_center().children(shell.chrome_title))
                 .child(div().flex_none().flex().items_center().children(shell.chrome_right));
             let row = if shell.draggable { drag_region((id.clone(), "title-drag")).child(row).into_any_element() } else { row.into_any_element() };
-            centre_sheet = centre_sheet.child(div().absolute().top(px(0.0)).left(px(0.0)).right(px(0.0)).h(px(SHEET_ROW_H)).child(row));
+            centre_column = centre_column
+                .child(div().absolute().top(px(0.0)).left(px(0.0)).right(px(0.0)).h(row_h).child(row))
+                .child(header_line(px(0.0), None));
         }
-        let centre_column = div()
-            .flex_1()
-            .h_full()
-            .min_w(px(0.0))
-            .pt(px(SHEET_INSET))
-            .pb(px(SHEET_INSET))
-            .pl(px(SHEET_INSET))
-            .pr(if right_mounted { px(0.0) } else { px(SHEET_INSET) })
-            .child(div().w_full().h_full().child(centre_sheet));
 
-        // The right sheet, 6 px beside the centre; its header row inside it.
+        // The right column on the ground, its left edge the divider; its
+        // header row (Browse: the pane's tab strip) ends in its line. A pane
+        // whose screens carry their own rows (D6, the strip) passes no
+        // header, and its body fills the column; those rows are the same
+        // 44 px with the same line.
         let right_column = div().w(right_w).h_full().flex_none().overflow_hidden().when(right_mounted, |d| {
             d.child(
-                div().w(right_rest + px(2.0 * SHEET_INSET)).h_full().pl(px(SHEET_INSET)).pt(px(SHEET_INSET)).pb(px(SHEET_INSET)).pr(px(SHEET_INSET)).child(
-                    sheet_box(false).child(
-                        div()
-                            .size_full()
-                            .flex()
-                            .flex_col()
-                            // D6: a pane whose screens carry their own rows (the
-                            // strip) passes no header, and its body fills the sheet.
-                            .when(shell.header_right.is_some(), |d| {
-                                d.child(div().w_full().h(row_h).flex_none().flex().items_center().children(shell.header_right))
-                            })
-                            .child(div().w_full().flex_1().min_h(px(0.0)).overflow_hidden().children(shell.right)),
-                    ),
-                ),
+                div()
+                    .w(right_rest)
+                    .h_full()
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .border_l_1()
+                    .border_color(p.line_region)
+                    .when(shell.header_right.is_some(), |d| {
+                        d.child(
+                            div()
+                                .w_full()
+                                .h(row_h)
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .border_b_1()
+                                .border_color(p.line_region)
+                                .children(shell.header_right),
+                        )
+                    })
+                    .child(div().w_full().flex_1().min_h(px(0.0)).overflow_hidden().children(shell.right)),
             )
-        });
-
-        // The sheet's contact shadow onto the frame (docs/37 G1): beside the
-        // sheet only, riding and fading with the column.
-        let contact = show_sidebar.then(|| {
-            let a = if p.is_dark() { CONTACT_ALPHA_DARK } else { CONTACT_ALPHA_LIGHT };
-            div()
-                .absolute()
-                .top(px(SHEET_INSET))
-                .bottom(px(SHEET_INSET))
-                .left(sidebar_w + px(SHEET_INSET) - px(CONTACT_W))
-                .w(px(CONTACT_W))
-                .opacity(column.clamp(0.0, 1.0))
-                .bg(gpui::linear_gradient(90.0, gpui::linear_color_stop(gpui::black().alpha(0.0), 0.0), gpui::linear_color_stop(gpui::black().alpha(a), 1.0)))
         });
 
         let body = h_flex().absolute().inset_0().items_stretch().child(sidebar_column).child(centre_column).child(right_column);
 
-        let mut root = div().id(id.clone()).relative().size_full().overflow_hidden().bg(p.surface_1).text_color(p.ink).child(body).children(contact);
+        let mut root = div().id(id.clone()).relative().size_full().overflow_hidden().bg(p.surface_1).text_color(p.ink).child(body);
 
-        // The chrome's rects over the sheet, collected while it prepaints and
+        // The chrome's rects over the centre, collected while it prepaints and
         // handed to the host by the last child (see `AppShell::on_overlay_bounds`).
         use gpui_kit::base::ElementExt as _;
         let rects: std::rc::Rc<std::cell::RefCell<OverlayRects>> = Default::default();
         let hover_zones: std::rc::Rc<std::cell::RefCell<Vec<gpui::Bounds<Pixels>>>> = Default::default();
 
         // The peek: closed, nothing is drawn (owner 2026-10-13: not even the
-        // lights); a rest on the window's top edge (the frame band above the
-        // sheet) or its left edge brings the sidebar as a card, its own row
-        // riding in with it.
+        // lights); a rest on the window's top edge or its left edge brings
+        // the sidebar as a floating surface, its own row riding in with it.
         let mut peek_k: f32 = 0.0;
         if settled_closed {
             if let Some(peek_el) = shell.peek {
@@ -710,8 +660,8 @@ impl RenderOnce for AppShell {
                 let corner = corner.on_prepaint(move |bounds, _, _| zones.borrow_mut().push(bounds));
                 for (name, el) in [
                     ("peek-corner", corner),
-                    ("peek-top", div().absolute().left(px(0.0)).top(px(0.0)).right(px(0.0)).h(px(SHEET_INSET))),
-                    ("peek-left", div().absolute().left(px(0.0)).top(px(SHEET_INSET)).bottom(px(0.0)).w(px(PEEK_STRIP))),
+                    ("peek-top", div().absolute().left(px(0.0)).top(px(0.0)).right(px(0.0)).h(px(PEEK_TOP_BAND))),
+                    ("peek-left", div().absolute().left(px(0.0)).top(px(PEEK_TOP_BAND)).bottom(px(0.0)).w(px(PEEK_STRIP))),
                 ] {
                     let edge_state = state.clone();
                     root = root.child(el.id((id.clone(), name)).on_hover(move |hovered, _, cx| {
@@ -726,11 +676,12 @@ impl RenderOnce for AppShell {
                     let card_state = state.clone();
                     let report = rects.clone();
                     // From −108 % of its width to its resting place: the
-                    // sidebar's own column in the frame's colour, flush with
+                    // sidebar's own column on the `sidebar` fill, flush with
                     // the window's left, top and bottom, the sidebar's width,
-                    // rounded 8 at the bottom right; its rows start under its
-                    // row. Its `line-strong` edge and the float shadow are
-                    // what lift it off the sheet.
+                    // rounded at the bottom right because it floats; its rows
+                    // start under its row and that row's line. Its
+                    // `line-strong` right edge and the float shadow are what
+                    // lift it off the centre (docs/83 §3).
                     let travel = rest * 1.08;
                     root = root.child(
                         div()
@@ -740,13 +691,12 @@ impl RenderOnce for AppShell {
                             .bottom(px(0.0))
                             .left(px(0.0) - travel * (1.0 - k))
                             .w(rest)
-                            .rounded_br(px(SHEET_RADIUS))
+                            .rounded_br(px(scale::SHAPE_CONTAINER))
                             .overflow_hidden()
-                            .bg(p.surface_1)
-                            // It floats: a `line-strong` edge on its open
-                            // side and the one float shadow (docs/83 §2.3).
+                            .bg(p.sidebar)
+                            // It floats: a `line-strong` right edge and the
+                            // one float shadow (docs/83 §2.3, §3).
                             .border_r_1()
-                            .border_b_1()
                             .border_color(p.line_strong)
                             .shadow(p.floating_shadow())
                             .occlude()
@@ -758,8 +708,8 @@ impl RenderOnce for AppShell {
                                 });
                             })
                             .child(div().absolute().top(row_h).bottom(px(0.0)).left(px(0.0)).right(px(0.0)).child(peek_el))
-                            .child(fade(p.surface_1, LIST_FADE).top(row_h))
-                            .on_prepaint(move |bounds, _, _| report.borrow_mut().push((bounds, px(SHEET_RADIUS)))),
+                            .child(header_line(px(0.0), None))
+                            .on_prepaint(move |bounds, _, _| report.borrow_mut().push((bounds, px(scale::SHAPE_CONTAINER)))),
                     );
                 }
             }
@@ -767,7 +717,7 @@ impl RenderOnce for AppShell {
 
         // The chrome row: lights, the host's toggle at CHROME_LEAD, the mode
         // switch ending CHROME_SWITCH_INSET before the sidebar's right edge —
-        // the sidebar column's own title row, on the frame. Open, it stands at
+        // the sidebar column's own title row. Open, it stands at
         // the window's corner; closed it is gone, and it rides in with the
         // peek card. The lights are the host's to hide and show with it.
         let row_left = if !settled_closed {
