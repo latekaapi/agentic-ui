@@ -77,14 +77,26 @@ fn sessions_mode_labels_every_interactive_element(cx: &mut TestAppContext) {
             "Search",
             "New session",
             "Skills",
-            "Automations",
             "Pinned",
             "Open session Design v2 tokens",
             "Project harness",
             "Account Ada · Max",
+            "Settings",
         ],
     );
+    // docs/83 §4: Automations is gone until the feature exists.
+    assert!(!has(&labels, "Automations"), "{labels:?}");
     assert!(labels.iter().all(|l| !l.is_empty()), "unlabelled control: {labels:?}");
+}
+
+/// docs/83 §4: the trailing slot carries each state the sample holds — a
+/// spinner (running), the amber dot (needs you), the accent dot (finished,
+/// unread), the danger dot (failed) — each with its spoken name.
+#[gpui::test]
+fn the_trailing_slot_names_each_state(cx: &mut TestAppContext) {
+    init(cx);
+    let labels = labels_of(cx, sample_model());
+    assert_has(&labels, &["Running", "Needs you", "Unread", "Failed"]);
 }
 
 #[gpui::test]
@@ -168,13 +180,26 @@ fn rename_replaces_the_open_label_with_a_rename_label(cx: &mut TestAppContext) {
     assert!(!has(&labels, "Open session Token ladder audit"), "{labels:?}");
 }
 
+/// docs/83 §4: under the pointer the slot is the `⋯` menu (the age beside
+/// it), never the three loose buttons it used to stand in for.
 #[gpui::test]
-fn hovered_session_shows_pin_rename_archive(cx: &mut TestAppContext) {
+fn hovered_session_shows_its_row_menu_button(cx: &mut TestAppContext) {
     init(cx);
     let mut model = sample_model();
     model.hovered = Some("checklist".into());
     let labels = labels_of(cx, model);
-    assert_has(&labels, &["Pin session Checklist run", "Rename session Checklist run", "Archive session Checklist run"]);
+    assert_has(&labels, &["Options for session Checklist run"]);
+    assert!(!has(&labels, "Pin session Checklist run"), "{labels:?}");
+    assert!(!has(&labels, "Needs you"), "the menu replaces the state mark: {labels:?}");
+}
+
+#[gpui::test]
+fn an_open_row_menu_offers_pin_rename_archive(cx: &mut TestAppContext) {
+    init(cx);
+    let mut model = sample_model();
+    model.row_menu = Some("checklist".into());
+    let labels = labels_of(cx, model);
+    assert_has(&labels, &["Options for session Checklist run", "Pin", "Rename", "Archive"]);
 }
 
 #[gpui::test]

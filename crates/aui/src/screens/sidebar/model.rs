@@ -30,16 +30,16 @@ pub enum Mode {
     Browse,
 }
 
-/// How much every session row says under its title.
+/// How much every session row says under its title (docs/83 §4: Settings ›
+/// Sidebar › "Show a summary line", default off).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Bylines {
-    /// Every row is two lines: the status sentence where the session has
-    /// one, otherwise its byline (last ask · last result).
+    /// One line per session: the title alone; state rides the trailing slot.
     #[default]
-    All,
-    /// Only rows with a status sentence (running, waiting, failed) take
-    /// the second line; idle rows stay one line.
-    StatusOnly,
+    Off,
+    /// Two lines (52): under the title, the status sentence where the
+    /// session has one, otherwise its byline (last ask · last result).
+    Summary,
 }
 
 /// One primary nav row under New session.
@@ -51,10 +51,9 @@ pub struct NavItem {
     pub label: SharedString,
     /// The leading glyph, on the icon axis.
     pub icon: IconName,
-    /// The trailing count, if the row carries one.
+    /// The trailing count, if the row carries one; zero draws nothing
+    /// (docs/83 §4: no trailing counts unless non-zero).
     pub count: Option<u32>,
-    /// The row is coming soon: a quiet "Soon" marker instead of a count.
-    pub soon: bool,
 }
 
 /// One meter line inside a provider's usage card.
@@ -94,12 +93,25 @@ pub struct Account {
     pub plan: SharedString,
     /// The avatar's initial.
     pub initial: SharedString,
-    /// The avatar's label colour index (see `Palette::label`).
-    pub tint: u8,
+    /// What the footer tile says about the providers behind the account.
+    pub status: AccountStatus,
     /// Whether the account menu is open above the footer.
     pub menu_open: bool,
     /// Every connected provider's usage, in the order shown.
     pub usage: Vec<ProviderUsage>,
+}
+
+/// The footer tile's state (docs/83 §4): the tile itself stays neutral.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AccountStatus {
+    /// An account to show: the initial on the neutral tile.
+    #[default]
+    Ready,
+    /// Providers are still being checked: the tile spins and the name reads
+    /// muted ("Checking providers…").
+    Checking,
+    /// A provider problem: the amber dot on the tile.
+    Attention,
 }
 
 /// A rename in flight: which session, and the draft the field shows when
@@ -518,13 +530,15 @@ pub struct SidebarModel {
     pub highlighted: Option<SharedString>,
     /// The rename in flight, if any.
     pub editing: Option<EditingState>,
+    /// The session whose row menu (the trailing `⋯`) is open.
+    pub row_menu: Option<SharedString>,
     /// Whether sessions are still loading: skeleton rows, no text.
     pub loading: bool,
     /// Whether the view-options menu is open under the Projects header.
     pub view_menu_open: bool,
     /// The view-options menu's current values.
     pub view_options: ViewOptions,
-    /// Second lines on every row, or only where a status demands one.
+    /// One-line rows, or the summary line under every title.
     pub bylines: Bylines,
     /// The account footer and menu.
     pub account: Account,
@@ -694,6 +708,7 @@ pub fn sample_model() -> SidebarModel {
     let aui = ProjectGroup::new("agentic-ui", "agentic-ui", "3")
         .open(vec![
             SessionSummary::new("fluid-glide", "Fluid list glide", AgentState::Done, "1d")
+                .unread()
                 .preview("Glide between rows · merged"),
             SessionSummary::new("rename-fit", "Rename field fit", AgentState::Failed, "1d")
                 .status(RowStatusKind::Failed, "Typecheck failed in sidebar view"),
@@ -706,8 +721,7 @@ pub fn sample_model() -> SidebarModel {
         mode: Mode::Sessions,
         search: None,
         nav: vec![
-            NavItem { id: "skills".into(), label: "Skills".into(), icon: IconName::Book, count: Some(23), soon: false },
-            NavItem { id: "automations".into(), label: "Automations".into(), icon: IconName::Zap, count: None, soon: true },
+            NavItem { id: "skills".into(), label: "Skills".into(), icon: IconName::Book, count: Some(23) },
         ],
         pinned,
         pinned_open: true,
@@ -718,16 +732,17 @@ pub fn sample_model() -> SidebarModel {
         hovered_projects_header: false,
         highlighted: None,
         editing: None,
+        row_menu: None,
         loading: false,
         view_menu_open: false,
         view_options: ViewOptions::default(),
-        bylines: Bylines::All,
+        bylines: Bylines::Off,
         account: Account {
             name: "Ada".into(),
             email: "ada@example.com".into(),
             plan: "Max".into(),
             initial: "B".into(),
-            tint: 5,
+            status: AccountStatus::Ready,
             menu_open: false,
             usage: vec![
                 ProviderUsage {

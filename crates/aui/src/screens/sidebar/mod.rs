@@ -13,9 +13,9 @@ mod menus;
 mod model;
 mod view;
 
-pub use menus::{account_menu, browse_menu, browse_menu_size, view_options_menu};
+pub use menus::{account_menu, browse_menu, browse_menu_size, session_menu, view_options_menu};
 pub use model::{
-    sample_model, Account, AccountAction, BrowseEditing, BrowseFolder, BrowseIntent, BrowseMenu, BrowseMenuTarget, BrowseModel,
+    sample_model, Account, AccountAction, AccountStatus, BrowseEditing, BrowseFolder, BrowseIntent, BrowseMenu, BrowseMenuTarget, BrowseModel,
     BrowseNaming, BrowsePin, BrowseSpace, BrowseTab, Bylines, EditingState, FolderAction, FolderKind, GroupKey, Mode, NavItem,
     PageAction, ProviderUsage, SidebarIntent, SidebarModel, SortKey, SpaceAction, TabAction, TaskFolderAction, UsageLine, ViewOption,
     ViewOptions,

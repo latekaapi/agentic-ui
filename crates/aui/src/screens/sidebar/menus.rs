@@ -22,10 +22,10 @@ use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, Pixels,
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::interact::{dropdown, Dropdown, DropdownEntry, DropdownItem, DropdownSide, DropdownTrailing, Shape};
-use crate::nav::project_mark;
+use crate::nav::{project_mark, RowAction, SessionSummary};
 
 use super::{
-    Account, AccountAction, BrowseIntent, BrowseMenu, BrowseMenuTarget, BrowseModel, FolderAction, GroupKey,
+    Account, AccountAction, AccountStatus, BrowseIntent, BrowseMenu, BrowseMenuTarget, BrowseModel, FolderAction, GroupKey,
     PageAction, SidebarIntent, SortKey, SpaceAction, TabAction, TaskFolderAction, ViewOption, ViewOptions,
 };
 
@@ -250,6 +250,46 @@ pub fn view_options_menu(id: impl Into<ElementId>, options: &ViewOptions, width:
     gpui_kit::base::h_flex().items_start().child(div().flex_none().w(width).child(main)).children(submenu).into_any_element()
 }
 
+/// The account's avatar tile (docs/83 §4): 20 px, neutral — `surface-4`
+/// fill, the initial in `fg-muted` — never a label colour. While providers
+/// are checked it spins instead of naming anyone; a provider problem adds
+/// the 6 px amber dot at its corner.
+pub(super) fn avatar_tile(initial: SharedString, status: AccountStatus, id: ElementId, cx: &App) -> AnyElement {
+    let p = cx.aui().colors;
+    let metrics = cx.aui().metrics;
+    let side = metrics.icon + px(scale::SP_2);
+    let dot = px(scale::SP_2 + scale::SP_1);
+    let inner: AnyElement = match status {
+        AccountStatus::Checking => crate::data::spinner(id).size(metrics.icon - px(scale::SP_2)).muted(cx).into_any_element(),
+        AccountStatus::Ready | AccountStatus::Attention => div().role_in(TextRole::Micro, cx).medium().text_color(p.fg_muted).child(initial).into_any_element(),
+    };
+    div()
+        .flex_none()
+        .relative()
+        .size(side)
+        .child(div().size_full().flex().items_center().justify_center().rounded(px(scale::R_SM)).bg(p.surface(4)).child(inner))
+        .when(status == AccountStatus::Attention, |d| {
+            d.child(Shape::Pill.rounded(div().absolute().top(-px(scale::SP_1)).right(-px(scale::SP_1)).size(dot).bg(p.warning)))
+        })
+        .into_any_element()
+}
+
+/// A session row's menu (its trailing `⋯`): Pin or Unpin, Rename, Archive —
+/// the row actions that used to stand in the trailing slot on hover. Every
+/// row reports [`SidebarIntent::RowAction`]; the host closes the menu.
+pub fn session_menu(id: impl Into<ElementId>, session: &SessionSummary, on_intent: Option<IntentHandler>) -> AnyElement {
+    let id: ElementId = id.into();
+    let sid = session.id.clone();
+    let rows = vec![
+        MenuRow::new(if session.pinned { "Unpin" } else { "Pin" }, SidebarIntent::RowAction(sid.clone(), RowAction::Pin)),
+        MenuRow::new("Rename", SidebarIntent::RowAction(sid.clone(), RowAction::Rename)),
+        MenuRow::new("Archive", SidebarIntent::RowAction(sid, RowAction::Archive)).after_separator(),
+    ];
+    let (rows, _) = entries(rows, &on_intent);
+    let label: SharedString = format!("Options for session {}", session.name).into();
+    panel(&id, label, submenu_width(), rows, &on_intent).into_any_element()
+}
+
 /// One provider's usage card: mark, name, plan, then a meter per line.
 fn provider_card(id: &ElementId, usage: &super::ProviderUsage, cx: &App) -> AnyElement {
     let p = cx.aui().colors;
@@ -318,7 +358,7 @@ pub fn account_menu(id: impl Into<ElementId>, account: &Account, width: Pixels, 
         .items_center()
         .px(metrics.item_px)
         .gap(metrics.gap)
-        .child(project_mark(account.initial.clone(), p.label(account.tint)).size(metrics.icon + metrics.gap / 2.0))
+        .child(avatar_tile(account.initial.clone(), AccountStatus::Ready, (id.clone(), "avatar").into(), cx))
         .child(div().flex_1().min_w(px(0.0)).truncate().text_role_in(TextRole::Body, Density::Standard).text_color(p.fg).child(account.name.clone()))
         // The email only when it says something the name does not.
         .when(!account.email.is_empty() && account.email != account.name, |d| {

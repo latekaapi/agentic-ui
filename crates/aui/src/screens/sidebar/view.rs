@@ -3,24 +3,25 @@
 //! projects with their virtualised sessions — or Browse mode's address,
 //! controls, pins, tabs, folders and spaces), and the footer.
 //!
-//! The measurements are the mock's, in tokens (default density):
+//! The measurements are docs/83 §4's, in tokens (default density):
 //!
-//! - list rows are `control_lg` tall (32; 28 compact), two-line rows 46
-//!   (5 + 20 + 16 + 5); the sidebar is 256 wide (FF's 16rem) with an
-//!   `item_px` gutter (8) on both sides, so rows span 8–248 and the
-//!   highlight block has the item radius;
-//! - the leading slot is `item_px + icon` wide (24) with its glyph or dot
-//!   centred, which puts the icon axis at 20; text starts one `gap` after
-//!   it, on the text axis at 40; counts, ages and chips end at 240;
-//! - nested rows indent one `inset` (16): dot centre 36, text at 56;
-//! - section titles are `control_md` tall (28) with one `SP_4` (12)
-//!   above, their label at 16; the Projects header carries its actions
-//!   only while hovered;
-//! - row titles use the compact Body step (13/20) at both densities, so
-//!   the list reads one step quieter than the pane; bylines, counts and
-//!   ages are Caption, chips and branches Micro / compact Mono;
-//! - only the dot carries status colour; no accent anywhere (an inline
-//!   field is FF's focused InputField: surface-3 and the border ring).
+//! - list rows are `control_lg` tall (32; 28 compact) with a `ROW_GAP` (2)
+//!   between them, a pitch of 34; the two-line option is `row_2` (52). The
+//!   sidebar is 256 wide with a `list-inset` gutter (8) on both sides, so
+//!   rows span 8–248 and the highlight block has the item radius (8);
+//! - every row pads `ROW_PAD_X` (10) inside its block: a glyph sits at 18
+//!   with its label one `gap` after it (42); a session title has no leading
+//!   glyph in any state and starts at 18;
+//! - a session row's trailing 20 px slot shows exactly one of: a spinner
+//!   (running), the amber dot (needs you), the `accent-ring` dot (finished,
+//!   unread), the danger dot (failed) — or, under the pointer, the `⋯` row
+//!   menu with the age left of it. Idle and read shows nothing;
+//! - group labels (Pinned, Projects, each project, each date bucket) are
+//!   Caption, `fg-muted`, sentence case, 28 tall, label at 18; a project's
+//!   chevron follows its name while hovered or closed, its actions appear
+//!   at the right on hover;
+//! - row titles are Body in `fg`, regular weight; selection is the fill
+//!   alone. Colour in a row means state, never decoration.
 //!
 //! The screen is stateless: `model` is plain data, `state` the
 //! caller-owned [`ListState`] sized with [`screen_item_count`]. Rows hover
@@ -49,11 +50,11 @@ use gpui_kit::base::{
 };
 
 use crate::data::{icon_button, record_ax_label, spinner, ButtonSize};
-use crate::interact::{interactive, row_list, surface, ListItems, RowList, Shape, StatePaint};
-use crate::nav::{flatten_sidebar, project_mark, Grouping, GroupAction, RowAction, SessionSummary, SidebarRow};
+use crate::interact::{interactive, row_list, surface, ListItems, RowList, Shape, StatePaint, ROW_GAP, ROW_PAD_X};
+use crate::nav::{flatten_sidebar, Grouping, GroupAction, RowAction, SessionSummary, SidebarRow};
 
-use super::menus::{account_menu, view_options_menu};
-use super::{BrowseIntent, BrowseMenu, BrowseMenuTarget, BrowseNaming, Bylines, FolderKind, Mode, SidebarIntent, SidebarModel};
+use super::menus::{account_menu, avatar_tile, session_menu, view_options_menu};
+use super::{AccountAction, AccountStatus, BrowseIntent, BrowseMenu, BrowseMenuTarget, BrowseNaming, Bylines, FolderKind, Mode, SidebarIntent, SidebarModel};
 
 /// The sidebar's width beside the pane: Fluid Functionalism's 16rem
 /// (`sidebar-core.tsx`: `SIDEBAR_WIDTH = "16rem"`), owner 2026-10-11.
@@ -68,6 +69,8 @@ const BROWSE_BASE: usize = 500;
 /// The task pane's rows (after Browse's scrolling rows, before the virtual
 /// sessions): their own clip range.
 const TASK_BASE: usize = 800;
+/// The Pinned label's hover key (a reserved chrome key, like `"search"`).
+const PINNED_KEY: &str = "pinned-head";
 
 
 type SwitchHandler = Rc<dyn Fn(Mode, &mut Window, &mut App)>;
@@ -188,9 +191,18 @@ pub fn list_row_height(cx: &App) -> Pixels {
 /// (measured live; the inline rename field compensates for it).
 const TEXTAREA_TEXT_INSET: f32 = 10.0;
 
-/// The two-line row's height: 5 + 20 (title) + 16 (byline) + 5 = 46.
-fn two_line_row_height() -> Pixels {
-    px(scale::T_BODY_LH + scale::T_CAPTION_LH + scale::SP_3 + scale::SP_1)
+/// A session row's height: one line, or `row_2` (52) with the summary line.
+fn session_row_height(two_lines: bool, cx: &App) -> Pixels {
+    if two_lines {
+        cx.aui().metrics.row_2
+    } else {
+        list_row_height(cx)
+    }
+}
+
+/// A group label's height (docs/83 §4: 28).
+fn label_height(cx: &App) -> Pixels {
+    cx.aui().metrics.control_md
 }
 
 /// How many virtual rows [`sidebar_screen`] builds for `model`: the
@@ -328,8 +340,8 @@ impl Ctx {
         (self.id.clone(), SharedString::from(name.into())).into()
     }
 
-    /// The leading slot every row shares: `item_px + icon` wide, content
-    /// centred, so glyphs and dots sit on the icon axis.
+    /// A row's leading glyph box: one icon square, content centred. Rows
+    /// pad `ROW_PAD_X` before it, so glyphs sit at 18 and labels at 42.
     fn lead(&self, content: impl IntoElement, cx: &App) -> AnyElement {
         let metrics = cx.aui().metrics;
         div()
@@ -337,8 +349,7 @@ impl Ctx {
             .flex()
             .items_center()
             .justify_center()
-            .w(metrics.item_px + metrics.icon)
-            .h(metrics.item_px + metrics.icon)
+            .size(metrics.icon)
             .text_color(cx.aui().colors.fg_muted)
             .child(content)
             .into_any_element()
@@ -360,27 +371,6 @@ impl Ctx {
     /// on it.
     fn lit(&self, key: &str) -> bool {
         self.model.hovered.as_deref() == Some(key)
-    }
-
-    /// The status dot: 8 px, hollow `ink-4` when idle, filled in the state
-    /// colour when running / waiting / failed (running adds a soft ring),
-    /// hollow `success` when done.
-    fn dot(&self, state: AgentState, cx: &App) -> AnyElement {
-        let p = cx.aui().colors;
-        let size = px(scale::SP_3);
-        let dot = match state {
-            AgentState::Idle => Shape::Pill.rounded(div().size(size).border_1().border_color(p.ink_4)),
-            AgentState::Done => Shape::Pill.rounded(div().size(size).border_1().border_color(p.success)),
-            AgentState::Running => Shape::Pill.rounded(div().size(size).bg(p.info)),
-            AgentState::Waiting => Shape::Pill.rounded(div().size(size).bg(p.warning)),
-            AgentState::Failed => Shape::Pill.rounded(div().size(size).bg(p.danger)),
-        };
-        let halo = if state == AgentState::Running {
-            Shape::Pill.rounded(div().size(size + px(scale::SP_2) + px(scale::SP_1)).bg(p.info_soft).flex().items_center().justify_center().child(dot))
-        } else {
-            div().child(dot)
-        };
-        self.lead(halo, cx)
     }
 
     /// A tab's mark: its favicon image when the host has one (the icon
@@ -409,13 +399,6 @@ impl Ctx {
             .into_any_element()
     }
 
-    /// The two-line row height: the title line (20) and one Caption line
-    /// (16) with 5 px above and below — 46 (owner 2026-10-10: 48 read too
-    /// tall, 40 too squished; the 1 px pill inset leaves a 44 px pill).
-    fn two_line_height(&self, _cx: &App) -> Pixels {
-        two_line_row_height()
-    }
-
     /// A trailing count or age: Caption, muted, tabular.
     fn trailing(&self, text: impl Into<SharedString>, cx: &App) -> AnyElement {
         div().flex_none().role_in(TextRole::Caption, cx).text_color(cx.aui().colors.fg_muted).child(text.into()).into_any_element()
@@ -436,26 +419,26 @@ impl Ctx {
             .child(text.into())
     }
 
-    /// A one-line list row: leading slot, title, trailing. `nested`
-    /// indents one `inset`.
-    /// A row's frame: height, gap, insets and the lead — no title slot, so
-    /// a skeleton bar sits right after the lead instead of past a flexing
-    /// empty title.
-    fn row_frame(&self, lead: AnyElement, nested: bool, cx: &App) -> gpui::Div {
+    /// A row's frame: height, gap, the `ROW_PAD_X` inside its block and
+    /// the leading glyph if any — no title slot, so a skeleton bar sits
+    /// right after the padding instead of past a flexing empty title.
+    /// `nested` indents one `inset` (Browse's folder tabs). Labels are `fg`
+    /// (docs/83 §4).
+    fn row_frame(&self, lead: Option<AnyElement>, nested: bool, cx: &App) -> gpui::Div {
         let metrics = cx.aui().metrics;
         h_flex()
             .w_full()
             .h(list_row_height(cx))
             .items_center()
             .gap(metrics.gap)
-            .pr(metrics.item_px)
-            // FF: a row's label rests muted and lights to foreground.
-            .text_color(cx.aui().colors.fg_muted)
-            .when(nested, |d| d.pl(metrics.inset))
-            .child(lead)
+            .pl(px(ROW_PAD_X) + if nested { metrics.inset } else { px(0.0) })
+            .pr(px(ROW_PAD_X))
+            .text_color(cx.aui().colors.fg)
+            .children(lead)
     }
 
-    fn row(&self, lead: AnyElement, title: impl Into<SharedString>, trailing: Option<AnyElement>, nested: bool, cx: &App) -> gpui::Div {
+    /// A one-line list row: leading glyph, title, trailing.
+    fn row(&self, lead: Option<AnyElement>, title: impl Into<SharedString>, trailing: Option<AnyElement>, nested: bool, cx: &App) -> gpui::Div {
         let mut row = self.row_frame(lead, nested, cx).child(self.title(title, cx));
         if let Some(trailing) = trailing {
             row = row.child(trailing);
@@ -463,17 +446,17 @@ impl Ctx {
         row
     }
 
-    /// A section title: `control_md` tall with `SP_4` above, Caption muted
-    /// at x 16; optional count and hover actions.
+    /// A section title: a group label (`control_md` tall, Caption muted,
+    /// sentence case, no rule) with `SP_4` above and its label at 18;
+    /// optional count (Browse's Today) and hover actions.
     fn section(&self, label: &str, count: Option<SharedString>, actions: Option<AnyElement>, cx: &App) -> gpui::Div {
         let p = cx.aui().colors;
-        let metrics = cx.aui().metrics;
         let mut head = h_flex()
             .w_full()
-            .h(metrics.control_md)
+            .h(label_height(cx))
             .mt(px(scale::SP_4))
             .items_center()
-            .pl(metrics.item_px)
+            .pl(px(ROW_PAD_X))
             .pr(px(scale::SP_2))
             .role_in(TextRole::Caption, cx)
             .text_color(p.fg_muted)
@@ -518,86 +501,129 @@ impl Ctx {
         second_line_for(session, self.model.bylines)
     }
 
-    /// One session row: dot, title (+ byline), age — or the three hover
-    /// actions in the trailing slot while the pointer is on it. Selection
-    /// and hover paint come from the row list's item box, never from the row.
-    fn session_row(&self, session: &SessionSummary, nested: bool, window: &mut Window, cx: &mut App) -> AnyElement {
+    /// One session row: the title (and, with the summary line on, its
+    /// byline) from the row's padding, no leading glyph in any state, and
+    /// the trailing state slot. Selection and hover paint come from the row
+    /// list's item box, never from the row; the title keeps its weight when
+    /// selected (docs/83 §4: selection is the fill).
+    fn session_row(&self, session: &SessionSummary, window: &mut Window, cx: &mut App) -> AnyElement {
         let p = cx.aui().colors;
         let metrics = cx.aui().metrics;
         let id = session.id.clone();
         if let Some(editing) = self.model.editing.as_ref().filter(|e| e.session == id) {
-            return self.rename_field(session, &editing.draft, nested, window, cx);
+            return self.rename_field(session, &editing.draft, window, cx);
         }
-        let hovered = self.model.hovered.as_ref() == Some(&id);
-        let selected = self.model.selected.as_ref() == Some(&id);
         let second = self.second_line(session);
-        // FF: the title rests muted, lights to foreground under the pointer
-        // or when selected, and takes the semibold weight when selected.
-        let title = div()
-            .truncate()
-            .text_role_in(TextRole::Body, Density::Standard)
-            .text_color(if hovered || selected { p.fg } else { p.fg_muted })
-            .when(selected, |d| d.semibold())
-            .child(session.name.clone());
+        let title = div().truncate().text_role_in(TextRole::Body, Density::Standard).text_color(p.fg).child(session.name.clone());
         let mut text = v_flex().flex_1().min_w(px(0.0)).justify_center().child(title);
         if let Some(line) = second.clone() {
             text = text.child(div().truncate().role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(line));
         }
-        let trailing: AnyElement = if hovered {
-            let title = session.name.clone();
-            h_flex()
-                .flex_none()
-                .items_center()
-                .gap(px(scale::SP_1))
-                .child(self.action(
-                    format!("{id}-pin"),
-                    if session.pinned { IconName::PinOff } else { IconName::Pin },
-                    if session.pinned { format!("Unpin session {title}") } else { format!("Pin session {title}") },
-                    SidebarIntent::RowAction(id.clone(), RowAction::Pin),
-                    cx,
-                ))
-                .child(self.action(format!("{id}-rename"), IconName::Edit, format!("Rename session {title}"), SidebarIntent::RowAction(id.clone(), RowAction::Rename), cx))
-                .child(self.action(format!("{id}-archive"), IconName::Archive, format!("Archive session {title}"), SidebarIntent::RowAction(id.clone(), RowAction::Archive), cx))
-                .into_any_element()
-        } else if session.elapsed.is_empty() {
-            div().into_any_element()
-        } else {
-            self.trailing(session.elapsed.clone(), cx)
-        };
-        let height = if second.is_some() { self.two_line_height(cx) } else { list_row_height(cx) };
         let label: SharedString = format!("Open session {}", session.name).into();
         record_ax_label(&label);
         h_flex()
             .id(self.child(format!("session-{id}")))
             .w_full()
-            .h(height)
+            .h(session_row_height(second.is_some(), cx))
             .items_center()
             .gap(metrics.gap)
-            .pr(metrics.item_px)
-            .when(nested, |d| d.pl(metrics.inset))
+            .pl(px(ROW_PAD_X))
+            .pr(px(scale::SP_2))
             .role(gpui::Role::ListItem)
             .aria_label(label)
-            .child(self.dot(session.state, cx))
             .child(text)
-            .child(trailing)
+            .child(self.state_slot(session, window, cx))
             .into_any_element()
+    }
+
+    /// A session row's trailing slot (docs/83 §4): exactly one of a spinner
+    /// (running), the amber dot (needs you), the `accent-ring` dot
+    /// (finished, unread), the danger dot (failed) — or, while the pointer
+    /// is on the row or its menu is open, the `⋯` menu with the age (Micro,
+    /// `ink-4`) left of it. Idle and read shows nothing, and the slot keeps
+    /// its 20 px either way so titles truncate at one edge.
+    fn state_slot(&self, session: &SessionSummary, _window: &mut Window, cx: &mut App) -> AnyElement {
+        let p = cx.aui().colors;
+        let metrics = cx.aui().metrics;
+        let id = session.id.clone();
+        let slot = metrics.control_xs;
+        let menu_open = self.model.row_menu.as_ref() == Some(&id);
+        let hovered = self.model.hovered.as_ref() == Some(&id);
+        if hovered || menu_open {
+            let ctx = self.clone();
+            let more = id.clone();
+            let mut wrap = div().relative().flex_none().size(slot).child(
+                icon_button(self.child(format!("{id}-more")), IconName::Dots)
+                    .menu_open(menu_open)
+                    .tooltip_within(self.width)
+                    .ghost()
+                    .size(ButtonSize::Xs)
+                    .icon_size(metrics.icon - px(scale::SP_1))
+                    .accessibility_label(format!("Options for session {}", session.name))
+                    .on_click(move |_, w, cx| {
+                        cx.stop_propagation();
+                        ctx.emit(SidebarIntent::RowAction(more.clone(), RowAction::More), w, cx);
+                    }),
+            );
+            if menu_open {
+                // Under the `⋯`, right edges aligned, on gpui's top layer so
+                // the list's clip and the sidebar's edge never cut it.
+                let c = self.clone();
+                let menu = div()
+                    .id(self.child(format!("{id}-menu-wrap")))
+                    .mt(px(scale::SP_1))
+                    .occlude()
+                    .on_mouse_down_out(move |_, w, cx| c.emit(SidebarIntent::DismissMenus, w, cx))
+                    .child(session_menu(self.child(format!("{id}-menu")), session, self.on_intent.clone()));
+                wrap = wrap.child(
+                    div()
+                        .absolute()
+                        .top(slot)
+                        .right(px(0.0))
+                        .child(gpui::deferred(gpui::anchored().anchor(gpui::Anchor::TopRight).snap_to_window().child(menu)).with_priority(1)),
+                );
+            }
+            return h_flex()
+                .flex_none()
+                .items_center()
+                .gap(px(scale::SP_2))
+                .when(!session.elapsed.is_empty(), |d| d.child(div().flex_none().role_in(TextRole::Micro, cx).text_color(p.ink_4).child(session.elapsed.clone())))
+                .child(wrap)
+                .into_any_element();
+        }
+        let dot = |colour: gpui::Hsla| Shape::Pill.rounded(div().size(px(scale::SP_2 + scale::SP_1)).bg(colour)).into_any_element();
+        let (mark, said): (Option<AnyElement>, &str) = match session.state {
+            AgentState::Running => (Some(spinner(self.child(format!("spin-{id}"))).size(metrics.icon - px(scale::SP_2)).muted(cx).into_any_element()), "Running"),
+            AgentState::Waiting => (Some(dot(p.warning)), "Needs you"),
+            AgentState::Failed => (Some(dot(p.danger)), "Failed"),
+            AgentState::Idle | AgentState::Done if session.unread => (Some(dot(p.accent_ring)), "Unread"),
+            AgentState::Idle | AgentState::Done => (None, ""),
+        };
+        let holder = div().flex_none().size(slot).flex().items_center().justify_center();
+        match mark {
+            Some(mark) => {
+                record_ax_label(said);
+                holder.id(self.child(format!("state-{id}"))).role(gpui::Role::Status).aria_label(SharedString::from(said)).child(mark).into_any_element()
+            }
+            None => holder.into_any_element(),
+        }
     }
 
     /// The inline rename field (owner 2026-10-11): it stands in the row's
     /// own pill rect — the row's height less the 1 px block inset, the full
     /// row width — as FF's focused InputField (`bg-card` = surface-3,
-    /// `ring-border`, item radius, no focus ring), with no status dot and no
+    /// `ring-border`, item radius, no focus ring), with no state slot and no
     /// hover or selected block under it (the row is the list's `inert`
     /// item). The text sits on the titles' axis, so nothing jumps; the live
     /// input when the host gives one.
-    fn rename_field(&self, session: &SessionSummary, draft: &SharedString, nested: bool, _window: &mut Window, cx: &mut App) -> AnyElement {
+    fn rename_field(&self, session: &SessionSummary, draft: &SharedString, _window: &mut Window, cx: &mut App) -> AnyElement {
         let p = cx.aui().colors;
         let metrics = cx.aui().metrics;
-        let height = if self.second_line(session).is_some() { self.two_line_height(cx) } else { list_row_height(cx) };
+        let height = session_row_height(self.second_line(session).is_some(), cx);
         let pill = px(scale::SP_1 / 2.0);
         let hair = px(1.0);
-        // The titles' x: the nested indent, the lead slot, the gap.
-        let axis = if nested { metrics.inset } else { px(0.0) } + metrics.item_px + metrics.icon + metrics.gap;
+        // The titles' x: the row's padding (no leading glyph).
+        let axis = px(ROW_PAD_X);
         let label: SharedString = format!("Rename session {}", session.name).into();
         record_ax_label(&label);
         let body: AnyElement = match self.rename_input.as_ref() {
@@ -672,7 +698,7 @@ impl Ctx {
         let metrics = cx.aui().metrics;
         record_ax_label(label);
         let body = self.field_body(draft, cx);
-        let field = h_flex().w_full().h(list_row_height(cx)).items_center().gap(metrics.gap).pr(metrics.item_px).child(lead).child(body);
+        let field = h_flex().w_full().h(list_row_height(cx)).items_center().gap(metrics.gap).pl(px(ROW_PAD_X)).pr(px(ROW_PAD_X)).child(lead).child(body);
         // The rename field's chrome (FF focused InputField), not the accent.
         let boxed = Shape::Item.rounded(div().w_full().bg(p.surface(3)).border_1().border_color(p.line).child(field));
         div()
@@ -754,33 +780,25 @@ impl Ctx {
         }
     }
 
-    /// A project head: chevron on the icon axis, name on the text axis,
-    /// count, branch, and the two actions while hovered.
+    /// A project's group label (docs/83 §4): Caption, `fg-muted`, sentence
+    /// case, 28 tall, its name at 18 with the chevron after it while
+    /// hovered or closed; the branch (when the host shows it) and, while
+    /// hovered, New session in it and its menu at the right. No count, no
+    /// rule.
     fn project_head(&self, group: &crate::nav::ProjectGroup, window: &mut Window, cx: &mut App) -> AnyElement {
         let p = cx.aui().colors;
-        let metrics = cx.aui().metrics;
         let hovered = self.model.hovered_group.as_ref() == Some(&group.id);
-        let turn = spring_phase((self.child(format!("chevron-{}", group.id)), "turn"), group.open, SpringKind::Swap, window, cx);
-        let chevron = icon(IconName::ChevronDown)
-            .size(metrics.icon)
-            .color(if hovered { p.fg } else { p.fg_muted })
-            .lit(hovered)
-            .rotate(radians(-std::f32::consts::FRAC_PI_2 * (1.0 - turn)));
         let mut head = h_flex()
             .w_full()
-            .h(list_row_height(cx))
+            .h(label_height(cx))
             .items_center()
-            .gap(metrics.gap)
+            .gap(px(scale::SP_2))
+            .pl(px(ROW_PAD_X))
             .pr(px(scale::SP_2))
-            .child(self.lead(chevron, cx))
-            .child(
-                div()
-                    .flex_none()
-                    .text_role_in(TextRole::Body, Density::Standard)
-                    .text_color(if hovered { p.fg } else { p.fg_muted })
-                    .child(group.name.clone()),
-            )
-            .child(div().flex_none().ml(px(scale::SP_2 + scale::SP_1) - metrics.gap).role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(group.count.clone()))
+            .role_in(TextRole::Caption, cx)
+            .text_color(if hovered { p.fg } else { p.fg_muted })
+            .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().child(group.name.clone()))
+            .when(hovered || !group.open, |d| d.child(self.label_chevron(format!("chevron-{}", group.id), group.open, hovered, window, cx)))
             .child(div().flex_1().min_w(px(0.0)));
         if let Some(branch) = group.trailing.as_ref() {
             head = head.child(
@@ -798,7 +816,6 @@ impl Ctx {
             head = head.child(
                 h_flex()
                     .flex_none()
-                    .ml(px(scale::SP_2))
                     .gap(px(scale::SP_1))
                     .child(self.action(format!("{}-new", group.id), IconName::Plus, format!("New session in {}", group.name), SidebarIntent::GroupAction(group.id.clone(), GroupAction::New), cx))
                     .child(self.action(format!("{}-menu", group.id), IconName::Dots, format!("{} options", group.name), SidebarIntent::GroupAction(group.id.clone(), GroupAction::Menu), cx)),
@@ -807,6 +824,19 @@ impl Ctx {
         let label: SharedString = format!("Project {}", group.name).into();
         record_ax_label(&label);
         head.id(self.child(format!("project-{}", group.id))).role(gpui::Role::Button).aria_label(label).into_any_element()
+    }
+
+    /// The chevron after a group label: down while open, right while
+    /// closed, turning on the swap spring; `fg` while its label is lit.
+    fn label_chevron(&self, key: String, open: bool, lit: bool, window: &mut Window, cx: &mut App) -> AnyElement {
+        let p = cx.aui().colors;
+        let metrics = cx.aui().metrics;
+        let turn = spring_phase((self.child(key), "turn"), open, SpringKind::Swap, window, cx);
+        icon(IconName::ChevronDown)
+            .size(metrics.icon - px(scale::SP_2))
+            .color(if lit { p.fg } else { p.fg_muted })
+            .rotate(radians(-std::f32::consts::FRAC_PI_2 * (1.0 - turn)))
+            .into_any_element()
     }
 
     /// A date bucket's header in the Date grouping: the section title's
@@ -829,7 +859,7 @@ impl Ctx {
                     None => div().into_any_element(),
                 },
                 SidebarRow::Session { group, session, .. } => match buckets.get(*group).and_then(|b| b.sessions.get(*session)) {
-                    Some(summary) => self.session_row(summary, false, window, cx),
+                    Some(summary) => self.session_row(summary, window, cx),
                     None => div().into_any_element(),
                 },
                 _ => div().into_any_element(),
@@ -844,7 +874,7 @@ impl Ctx {
                 None => div().into_any_element(),
             },
             SidebarRow::Session { group, session, .. } => match groups.get(*group).and_then(|g| g.sessions.get(*session)) {
-                Some(summary) => self.session_row(summary, true, window, cx),
+                Some(summary) => self.session_row(summary, window, cx),
                 None => div().into_any_element(),
             },
             SidebarRow::Fold { group } => match groups.get(*group) {
@@ -853,7 +883,7 @@ impl Ctx {
                     let text = if expanded { "Show less".to_string() } else { format!("Show {} more", hidden.max(1)) };
                     let p = cx.aui().colors;
                     record_ax_label(&text);
-                    self.row(self.lead(div(), cx), text.clone(), None, true, cx)
+                    self.row(None, text.clone(), None, false, cx)
                         .text_color(p.fg_muted)
                         .id(self.child(format!("fold-{}", project.id)))
                         .role(gpui::Role::Button)
@@ -866,32 +896,30 @@ impl Ctx {
         }
     }
 
-    /// Four skeleton rows while loading: a project head and three nested
-    /// sessions, no text.
+    /// Four skeleton rows while loading: a group label's bar and three
+    /// session titles' bars, no text, no leading glyph.
     fn skeleton_row(&self, index: usize, window: &mut Window, cx: &mut App) -> AnyElement {
-        let metrics = cx.aui().metrics;
-        let bar = px(scale::SP_4);
+        let bar = if index == 0 { px(scale::SP_3) } else { px(scale::SP_4) };
         let widths = [scale::SP_7 * 3.0, scale::SP_7 * 4.5, scale::SP_7 * 3.5, scale::SP_7 * 4.0];
-        let nested = index > 0;
-        let lead = if nested {
-            Shape::Pill.rounded(aui_motion::skeleton(self.child(format!("sk-dot-{index}")), px(scale::SP_3), px(scale::SP_3), window, cx))
-        } else {
-            Shape::Item.rounded(aui_motion::skeleton(self.child(format!("sk-mark-{index}")), metrics.icon, metrics.icon, window, cx))
-        };
         let line = Shape::Item.rounded(aui_motion::skeleton(self.child(format!("sk-line-{index}")), px(widths[index % widths.len()]), bar, window, cx));
-        self.row_frame(self.lead(lead, cx), nested, cx).child(line).into_any_element()
+        let frame = self.row_frame(None, false, cx).child(line);
+        if index == 0 { frame.h(label_height(cx)) } else { frame }.into_any_element()
     }
 }
 
-/// What a session row says under its title: a live status sentence
-/// (working, waiting on you, or just "Failed") first — that is news; otherwise, with
-/// [`Bylines::All`], what the session last said (the latest reply's
-/// summary, else the last ask, else a preview or placeholder), else its git
-/// branch. A settled or never-replied status says nothing the dot and the
+/// What a session row says under its title, with the summary line on
+/// ([`Bylines::Summary`]; [`Bylines::Off`] says nothing): a live status
+/// sentence (working, waiting on you, or just "Failed") first — that is
+/// news; otherwise what the session last said (the latest reply's summary,
+/// else the last ask, else a preview or placeholder), else its git branch.
+/// A settled or never-replied status says nothing the trailing slot and the
 /// age do not already say, so it never takes the line (owner note
 /// 2026-10-10: "Settled · 6d · 1 turn" was noise).
 pub fn second_line_for(session: &SessionSummary, bylines: Bylines) -> Option<SharedString> {
     use crate::nav::{Byline, RowStatusKind};
+    if bylines == Bylines::Off {
+        return None;
+    }
     if let Some(status) = session.status.as_ref() {
         match status.kind {
             RowStatusKind::Settled | RowStatusKind::NoReply => {}
@@ -901,9 +929,6 @@ pub fn second_line_for(session: &SessionSummary, bylines: Bylines) -> Option<Sha
             RowStatusKind::Failed => return Some("Failed".into()),
             _ => return Some(status.text()),
         }
-    }
-    if bylines == Bylines::StatusOnly {
-        return None;
     }
     let nonblank = |text: &SharedString| (!text.trim().is_empty()).then(|| text.clone());
     let said = match session.byline.as_ref() {
@@ -934,7 +959,8 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
                 .h(list_row_height(cx))
                 .items_center()
                 .gap(metrics.gap)
-                .pr(metrics.item_px)
+                .pl(px(ROW_PAD_X))
+                .pr(px(ROW_PAD_X))
                 .child({
                     // The site button: connection and certificate details.
                     let c = ctx.clone();
@@ -1046,9 +1072,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
     // Search: the quiet first row; ⌘K only while the pointer is on it.
     let search_hovered = model.hovered.as_deref() == Some("search");
     let search_text = model.search.clone().unwrap_or_else(|| "Search".into());
-    let search = ctx
-        .row(ctx.lead_icon_lit(IconName::Search, search_hovered, cx), search_text, if search_hovered { Some(ctx.chip("⌘K", cx)) } else { None }, false, cx)
-        .when(search_hovered || model.search.is_some(), |d| d.text_color(p.fg));
+    let search = ctx.row(Some(ctx.lead_icon_lit(IconName::Search, search_hovered, cx)), search_text, if search_hovered { Some(ctx.chip("⌘K", cx)) } else { None }, false, cx);
     record_ax_label("Search");
     list = list.item(next, search.id(ctx.child("search")).role(gpui::Role::Button).aria_label("Search"));
     targets.borrow_mut().insert(next, Target::Intent(SidebarIntent::Search));
@@ -1057,21 +1081,16 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
     if model.mode == Mode::Sessions {
         // New session, then the nav rows.
         let new_hovered = model.hovered.as_deref() == Some("new-session");
-        let new_row = ctx
-            .row(ctx.lead_icon_lit(IconName::Plus, new_hovered, cx), "New session", if new_hovered { Some(ctx.chip("⌘N", cx)) } else { None }, false, cx)
-            .when(new_hovered, |d| d.text_color(p.fg));
+        let new_row = ctx.row(Some(ctx.lead_icon_lit(IconName::Plus, new_hovered, cx)), "New session", if new_hovered { Some(ctx.chip("⌘N", cx)) } else { None }, false, cx);
         record_ax_label("New session");
         list = list.item(next, new_row.id(ctx.child("new-session")).role(gpui::Role::Button).aria_label("New session"));
         targets.borrow_mut().insert(next, Target::Intent(SidebarIntent::NewSession));
         next += 1;
         for item in &model.nav {
-            let trailing = if item.soon {
-                Some(ctx.trailing("Soon", cx))
-            } else {
-                item.count.map(|count| ctx.trailing(count.to_string(), cx))
-            };
+            // No trailing count unless non-zero (docs/83 §4).
+            let trailing = item.count.filter(|count| *count > 0).map(|count| ctx.trailing(count.to_string(), cx));
             let lit = ctx.lit(&format!("nav-{}", item.id));
-            let row = ctx.row(ctx.lead_icon_lit(item.icon, lit, cx), item.label.clone(), trailing, false, cx).when(lit, |d| d.text_color(p.fg));
+            let row = ctx.row(Some(ctx.lead_icon_lit(item.icon, lit, cx)), item.label.clone(), trailing, false, cx);
             record_ax_label(&item.label);
             list = list.item(next, row.id(ctx.child(format!("nav-{}", item.id))).role(gpui::Role::Button).aria_label(item.label.clone()));
             targets.borrow_mut().insert(next, Target::Intent(SidebarIntent::Nav(item.id.clone())));
@@ -1088,21 +1107,22 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
         } else {
             // Pinned: a collapsible section whose rows are static items.
             if !model.pinned.is_empty() {
-                let turn = spring_phase((ctx.child("pinned-chevron"), "turn"), model.pinned_open, SpringKind::Swap, window, cx);
-                let chevron = icon(IconName::ChevronDown).size(metrics.icon).color(p.fg_muted).rotate(radians(-std::f32::consts::FRAC_PI_2 * (1.0 - turn)));
-                // The 12 px above the section sits outside the highlightable head.
-                list = list.item_static(next, div().w_full().h(px(scale::SP_4)));
+                // The space above the label sits outside the highlightable
+                // head: with the list's gaps, the 14 the Projects header has.
+                list = list.item_static(next, div().w_full().h(px(scale::SP_4 - ROW_GAP)));
                 next += 1;
+                // A group label: the chevron follows it while hovered or closed.
+                let lit = ctx.lit(PINNED_KEY);
                 let head = h_flex()
                     .w_full()
-                    .h(metrics.control_md)
+                    .h(label_height(cx))
                     .items_center()
-                    .gap(metrics.gap)
+                    .gap(px(scale::SP_2))
+                    .pl(px(ROW_PAD_X))
                     .role_in(TextRole::Caption, cx)
-                    .text_color(p.fg_muted)
-                    .child(ctx.lead(chevron, cx))
+                    .text_color(if lit { p.fg } else { p.fg_muted })
                     .child(div().child("Pinned"))
-                    .child(div().ml(px(scale::SP_2 + scale::SP_1) - metrics.gap).text_color(p.fg_muted).child(model.pinned.len().to_string()));
+                    .when(lit || !model.pinned_open, |d| d.child(ctx.label_chevron("pinned-chevron".into(), model.pinned_open, lit, window, cx)));
                 record_ax_label("Pinned");
                 list = list.item(next, head.id(ctx.child("pinned-head")).role(gpui::Role::Button).aria_label("Pinned"));
                 targets.borrow_mut().insert(next, Target::Intent(SidebarIntent::TogglePinned));
@@ -1110,7 +1130,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
                 if model.pinned_open {
                     for (i, session) in model.pinned.iter().enumerate() {
                         let index = PINNED_BASE + i;
-                        list = list.item(index, ctx.session_row(session, false, window, cx));
+                        list = list.item(index, ctx.session_row(session, window, cx));
                         targets.borrow_mut().insert(index, Target::Session(session.id.clone()));
                         index_of_session.insert(session.id.clone(), index);
                     }
@@ -1146,7 +1166,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
                         Grouping::Date(buckets) => buckets.first().map_or_else(|| "Sessions".to_string(), |b| b.label.to_string()),
                         _ => "Projects".to_string(),
                     },
-                    (project_count > 0 && !by_date).then(|| project_count.to_string().into()),
+                    None,
                     actions,
                     cx,
                 )
@@ -1159,7 +1179,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
             next += 1;
             if project_count == 0 {
                 let words = if by_date { "No sessions yet" } else { "No projects yet" };
-                let empty = ctx.row(ctx.lead(div(), cx), words, None, false, cx).text_color(p.fg_muted);
+                let empty = ctx.row(None, words, None, false, cx).text_color(p.fg_muted);
                 record_ax_label(words);
                 list = list.item_static(next, empty);
             } else {
@@ -1196,16 +1216,22 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
                     }
                 }
                 let row_ctx = ctx.clone();
+                // Every row keeps the list's 2 px gap under its block (pitch
+                // 34), so a selected row and a hovered neighbour never touch;
+                // a project label after the first stands 6 more clear of the
+                // group above (a closed group's label pitch is 36).
                 let render = move |ix: usize, window: &mut Window, cx: &mut App| -> AnyElement {
-                    match rows.get(ix) {
+                    let built = match rows.get(ix) {
                         // Date headers are titles, never highlight targets.
                         Some(row @ SidebarRow::DateHeader { .. }) => row_ctx.flat_row(row, window, cx),
                         Some(row) => {
                             let built = row_ctx.flat_row(row, window, cx);
                             row_ctx.wrap_virtual(VIRTUAL_BASE + ix, built, cx)
                         }
-                        None => div().into_any_element(),
-                    }
+                        None => return div().into_any_element(),
+                    };
+                    let apart = ix > 0 && matches!(rows.get(ix), Some(SidebarRow::ProjectHead { .. }));
+                    div().w_full().pb(px(ROW_GAP)).when(apart, |d| d.pt(px(scale::SP_3 - ROW_GAP))).child(built).into_any_element()
                 };
                 list = list.item_static_fill(next, list_host(ctx, render, cx));
             }
@@ -1281,7 +1307,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
         if browse.tabs.is_empty() && browse.folders.is_empty() {
             let words = "No tabs open";
             record_ax_label(words);
-            scroll_rows.push(ctx.row(ctx.lead(div(), cx), words, None, false, cx).text_color(p.fg_muted).into_any_element());
+            scroll_rows.push(ctx.row(Some(ctx.lead(div(), cx)), words, None, false, cx).text_color(p.fg_muted).into_any_element());
             next += 1;
         }
         let tab_row = |ctx: &Ctx, rows: &mut Vec<AnyElement>, index: usize, tab: &super::BrowseTab, nested: bool, in_folder: bool, trailing: Option<AnyElement>, cx: &App| {
@@ -1316,7 +1342,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
             } else {
                 trailing
             };
-            let row = ctx.row(ctx.lead(mark, cx), tab.title.clone(), close, nested, cx).when(lit, |d| d.text_color(cx.aui().colors.fg));
+            let row = ctx.row(Some(ctx.lead(mark, cx)), tab.title.clone(), close, nested, cx);
             let label: SharedString = format!("Tab {}", tab.title).into();
             record_ax_label(&label);
             let built = row
@@ -1360,7 +1386,8 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
                 .h(list_row_height(cx))
                 .items_center()
                 .gap(metrics.gap)
-                .pr(metrics.item_px)
+                .pl(px(ROW_PAD_X))
+                .pr(px(ROW_PAD_X))
                 .child(lead)
                 .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().text_role_in(TextRole::Body, Density::Standard).text_color(if hovered { p.fg } else { p.fg_muted }).child(folder.name.clone()));
             let target = match &folder.kind {
@@ -1414,7 +1441,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
         // 2026-10-11), with its 8 px above outside the highlightable box.
         scroll_rows.push(div().w_full().h(metrics.item_px).into_any_element());
         next += 1;
-        let new_tab = ctx.row(ctx.lead_icon(IconName::Plus, cx), "New tab", Some(ctx.chip("⌘T", cx)), false, cx);
+        let new_tab = ctx.row(Some(ctx.lead_icon(IconName::Plus, cx)), "New tab", Some(ctx.chip("⌘T", cx)), false, cx);
         record_ax_label("New tab");
         let index = BROWSE_BASE + next;
         scroll_rows.push(ctx.items.wrap(
@@ -1587,7 +1614,7 @@ fn screen_list(id: &ElementId, targets: Rc<RefCell<HashMap<usize, Target>>>, on_
     let activate_targets = targets;
     row_list((id.clone(), "rows"))
         .label("Sidebar")
-        .gap(px(0.0))
+        .gap(px(ROW_GAP))
         .fill()
         .on_highlight_at(move |index, bounds, w, cx| {
             let targets = hover_targets.borrow();
@@ -1596,6 +1623,7 @@ fn screen_list(id: &ElementId, targets: Rc<RefCell<HashMap<usize, Target>>>, on_
                 Some(Target::Session(id)) => Some(id.clone()),
                 Some(Target::Intent(SidebarIntent::Search)) => Some("search".into()),
                 Some(Target::Intent(SidebarIntent::NewSession)) => Some("new-session".into()),
+                Some(Target::Intent(SidebarIntent::TogglePinned)) => Some(PINNED_KEY.into()),
                 Some(Target::Intent(SidebarIntent::Nav(nav))) => Some(format!("nav-{nav}").into()),
                 Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::Address))) => Some("address".into()),
                 Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(id)))) => Some(id.clone()),
@@ -1719,18 +1747,28 @@ impl RenderOnce for SidebarScreen {
         let rows = build_list(&ctx, rows, window, cx);
         let body = div().w_full().flex_1().min_h(px(0.0)).flex().flex_col().px(metrics.item_px).pt(metrics.item_px).relative().child(rows);
 
-        // Footer: avatar · name · plan · chevron, in a 44 px row with a 1 px
-        // `line-region` on top (docs/83 §3).
+        // Footer (docs/83 §4): the neutral avatar tile, the name (Body) and
+        // the plan (Caption, muted), the settings gear at the right, in a
+        // 44 px row with a 1 px `line-region` on top (§3). While providers
+        // are checked the tile spins and the name reads muted.
         let account = &self.model.account;
+        let checking = account.status == AccountStatus::Checking;
         let who = h_flex()
             .flex_1()
             .min_w(px(0.0))
-            .truncate()
-            .text_role_in(TextRole::Body, Density::Standard)
+            .items_center()
             // A long name truncates; the plan stays whole beside it.
-            .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().text_color(p.fg).child(account.name.clone()))
+            .child(
+                div()
+                    .flex_shrink(1.0)
+                    .min_w(px(0.0))
+                    .truncate()
+                    .text_role_in(TextRole::Body, Density::Standard)
+                    .text_color(if checking { p.fg_muted } else { p.fg })
+                    .child(account.name.clone()),
+            )
             .when(!account.plan.is_empty(), |d| {
-                d.child(div().flex_none().ml(px(scale::SP_2)).text_color(p.fg_muted).child(format!("· {}", account.plan)))
+                d.child(div().flex_none().ml(px(scale::SP_2)).role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(format!("· {}", account.plan)))
             });
         let foot_ctx = ctx.clone();
         let foot_label: SharedString = if account.plan.is_empty() {
@@ -1742,17 +1780,25 @@ impl RenderOnce for SidebarScreen {
             .w_full()
             .h(list_row_height(cx))
             .items_center()
-            .gap(px(scale::SP_4 + scale::SP_1))
-            .pl(px(scale::SP_2 + scale::SP_1))
-            .pr(metrics.item_px)
-            .child(project_mark(account.initial.clone(), p.label(account.tint)).size(metrics.icon + px(scale::SP_2)))
-            .child(who)
-            .child(icon(IconName::ChevronDown).size(metrics.icon).color(p.fg_muted).rotate(radians(std::f32::consts::PI)));
+            .gap(metrics.gap)
+            .pl(px(ROW_PAD_X))
+            .pr(px(ROW_PAD_X))
+            .child(avatar_tile(account.initial.clone(), account.status, ctx.child("avatar"), cx))
+            .child(who);
+        let gear_ctx = ctx.clone();
+        let gear = icon_button(ctx.child("settings"), IconName::Gear)
+            .tooltip_within(self.width)
+            .ghost()
+            .size(ButtonSize::Sm)
+            .icon_size(metrics.icon)
+            .accessibility_label("Settings")
+            .on_click(move |_, w, cx| gear_ctx.emit(SidebarIntent::AccountAction(AccountAction::Settings), w, cx));
         let footer = h_flex()
             .w_full()
             .h(metrics.bar)
             .flex_none()
             .items_center()
+            .gap(px(scale::SP_1))
             .px(metrics.item_px)
             .border_t_1()
             .border_color(p.line_region)
@@ -1762,7 +1808,8 @@ impl RenderOnce for SidebarScreen {
                         .label(foot_label)
                         .on_click(move |_, w, cx| foot_ctx.emit(SidebarIntent::Account, w, cx)),
                 ),
-            );
+            )
+            .child(gear);
 
         let mut column = v_flex().w(self.width).h_full().relative().when(self.ground, |d| d.bg(p.sidebar)).child(body).child(footer);
 
@@ -1825,24 +1872,25 @@ impl RenderOnce for SidebarScreen {
 }
 
 /// Where the Projects header ends, measured down the ladder from the top
-/// of the sidebar: the menu that drops from it starts here.
+/// of the sidebar: the menu that drops from it starts here. Every child of
+/// the row list stands `ROW_GAP` after the one before it.
 fn projects_header_bottom(model: &SidebarModel, cx: &App) -> Pixels {
     let metrics = cx.aui().metrics;
     let row = list_row_height(cx);
+    let gap = px(ROW_GAP);
     let mut y = metrics.header + metrics.item_px; // title bar + body pad
-    y += row; // search
-    y += row; // new session
-    y += row * model.nav.len() as f32;
+    y += row + gap; // search
+    y += row + gap; // new session
+    y += (row + gap) * model.nav.len() as f32;
     if !model.pinned.is_empty() {
-        y += px(scale::SP_4) + metrics.control_md;
+        y += px(scale::SP_4 - ROW_GAP) + gap + label_height(cx) + gap;
         if model.pinned_open {
             for session in &model.pinned {
-                let two = second_line_for(session, model.bylines).is_some();
-                y += if two { two_line_row_height() } else { row };
+                y += session_row_height(second_line_for(session, model.bylines).is_some(), cx) + gap;
             }
         }
     }
-    y + px(scale::SP_4) + metrics.control_md
+    y + px(scale::SP_4) + label_height(cx)
 }
 
 #[cfg(test)]
@@ -1863,7 +1911,7 @@ mod tests {
         let mut s = session();
         s.status = Some(RowStatus::new(RowStatusKind::Settled, "6d · 1 turn"));
         s.byline = Some(two("the ask", "the result"));
-        assert_eq!(second_line_for(&s, Bylines::All).as_deref(), Some("the result"));
+        assert_eq!(second_line_for(&s, Bylines::Summary).as_deref(), Some("the result"));
     }
 
     #[test]
@@ -1871,7 +1919,7 @@ mod tests {
         let mut s = session();
         s.status = Some(RowStatus::new(RowStatusKind::Settled, ""));
         s.byline = Some(two("the ask", "   "));
-        assert_eq!(second_line_for(&s, Bylines::All).as_deref(), Some("the ask"));
+        assert_eq!(second_line_for(&s, Bylines::Summary).as_deref(), Some("the ask"));
     }
 
     #[test]
@@ -1879,7 +1927,7 @@ mod tests {
         let mut s = session();
         s.status = Some(RowStatus::new(RowStatusKind::Working, "2m"));
         s.byline = Some(two("the ask", "the result"));
-        assert_eq!(second_line_for(&s, Bylines::All).as_deref(), Some("Working · 2m"));
+        assert_eq!(second_line_for(&s, Bylines::Summary).as_deref(), Some("Working · 2m"));
     }
 
     #[test]
@@ -1887,26 +1935,26 @@ mod tests {
         let mut s = session();
         s.status = Some(RowStatus::new(RowStatusKind::NoReply, ""));
         s.branch = Some("main".into());
-        assert_eq!(second_line_for(&s, Bylines::All).as_deref(), Some("main"));
+        assert_eq!(second_line_for(&s, Bylines::Summary).as_deref(), Some("main"));
     }
 
     #[test]
     fn preview_and_placeholder_bylines_show_their_text() {
         let mut s = session();
         s.byline = Some(Byline::Preview("a preview".into()));
-        assert_eq!(second_line_for(&s, Bylines::All).as_deref(), Some("a preview"));
+        assert_eq!(second_line_for(&s, Bylines::Summary).as_deref(), Some("a preview"));
         s.byline = Some(Byline::Placeholder("  ".into()));
         s.branch = Some("dev".into());
-        assert_eq!(second_line_for(&s, Bylines::All).as_deref(), Some("dev"));
+        assert_eq!(second_line_for(&s, Bylines::Summary).as_deref(), Some("dev"));
     }
 
     #[test]
-    fn status_only_hides_settled_but_keeps_a_live_status() {
+    fn summary_off_says_nothing_under_any_title() {
         let mut s = session();
         s.byline = Some(two("a", "b"));
-        s.status = Some(RowStatus::new(RowStatusKind::Settled, "x"));
-        assert_eq!(second_line_for(&s, Bylines::StatusOnly), None);
+        assert_eq!(second_line_for(&s, Bylines::Off), None);
         s.status = Some(RowStatus::new(RowStatusKind::Failed, "boom"));
-        assert_eq!(second_line_for(&s, Bylines::StatusOnly).as_deref(), Some("Failed"));
+        assert_eq!(second_line_for(&s, Bylines::Off), None, "state rides the trailing slot");
+        assert_eq!(second_line_for(&s, Bylines::Summary).as_deref(), Some("Failed"));
     }
 }
