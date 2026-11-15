@@ -21,8 +21,9 @@ use super::button::button;
 pub const R_CARD: f32 = 10.0;
 /// A card's header row height (docs/83 §5: 36).
 pub const CARD_HEADER_H: f32 = 36.0;
-/// A card's inner padding on x and y.
+/// A card's inner padding on x.
 pub const CARD_PAD_X: f32 = 16.0;
+/// A card's inner padding on y.
 pub const CARD_PAD_Y: f32 = 12.0;
 /// A settings row's vertical padding (docs/83 §7: 16).
 pub const SETTINGS_ROW_PAD_Y: f32 = 16.0;

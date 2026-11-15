@@ -8,6 +8,7 @@ mod dialog;
 mod settings;
 
 pub use command_palette::*;
+pub use card::modal_panel;
 pub use dialog::{dialog, Dialog, DialogKind};
 pub use settings::{SettingsRow, SettingsSection, ShortcutEdit};
 

@@ -33,7 +33,7 @@ pub use interactive::{focus_ring, interactive, InteractState, Interactive, INTER
 pub use list::{row_list, ListItems, RowList};
 pub use paint::{over, tinted, PaintHover, PaintStates, PaletteSource, StatePaint, Tint, HOVER_GROUP};
 pub use row::{list_row, row, Row};
-pub use surface::{menu_panel, nested_radius, surface, Surface, PANEL_PAD};
+pub use surface::{dismiss_layer, menu_panel, nested_radius, surface, Surface, PANEL_PAD};
 
 // ── Flat metrics awaiting tokens ────────────────────────────────────────────
 // docs/83 §2.5 names these values; aui-tokens has no token for them yet.

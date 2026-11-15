@@ -150,6 +150,7 @@ pub struct Button {
     menu_open: bool,
     toggled: Option<bool>,
     preview: Option<InteractState>,
+    decorative: bool,
     on_click: Option<ClickHandler>,
 }
 
@@ -172,6 +173,7 @@ pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Butto
         menu_open: false,
         toggled: None,
         preview: None,
+        decorative: false,
         on_click: None,
     }
 }
@@ -247,6 +249,13 @@ impl Button {
         self
     }
 
+    /// A caller-built element before the label in place of a glyph — a
+    /// provider's mark on a model picker. It inherits the button's ink.
+    pub fn leading(mut self, element: impl IntoElement) -> Self {
+        self.icon_content = Some(element.into_any_element());
+        self
+    }
+
     /// Overrides the glyph size (the shell header uses 12 px glyphs in 20 px buttons).
     pub fn icon_size(mut self, size: impl Into<Pixels>) -> Self {
         self.icon_size = Some(size.into());
@@ -319,6 +328,15 @@ impl Button {
         self
     }
 
+    /// A still copy of the button: the same box and paint at rest, but no
+    /// focus, no handler, no tooltip and nothing in the accessibility tree
+    /// — for a ghost drawn above a capture layer while the live control
+    /// stays where it is.
+    pub fn decorative(mut self, decorative: bool) -> Self {
+        self.decorative = decorative;
+        self
+    }
+
     /// Click handler.
     pub fn on_click(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Box::new(f));
@@ -368,7 +386,7 @@ impl RenderOnce for Button {
             .use_keyed_state((id.clone(), "focus"), cx, |_, cx| cx.focus_handle())
             .read(cx)
             .clone()
-            .tab_stop(!self.disabled);
+            .tab_stop(!self.disabled && !self.decorative);
         let ring = self.preview.is_some_and(|s| s.focused && !self.disabled)
             || (!self.disabled && focus.is_focused(window) && crate::keys::keyboard_nav(cx));
 
@@ -381,7 +399,7 @@ impl RenderOnce for Button {
             .selected(lit)
             .highlighted(self.menu_open)
             .disabled(self.disabled)
-            .preview(self.preview);
+            .preview(if self.decorative { Some(InteractState::REST) } else { self.preview });
         if let Some(base) = base {
             paint = paint.on(base);
         }
@@ -408,7 +426,7 @@ impl RenderOnce for Button {
             .line_height(gpui::relative(1.0))
             .whitespace_nowrap()
             .when(self.disabled, |d| d.opacity(DISABLED_OPACITY))
-            .when(!self.disabled, |d| d.cursor_pointer());
+            .when(!self.disabled && !self.decorative, |d| d.cursor_pointer());
         // The one focus-visible ring (an outline, not a shadow: a spread
         // shadow shows through the see-through fills).
         if ring {
@@ -427,6 +445,9 @@ impl RenderOnce for Button {
             outer = outer.child(trailing);
         }
 
+        if self.decorative {
+            return outer;
+        }
         if !self.disabled {
             outer = outer
                 .track_focus(&focus)

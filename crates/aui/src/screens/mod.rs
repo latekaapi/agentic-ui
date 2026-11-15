@@ -24,5 +24,5 @@ pub use providers::{
     UsageRowData, UsageRowState, UsageWindow,
 };
 pub use setup_sheet::{
-    setup_sheet, sheet_frame, sheet_scrim, SetupSheet, SetupStatus, SheetFrame, SETUP_W, SIGN_IN_W,
+    dialog_sheet, setup_sheet, sheet_frame, sheet_scrim, SetupSheet, SetupStatus, SheetFrame, SETUP_W, SHEET_PAD_X, SIGN_IN_W,
 };

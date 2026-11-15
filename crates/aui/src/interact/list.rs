@@ -30,6 +30,7 @@ type ActivateHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 pub struct ListItems {
     id: ElementId,
     on_activate: Option<ActivateHandler>,
+    on_press: Option<ActivateHandler>,
     on_highlight: Option<HighlightHandler>,
     /// The item the pointer report last named, across frames: a leave only
     /// reports `None` when it leaves the item last reported, so moving from
@@ -67,6 +68,9 @@ impl ListItems {
             .paint_states(paint, cx);
         if let Some(activate) = self.on_activate.clone() {
             el = el.cursor_pointer().on_click(move |_, w, cx| activate(index, w, cx));
+        }
+        if let Some(press) = self.on_press.clone() {
+            el = el.cursor_pointer().on_mouse_down(gpui::MouseButton::Left, move |_, w, cx| press(index, w, cx));
         }
         if let Some(report) = self.on_highlight.clone() {
             let bounds: Rc<Cell<Option<Bounds<Pixels>>>> = Rc::new(Cell::new(None));
@@ -108,6 +112,7 @@ pub struct RowList {
     fill: bool,
     label: Option<SharedString>,
     on_activate: Option<ActivateHandler>,
+    on_press: Option<ActivateHandler>,
     on_highlight: Option<HighlightHandler>,
 }
 
@@ -124,6 +129,7 @@ pub fn row_list(id: impl Into<ElementId>) -> RowList {
         fill: false,
         label: None,
         on_activate: None,
+        on_press: None,
         on_highlight: None,
     }
 }
@@ -201,6 +207,16 @@ impl RowList {
         self
     }
 
+    /// The primary button went down on item `index` — for a list that must
+    /// act before the press moves the keyboard (an address field's
+    /// suggestions, which a blur would drop). Pair it with
+    /// [`Self::on_activate`] so a keyboard or assistive press still reaches
+    /// the item; the host makes the second call a no-op.
+    pub fn on_press(mut self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
+        self.on_press = Some(Rc::new(f));
+        self
+    }
+
     /// The pointer entered item `index`, or left the list's items (`None`).
     pub fn on_highlight(mut self, f: impl Fn(Option<usize>, &mut Window, &mut App) + 'static) -> Self {
         self.on_highlight = Some(Rc::new(move |index, _, w, cx| f(index, w, cx)));
@@ -224,6 +240,7 @@ impl RowList {
         ListItems {
             id: self.id.clone(),
             on_activate: self.on_activate.clone(),
+            on_press: self.on_press.clone(),
             on_highlight: self.on_highlight.clone(),
             reported,
             selected: self.selected,

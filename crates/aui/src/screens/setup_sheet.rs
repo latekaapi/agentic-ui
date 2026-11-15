@@ -6,7 +6,8 @@
 //!
 //! [`sheet_frame`] is the frame alone (header, body, actions) so other
 //! sign-ins share it: the Muse sign-in sheet is the same frame at 460 wide
-//! ([`Login::sheet`](super::Login::sheet)). [`sheet_scrim`] is the 45 % black
+//! ([`Login::sheet`](super::Login::sheet)); [`dialog_sheet`] is the frame
+//! with no provider mark, for an app's own sheets (an import). [`sheet_scrim`] is the 45 % black
 //! layer the sheet sits on over whatever screen asked.
 //!
 //! Stateless: the host owns the terminal session, the watch that moves the
@@ -40,8 +41,10 @@ const TITLE_TEXT: f32 = scale::FS_13;
 /// Status, footnote: 13.2/18.
 const CAPTION_TEXT: f32 = scale::FS_12;
 const CAPTION_LH: f32 = 18.0;
-/// The side padding every block shares.
-const PAD_X: f32 = 16.0;
+/// The side padding every block shares; a host's own body blocks use it
+/// too, so their text lines up with the title.
+pub const SHEET_PAD_X: f32 = 16.0;
+const PAD_X: f32 = SHEET_PAD_X;
 /// The terminal well: 150 tall, radius 8, 10 below the status line.
 const TERM_H: f32 = 150.0;
 const TERM_R: f32 = 8.0;
@@ -80,12 +83,13 @@ pub fn sheet_scrim(id: impl Into<ElementId>, sheet: impl IntoElement, on_dismiss
     scrim.child(sheet).into_any_element()
 }
 
-/// The sheet frame: a header (mark, title, ✕), the caller's body and a
-/// right-aligned action row. Build with [`sheet_frame`].
+/// The sheet frame: a header (the provider mark when it has one, the
+/// title, ✕), the caller's body and a right-aligned action row. Build with
+/// [`sheet_frame`] or [`dialog_sheet`].
 #[derive(IntoElement)]
 pub struct SheetFrame {
     id: ElementId,
-    provider: Provider,
+    provider: Option<Provider>,
     title: SharedString,
     width: f32,
     body: Vec<AnyElement>,
@@ -96,9 +100,15 @@ pub struct SheetFrame {
 
 /// A sheet frame for `provider` titled `title`, [`SETUP_W`] wide.
 pub fn sheet_frame(id: impl Into<ElementId>, provider: Provider, title: impl Into<SharedString>) -> SheetFrame {
+    SheetFrame { provider: Some(provider), ..dialog_sheet(id, title) }
+}
+
+/// The same frame with no provider mark: the app's own sheets (an import,
+/// a picker) — header (title, ✕), the caller's body, the action row.
+pub fn dialog_sheet(id: impl Into<ElementId>, title: impl Into<SharedString>) -> SheetFrame {
     SheetFrame {
         id: id.into(),
-        provider,
+        provider: None,
         title: title.into(),
         width: SETUP_W,
         body: Vec::new(),
@@ -159,7 +169,7 @@ impl RenderOnce for SheetFrame {
             .pr(px(8.0))
             .border_b_1()
             .border_color(p.line)
-            .child(provider_mark(self.provider).size(px(HEAD_MARK)))
+            .children(self.provider.map(|mark| provider_mark(mark).size(px(HEAD_MARK))))
             .child(
                 div()
                     .flex_1()

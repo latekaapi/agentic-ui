@@ -108,6 +108,7 @@ pub struct Dialog {
     kind: DialogKind,
     body: Option<SharedString>,
     rich: Option<RichBody>,
+    leading: Option<AnyElement>,
     detail: Option<SharedString>,
     primary: SharedString,
     secondary: Option<SharedString>,
@@ -128,6 +129,7 @@ pub fn dialog(id: impl Into<ElementId>, title: impl Into<SharedString>) -> Dialo
         kind: DialogKind::Info,
         body: None,
         rich: None,
+        leading: None,
         detail: None,
         primary: "OK".into(),
         secondary: None,
@@ -233,6 +235,14 @@ impl Dialog {
         self
     }
 
+    /// A host element in place of the kind tile at the head (an app's
+    /// mascot for a critical error): it sits on the title row, centred, the
+    /// title to its right.
+    pub fn leading(mut self, element: impl IntoElement) -> Self {
+        self.leading = Some(element.into_any_element());
+        self
+    }
+
     /// Skips the enter: the dialog is drawn at rest on its first frame, for a
     /// static capture.
     pub fn at_rest(mut self) -> Self {
@@ -256,8 +266,9 @@ impl RenderOnce for Dialog {
                     .w_full()
                     .items_center()
                     .gap(px(HEAD_GAP))
-                    .child(
-                        div()
+                    .child(match self.leading {
+                        Some(leading) => div().flex_none().child(leading),
+                        None => div()
                             .flex_none()
                             .flex()
                             .items_center()
@@ -266,7 +277,7 @@ impl RenderOnce for Dialog {
                             .rounded(px(TILE_RADIUS))
                             .bg(tile_bg)
                             .child(icon(glyph).size(px(TILE_GLYPH)).color(tile_ink)),
-                    )
+                    })
                     .child(div().flex_1().min_w(px(0.0)).text_role(TextRole::Title).text_color(p.ink).child(self.title.clone())),
             );
 

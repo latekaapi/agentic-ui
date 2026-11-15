@@ -10,6 +10,12 @@
 
 use gpui::{App, ElementId, Entity, Window};
 
+/// The layout helpers every component builds with — a row centred on the
+/// cross axis (`h_flex`), a column (`v_flex`) — and the bounds hook
+/// (`ElementExt::on_prepaint`). Re-exported so an app lays out its own
+/// screens on aui alone and imports the kit only for the text input.
+pub use gpui_kit::base::{h_flex, v_flex, ElementExt};
+
 /// The pointer-over flag for one element. Lives in the window's element
 /// state, so stateless (`RenderOnce`) components can read it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

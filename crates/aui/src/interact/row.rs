@@ -13,6 +13,8 @@ use super::{InteractState, LIST_ROW_H, ROW_PAD_X, R_ITEM};
 use crate::data::record_ax_label;
 use crate::util::ClickHandler;
 
+type PressHandler = Box<dyn Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static>;
+
 /// A one- or two-line row. Build with [`list_row`] (the flat row) or
 /// [`row`] (the ladder row).
 ///
@@ -36,6 +38,7 @@ pub struct Row {
     disabled: bool,
     depth: u8,
     on_click: Option<ClickHandler>,
+    on_press: Option<PressHandler>,
     /// The flat list row: painted, 32 tall, 10 px padding, no reserved
     /// leading slot, no bold on selection.
     flat: bool,
@@ -55,6 +58,7 @@ pub fn row(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Row {
         disabled: false,
         depth: 0,
         on_click: None,
+        on_press: None,
         flat: false,
         preview: None,
     }
@@ -121,6 +125,16 @@ impl Row {
         self
     }
 
+    /// The primary button went down on the row — for a row that must act
+    /// before the release lands on whatever its action uncovers (a Back
+    /// row that closes a page over another control). Keep [`Self::on_click`]
+    /// too, so a keyboard or assistive press still reaches it; the host
+    /// makes the second call a no-op.
+    pub fn on_press(mut self, f: impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_press = Some(Box::new(f));
+        self
+    }
+
     /// The row height: [`LIST_ROW_H`] for a one-line flat row,
     /// `metrics.control` for a one-line ladder row, `row_2` for two lines.
     pub fn height(&self, cx: &App) -> Pixels {
@@ -166,9 +180,12 @@ impl RenderOnce for Row {
         // Width reservation for the selected semibold title of a ladder row
         // (see `title`), built before the slots take ownership.
         let titles = (!self.flat).then(|| (self.title(true, cx), self.title(false, cx)));
+        // A nested row is indented by a margin, so it fills its column's
+        // width less the indent (stretched, not `w_full`, which would
+        // overflow the column by the indent).
         let mut el = h_flex()
             .id(self.id)
-            .w_full()
+            .when(self.depth == 0, |d| d.w_full())
             .h(height)
             .items_center()
             .gap(metrics.gap)
@@ -225,6 +242,9 @@ impl RenderOnce for Row {
             el = el.role(Role::Button).cursor_pointer();
             if let Some(on_click) = self.on_click {
                 el = el.on_click(move |e, w, cx| on_click(e, w, cx));
+            }
+            if let Some(on_press) = self.on_press {
+                el = el.on_mouse_down(gpui::MouseButton::Left, move |e, w, cx| on_press(e, w, cx));
             }
         } else {
             el = el.role(Role::ListItem);

@@ -6,7 +6,7 @@
 //! ground, and only floating things cast a shadow).
 
 use aui_tokens::ActiveAui;
-use gpui::{div, prelude::*, px, AnyElement, App, Div, IntoElement, Pixels, RenderOnce, Window};
+use gpui::{div, prelude::*, px, AnyElement, App, Div, ElementId, IntoElement, Pixels, RenderOnce, Stateful, Window};
 
 use super::Shape;
 
@@ -73,6 +73,27 @@ pub fn menu_panel(child: impl IntoElement, cx: &App) -> Div {
         .shadow(p.floating_shadow())
         .p(px(PANEL_PAD))
         .child(child)
+}
+
+/// The layer under a float or a modal that takes the outside click: it
+/// fills its positioned parent, swallows the pointer so nothing under it
+/// reacts, and calls `on_dismiss` on a click (on the release, so a press
+/// that began on a row inside the float still lands there first). It is
+/// transparent; a modal paints its scrim with `.bg(..)` and centres its
+/// card as a child. Its accessible name says what a press does.
+pub fn dismiss_layer(
+    id: impl Into<ElementId>,
+    label: impl Into<gpui::SharedString>,
+    on_dismiss: impl Fn(&mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    div()
+        .id(id.into())
+        .absolute()
+        .inset_0()
+        .occlude()
+        .role(gpui::Role::Button)
+        .aria_label(label.into())
+        .on_click(move |_, w, cx| on_dismiss(w, cx))
 }
 
 /// The concentric rule as a pure function: an inner surface inset by

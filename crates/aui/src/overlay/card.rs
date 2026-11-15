@@ -52,6 +52,16 @@ pub(crate) fn modal_card(p: &Palette, width: f32, style: &PresenceStyle) -> gpui
         .text_color(p.ink)
 }
 
+/// The dialog card's ground for a host-built modal body (a form, a
+/// preview, a list to pick from): the same fill, radius and shadow as
+/// [`Dialog`](super::Dialog), at rest. Padding, gap, role and content are
+/// the host's; centre it on [`crate::screens::sheet_scrim`].
+pub fn modal_panel(width: f32, cx: &App) -> gpui::Div {
+    use aui_tokens::ActiveAui as _;
+    let rest = PresenceStyle { opacity: 1.0, offset_y: px(0.0), scale: 1.0 };
+    modal_card(&cx.aui().colors, width, &rest)
+}
+
 /// The scrim both modals sit on: the flat top stop over the whole window with
 /// the card centred on it. The card eats its own clicks (`occlude`), so only
 /// the scrim dismisses.

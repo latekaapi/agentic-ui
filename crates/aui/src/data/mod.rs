@@ -36,7 +36,10 @@ pub use button::{arm_ax_probe, button, icon_button, icon_content_button, record_
 pub use chip::{chip, Chip};
 pub use context_meter::{context_meter, ContextMeter, ContextMeterState, ContextPressure};
 pub use dot::{status_dot, StatusDot};
-pub use card::{banner, card, section, settings_row, Banner, Card, Section, SettingsRow};
+pub use card::{
+    banner, card, section, settings_row, Banner, Card, Section, SettingsRow, BANNER_H, BANNER_PAD_X, CARD_HEADER_H, CARD_PAD_X,
+    CARD_PAD_Y, R_CARD, SECTION_TITLE_GAP, SETTINGS_ROW_GAP, SETTINGS_ROW_PAD_Y,
+};
 pub use controls::{
     checkbox, segmented, switch, tabs, Checkbox, CheckboxIntent, CheckboxState, Segmented, Switch, SwitchIntent, Tabs,
 };
