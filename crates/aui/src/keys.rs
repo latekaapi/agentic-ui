@@ -99,8 +99,10 @@ pub fn bind(cx: &mut App) {
     ]);
     // 1–9 pick the n-th server-minted choice, in the order the server sent it.
     cx.bind_keys(
-        (0..9)
-            .map(|index| KeyBinding::new(&(index + 1).to_string(), ChooseNth { index }, Some(APPROVAL_CONTEXT)))
+        ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, key)| KeyBinding::new(key, ChooseNth { index }, Some(APPROVAL_CONTEXT)))
             .collect::<Vec<_>>(),
     );
 }

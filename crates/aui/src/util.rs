@@ -167,7 +167,7 @@ mod id_tests {
 
     mod axis_lock {
         use super::super::ScrollAxisLock;
-        use gpui::{div, point, prelude::*, px, Context, ScrollDelta, ScrollHandle, ScrollWheelEvent, TouchPhase, Window};
+        use gpui::{div, point, prelude::*, px, Context, ScrollDelta, ScrollHandle, ScrollEvent, TouchPhase, Window};
 
         struct Host {
             scroll: ScrollHandle,
@@ -183,7 +183,7 @@ mod id_tests {
         }
 
         fn sideways(vc: &mut gpui::VisualTestContext, dx: f32, dy: f32) {
-            vc.simulate_event(ScrollWheelEvent {
+            vc.simulate_event(ScrollEvent {
                 position: point(px(100.0), px(100.0)),
                 delta: ScrollDelta::Pixels(point(px(dx), px(dy))),
                 touch_phase: TouchPhase::Moved,

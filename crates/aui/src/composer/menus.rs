@@ -417,7 +417,7 @@ fn finish(id: ElementId, sample: aui_motion::PresenceSample, rows: Stateful<Div>
                     // transcript behind and stops the wheel after the rows'
                     // own scroll handler has run.
                     .occlude()
-                    .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                    .on_scroll(|_, _, cx| cx.stop_propagation())
                     .child(rows)
                     .child(footer),
                 cx,

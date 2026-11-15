@@ -535,7 +535,7 @@ impl RenderOnce for PaneStrip {
                         move |bounds, _, window, _| {
                             let on_swipe = on_swipe.clone();
                             let swipe = swipe.clone();
-                            window.on_mouse_event(move |e: &gpui::ScrollWheelEvent, phase, window, cx| {
+                            window.on_mouse_event(move |e: &gpui::ScrollEvent, phase, window, cx| {
                                 if phase != gpui::DispatchPhase::Capture || !e.modifiers.shift || !bounds.contains(&e.position) {
                                     return;
                                 }
@@ -682,7 +682,7 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    use gpui::{point, px, Modifiers, Render, ScrollDelta, ScrollWheelEvent, TouchPhase};
+    use gpui::{point, px, Modifiers, Render, ScrollDelta, ScrollEvent, TouchPhase};
 
     use super::*;
 
@@ -696,18 +696,19 @@ mod tests {
     impl Render for StripHost {
         fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
             let (steps, content) = (self.steps.clone(), self.content.clone());
-            let screen = div().id("content").size_full().on_scroll_wheel(move |_, _, _| content.set(content.get() + 1));
+            let screen = div().id("content").size_full().on_scroll(move |_, _, _| content.set(content.get() + 1));
             pane_strip("strip", 0.0, px(300.0), vec![Some(screen.into_any_element()), Some(div().into_any_element())])
                 .on_swipe(move |dir, _, _| steps.set(steps.get() + dir))
         }
     }
 
-    fn wheel(dx: f32, shift: bool, phase: TouchPhase) -> ScrollWheelEvent {
-        ScrollWheelEvent {
+    fn wheel(dx: f32, shift: bool, phase: TouchPhase) -> ScrollEvent {
+        ScrollEvent {
             position: point(px(150.0), px(100.0)),
             delta: ScrollDelta::Pixels(point(px(dx), px(0.0))),
             modifiers: Modifiers { shift, ..Default::default() },
             touch_phase: phase,
+            source: Default::default(),
         }
     }
 

@@ -2512,9 +2512,9 @@ impl gpui::RenderOnce for TerminalGrid {
                     });
                 }
             })
-            .on_scroll_wheel({
+            .on_scroll({
                 let session = session.clone();
-                move |event: &gpui::ScrollWheelEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
+                move |event: &gpui::ScrollEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
                     session.update(cx, |session, cx| {
                         grid_wheel(session, event, line_height, cx);
                     });
@@ -2898,7 +2898,7 @@ fn grid_mouse_up(session: &gpui::Entity<TerminalSession>, col: usize, row: usize
 /// otherwise local scroll that re-glues to the tail at the bottom.
 fn grid_wheel(
     session: &TerminalSession,
-    event: &gpui::ScrollWheelEvent,
+    event: &gpui::ScrollEvent,
     line_height: f32,
     cx: &mut gpui::Context<TerminalSession>,
 ) {

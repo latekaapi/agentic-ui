@@ -351,7 +351,7 @@ impl RenderOnce for CommandPalette {
             // bubble phase — so the palette's list scrolls and the surface
             // beneath never does. Mirrors the composer menus.
             .occlude()
-            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .on_scroll(|_, _, cx| cx.stop_propagation())
             .child(query_row(&id, &p, &self.query, &self.placeholder, self.query_slot, self.on_dismiss.clone()));
         // The list scrolls inside a bounded body; the query row and the
         // footer stay put. Every section draws its caps title, its optional
