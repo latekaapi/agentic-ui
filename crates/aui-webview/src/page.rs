@@ -181,7 +181,7 @@ pub fn page_body() -> Div {
                 .mb(px(LEAD_GAP))
                 .max_w(px(LEAD_MEASURE))
                 .ui(scale::FS_13)
-                .text_color(w.ink_2)
+                .text_color(w.fg_muted)
                 .child("Start free, upgrade when your team needs it. All plans include unlimited worktrees."),
         )
         .child(

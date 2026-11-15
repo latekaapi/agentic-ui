@@ -2558,7 +2558,7 @@ fn block_chrome_el(
     } else {
         BlockStatus::Succeeded
     };
-    let status = palette.color(block_status_token(kind)).unwrap_or(palette.ink_2);
+    let status = palette.color(block_status_token(kind)).unwrap_or(palette.fg_muted);
     let index = chrome.index;
     // One ghost action button raising its intent with the block index.
     let action = |name: &'static str, label: &'static str, intent: TerminalGridIntent| {
@@ -2585,14 +2585,14 @@ fn block_chrome_el(
         .flex_row()
         .items_center()
         .mono(scale::FS_11)
-        .text_color(palette.ink_2)
+        .text_color(palette.fg_muted)
         .bg(palette.surface_2)
         .rounded(px(scale::R_SM))
         .px(px(scale::SP_2))
         .child(chrome.label.clone());
     if chrome.author == BlockAuthor::Agent {
         // D43's `M` mark, rendered by the host's choice of author label.
-        meta = meta.child(div().ml(px(scale::SP_1)).text_color(palette.ink_3).child("M"));
+        meta = meta.child(div().ml(px(scale::SP_1)).text_color(palette.fg_muted).child("M"));
     }
     let mut inner = div().flex().flex_row().items_center().child(gutter).child(meta);
     // The chrome only: the block's own command text, highlighted. The

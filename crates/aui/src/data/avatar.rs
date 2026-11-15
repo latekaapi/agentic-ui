@@ -39,7 +39,7 @@ impl RenderOnce for Avatar {
             .size(self.size)
             .rounded_full()
             .bg(p.surface_3)
-            .text_color(p.ink_2)
+            .text_color(p.fg_muted)
             .font_family(scale::FONT_UI)
             .text_px(font)
             .line_height(gpui::relative(1.0))

@@ -33,7 +33,7 @@ const TITLE_TEXT: f32 = 12.5;
 
 type KeyHandler = std::rc::Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 
-/// The 16 px letter tile shared by tab rows: `surface-2` ground, `ink-2`
+/// The 16 px letter tile shared by tab rows: `surface-2` ground, `fg-muted`
 /// letter, clipped to the square, showing only the first character (no
 /// grapheme segmenter is available here, so a multi-char mark is cut after
 /// its first `char`).
@@ -48,7 +48,7 @@ fn letter_tile(letter: SharedString, p: &aui_tokens::Palette) -> impl IntoElemen
         .size(px(TILE))
         .rounded(px(4.0))
         .bg(p.surface_2)
-        .text_color(p.ink_2)
+        .text_color(p.fg_muted)
         .ui(TILE_TEXT)
         .medium()
         .overflow_hidden()
@@ -102,7 +102,7 @@ impl RenderOnce for PinGrid {
                 .border_1()
                 .border_color(p.line)
                 .paint_states(StatePaint::new(), &p)
-                .text_color(p.ink_2)
+                .text_color(p.fg_muted)
                 .ui(scale::FS_13)
                 .medium()
                 .cursor_pointer()
@@ -172,7 +172,7 @@ impl RenderOnce for TabRow {
             .paint_states(StatePaint::new().selected(self.data.active), &p)
             .hover_group()
             .ui(TITLE_TEXT)
-            .text_color(if self.data.active { p.ink } else { p.ink_2 })
+            .text_color(if self.data.active { p.ink } else { p.fg_muted })
             .cursor_pointer()
             .role(gpui::Role::Button)
             .aria_label(label)
@@ -252,8 +252,8 @@ impl RenderOnce for FolderRow {
             .cursor_pointer()
             .role(gpui::Role::Button)
             .aria_label(label)
-            .child(chevron((id.clone(), "chevron"), self.open, p.ink_3, window, cx))
-            .child(icon(IconName::Folder).size(px(TILE)).color(p.ink_3))
+            .child(chevron((id.clone(), "chevron"), self.open, p.fg_muted, window, cx))
+            .child(icon(IconName::Folder).size(px(TILE)).color(p.fg_muted))
             .child(div().flex_1().min_w(px(0.0)).truncate().child(self.name.clone()));
         if let Some(on_toggle) = self.on_toggle {
             let name = self.name.clone();
@@ -325,7 +325,7 @@ impl RenderOnce for TaskFolderRow {
         // name, so it stays unique in the tree.
         let chat_label: SharedString = format!("{}, {}", self.status, self.name).into();
         record_ax_label(&chat_label);
-        let status_ink = if self.face == TaskFace::NeedsYou { p.warning } else { p.ink_3 };
+        let status_ink = if self.face == TaskFace::NeedsYou { p.warning } else { p.fg_muted };
         let mut toggle = h_flex()
             .id((id.clone(), "toggle"))
             .flex_1()
@@ -336,7 +336,7 @@ impl RenderOnce for TaskFolderRow {
             .cursor_pointer()
             .role(gpui::Role::Button)
             .aria_label(label)
-            .child(chevron((id.clone(), "chevron"), self.open, p.ink_3, window, cx))
+            .child(chevron((id.clone(), "chevron"), self.open, p.fg_muted, window, cx))
             .child(task_face(self.face))
             .child(
                 div()

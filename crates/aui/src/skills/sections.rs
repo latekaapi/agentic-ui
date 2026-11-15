@@ -53,7 +53,7 @@ impl RenderOnce for ScopeSectionHeader {
                 div()
                     .flex_none()
                     .text_role(TextRole::Caps)
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(self.label.to_uppercase()),
             );
         if let Some(hint) = self.hint_mono {
@@ -71,9 +71,9 @@ impl RenderOnce for ScopeSectionHeader {
 pub enum InkLevel {
     /// `ink`.
     Ink,
-    /// `ink-2`.
+    /// `fg-muted`.
     Ink2,
-    /// `ink-3`.
+    /// `fg-muted`.
     Ink3,
     /// `ink-4`.
     Ink4,
@@ -84,8 +84,8 @@ impl InkLevel {
     pub fn color(&self, p: &aui_tokens::Palette) -> gpui::Hsla {
         match self {
             InkLevel::Ink => p.ink,
-            InkLevel::Ink2 => p.ink_2,
-            InkLevel::Ink3 => p.ink_3,
+            InkLevel::Ink2 => p.fg_muted,
+            InkLevel::Ink3 => p.fg_muted,
             InkLevel::Ink4 => p.ink_4,
         }
     }
@@ -142,7 +142,7 @@ pub fn cost_meter(
 }
 
 /// `.bar{height:6px}` with a 2 px gutter between slices; the legend is
-/// `12.1px` ink-3 on a 16 px gap.
+/// `12.1px` fg-muted on a 16 px gap.
 const BAR_H: f32 = 6.0;
 const BAR_GAP: f32 = 2.0;
 const TOTAL_TEXT: f32 = 26.4;
@@ -173,7 +173,7 @@ impl RenderOnce for CostMeter {
         }
         let mut legend = h_flex().w_full().items_center().gap(px(LEGEND_GAP));
         for seg in &self.segments {
-            legend = legend.child(div().flex_none().ui(LEGEND_TEXT).text_color(p.ink_3).child(seg.label.clone()));
+            legend = legend.child(div().flex_none().ui(LEGEND_TEXT).text_color(p.fg_muted).child(seg.label.clone()));
         }
         v_flex()
             .w_full()
@@ -194,7 +194,7 @@ impl RenderOnce for CostMeter {
                             .text_color(p.ink)
                             .child(self.total_label),
                     )
-                    .child(div().flex_none().ui(CAP_LINE_TEXT).text_color(p.ink_3).child(self.caption)),
+                    .child(div().flex_none().ui(CAP_LINE_TEXT).text_color(p.fg_muted).child(self.caption)),
             )
             .child(bar)
             .child(legend)
@@ -443,7 +443,7 @@ impl RenderOnce for SkillDetail {
                     .truncate()
                     .mono(DETAIL_PATH)
                     .line_height(relative(scale::LH_MONO))
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .mt(px(6.0))
                     .child(path),
             );
@@ -462,7 +462,7 @@ impl RenderOnce for SkillDetail {
                 .w_full()
                 .ui(STAT_KEY)
                 .line_height(relative(scale::LH_UI))
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .mt(px(8.0))
                 .child(self.state.hint()),
         );
@@ -481,11 +481,11 @@ impl RenderOnce for SkillDetail {
                 .mt(px(20.0))
                 .p(px(STATS_PAD_Y))
                 .px(px(STATS_PAD_X))
-                .rounded(px(scale::R_MD)), &p, p.surface_1)
+                .rounded(px(scale::R_MD)), &p, p.surface_2)
             .children(self.stats.into_iter().map(|(key, value)| {
                 v_flex()
                     .min_w(px(0.0))
-                    .child(div().flex_none().ui(STAT_KEY).text_color(p.ink_3).child(key))
+                    .child(div().flex_none().ui(STAT_KEY).text_color(p.fg_muted).child(key))
                     .child(
                         div()
                             .flex_none()
@@ -506,7 +506,7 @@ impl RenderOnce for SkillDetail {
                     div()
                         .flex_none()
                         .text_role(TextRole::Caps)
-                        .text_color(p.ink_3)
+                        .text_color(p.fg_muted)
                         .mt(px(SECTION_TOP))
                         .child(section.title.to_uppercase()),
                 )
@@ -524,7 +524,7 @@ impl RenderOnce for SkillDetail {
             .border_t_1()
             .border_color(p.line);
         if let Some(hint) = self.hint {
-            foot = foot.child(div().flex_none().ui(FOOT_HINT).text_color(p.ink_3).child(hint));
+            foot = foot.child(div().flex_none().ui(FOOT_HINT).text_color(p.fg_muted).child(hint));
         }
         foot = foot.child(div().flex_1());
         if let Some(label) = self.overflow_label {

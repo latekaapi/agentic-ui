@@ -295,7 +295,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                                 .gap(px(8.0))
                                 .px(px(12.0))
                                 .py(px(6.0))
-                                .child(div().flex_none().ui(scale::FS_11).text_color(p.ink_2).child("Paper"))
+                                .child(div().flex_none().ui(scale::FS_11).text_color(p.fg_muted).child("Paper"))
                                 .child(
                                     segmented("card54-flush-toggle", vec!["Framed".into(), "Flush".into()], usize::from(flush)).on_select(
                                         move |index, _, cx| {

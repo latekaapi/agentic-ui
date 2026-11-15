@@ -448,7 +448,7 @@ impl SourcesCard {
     }
 }
 
-/// `· 3 cited · 11 retrieved`, weight 400 in ink-3.
+/// `· 3 cited · 11 retrieved`, weight 400 in fg-muted.
 fn header_counts(cited: Option<usize>, retrieved: Option<usize>) -> Option<SharedString> {
     match (cited, retrieved) {
         (None, None) => None,
@@ -479,7 +479,7 @@ fn tier_label(p: &Palette, tier: &SourceTier) -> impl IntoElement {
         .ui(TIER_TEXT)
         .line_height(relative(scale::LH_UI))
         .semibold()
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .child(SharedString::from(text.to_uppercase()))
 }
 
@@ -497,7 +497,7 @@ fn confidence(p: &Palette, value: f32) -> impl IntoElement {
         // aligns it to the top, so the bar rides on the title's line.
         .line_height(relative(scale::LH_UI))
         .medium()
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .child(
             div()
                 .flex_none()
@@ -522,8 +522,8 @@ fn source_row(
 ) -> impl IntoElement {
     let p = cx.aui().colors;
     let cited = source.index.is_some();
-    let (num_bg, num_ink) = if cited { (p.accent_soft, p.accent_ink) } else { (p.surface_3, p.ink_3) };
-    let title_ink = if cited { p.ink } else { p.ink_2 };
+    let (num_bg, num_ink) = if cited { (p.accent_soft, p.accent_ink) } else { (p.surface_3, p.fg_muted) };
+    let title_ink = if cited { p.ink } else { p.fg_muted };
     let mut row = h_flex()
         .id(id)
         .w_full()
@@ -534,7 +534,7 @@ fn source_row(
         .px(px(ROW_PAD_X))
         .paint_states(StatePaint::new(), &p)
         .ui(ROW_TEXT)
-        .text_color(if cited { p.ink } else { p.ink_3 })
+        .text_color(if cited { p.ink } else { p.fg_muted })
         .cursor_pointer()
         .child(
             div()
@@ -563,7 +563,7 @@ fn source_row(
                         .w_full()
                         .ui(META_TEXT)
                         .line_height(relative(META_LINE / META_TEXT))
-                        .text_color(p.ink_3)
+                        .text_color(p.fg_muted)
                         .child(source.meta.clone()),
                 ),
         );
@@ -588,7 +588,7 @@ impl RenderOnce for SourcesCard {
         let mut card = crate::util::raised_block(v_flex()
             .w_full()
             .overflow_hidden()
-            .rounded(px(scale::R_LG)), &p, p.surface_1)
+            .rounded(px(scale::R_LG)), &p, p.surface_2)
             .child(header(&p, id.clone(), self.cited, self.retrieved, self.on_show_all.take()));
         let mut row_index = 0usize;
         for (t, tier) in self.tiers.iter().enumerate() {
@@ -638,7 +638,7 @@ fn header(
         .child(div().flex_none().child(SharedString::new_static("Sources")))
         .children(
             header_counts(cited, retrieved)
-                .map(|counts| div().flex_none().font_weight(gpui::FontWeight::NORMAL).text_color(p.ink_3).child(counts)),
+                .map(|counts| div().flex_none().font_weight(gpui::FontWeight::NORMAL).text_color(p.fg_muted).child(counts)),
         )
         .child(div().flex_1().min_w(px(0.0)))
         .child(show_all)
@@ -710,14 +710,14 @@ impl SourceHoverCard {
     }
 }
 
-/// The quote's text runs: ink-2 throughout, the matched span on accent-soft
+/// The quote's text runs: fg-muted throughout, the matched span on accent-soft
 /// in full ink (`.hover .q mark`).
 fn quote_runs(quote: &str, highlight: &Range<usize>, p: &Palette) -> Vec<TextRun> {
     let ui = font(scale::FONT_UI);
     let plain = |len: usize| TextRun {
         len,
         font: ui.clone(),
-        color: p.ink_2,
+        color: p.fg_muted,
         background_color: None,
         underline: None,
         strikethrough: None,
@@ -770,6 +770,8 @@ impl RenderOnce for SourceHoverCard {
             .px(px(HOVER_PAD_X))
             .rounded(px(scale::R_LG))
             .bg(p.overlay)
+            .border_1()
+            .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .ui(HOVER_TEXT)
             .text_color(p.ink)
@@ -784,7 +786,7 @@ impl RenderOnce for SourceHoverCard {
                     .border_color(p.accent)
                     .ui(HOVER_TEXT)
                     .line_height(relative(scale::LH_UI))
-                    .text_color(p.ink_2)
+                    .text_color(p.fg_muted)
                     .child(StyledText::new(self.quote.clone()).with_runs(quote_runs(&self.quote, &self.highlight, &p))),
             )
             .child(h_flex().w_full().gap(px(ACTIONS_GAP)).child(open).child(insert))

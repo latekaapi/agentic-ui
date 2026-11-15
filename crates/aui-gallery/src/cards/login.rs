@@ -106,7 +106,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .pt(px(LEGEND_TOP))
                 .gap(px(LEGEND_GAP))
                 .ui(scale::FS_12)
-                .text_color(p.ink_2)
+                .text_color(p.fg_muted)
                 .child(lead_paragraph(p, "Choose.", " A Meta account draws on the Muse subscription; an API key bills usage to the key. The primary starts the device flow."))
                 .child(lead_paragraph(p, "Device.", " The copyable URL row, the code, the waiting row while the app polls, and the expiry counting down on its own full-width line above the action row. Cancel backs out to the choice."))
                 .child(lead_paragraph(p, "API key.", " The caller's masked field in the library's bordered box; the eye reports back and the caller flips the masked flag. The primary stays disabled until the form may submit."))

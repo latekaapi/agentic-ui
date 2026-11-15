@@ -54,7 +54,7 @@ pub fn build_page(_window: &mut Window, cx: &mut App) -> AnyElement {
             .w_full()
             .gap(px(2.0))
             .px(px(12.0))
-            .child(div().flex_none().ui(13.2).text_color(p.ink_3).child(METER_KICKER))
+            .child(div().flex_none().ui(13.2).text_color(p.fg_muted).child(METER_KICKER))
             .child(cost_meter(
                 "6.9k",
                 "tokens of context · 13 of 17 on",
@@ -79,7 +79,7 @@ pub fn build_page(_window: &mut Window, cx: &mut App) -> AnyElement {
                 0,
             ))
             .child(div().flex_1())
-            .child(div().flex_none().ui(13.2).text_color(p.ink_2).child("Hide off"))
+            .child(div().flex_none().ui(13.2).text_color(p.fg_muted).child("Hide off"))
             .child(switch("hide-off", false, false).accessibility_label("Hide off")),
     );
 
@@ -173,7 +173,7 @@ pub fn build_page(_window: &mut Window, cx: &mut App) -> AnyElement {
             .px(px(12.0))
             .py(px(8.0))
             .ui(13.2)
-            .text_color(p.ink_3)
+            .text_color(p.fg_muted)
             .child("Show 10 more"),
     );
 
@@ -191,7 +191,7 @@ pub fn build_page(_window: &mut Window, cx: &mut App) -> AnyElement {
                 div()
                     .ui(14.3)
                     .line_height(relative(1.6))
-                    .text_color(p.ink_2)
+                    .text_color(p.fg_muted)
                     .child("Draft release notes from the PRs merged since the last tag, in the team's changelog format. Use when the user asks for release notes, a changelog entry or what shipped."),
             )
             .section(
@@ -200,7 +200,7 @@ pub fn build_page(_window: &mut Window, cx: &mut App) -> AnyElement {
                     .gap(px(8.0))
                     .ui(14.3)
                     .line_height(relative(1.65))
-                    .text_color(p.ink_2)
+                    .text_color(p.fg_muted)
                     .child(div().child("1. List merged PRs since the last tag."))
                     .child(div().child("2. Group them under Added, Changed and Fixed; drop chores."))
                     .child(div().child("3. Write one line per PR in CHANGELOG.md.")),
@@ -210,7 +210,7 @@ pub fn build_page(_window: &mut Window, cx: &mut App) -> AnyElement {
                 v_flex()
                     .gap(px(6.0))
                     .mono(13.2)
-                    .text_color(p.ink_2)
+                    .text_color(p.fg_muted)
                     .child(div().child("SKILL.md"))
                     .child(div().child("scripts/merged_prs.sh"))
                     .child(div().child("references/changelog-format.md")),
@@ -276,7 +276,7 @@ pub fn build_add_menu(_window: &mut Window, cx: &mut App) -> AnyElement {
             menu_shell()
                 .bg(p.overlay)
                 .border_color(p.line_strong)
-                .shadow(p.shadow(3))
+                .shadow(p.floating_shadow())
                 .text_color(p.ink)
                 .child(
                     menu_row_two_line(

@@ -118,7 +118,7 @@ impl RenderOnce for FileCard {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let tint = self.kind.tint(&p).unwrap_or(p.ink_2);
+        let tint = self.kind.tint(&p).unwrap_or(p.fg_muted);
         let (border, bg) = if self.active { (p.accent_ring, p.accent_soft) } else { (p.line, p.surface_1) };
         let mut body = h_flex()
             .id((id.clone(), "body"))
@@ -145,7 +145,7 @@ impl RenderOnce for FileCard {
                     .child({
                         let mut row = h_flex().w_full().gap(px(CARD_GAP)).items_center();
                         match self.meta.clone() {
-                            Some(meta) => row = row.child(div().flex_1().min_w(px(0.0)).truncate().ui(META_TEXT).text_color(p.ink_3).child(meta)),
+                            Some(meta) => row = row.child(div().flex_1().min_w(px(0.0)).truncate().ui(META_TEXT).text_color(p.fg_muted).child(meta)),
                             None => row = row.child(div().flex_1().min_w(px(0.0))),
                         }
                         if let Some(status) = self.status.clone() {

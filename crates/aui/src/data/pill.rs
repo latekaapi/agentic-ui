@@ -12,7 +12,7 @@ const GAP: f32 = 5.0;
 /// `.pill.*` variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PillVariant {
-    /// surface-3 ground, ink-2 text.
+    /// surface-3 ground, fg-muted text.
     #[default]
     Quiet,
     /// accent-soft / accent-ink.
@@ -25,20 +25,20 @@ pub enum PillVariant {
     Danger,
     /// info-soft / info.
     Info,
-    /// Transparent with a line border, ink-2.
+    /// Transparent with a line border, fg-muted.
     Line,
 }
 
 impl PillVariant {
     fn colors(self, p: &Palette) -> (Hsla, Hsla, Option<Hsla>) {
         match self {
-            PillVariant::Quiet => (p.surface_3, p.ink_2, None),
+            PillVariant::Quiet => (p.surface_3, p.fg_muted, None),
             PillVariant::Accent => (p.accent_soft, p.accent_ink, None),
             PillVariant::Success => (p.success_soft, p.success, None),
             PillVariant::Warning => (p.warning_soft, p.warning, None),
             PillVariant::Danger => (p.danger_soft, p.danger, None),
             PillVariant::Info => (p.info_soft, p.info, None),
-            PillVariant::Line => (gpui::transparent_black(), p.ink_2, Some(p.line)),
+            PillVariant::Line => (gpui::transparent_black(), p.fg_muted, Some(p.line)),
         }
     }
 }

@@ -77,7 +77,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                 .mt(px(scale::SP_4))
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("Citation markers are small accent squares that lift on hover and open a source card with the exact passage highlighted. The sources list is grouped by retrieval tier so it is obvious whether a claim rests on a regulation, a project file or session chat; the bar is retrieval confidence."),
         )
         .into_any_element()

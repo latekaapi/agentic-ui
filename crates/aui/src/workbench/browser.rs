@@ -17,7 +17,7 @@ use std::rc::Rc;
 use aui_icons::{icon, provider_mark, IconName, Provider};
 use aui_motion::{shimmer_text, tween, Tween};
 use aui_tokens::{light, scale, ActiveAui, AuiStyled, Palette, TextRole};
-use gpui::{div, linear_color_stop, linear_gradient, prelude::*, px, relative, AnyElement, App, ElementId, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, relative, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, icon_button, kbd, ButtonSize, ButtonVariant};
@@ -64,11 +64,6 @@ const SELECTED_RADIUS: f32 = 6.0;
 const PIN_SIZE: f32 = 20.0;
 const PIN_CORNER: f32 = 4.0;
 const PIN_TEXT: f32 = 11.0;
-/// `.pin{box-shadow:0 2px 6px rgba(0,0,0,.25)}` — the pin carries its own
-/// drop shadow, smaller than elevation 2.
-const PIN_SHADOW_Y: f32 = 2.0;
-const PIN_SHADOW_BLUR: f32 = 6.0;
-const PIN_SHADOW_ALPHA: f32 = 0.25;
 /// `.pin.on{outline:2px solid #fff;outline-offset:1px}` — gpui has no
 /// outline, so the ring is a border on a wrapper inset by offset + width.
 const PIN_RING: f32 = 2.0;
@@ -119,8 +114,6 @@ const SHOT_HEIGHT: f32 = 64.0;
 const SHOT_RADIUS: f32 = 6.0;
 const SHOT_PIN: f32 = 12.0;
 const SHOT_PIN_CORNER: f32 = 2.0;
-/// `linear-gradient(135deg,#fff,#eef1f5)`: a light page, whatever the theme.
-const SHOT_GRADIENT_ANGLE: f32 = 135.0;
 /// `.side .meta{padding:10px 12px;font-size:11px;line-height:1.6}`.
 const META_PAD_Y: f32 = 10.0;
 const META_SIZE: f32 = 11.0;
@@ -266,7 +259,7 @@ impl RenderOnce for BrowserNav {
             .rounded(px(scale::R_SM))
             .bg(p.surface_2)
             .mono(scale::FS_12)
-            .text_color(p.ink_2)
+            .text_color(p.fg_muted)
             .cursor_pointer()
             .when(self.secure, |d| d.child(icon(IconName::Shield).size(px(URL_SHIELD)).color(p.success)))
             // The text takes the free width itself: beside a `flex_1` spacer
@@ -470,13 +463,6 @@ impl RenderOnce for AnnotationPin {
             .text_px(PIN_TEXT)
             .line_height(relative(1.0))
             .semibold()
-            .shadow(vec![gpui::BoxShadow {
-                color: gpui::black().alpha(PIN_SHADOW_ALPHA),
-                offset: gpui::point(px(0.0), px(PIN_SHADOW_Y)),
-                blur_radius: px(PIN_SHADOW_BLUR),
-                spread_radius: px(0.0),
-                inset: false,
-            }])
             .child(SharedString::from(self.index.to_string()));
         if !self.selected {
             return pin.into_any_element();
@@ -571,6 +557,8 @@ impl RenderOnce for NotePopover {
             .p(px(POPOVER_PAD))
             .rounded(px(scale::R_LG))
             .bg(p.overlay)
+            .border_1()
+            .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .text_color(p.ink)
             .ui(scale::FS_12)
@@ -583,7 +571,7 @@ impl RenderOnce for NotePopover {
                     .font_family(scale::FONT_MONO)
                     .text_px(POPOVER_PATH_SIZE)
                     .line_height(relative(scale::LH_TIGHT))
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(self.path),
             )
             // The textarea stand-in: the draft text on surface-2, two rows tall.
@@ -734,7 +722,7 @@ impl RenderOnce for AnnotationsPanel {
             .text_color(p.ink)
             .child(icon(IconName::Edit).color(p.ink))
             .child("Annotations")
-            .child(div().font_weight(gpui::FontWeight::NORMAL).text_color(p.ink_3).child(format!("· {}", self.annotations.len())))
+            .child(div().font_weight(gpui::FontWeight::NORMAL).text_color(p.fg_muted).child(format!("· {}", self.annotations.len())))
             .child(div().flex_1())
             .child(close);
 
@@ -772,7 +760,7 @@ impl RenderOnce for AnnotationsPanel {
                 .border_color(p.line)
                 .ui(META_SIZE)
                 .line_height(relative(META_LINE_HEIGHT))
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(METADATA_NOTE),
         );
         panel = panel.child(middle);
@@ -836,7 +824,7 @@ fn annotation_row(
         .semibold()
         .child(SharedString::from(annotation.index.to_string()));
     disc = if annotation.pending {
-        disc.bg(p.surface_3).text_color(p.ink_3).border_1().border_dashed().border_color(p.ink_4)
+        disc.bg(p.surface_3).text_color(p.fg_muted).border_1().border_dashed().border_color(p.ink_4)
     } else {
         disc.bg(p.accent).text_color(gpui::white())
     };
@@ -857,13 +845,13 @@ fn annotation_row(
             v_flex()
                 .flex_1()
                 .min_w(px(0.0))
-                .child(div().min_w(px(0.0)).truncate().text_role(TextRole::Tag).text_px(ROW_PATH_SIZE).line_height(relative(scale::LH_TIGHT)).text_color(p.ink_3).child(annotation.selector.clone()))
+                .child(div().min_w(px(0.0)).truncate().text_role(TextRole::Tag).text_px(ROW_PATH_SIZE).line_height(relative(scale::LH_TIGHT)).text_color(p.fg_muted).child(annotation.selector.clone()))
                 .child(
                     div()
                         .mt(px(ROW_NOTE_TOP))
                         .ui(ROW_NOTE_SIZE)
                         .line_height(relative(ROW_NOTE_LINE_HEIGHT))
-                        .text_color(if annotation.pending { p.ink_3 } else { p.ink })
+                        .text_color(if annotation.pending { p.fg_muted } else { p.ink })
                         .child(annotation.note.clone()),
                 ),
         );
@@ -874,7 +862,7 @@ fn annotation_row(
     row
 }
 
-/// `.side .shot`: the captured page with its pins, over a light gradient.
+/// `.side .shot`: the captured page with its pins, on a flat light page.
 fn screenshot_tile(pins: Vec<(f32, f32)>, p: Palette) -> impl IntoElement {
     // The tile shows a web page, which is light whatever the app's theme is.
     let page = light();
@@ -888,11 +876,7 @@ fn screenshot_tile(pins: Vec<(f32, f32)>, p: Palette) -> impl IntoElement {
         .rounded(px(SHOT_RADIUS))
         .border_1()
         .border_color(p.line)
-        .bg(linear_gradient(
-            SHOT_GRADIENT_ANGLE,
-            linear_color_stop(page.surface_1, 0.0),
-            linear_color_stop(page.surface_2, 1.0),
-        ));
+        .bg(page.surface_1);
     let round = SHOT_PIN / 2.0;
     for (x, y) in pins {
         tile = tile.child(
@@ -950,12 +934,14 @@ impl RenderOnce for AgentActionPill {
             .pr(px(PILL_PAD_RIGHT))
             .rounded(px(scale::R_FULL))
             .bg(p.overlay)
+            .border_1()
+            .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .ui(scale::FS_12)
             .text_color(p.ink)
             .whitespace_nowrap()
             .child(provider_mark(self.provider).size(px(PILL_MARK)))
             .child(div().medium().child(shimmer_text((self.id, "shimmer"), self.text, cx)))
-            .when_some(self.detail, |d, detail| d.child(div().text_color(p.ink_3).child(detail)))
+            .when_some(self.detail, |d, detail| d.child(div().text_color(p.fg_muted).child(detail)))
     }
 }

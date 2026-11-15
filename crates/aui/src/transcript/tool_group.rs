@@ -185,13 +185,13 @@ impl RenderOnce for ToolGroup {
             .header(glyph)
             .header(div().whitespace_nowrap().child(self.group.summary.clone()));
         if !summary_has_count(&self.group.summary, count) {
-            card = card.header(div().text_color(p.ink_2).child(count_label(count)));
+            card = card.header(div().text_color(p.fg_muted).child(count_label(count)));
         }
         card = card.header(div().flex_1()).header(
             div()
                 .flex_none()
                 .ml(px(4.0))
-                .child(icon(IconName::Chev).size(px(12.0)).color(p.ink_3).rotate(radians(turn * std::f32::consts::FRAC_PI_2))),
+                .child(icon(IconName::Chev).size(px(12.0)).color(p.fg_muted).rotate(radians(turn * std::f32::consts::FRAC_PI_2))),
         );
 
         if self.open {
@@ -233,7 +233,7 @@ impl RenderOnce for ToolGroup {
                 .pb(px(PREVIEW_PAD_BOTTOM))
                 .gap(px(PREVIEW_GAP))
                 .ui(PREVIEW_TEXT)
-                .text_color(p.ink_2);
+                .text_color(p.fg_muted);
             for (index, call) in self.group.calls.iter().take(GROUP_PREVIEW).enumerate() {
                 let glyph: gpui::AnyElement = match call.status {
                     ToolStatus::Pending | ToolStatus::Running => {
@@ -258,7 +258,7 @@ impl RenderOnce for ToolGroup {
                 preview = preview.child(
                     div()
                         .id((id.clone(), "more"))
-                        .paint_states(StatePaint::new().tint(false).underline(true).ink(p.ink_3, p.ink), &p)
+                        .paint_states(StatePaint::new().tint(false).underline(true).ink(p.fg_muted, p.ink), &p)
                         .child(more_label(hidden)),
                 );
             }

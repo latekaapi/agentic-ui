@@ -39,7 +39,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                 .mt(px(6.0))
                 .max_w(px(NOTE_MEASURE))
                 .text_role_in(TextRole::Caption, Density::Standard)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(
                     "Seven roles, whole-pixel line heights, no global text scale. \
                      Weights: 700 display only, 600 titles, 500 micro and emphasis, 400 everything else. \
@@ -67,7 +67,7 @@ fn role_row(p: Palette, role: TextRole, name: &'static str, sample: &'static str
                 .text_px(11.0)
                 .line_height(relative(1.4))
                 .medium()
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(div().text_color(p.ink).child(name))
                 .child(format!("{std_fs}/{std_lh} · {}", weight_name(std_weight)))
                 .child(format!("c: {c_fs}/{c_lh}")),
@@ -84,7 +84,7 @@ fn role_row(p: Palette, role: TextRole, name: &'static str, sample: &'static str
                         .flex_1()
                         .min_w(px(0.0))
                         .text_role_in(role, Density::Compact)
-                        .text_color(p.ink_2)
+                        .text_color(p.fg_muted)
                         .child(sample),
                 ),
         )

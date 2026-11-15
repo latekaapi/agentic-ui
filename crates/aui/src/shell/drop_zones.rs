@@ -132,6 +132,8 @@ impl RenderOnce for TabGhost {
             .gap(px(GHOST_GAP))
             .rounded(px(scale::R_SM))
             .bg(p.overlay)
+            .border_1()
+            .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .text_color(p.ink)
             .ui(scale::FS_12)

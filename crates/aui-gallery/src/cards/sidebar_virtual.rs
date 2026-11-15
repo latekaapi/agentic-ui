@@ -120,13 +120,13 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     v_flex()
         .flex_none()
         .w(px(PANEL_W))
-        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.ink_3).child("Virtualised sidebar · 200 sessions"))
+        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child("Virtualised sidebar · 200 sessions"))
         .child(panel)
         .child(
             div()
                 .mt(px(NOTE_TOP))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(format!("{last} rows built last frame · {total} total")),
         )
         .into_any_element()

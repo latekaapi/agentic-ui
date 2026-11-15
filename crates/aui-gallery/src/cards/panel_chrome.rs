@@ -90,7 +90,7 @@ fn pane(p: Palette) -> Div {
 
 /// `.body{padding:12px;height:150px;position:relative;font-size:12px;color:var(--ink-3)}`.
 fn body(p: Palette) -> Div {
-    div().relative().flex_none().h(px(BODY_HEIGHT)).p(px(BODY_PAD)).ui(scale::FS_12).text_color(p.ink_3)
+    div().relative().flex_none().h(px(BODY_HEIGHT)).p(px(BODY_PAD)).ui(scale::FS_12).text_color(p.fg_muted)
 }
 
 /// The 34 px strip: the tab strip with the `+`, split and dots actions in
@@ -118,6 +118,6 @@ fn note(p: Palette) -> impl IntoElement {
         .mt(px(NOTE_TOP))
         .max_w(px(NOTE_MEASURE))
         .ui(scale::FS_12)
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .child("In the app shell the right pane's tab strip sits in its 44 px header cell with a single close control; pane-specific actions (scope chips, split, search) live inside the pane body. The 36 px panel header with grip and actions is for floating and docked panels outside the shell.")
 }

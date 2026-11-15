@@ -40,7 +40,7 @@ pub enum SyntaxRole {
     /// A `$FOO` / `${FOO}` variable. Approximated by `warning`.
     Variable,
     /// An operator or redirection: `|`, `&&`, `||`, `;`, `>`, `>>`, `<`.
-    /// Approximated by `ink-2`.
+    /// Approximated by `fg-muted`.
     Operator,
 }
 
@@ -78,7 +78,7 @@ pub fn role_token(role: SyntaxRole) -> &'static str {
         SyntaxRole::Flag => "info",
         SyntaxRole::String => "success",
         SyntaxRole::Variable => "warning",
-        SyntaxRole::Operator => "ink-2",
+        SyntaxRole::Operator => "fg-muted",
     }
 }
 

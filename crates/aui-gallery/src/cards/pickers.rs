@@ -109,7 +109,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .flex_none()
                 .gap(px(scale::SP_2))
                 .child(div().relative().child(context_meter(SharedString::from(format!("card43-meter-{name}")), state).open(open).on_compact(|_, _| {})))
-                .child(div().text_role(TextRole::Caps).text_color(p.ink_3).child(name)),
+                .child(div().text_role(TextRole::Caps).text_color(p.fg_muted).child(name)),
         );
     }
 
@@ -193,5 +193,5 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
 
 fn caps(cx: &mut App, label: &'static str) -> AnyElement {
     let p = cx.aui().colors;
-    div().mt(px(CAPS_TOP)).text_role(TextRole::Caps).text_color(p.ink_3).child(label).into_any_element()
+    div().mt(px(CAPS_TOP)).text_role(TextRole::Caps).text_color(p.fg_muted).child(label).into_any_element()
 }

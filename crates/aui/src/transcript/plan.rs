@@ -130,7 +130,7 @@ impl RenderOnce for PlanCard {
                         .mb(px(SECTION_GAP_BOTTOM))
                         .text_role(aui_tokens::TextRole::Caps)
                         .line_height(aui_tokens::scaled(SECTION_TEXT * scale::LH_UI))
-                        .text_color(p.ink_3)
+                        .text_color(p.fg_muted)
                         .child(SharedString::from(section.label.clone())),
                 );
             }
@@ -151,7 +151,7 @@ impl RenderOnce for PlanCard {
             );
         }
 
-        let mut card = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_1)
+        let mut card = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
             .overflow_hidden()
             .child(
                 h_flex()
@@ -161,7 +161,7 @@ impl RenderOnce for PlanCard {
                     .py(px(HEAD_PAD_Y))
                     .px(px(HEAD_PAD_X))
                     .child(div().flex_1().min_w(px(0.0)).truncate().ui(HEAD_TEXT).semibold().text_color(p.ink).child("Proposed plan"))
-                    .child(div().flex_none().px(px(8.0)).py(px(2.0)).rounded(px(6.0)).bg(p.line).ui(scale::FS_12).text_color(p.ink_2).child("Plan mode")),
+                    .child(div().flex_none().px(px(8.0)).py(px(2.0)).rounded(px(6.0)).bg(p.line).ui(scale::FS_12).text_color(p.fg_muted).child("Plan mode")),
             )
             .child(list);
 

@@ -58,7 +58,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         div()
             .max_w(px(NOTE_MEASURE))
             .ui(scale::FS_12)
-            .text_color(p.ink_3)
+            .text_color(p.fg_muted)
             .child("D4: consecutive calls are one surface. Closed, the header and a caption preview of the first two calls with +k more; open, every call is a row of the same card — the tool header over a 7 % rule, its output on the Well right under it. Nothing nests."),
     )
     .into_any_element()

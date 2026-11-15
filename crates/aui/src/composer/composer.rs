@@ -380,10 +380,10 @@ impl Composer {
     }
 
     /// v3's composer (canvas "Baaz v3", Composer A): one Raised card with
-    /// the edge, radius 12, FF InputMessage padding (8 around, the field
+    /// a `line` border, radius 12, FF InputMessage padding (8 around, the field
     /// padded 8 so the text sits at 16, 4 between field and controls); the
     /// controls are text with chevrons (no bordered chips); one round 28 px
-    /// send at Floating with the edge. Overrides [`Composer::docked`].
+    /// send at Floating with a `line` border. Overrides [`Composer::docked`].
     pub fn raised(mut self, raised: bool) -> Self {
         self.raised = raised;
         self
@@ -539,7 +539,7 @@ fn composer_quote_block(id: &ElementId, q: &ComposerQuote, p: &aui_tokens::Palet
 }
 
 /// One attachment chip in the raised composer (D4, docs/41 §2.9):
-/// Raised-lit, radius 6, the edge, 32 tall. An image leads with its 30 px
+/// Raised-lit, radius 6, a `line` border, 32 tall. An image leads with its 30 px
 /// thumbnail (radius 5, 1 px in); a file with its glyph and `TYPE · size`
 /// muted; a quote with the edit glyph, its first words and `quote`. While it
 /// uploads the thumbnail dims to 50 % and a 2 px foreground sweep runs along
@@ -563,7 +563,8 @@ fn attachment_chip(id: &ElementId, c: &ComposerChip, p: &aui_tokens::Palette, re
         .items_center()
         .rounded(px(ATTACH_CHIP_RADIUS))
         .bg(crate::util::raised_lit(p, p.surface_2))
-        .shadow(p.edge())
+        .border_1()
+        .border_color(p.line)
         .overflow_hidden()
         .font_family(scale::FONT_UI)
         .text_px(scale::FS_13)
@@ -579,11 +580,11 @@ fn attachment_chip(id: &ElementId, c: &ComposerChip, p: &aui_tokens::Palette, re
                 .when(uploading, |d| d.opacity(0.5))
                 .child(gpui::img(image.clone()).object_fit(gpui::ObjectFit::Cover).w_full().h_full()),
         ),
-        (None, ComposerChipKind::Image) => chip.child(icon(IconName::Image).size(px(13.0)).color(p.ink_2)),
-        (None, ComposerChipKind::File) => chip.child(icon(IconName::File).size(px(13.0)).color(p.ink_2)),
-        (None, ComposerChipKind::Quote) => chip.child(icon(IconName::Edit).size(px(13.0)).color(p.ink_2)),
-        (None, ComposerChipKind::Mention) => chip.child(div().mono(scale::FS_12).text_color(p.ink_2).child("@")),
-        (None, ComposerChipKind::Skill) => chip.child(div().mono(scale::FS_12).text_color(p.ink_2).child("$")),
+        (None, ComposerChipKind::Image) => chip.child(icon(IconName::Image).size(px(13.0)).color(p.fg_muted)),
+        (None, ComposerChipKind::File) => chip.child(icon(IconName::File).size(px(13.0)).color(p.fg_muted)),
+        (None, ComposerChipKind::Quote) => chip.child(icon(IconName::Edit).size(px(13.0)).color(p.fg_muted)),
+        (None, ComposerChipKind::Mention) => chip.child(div().mono(scale::FS_12).text_color(p.fg_muted).child("@")),
+        (None, ComposerChipKind::Skill) => chip.child(div().mono(scale::FS_12).text_color(p.fg_muted).child("$")),
     };
     let label: SharedString = if c.kind == ComposerChipKind::Quote { format!("“{}”", c.label).into() } else { c.label.clone() };
     chip = chip.child(div().max_w(px(260.0)).truncate().when(failed.is_some(), |d| d.text_color(p.danger)).child(label));
@@ -594,7 +595,7 @@ fn attachment_chip(id: &ElementId, c: &ComposerChip, p: &aui_tokens::Palette, re
         _ => None,
     };
     if let Some(meta) = meta {
-        chip = chip.child(div().flex_none().text_px(scale::FS_12).text_color(p.ink_2).child(meta));
+        chip = chip.child(div().flex_none().text_px(scale::FS_12).text_color(p.fg_muted).child(meta));
     }
     if c.removable {
         chip = chip.child(
@@ -611,7 +612,7 @@ fn attachment_chip(id: &ElementId, c: &ComposerChip, p: &aui_tokens::Palette, re
                 .role(gpui::Role::Button)
                 .aria_label(SharedString::from(format!("Remove {}", c.label)))
                 .on_click(remove)
-                .child(icon(IconName::X).size(px(CHIP_X)).color(p.ink_2)),
+                .child(icon(IconName::X).size(px(CHIP_X)).color(p.fg_muted)),
         );
     }
     if uploading {
@@ -673,7 +674,7 @@ impl RenderOnce for Composer {
                         .line_height(relative(1.0))
                         .medium()
                         .whitespace_nowrap()
-                        .text_color(p.ink_2)
+                        .text_color(p.fg_muted)
                         .child(tile)
                         .child(c.label.clone());
                     if c.removable {
@@ -769,21 +770,21 @@ impl RenderOnce for Composer {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(icon(IconName::Plus).color(if raised { p.ink_2 } else { p.ink }).rotate(plus_glyph_turn)),
+                    .child(icon(IconName::Plus).color(if raised { p.fg_muted } else { p.ink }).rotate(plus_glyph_turn)),
             )
             .children(self.plus_menu);
 
         let enabled = self.streaming || self.can_send;
         let send = if raised {
             // D4 (docs/41 §2.9): the composer's only solid fill. Empty: the
-            // round 28 px button at Floating with the edge and a muted arrow.
-            // Ready (a draft, an attachment or a queued line): the
-            // foreground fill, a frame-coloured arrow, no edge. Running: the
+            // round 28 px button at Floating with a `line` border and a muted
+            // arrow. Ready (a draft, an attachment or a queued line): the
+            // foreground fill, a frame-coloured arrow, no border. Running: the
             // same fill with a 10 px frame-coloured square. The fill
             // cross-fades in 80 ms; the glyph swaps on spring.fast (scale
             // 0.6 → 1 and opacity). Nothing moves.
             let bg: gpui::Hsla = tween((id.clone(), "send-fill"), if enabled { p.ink } else { p.overlay }, SEND_FADE, window, cx);
-            let ink = if enabled { p.bg } else { p.ink_2 };
+            let ink = if enabled { p.bg } else { p.fg_muted };
             let swap = spring_phase((id.clone(), "send-swap"), self.streaming, SpringKind::Fast, window, cx).clamp(0.0, 1.0);
             let arrow = 1.0 - swap;
             div().flex_none().size(control).flex().items_center().justify_center().child(
@@ -792,7 +793,7 @@ impl RenderOnce for Composer {
                     .relative()
                     .size(control)
                     .rounded_full()
-                    .when(!enabled, |d| d.shadow(p.edge()))
+                    .when(!enabled, |d| d.border_1().border_color(p.line))
                     .paint_states(StatePaint::new().on(bg), &p)
                     .flex()
                     .items_center()
@@ -1005,14 +1006,12 @@ impl RenderOnce for Composer {
 
         let mut card = v_flex().id(id.clone()).w_full().bg(p.surface_1);
         card = if raised {
-            card.bg(p.surface_3).rounded(px(RAISED_RADIUS)).shadow(p.elevation_shadow(3)).p(px(RAISED_PAD)).gap(px(RAISED_GAP))
+            card.bg(p.surface_3).rounded(px(RAISED_RADIUS)).border_1().border_color(p.line).p(px(RAISED_PAD)).gap(px(RAISED_GAP))
         } else if docked {
             card.border_t_1().border_color(p.line)
         } else {
-            card.rounded(px(CARD_RADIUS)).border_1().border_color(if self.focused { p.accent } else { p.line_strong }).shadow(if self.focused {
-                vec![gpui::BoxShadow { color: p.accent_ring, offset: gpui::point(px(0.0), px(0.0)), blur_radius: px(0.0), spread_radius: px(FOCUS_RING), inset: false }]
-            } else {
-                p.shadow(1)
+            card.rounded(px(CARD_RADIUS)).border_1().border_color(if self.focused { p.accent } else { p.line_strong }).when(self.focused, |d| {
+                d.shadow(vec![gpui::BoxShadow { color: p.accent_ring, offset: gpui::point(px(0.0), px(0.0)), blur_radius: px(0.0), spread_radius: px(FOCUS_RING), inset: false }])
             })
         };
         if !self.chips.is_empty() {
@@ -1029,7 +1028,7 @@ impl RenderOnce for Composer {
                     .px(px(META_PAD_X))
                     .text_role(TextRole::MonoSmall)
                     .font_weight(gpui::FontWeight::MEDIUM)
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .whitespace_nowrap()
                     .child(format!("⎇ {}", meta.branch))
                     .child(

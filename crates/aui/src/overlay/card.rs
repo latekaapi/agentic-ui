@@ -35,8 +35,8 @@ pub(crate) fn modal_presence(
     PresenceStyle::fade_rise_scale(sample, MODAL_DROP, MODAL_FROM_SCALE)
 }
 
-/// The card shell both modals share: v3's Dialog level with the dialog
-/// shadow (the edge plus one deep drop), no drawn border, large radius,
+/// The card shell both modals share: the Dialog level (`surface-2`) with the dialog
+/// shadow (one deep drop), a 1 px `line-strong` border, large radius,
 /// riding the shared motion. Padding, gap and
 /// content are the caller's.
 pub(crate) fn modal_card(p: &Palette, width: f32, style: &PresenceStyle) -> gpui::Div {
@@ -48,6 +48,8 @@ pub(crate) fn modal_card(p: &Palette, width: f32, style: &PresenceStyle) -> gpui
         .w(px(width * style.scale))
         .rounded(px(scale::R_LG))
         .bg(p.surface(aui_tokens::Palette::DIALOG_LEVEL))
+        .border_1()
+        .border_color(p.line_strong)
         .shadow(p.dialog_shadow())
         .text_color(p.ink)
 }

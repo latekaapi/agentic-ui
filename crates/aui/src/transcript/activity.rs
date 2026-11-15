@@ -53,7 +53,7 @@ pub fn activity_group(id: impl Into<ElementId>, steps: Vec<Step>, summary: impl 
 }
 
 impl ActivityGroup {
-    /// The ink-3 detail after the summary (`· read 2 files · edited 1 file`).
+    /// The fg-muted detail after the summary (`· read 2 files · edited 1 file`).
     pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
         self.detail = Some(detail.into());
         self
@@ -78,7 +78,7 @@ fn step_tile(p: &aui_tokens::Palette, state: StepState) -> impl IntoElement {
         StepState::Done => (p.success_soft, p.success, Some(IconName::CheckBold)),
         StepState::Running => (p.accent_soft, p.accent_ink, Some(IconName::Terminal)),
         StepState::Failed => (p.danger_soft, p.danger, Some(IconName::XBold)),
-        StepState::Pending => (p.surface_3, p.ink_3, None),
+        StepState::Pending => (p.surface_3, p.fg_muted, None),
     };
     div()
         .flex_none()
@@ -110,7 +110,7 @@ impl RenderOnce for ActivityGroup {
             }
         }
         if let Some(detail) = &self.detail {
-            card = card.header(div().text_color(p.ink_3).child(detail.clone()));
+            card = card.header(div().text_color(p.fg_muted).child(detail.clone()));
         }
         let mut strip = h_flex().flex_none().gap(px(STEP_GAP)).ml(px(STEP_ML));
         for step in &self.steps {
@@ -119,7 +119,7 @@ impl RenderOnce for ActivityGroup {
         card = card
             .header(strip)
             .header(div().flex_1())
-            .header(div().text_role(TextRole::MonoSmall).font_weight(gpui::FontWeight::MEDIUM).text_color(p.ink_3).child(self.elapsed.clone()));
+            .header(div().text_role(TextRole::MonoSmall).font_weight(gpui::FontWeight::MEDIUM).text_color(p.fg_muted).child(self.elapsed.clone()));
 
         let count = self.steps.len();
         let mut timeline = v_flex().w_full().pt(px(TL_PAD_TOP)).px(px(TL_PAD_X)).pb(px(TL_PAD_BOTTOM));
@@ -142,7 +142,7 @@ impl RenderOnce for ActivityGroup {
             };
             let result_color = match step.result.as_deref() {
                 Some(r) if r.starts_with('+') => p.success,
-                _ => p.ink_3,
+                _ => p.fg_muted,
             };
             let mut row = h_flex()
                 .relative()
@@ -150,7 +150,7 @@ impl RenderOnce for ActivityGroup {
                 .min_h(cx.aui().metrics.row)
                 .gap(px(ROW_GAP))
                 .ui(ROW_TEXT)
-                .text_color(if pending { p.ink_3 } else { p.ink })
+                .text_color(if pending { p.fg_muted } else { p.ink })
                 .child(
                     // The rail: a 1 px line behind the node, half height on the first and last rows.
                     div()
@@ -167,7 +167,7 @@ impl RenderOnce for ActivityGroup {
                         .flex_1()
                         .min_w(px(0.0))
                         .child(div().medium().mr(px(VERB_GAP)).whitespace_nowrap().child(step.verb.clone()))
-                        .child(div().min_w(px(0.0)).truncate().mono(scale::FS_12).text_color(if pending { p.ink_3 } else { p.ink_2 }).child(step.target.clone())),
+                        .child(div().min_w(px(0.0)).truncate().mono(scale::FS_12).text_color(p.fg_muted).child(step.target.clone())),
                 );
             if let Some(result) = &step.result {
                 row = row.child(div().flex_none().text_role(TextRole::MonoSmall).font_weight(gpui::FontWeight::MEDIUM).text_color(result_color).child(result.clone()));

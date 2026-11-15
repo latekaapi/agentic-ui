@@ -123,6 +123,8 @@ impl RenderOnce for DropOverlay {
                                     .size(px(TILE))
                                     .rounded(px(8.0))
                                     .bg(p.overlay)
+                                    .border_1()
+                                    .border_color(p.line_strong)
                                     .shadow(p.floating_shadow())
                                     .flex()
                                     .items_center()
@@ -130,7 +132,7 @@ impl RenderOnce for DropOverlay {
                                     .child(icon(IconName::ArrowUp).size(px(TILE_GLYPH)).color(p.ink)),
                             )
                             .child(div().ui(OVERLAY_TITLE).font_weight(gpui::FontWeight::SEMIBOLD).text_color(p.ink).child(self.title))
-                            .child(div().ui(OVERLAY_SUBTITLE).text_color(p.ink_2).child(self.subtitle)),
+                            .child(div().ui(OVERLAY_SUBTITLE).text_color(p.fg_muted).child(self.subtitle)),
                     ),
             )
             .into_any_element()

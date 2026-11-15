@@ -1335,7 +1335,7 @@ impl BrowseView {
                         .border_color(p.line)
                         .bg(p.overlay)
                         .ui(scale::FS_12)
-                        .text_color(p.ink_2)
+                        .text_color(p.fg_muted)
                         .role(Role::Status)
                         .aria_label(text)
                         .child(text.to_string()),
@@ -1362,7 +1362,7 @@ impl BrowseView {
                 .items_center()
                 .justify_center()
                 .ui(scale::FS_13)
-                .text_color(cx.aui().colors.ink_3)
+                .text_color(cx.aui().colors.fg_muted)
                 .role(Role::Label)
                 .aria_label("No tabs — ⌘T for a new tab")
                 .child("No tabs — ⌘T for a new tab")
@@ -1762,7 +1762,9 @@ impl BrowseView {
             .h(relative(0.82))
             .rounded(px(12.0))
             .bg(p.surface_1)
-            .shadow(p.shadow(3))
+            .border_1()
+            .border_color(p.line_strong)
+            .shadow(p.floating_shadow())
             .overflow_hidden()
             .hover_group()
             .child(
@@ -1805,7 +1807,7 @@ impl BrowseView {
                     .flex_row()
                     .justify_center()
                     .ui(scale::FS_11)
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(caption),
             );
         }
@@ -1847,7 +1849,7 @@ impl BrowseView {
                         .border_color(p.line)
                         .bg(p.overlay)
                         .ui(scale::FS_12)
-                        .text_color(p.ink_2)
+                        .text_color(p.fg_muted)
                         .role(Role::Status)
                         .aria_label("Attach: Tab · File · Screenshot")
                         .child("Attach: Tab · File · Screenshot".to_string()),

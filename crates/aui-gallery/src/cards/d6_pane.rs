@@ -52,7 +52,8 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .items_center()
         .rounded(px(8.0))
         .bg(p.surface_2)
-        .shadow(p.edge())
+        .border_1()
+        .border_color(p.line)
         .child(div().flex_1().text_px(13.0).font_weight(FontWeight::SEMIBOLD).text_color(p.fg).child("Merge the Diff and Git kinds into one Changes view."))
         .child(toggles)
         .child(pane_action("d6-terminal", IconName::Terminal, "Terminal"))
@@ -96,7 +97,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         })
         .collect();
     let swipe_state = state.clone();
-    let strip = div().w(px(PANE_W)).h(px(320.0)).rounded(px(8.0)).shadow(p.edge()).child(
+    let strip = div().w(px(PANE_W)).h(px(320.0)).rounded(px(8.0)).border_1().border_color(p.line).child(
         pane_strip("d6-strip", pos, px(PANE_W), screens).on_swipe(move |dir, _, cx| {
             swipe_state.update(cx, |s, cx| {
                 s.screen = (s.screen as i32 + dir).clamp(0, SCREENS.len() as i32 - 1) as usize;
@@ -115,14 +116,15 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .w(px(PANE_W))
         .rounded(px(8.0))
         .bg(p.surface_2)
-        .shadow(p.edge())
+        .border_1()
+        .border_color(p.line)
         .overflow_hidden()
         .child(pushed_row("d6-pushed", "right.rs").context("crates/baaz/src").back_label("Back to files").width(px(PANE_W)).action(pane_action(
             "d6-open-ext",
             IconName::External,
             "Open in default app",
         )));
-    let not_shown = div().w(px(PANE_W)).h(px(220.0)).rounded(px(8.0)).bg(p.surface_2).shadow(p.edge()).child(
+    let not_shown = div().w(px(PANE_W)).h(px(220.0)).rounded(px(8.0)).bg(p.surface_2).border_1().border_color(p.line).child(
         state_block("d6-binary", IconName::File, "app.db")
             .line("SQLite database · 4.2 MB. Baaz shows text, Markdown and images here.")
             .action(secondary_action("d6-open-default", "Open in default app", Some(IconName::External), cx)),

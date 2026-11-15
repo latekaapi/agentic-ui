@@ -27,7 +27,7 @@ fn size_row(p: Palette, size: f32, caption: &'static str) -> impl IntoElement {
     }
     v_flex()
         .gap(px(MARK_GAP))
-        .child(div().ui(scale::FS_12).text_color(p.ink_3).child(caption))
+        .child(div().ui(scale::FS_12).text_color(p.fg_muted).child(caption))
         .child(marks)
 }
 
@@ -43,7 +43,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
             .mt(px(ROW_GAP))
             .max_w(px(632.0))
             .text_role(TextRole::UiSmall)
-            .text_color(cx.aui().colors.ink_3)
+            .text_color(cx.aui().colors.fg_muted)
             .child(
                 "One shape identifies a project everywhere: the header switcher, the group rows, the palette and the rail all draw this mark. \
                  The colour is identity, never status — it comes from the eight-colour label ramp, assigned round-robin and changeable from the project menu.",

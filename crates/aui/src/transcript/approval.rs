@@ -1,6 +1,6 @@
 //! The approval card (D4, docs/41 §2.6) and its resolved rows.
 //!
-//! Pending is the only marked state: Raised, radius 8, the edge's ring in
+//! Pending is the only marked state: Raised, radius 8, its `line` border in
 //! the warning colour at 70 %. A 26 px tile with the terminal glyph, the
 //! title and its subtitle; the command on the Well; a footer of key hints,
 //! a spacer, **Deny** and **Always allow** as text controls and **Allow** as
@@ -413,22 +413,23 @@ impl RenderOnce for ApprovalCard {
                     .size(px(TILE))
                     .rounded(px(TILE_RADIUS))
                     .bg(crate::util::raised_lit(&p, p.surface_2))
-                    .shadow(p.edge())
+                    .border_1()
+                    .border_color(p.line)
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(icon(IconName::Terminal).size(px(TILE_GLYPH)).color(p.ink_2)),
+                    .child(icon(IconName::Terminal).size(px(TILE_GLYPH)).color(p.fg_muted)),
             )
             .child(
                 v_flex()
                     .flex_1()
                     .min_w(px(0.0))
                     .child(title_line)
-                    .when(!subtitle.is_empty(), |d| d.child(div().w_full().ui(scale::FS_12).text_color(p.ink_2).child(subtitle))),
+                    .when(!subtitle.is_empty(), |d| d.child(div().w_full().ui(scale::FS_12).text_color(p.fg_muted).child(subtitle))),
             );
 
-        let mut card = crate::util::raised_block(v_flex().relative().top(style.offset_y).opacity(style.opacity).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_1)
-            .shadow(crate::transcript::card::attention_edge(p.warning))
+        let mut card = crate::util::raised_block(v_flex().relative().top(style.offset_y).opacity(style.opacity).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
+            .border_color(crate::transcript::card::attention_edge(p.warning))
             .overflow_hidden()
             .child(header);
 
@@ -458,7 +459,7 @@ impl RenderOnce for ApprovalCard {
                 .mx(px(BODY_INSET_X))
                 .mb(px(BODY_INSET_BOTTOM))
                 .gap(px(STAGE_GAP))
-                .child(div().flex_none().ui(scale::FS_12).text_color(p.ink_2).child(format!("Stage {position} of {total}")));
+                .child(div().flex_none().ui(scale::FS_12).text_color(p.fg_muted).child(format!("Stage {position} of {total}")));
             for (index, stage) in self.stages.iter().enumerate() {
                 let current = self.current_stage == Some(index);
                 let ink = if stage.resolved {
@@ -466,7 +467,7 @@ impl RenderOnce for ApprovalCard {
                 } else if current {
                     p.ink
                 } else {
-                    p.ink_2
+                    p.fg_muted
                 };
                 let mut row = h_flex()
                     .w_full()
@@ -561,7 +562,7 @@ impl ApprovalCard {
             ApprovalState::AutoDenied { rule } => (status_cross(p.danger).into_any_element(), "Denied by rule".into(), Some(format!("· {rule}"))),
             ApprovalState::AutoAllowed { rule } => (status_check(p.success).into_any_element(), "Allowed by rule".into(), Some(format!("· {rule}"))),
             ApprovalState::Cancelled { reason } => (
-                status_skipped(p.ink_3).into_any_element(),
+                status_skipped(p.fg_muted).into_any_element(),
                 cancelled_verdict(reason.as_deref()).into(),
                 None,
             ),

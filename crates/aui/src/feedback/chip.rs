@@ -1,6 +1,6 @@
 //! The corner stack's two pills (D4, docs/41 §2.11): the toast chip and the
-//! floating pill the feedback slot sits in. Both are Floating, the edge and
-//! the float drop; the host stacks them 12 px from the sheet's right, newest
+//! floating pill the feedback slot sits in. Both are Floating, a `line-strong`
+//! border and the float shadow; the host stacks them 12 px from the sheet's right, newest
 //! toast above the feedback slot, 8 apart (Sessions: 8 above the composer;
 //! Browse: 12 above the sheet's bottom, in an overlay window over the page).
 
@@ -25,11 +25,11 @@ pub const TOAST_MAX_W: f32 = 480.0;
 const TOAST_RISE: f32 = 6.0;
 const TOAST_TIMING: EnterExit = EnterExit { enter: Duration::from_millis(160), exit: Duration::from_millis(120), delay: Duration::ZERO };
 
-/// The floating pill: 36 px, radius 10, Floating, the edge and the drop.
+/// The floating pill: 36 px, radius 10, Floating, a `line-strong` border and the float shadow.
 /// The caller sets its padding and children.
 pub fn floating_pill(id: impl Into<ElementId>, cx: &App) -> gpui::Stateful<gpui::Div> {
     let p = cx.aui().colors;
-    h_flex().id(id.into()).flex_none().h(px(PILL_H)).items_center().rounded(px(PILL_RADIUS)).bg(p.overlay).shadow(p.floating_shadow())
+    h_flex().id(id.into()).flex_none().h(px(PILL_H)).items_center().rounded(px(PILL_RADIUS)).bg(p.overlay).border_1().border_color(p.line_strong).shadow(p.floating_shadow())
 }
 
 /// The status a toast's dot says.
@@ -108,7 +108,7 @@ fn pill_text(id: impl Into<ElementId>, label: SharedString, cx: &App) -> gpui::S
         .rounded(px(6.0))
         .ui(scale::FS_12)
         .cursor_pointer()
-        .paint_states(StatePaint::new().ink(p.ink_2, p.ink), &p)
+        .paint_states(StatePaint::new().ink(p.fg_muted, p.ink), &p)
         .role(gpui::Role::Button)
         .aria_label(label.clone())
         .child(label)
@@ -126,7 +126,7 @@ impl RenderOnce for ToastChip {
         let dot = match self.tone {
             ToastTone::Success => p.success,
             ToastTone::Warning => p.warning,
-            ToastTone::Neutral => p.ink_2,
+            ToastTone::Neutral => p.fg_muted,
         };
         let tip = format!("{}: {}", self.title, self.body);
         let mut chip = floating_pill(id.clone(), cx)
@@ -143,7 +143,7 @@ impl RenderOnce for ToastChip {
             .child(div().flex_none().size(px(8.0)).rounded_full().bg(dot))
             // Title and body truncate so the action and ✕ always stay inside.
             .child(div().flex_none().max_w(px(200.0)).truncate().ui(scale::FS_13).semibold().text_color(p.ink).child(self.title))
-            .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().ui(scale::FS_13).text_color(p.ink_2).child(self.body));
+            .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().ui(scale::FS_13).text_color(p.fg_muted).child(self.body));
         if self.queued > 0 {
             chip = chip.child(div().flex_none().ui(scale::FS_12).text_color(p.ink_4).child(format!("+{}", self.queued)));
         }
@@ -162,7 +162,7 @@ impl RenderOnce for ToastChip {
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
-                    .paint_states(StatePaint::new().ink(p.ink_2, p.ink), &p)
+                    .paint_states(StatePaint::new().ink(p.fg_muted, p.ink), &p)
                     .role(gpui::Role::Button)
                     .aria_label("Dismiss notification")
                     .on_click(move |e, w, cx| on_close(e, w, cx))
@@ -233,7 +233,7 @@ impl RenderOnce for FeedbackPill {
             .items_center()
             .justify_center()
             .cursor_pointer()
-            .paint_states(StatePaint::new().selected(self.active).ink(p.ink_2, p.ink), &p)
+            .paint_states(StatePaint::new().selected(self.active).ink(p.fg_muted, p.ink), &p)
             .role(gpui::Role::Button)
             .aria_label(label)
             .child(icon(IconName::MessagePlus).size(px(14.0)).lit(self.active));

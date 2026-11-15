@@ -1,6 +1,6 @@
 //! The three controls the D4 cards use (docs/41 §2.6–2.7): a **text**
 //! control (28 px, radius 6, muted → foreground on hover), a **secondary**
-//! one (Raised-lit with the edge) and the one **primary** (the foreground
+//! one (Raised-lit with a `line` border) and the one **primary** (the foreground
 //! fill, frame-coloured text, 600). And the faint mono key hints that open a
 //! card's footer.
 
@@ -22,7 +22,7 @@ const CONTROL_PAD_X: f32 = 10.0;
 pub enum ControlKind {
     /// Text only: muted, the foreground and the 5 % overlay on hover.
     Text,
-    /// Raised-lit with the one edge.
+    /// Raised-lit with a `line` border.
     Secondary,
     /// The foreground fill, frame-coloured text, 600.
     Primary,
@@ -54,10 +54,10 @@ pub fn control_with(id: impl Into<ElementId>, glyph: Option<IconName>, label: im
         .aria_label(label.clone())
         .children(glyph.map(|g| icon(g).size(px(12.0))));
     match kind {
-        ControlKind::Text => base.paint_states(StatePaint::new().ink(p.ink_2, p.ink), p).child(label),
+        ControlKind::Text => base.paint_states(StatePaint::new().ink(p.fg_muted, p.ink), p).child(label),
         ControlKind::Secondary => {
             let lit = crate::util::raised_lit(p, p.surface_2);
-            base.shadow(p.edge()).paint_states(StatePaint::new().on(lit).ink(p.ink, p.ink), p).child(label)
+            base.border_1().border_color(p.line).paint_states(StatePaint::new().on(lit).ink(p.ink, p.ink), p).child(label)
         }
         ControlKind::Primary => base
             .font_weight(gpui::FontWeight::SEMIBOLD)

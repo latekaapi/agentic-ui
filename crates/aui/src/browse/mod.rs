@@ -33,7 +33,7 @@ use gpui::SharedString;
 /// The Browse sidebar's fixed width.
 pub const BROWSE_SIDEBAR_WIDTH: f32 = 248.0;
 
-/// What the address line shows: the host in `ink`, the path in `ink-3`, the
+/// What the address line shows: the host in `ink`, the path in `fg-muted`, the
 /// port tag for non-default ports, and the glyph: `✦` for internal pages,
 /// `>_` for local ones, the lock when secure, the warning lock otherwise.
 #[derive(Debug, Clone, PartialEq, Eq)]

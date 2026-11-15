@@ -11,13 +11,13 @@ pub struct Tag {
     truncate: Option<f32>,
 }
 
-/// Mono 10.5 / 500 / ink-3.
+/// Mono 10.5 / 500 / fg-muted.
 pub fn tag(text: impl Into<SharedString>) -> Tag {
     Tag { text: text.into(), color: None, truncate: None }
 }
 
 impl Tag {
-    /// Overrides ink-3 (a `+8` in success, a `−3` in danger).
+    /// Overrides fg-muted (a `+8` in success, a `−3` in danger).
     pub fn color(mut self, color: Hsla) -> Self {
         self.color = Some(color);
         self
@@ -36,7 +36,7 @@ impl RenderOnce for Tag {
         let mut el = div()
             .flex_none()
             .text_role(TextRole::Tag)
-            .text_color(self.color.unwrap_or(p.ink_3))
+            .text_color(self.color.unwrap_or(p.fg_muted))
             .whitespace_nowrap();
         if let Some(max) = self.truncate {
             el = el.max_w(gpui::px(max)).min_w(gpui::px(0.0)).truncate();

@@ -71,7 +71,7 @@ pub(super) fn strip(key: &'static str, start: usize, window: &mut Window, cx: &m
             })
         })
         .after_tabs(icon_button(sub("add"), IconName::Plus).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)))
-        .trailing(div().mr(px(HINT_MARGIN)).ui(HINT_TEXT).text_color(p.ink_3).whitespace_nowrap().child("⌘D split right · ⌘⇧D split down"))
+        .trailing(div().mr(px(HINT_MARGIN)).ui(HINT_TEXT).text_color(p.fg_muted).whitespace_nowrap().child("⌘D split right · ⌘⇧D split down"))
         .trailing(icon_button(sub("search"), IconName::Search).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)))
         .trailing(icon_button(sub("split"), IconName::Split).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)))
 }

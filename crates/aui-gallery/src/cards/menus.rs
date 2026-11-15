@@ -185,7 +185,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                         .child(composer_stand_in(
                             vec![
                                 div().flex_none().mono(CP_TEXT).text_color(p.accent_ink).child("/re").into_any_element(),
-                                div().flex_none().text_color(p.ink_3).child("view").into_any_element(),
+                                div().flex_none().text_color(p.fg_muted).child("view").into_any_element(),
                             ],
                             cx,
                         )),
@@ -221,14 +221,14 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .mt(px(NOTE_TOP))
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("Both menus anchor to the caret, open upward from the composer and are fully keyboard-driven. Typed characters highlight in accent inside matches. Selecting a mention inserts a chip; selecting a command either runs it or expands into its arguments inline."),
         )
         .child(
             v_flex()
                 .w_full()
                 .mt(px(NOTE_TOP))
-                .child(div().text_role(TextRole::Caps).text_color(p.ink_3).child("Long menu · scrolls inside its own frame · selection 25 of 30".to_uppercase()))
+                .child(div().text_role(TextRole::Caps).text_color(p.fg_muted).child("Long menu · scrolls inside its own frame · selection 25 of 30".to_uppercase()))
                 .child(
                     command_menu("card41-commands-long", "", long_command_sections(), long_index)
                         .at_rest()
@@ -251,7 +251,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                         .mt(px(NOTE_TOP))
                         .max_w(px(NOTE_MEASURE))
                         .ui(scale::FS_12)
-                        .text_color(p.ink_3)
+                        .text_color(p.fg_muted)
                         .child("Thirty rows in a 560 px frame: the wheel scrolls the menu, never the page behind, and the arrow keys keep the selection visible — row 25 sits in view on this capture."),
                 ),
         )

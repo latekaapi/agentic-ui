@@ -1,11 +1,11 @@
 //! `.card` / `.card-h` / `.card-b`: the collapsible card frame shared by the
 //! tool cards, the tool group, the tasks list and the item cards — D4
-//! (docs/41 §2.5): Raised, radius 8, the one edge; a 34 px header padded
+//! (docs/41 §2.5): Raised, radius 8, a `line` border; a 34 px header padded
 //! 0 / 8 / 0 / 12 that tints on hover and carries the chevron at the right;
 //! a body behind a 1 px 7 % rule that opens on `spring.moderate` and closes
 //! on a 0.12 s exit, its content fading in 80 ms after the height starts.
 //! A card that needs the person (a pending approval or question, a failure
-//! with a retry) swaps the edge's white ring for its status colour at 70 %
+//! with a retry) swaps its `line` border for its status colour at 70 %
 //! ([`TranscriptCard::attention`]); nothing else is ever marked.
 
 use aui_motion::{collapse_fluid, collapse_fluid_opacity};
@@ -88,10 +88,10 @@ impl TranscriptCard {
         self
     }
 
-    /// Marks a card that needs the person: the edge's white ring becomes
+    /// Marks a card that needs the person: its `line` border becomes
     /// `status` at 70 % (warning for an approval or question, danger for a
-    /// failure with a retry); the top highlight stays. `None` is the plain
-    /// edge. The ring leaves the moment the card resolves.
+    /// failure with a retry). `None` is the plain `line` border. The colour
+    /// leaves the moment the card resolves.
     pub fn attention(mut self, status: Option<gpui::Hsla>) -> Self {
         self.attention = status;
         self
@@ -162,7 +162,7 @@ impl RenderOnce for TranscriptCard {
                 div()
                     .flex_none()
                     .ml(px(4.0))
-                    .child(icon(IconName::Chev).size(px(CHEVRON)).color(p.ink_3).rotate(radians(progress * std::f32::consts::FRAC_PI_2))),
+                    .child(icon(IconName::Chev).size(px(CHEVRON)).color(p.fg_muted).rotate(radians(progress * std::f32::consts::FRAC_PI_2))),
             );
         }
         if let Some(on_toggle) = self.on_toggle {
@@ -176,9 +176,9 @@ impl RenderOnce for TranscriptCard {
         let mut card = if self.flat {
             v_flex().id(id.clone()).w_full().border_t_1().border_color(p.line)
         } else {
-            let mut card = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(CARD_RADIUS)), &p, p.surface_1);
+            let mut card = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(CARD_RADIUS)), &p, p.surface_2);
             if let Some(status) = self.attention {
-                card = card.shadow(attention_edge(status));
+                card = card.border_color(attention_edge(status));
             }
             card.overflow_hidden()
         };
@@ -190,15 +190,9 @@ impl RenderOnce for TranscriptCard {
     }
 }
 
-/// The edge of a card that needs the person: the top highlight kept, the
-/// 1 px ring in `status` at 70 % (docs/41 §2.6).
-pub fn attention_edge(status: gpui::Hsla) -> Vec<gpui::BoxShadow> {
-    let inset = |offset_y: f32, spread: f32, color: gpui::Hsla| gpui::BoxShadow {
-        color,
-        offset: gpui::point(px(0.0), px(offset_y)),
-        blur_radius: px(0.0),
-        spread_radius: px(spread),
-        inset: true,
-    };
-    vec![inset(1.0, 0.0, gpui::white().alpha(0.07)), inset(0.0, 1.0, status.alpha(ATTENTION_RING_ALPHA))]
+/// The border colour of a card that needs the person: `status` at 70 %
+/// (docs/41 §2.6), drawn as the card's own 1 px border in place of `line`.
+/// The old inset top highlight is gone (docs/83 §2.3).
+pub fn attention_edge(status: gpui::Hsla) -> gpui::Hsla {
+    status.alpha(ATTENTION_RING_ALPHA)
 }

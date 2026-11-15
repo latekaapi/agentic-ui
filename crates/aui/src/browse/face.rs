@@ -1,4 +1,4 @@
-//! The 16 px task status face: a circle outline in `ink-3` (or `warning`
+//! The 16 px task status face: a circle outline in `fg-muted` (or `warning`
 //! for [`TaskFace::NeedsYou`](crate::browse::TaskFace)) with the state's
 //! mark inside, drawn from plain elements — no sprite glyph needed.
 
@@ -47,7 +47,7 @@ impl TaskFaceGlyph {
 impl RenderOnce for TaskFaceGlyph {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let ring = if self.face == TaskFace::NeedsYou { p.warning } else { p.ink_3 };
+        let ring = if self.face == TaskFace::NeedsYou { p.warning } else { p.fg_muted };
         let mut face = div()
             .flex_none()
             .relative()
@@ -60,7 +60,7 @@ impl RenderOnce for TaskFaceGlyph {
         match self.face {
             TaskFace::Reading => {
                 face = face.child(
-                    div().flex().items_center().gap(px(EYE_GAP)).child(dot(p.ink_2)).child(dot(p.ink_2)),
+                    div().flex().items_center().gap(px(EYE_GAP)).child(dot(p.fg_muted)).child(dot(p.fg_muted)),
                 );
             }
             TaskFace::Typing => {
@@ -74,13 +74,13 @@ impl RenderOnce for TaskFaceGlyph {
                         .items_center()
                         .justify_center()
                         .gap(px(EYE_GAP))
-                        .child(dot(p.ink_2))
-                        .child(dot(p.ink_2)),
+                        .child(dot(p.fg_muted))
+                        .child(dot(p.fg_muted)),
                 );
             }
             TaskFace::Paused => {
                 let bar = |color: gpui::Hsla| div().flex_none().w(px(PAUSED_BAR_W)).h(px(BAR_H)).rounded(px(1.0)).bg(color);
-                face = face.child(div().flex().flex_col().items_center().gap(px(PAUSED_GAP)).child(bar(p.ink_2)).child(bar(p.ink_2)));
+                face = face.child(div().flex().flex_col().items_center().gap(px(PAUSED_GAP)).child(bar(p.fg_muted)).child(bar(p.fg_muted)));
             }
             TaskFace::NeedsYou => {
                 face = face.child(

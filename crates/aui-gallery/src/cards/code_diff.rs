@@ -159,7 +159,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("Code blocks sit on the terminal ground with a 30 px header: filename, language, then quiet actions that brighten on hover. Copy morphs to a check on the swap spring (click it). Blocks past 400 lines virtualise, open scrolled to the highlighted lines 40–44. The preview pane below fills its height and owns the only scroll, opening at line 1000. Diff blocks reveal a plus on line hover to add a note."),
         )
         .into_any_element()

@@ -1,6 +1,6 @@
 //! The 28 px address line: `✦` for internal pages, `>_` when local, the
 //! lock when secure, the warning lock otherwise; host in `ink` at weight
-//! 500, path in `ink-3`, mono port tag for non-default ports. The whole row
+//! 500, path in `fg-muted`, mono port tag for non-default ports. The whole row
 //! is one quiet button; the host opens the Field on click.
 
 use aui_icons::{icon, IconName};
@@ -18,7 +18,7 @@ const ROW_H: f32 = 28.0;
 /// The row's horizontal padding and inner gap.
 const ROW_PAD_X: f32 = 8.0;
 const ROW_GAP: f32 = 6.0;
-/// The lock / terminal glyph: 12 px in `ink-3`.
+/// The lock / terminal glyph: 12 px in `fg-muted`.
 const GLYPH: f32 = 12.0;
 
 /// The 28 px address line for `address`. Build with [`address_line`].
@@ -30,7 +30,7 @@ pub struct AddressLine {
 }
 
 /// The 28 px address line for `address`: lock (or `>_` when local), host in
-/// `ink` 500, path in `ink-3`, mono port tag when local.
+/// `ink` 500, path in `fg-muted`, mono port tag when local.
 pub fn address_line(id: impl Into<ElementId>, address: Address) -> AddressLine {
     AddressLine { id: id.into(), address, on_click: None }
 }
@@ -65,7 +65,7 @@ impl RenderOnce for AddressLine {
         };
         // No triangle / alert glyph exists in the sprite (adding one is out
         // of scope), so the insecure state reuses the shield in `warning`.
-        let glyph_color = if insecure { p.warning } else { p.ink_3 };
+        let glyph_color = if insecure { p.warning } else { p.fg_muted };
         // No `w_full`: as a column item the row stretches between its
         // 8 px margins on its own; full width plus margins would overflow
         // the column (see `CompactSessionRow`).
@@ -103,7 +103,7 @@ impl RenderOnce for AddressLine {
                             .flex_1()
                             .min_w(px(0.0))
                             .truncate()
-                            .text_color(p.ink_3)
+                            .text_color(p.fg_muted)
                             .child(self.address.path.clone()),
                     ),
             );

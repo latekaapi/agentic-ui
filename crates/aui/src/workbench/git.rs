@@ -256,8 +256,8 @@ impl RenderOnce for GitChanges {
             // Plain trailing text, not a pill: pills are status-only (see
             // `crate::data::pill`), while every other header count in this
             // crate (`citations`, the diff review's file counts) is plain
-            // ink-3 text.
-            .child(div().flex_none().font_weight(gpui::FontWeight::NORMAL).text_color(p.ink_3).child(self.files.len().to_string()));
+            // fg-muted text.
+            .child(div().flex_none().font_weight(gpui::FontWeight::NORMAL).text_color(p.fg_muted).child(self.files.len().to_string()));
 
         // The file list takes the free space and scrolls; the draft, commit
         // and ahead/behind rows stay pinned top and bottom.
@@ -273,7 +273,7 @@ impl RenderOnce for GitChanges {
                 .h(cx.aui().metrics.row_sm)
                 .gap(px(ROW_GAP))
                 .px(px(PAD_X))
-                .text_color(p.ink_2)
+                .text_color(p.fg_muted)
                 .ui(ROW_TEXT)
                 .cursor_pointer()
                 .child(row_checkbox((row_id.clone(), "check").into(), *on, &p, window, cx))
@@ -380,7 +380,7 @@ impl RenderOnce for GitChanges {
             .px(px(PAD_X))
             .border_t_1()
             .border_color(p.line)
-            .text_color(p.ink_3)
+            .text_color(p.fg_muted)
             .mono(AHEAD_TEXT)
             .medium()
             .child(div().min_w(px(0.0)).truncate().child(format!("{BRANCH_GLYPH} {}", self.branch)))
@@ -399,7 +399,7 @@ impl RenderOnce for GitChanges {
     }
 }
 
-/// One run of the PR description: prose in ink-2 or an identifier in the mono
+/// One run of the PR description: prose in fg-muted or an identifier in the mono
 /// face at the field's ink. Runs flow together and wrap; `\n\n` inside a
 /// text run starts a new paragraph.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -526,7 +526,7 @@ fn field_label(label: &'static str, p: &Palette) -> impl IntoElement {
         .mb(px(LABEL_MARGIN_BOTTOM))
         .text_role(TextRole::Caps)
         .line_height(gpui::relative(LABEL_LINE))
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .child(label.to_uppercase())
 }
 
@@ -571,7 +571,7 @@ impl RenderOnce for PrForm {
             .ui(FIELD_TEXT)
             .child(div().flex_none().font_family(scale::FONT_MONO).text_px(FIELD_MONO_TEXT).child(self.base.clone()))
             .child(div().flex_1())
-            .child(icon(IconName::ChevronDown).size(px(FIELD_CHEVRON)).color(p.ink_3));
+            .child(icon(IconName::ChevronDown).size(px(FIELD_CHEVRON)).color(p.fg_muted));
         if let Some(handler) = self.on_action.clone() {
             base = base.on_click(move |_, window, cx| handler(PrAction::PickBase, window, cx));
         }
@@ -603,13 +603,13 @@ impl RenderOnce for PrForm {
                         }
                         let (t, runs) = paragraphs.last_mut().expect("one paragraph");
                         t.push_str(part);
-                        runs.push(gpui::TextRun { len: part.len(), font: ui_font.clone(), color: p.ink_2, background_color: None, underline: None, strikethrough: None });
+                        runs.push(gpui::TextRun { len: part.len(), font: ui_font.clone(), color: p.fg_muted, background_color: None, underline: None, strikethrough: None });
                     }
                 }
             }
         }
         let mut description = field(v_flex().py(px(AREA_PAD_Y)).px(px(FIELD_PAD_X)))
-            .text_color(p.ink_2)
+            .text_color(p.fg_muted)
             .font_family(scale::FONT_UI)
             .text_px(AREA_TEXT)
             .line_height(gpui::relative(AREA_LINE));

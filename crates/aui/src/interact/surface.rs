@@ -13,35 +13,26 @@ use super::Shape;
 /// The floating panel's padding around its rows (docs/83 §7: 4 px).
 pub const PANEL_PAD: f32 = 4.0;
 
-/// A surface step painted flat: `colors.surface(step)`, with the optional
-/// elevation shadow the tokens pair with that step. Build with [`surface`];
-/// menus, popovers and hover cards take [`menu_panel`].
+/// A surface step painted flat: `colors.surface(step)`, no shadow and no
+/// edge (docs/83 §1 rule 3: nothing nested casts a shadow). Build with
+/// [`surface`]; menus, popovers and hover cards take [`menu_panel`].
 #[derive(IntoElement)]
 pub struct Surface {
     step: u8,
     child: AnyElement,
     shape: Shape,
-    shadow: bool,
     fill: bool,
 }
 
 /// Paints `colors.surface(step)` under `child`.
 pub fn surface(step: u8, child: impl IntoElement) -> Surface {
-    Surface { step: step.clamp(1, 8), child: child.into_any_element(), shape: Shape::Container, shadow: true, fill: false }
+    Surface { step: step.clamp(1, 8), child: child.into_any_element(), shape: Shape::Container, fill: false }
 }
 
 impl Surface {
     /// The corner shape (default [`Shape::Container`]).
     pub fn shape(mut self, shape: Shape) -> Self {
         self.shape = shape;
-        self
-    }
-
-    /// Whether to paint the shadow token paired with this step (default
-    /// **true**). `false` paints the bare fill. The pairing itself is a token
-    /// (`elevation_shadow`), so the flat re-skin empties it there.
-    pub fn shadow(mut self, shadow: bool) -> Self {
-        self.shadow = shadow;
         self
     }
 
@@ -111,10 +102,6 @@ impl RenderOnce for Surface {
         if self.fill {
             el = el.size_full().flex().flex_col().overflow_hidden();
         }
-        el = Shape::rounded(self.shape, el);
-        if self.shadow {
-            el = el.shadow(p.elevation_shadow(self.step));
-        }
-        el
+        Shape::rounded(self.shape, el)
     }
 }

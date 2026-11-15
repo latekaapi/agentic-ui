@@ -57,7 +57,7 @@ impl MarkerRow {
         self
     }
 
-    /// Plain ink-3 text.
+    /// Plain fg-muted text.
     pub fn text(mut self, text: impl Into<SharedString>) -> Self {
         self.runs.push(Run::Text(text.into()));
         self
@@ -87,9 +87,9 @@ impl RenderOnce for MarkerRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let rule = || div().flex_1().min_w(px(16.0)).h(px(1.0)).bg(p.line);
-        let mut row = h_flex().id(self.id.clone()).w_full().my(px(MARGIN_Y)).items_center().gap(px(GAP)).ui(TEXT).text_color(p.ink_2).whitespace_nowrap().child(rule());
+        let mut row = h_flex().id(self.id.clone()).w_full().my(px(MARGIN_Y)).items_center().gap(px(GAP)).ui(TEXT).text_color(p.fg_muted).whitespace_nowrap().child(rule());
         if let Some((name, color)) = self.glyph {
-            row = row.child(icon(name).size(px(GLYPH)).color(color.unwrap_or(p.ink_2)));
+            row = row.child(icon(name).size(px(GLYPH)).color(color.unwrap_or(p.fg_muted)));
         }
         if let Some(hand) = self.hand_off {
             row = row.child(
@@ -98,12 +98,12 @@ impl RenderOnce for MarkerRow {
                     .items_center()
                     .gap(px(HAND_GAP))
                     .child(provider_mark(hand.from.0).size(px(HAND_MARK)))
-                    .child(icon(IconName::ArrowRight).size(px(HAND_ARROW)).color(p.ink_2))
+                    .child(icon(IconName::ArrowRight).size(px(HAND_ARROW)).color(p.fg_muted))
                     .child(provider_mark(hand.to.0).size(px(HAND_MARK))),
             );
         }
         // Runs sit side by side; emphasis and links carry their own colour.
-        let mut text = h_flex().flex_none().gap(px(scale::SP_1)).text_color(p.ink_2);
+        let mut text = h_flex().flex_none().gap(px(scale::SP_1)).text_color(p.fg_muted);
         for (i, run) in self.runs.into_iter().enumerate() {
             text = match run {
                 Run::Text(t) => text.child(div().whitespace_nowrap().child(t)),
@@ -117,7 +117,7 @@ impl RenderOnce for MarkerRow {
                             .whitespace_nowrap()
                             .underline()
                             .cursor_pointer()
-                            .paint_states(StatePaint::new().tint(false).ink(p.ink_2, p.ink), &p)
+                            .paint_states(StatePaint::new().tint(false).ink(p.fg_muted, p.ink), &p)
                             .role(gpui::Role::Link)
                             .aria_label(t.clone())
                             .on_click(move |e, w, cx| on_click(e, w, cx))

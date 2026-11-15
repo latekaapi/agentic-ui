@@ -48,7 +48,7 @@ impl SkillMode {
 /// The tone of a row chip: quiet or carrying a warning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ChipTone {
-    /// The override / plugin chip: line border, ink-2.
+    /// The override / plugin chip: line border, fg-muted.
     #[default]
     Muted,
     /// The issue-count chip: warning-soft ground, warning text.
@@ -79,7 +79,7 @@ pub struct SkillRowModel {
     pub id: SharedString,
     /// The skill name (weight 500).
     pub name: SharedString,
-    /// One ellipsised line in ink-3.
+    /// One ellipsised line in fg-muted.
     pub description: SharedString,
     /// Override / plugin / issue chips after the name.
     pub chips: Vec<SkillChip>,
@@ -129,7 +129,7 @@ type RowHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 type ModeHandler = Rc<dyn Fn(&SharedString, SkillMode, &mut Window, &mut App)>;
 
 /// `.row`: the ≈56 px skill row — name (500) with its chips, the one-line
-/// description in ink-3, mono ink-4 tokens right-aligned, the mode chip, the
+/// description in fg-muted, mono ink-4 tokens right-aligned, the mode chip, the
 /// switch. Off and overridden rows sit at reduced ink. Build with
 /// [`skill_row`].
 #[derive(IntoElement)]
@@ -237,7 +237,7 @@ impl RenderOnce for SkillRow {
                     .truncate()
                     .ui(DESC_TEXT)
                     .line_height(relative(scale::LH_UI))
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(model.description.clone()),
             );
 

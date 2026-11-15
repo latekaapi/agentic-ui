@@ -1,6 +1,6 @@
 //! The quote flow's selection bar (docs/43 §0; canvas v49 `D4QuoteSelect`):
 //! on mouse-up after a selection inside one turn, one bar — Floating, r 8,
-//! the edge + float drop, 32 tall, padding 3 — with one text control,
+//! a `line-strong` border + the float shadow, 32 tall, padding 3 — with one text control,
 //! **Quote** (26, r 6, padding 0 / 10 / 0 / 8, the quote glyph 14 muted, the
 //! label 14.3, hover 5 %). Role toolbar "Selection". It enters in 80 ms and
 //! leaves in 60 ms (`EnterExit::POPUP`). The host places it: 6 px above the
@@ -54,6 +54,8 @@ pub fn quote_bar(id: impl Into<ElementId>, present: bool, on_quote: impl Fn(&Cli
             .p(px(3.0))
             .rounded(px(8.0))
             .bg(p.overlay)
+            .border_1()
+            .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .occlude()
             .child(

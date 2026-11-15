@@ -282,7 +282,7 @@ fn provider_card(id: &ElementId, usage: &super::ProviderUsage, cx: &App) -> AnyE
                     .role_in(TextRole::Caption, cx)
                     .text_color(p.fg_muted)
                     .child(div().flex_1().min_w(px(0.0)).truncate().child(line.label.clone()))
-                    .child(div().flex_none().text_color(if hot { p.warning } else { p.ink_2 }).medium().child(percent))
+                    .child(div().flex_none().text_color(if hot { p.warning } else { p.fg_muted }).medium().child(percent))
                     .when(!line.resets.is_empty(), |d| {
                         d.child(div().flex_shrink(1.0).min_w(px(0.0)).max_w(px(scale::SP_7 * 3.0)).truncate().child(line.resets.clone()))
                     }),
@@ -296,7 +296,7 @@ fn provider_card(id: &ElementId, usage: &super::ProviderUsage, cx: &App) -> AnyE
                         .my(px(scale::SP_1))
                         .bg(p.surface(4))
                         .overflow_hidden()
-                        .child(Shape::Pill.rounded(div().h_full().w(gpui::relative(fraction)).bg(if hot { p.warning } else { p.ink_2 }))),
+                        .child(Shape::Pill.rounded(div().h_full().w(gpui::relative(fraction)).bg(if hot { p.warning } else { p.fg_muted }))),
                 ),
             );
     }

@@ -157,7 +157,7 @@ impl RenderOnce for SheetPane {
                             .items_center()
                             .mono(scale::FS_11)
                             .line_height(relative(1.0))
-                            .text_color(p.ink_2)
+                            .text_color(p.fg_muted)
                             .truncate()
                             .child(formula),
                     )
@@ -171,7 +171,7 @@ impl RenderOnce for SheetPane {
             cell_box(div().flex_1().min_w(px(0.0)))
                 .justify_center()
                 .bg(p.surface_2)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .mono(HEADER_TEXT)
                 .line_height(relative(1.0))
                 .medium()
@@ -190,7 +190,7 @@ impl RenderOnce for SheetPane {
                 cell_box(div().flex_none().w(px(ROW_HEADER_W)))
                     .justify_center()
                     .bg(p.surface_2)
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .mono(HEADER_TEXT)
                     .line_height(relative(1.0))
                     .medium()
@@ -229,7 +229,7 @@ impl RenderOnce for SheetPane {
                         .rounded(px(TAB_RADIUS))
                         .flex()
                         .items_center()
-                        .text_color(if on { p.ink } else { p.ink_3 })
+                        .text_color(if on { p.ink } else { p.fg_muted })
                         .when(on, |d| d.bg(p.surface_3))
                         .child(t.clone()),
                 );

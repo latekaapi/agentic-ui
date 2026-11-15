@@ -414,7 +414,7 @@ impl RenderOnce for SessionDetail {
                 .pl(px(scale::SP_3));
             if let Some(ask) = ask {
                 quote = quote.child(
-                    div().w_full().role_in(TextRole::Caption, cx).text_color(p.ink_2).child(SharedString::from(format!("“{ask}”"))),
+                    div().w_full().role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(SharedString::from(format!("“{ask}”"))),
                 );
             }
             if let Some(reply) = reply {

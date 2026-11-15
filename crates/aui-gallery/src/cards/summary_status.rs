@@ -78,7 +78,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                     .on_retry(|_, _, _| {}),
             ),
         )
-        .child(div().mb(px(CAPS_GAP)).text_role(TextRole::Caps).line_height(relative(CAPS_LH)).text_color(p.ink_3).child("STATUS ROWS"))
+        .child(div().mb(px(CAPS_GAP)).text_role(TextRole::Caps).line_height(relative(CAPS_LH)).text_color(p.fg_muted).child("STATUS ROWS"))
         .child(
             div().mb(px(STATUS_GAP)).child(
                 status_row("card38-working", "Working…").lead(StatusLead::Spinner).shimmer(true).elapsed("12 s").key_hint("esc", "to interrupt"),
@@ -99,9 +99,9 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                 .mb(px(NEED_GAP))
                 .gap(px(ROW_GAP))
                 .child(jump_pill("card38-jump", "Jump to latest").count(3).on_jump(|_, _, _| {}))
-                .child(div().ui(scale::FS_12).text_color(p.ink_3).child("appears when the reader scrolls away from the tail; counts new turns")),
+                .child(div().ui(scale::FS_12).text_color(p.fg_muted).child("appears when the reader scrolls away from the tail; counts new turns")),
         )
-        .child(div().mb(px(CAPS_GAP)).text_role(TextRole::Caps).line_height(relative(CAPS_LH)).text_color(p.ink_3).child("GOAL AND UNKNOWN ITEMS"))
+        .child(div().mb(px(CAPS_GAP)).text_role(TextRole::Caps).line_height(relative(CAPS_LH)).text_color(p.fg_muted).child("GOAL AND UNKNOWN ITEMS"))
         .child(div().mb(px(STATUS_GAP)).child(goal("card38-goal", &goals[0])))
         // A provider that reports 120 % has said something about itself worth
         // seeing: the number is verbatim and only the bar is clamped.

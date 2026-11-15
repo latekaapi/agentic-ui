@@ -74,7 +74,7 @@ fn new_tab_row(p: Palette) -> impl IntoElement {
         .mx(px(8.0))
         .rounded(px(scale::R_SM))
         .ui(scale::FS_13)
-        .text_color(p.ink_2)
+        .text_color(p.fg_muted)
         .cursor_pointer()
         .role(gpui::Role::Button)
         .aria_label("New tab")
@@ -86,7 +86,7 @@ fn new_tab_row(p: Palette) -> impl IntoElement {
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(icon(IconName::Plus).size(px(14.0)).color(p.ink_3)),
+                .child(icon(IconName::Plus).size(px(14.0)).color(p.fg_muted)),
         )
         .child(div().flex_1().min_w(px(0.0)).truncate().child("New tab"))
         .child(kbd("⌘T"))

@@ -40,7 +40,7 @@ const PJ_LEAD_GAP: f32 = NAV_LABEL_X - NAV_GUTTER - LEADING_BOX;
 /// (where the chevron flag puts it, right of them).
 const PJ_PLAIN_PAD: f32 = NAV_GUTTER + LEADING_BOX / 2.0 - PJ_MARGIN_X;
 /// The "Show N more" row after a folded project's sessions: 28 px, FS_12
-/// ink-3, chevron-down/up before the text, the row's own hover ground.
+/// fg-muted, chevron-down/up before the text, the row's own hover ground.
 const FOLD_H: f32 = 28.0;
 /// `.fold .chev{width:12px}`.
 const FOLD_CHEVRON: f32 = 12.0;
@@ -52,7 +52,7 @@ const PJ_CHEVRON: f32 = 11.0;
 /// The project mark on a group row: 18 px, as the sidebar header draws it.
 /// Drawn only when a caller passes one explicitly; the default row is plain.
 const GROUP_MARK: f32 = 18.0;
-/// The trailing branch: mono 11 ink-3, truncating.
+/// The trailing branch: mono 11 fg-muted, truncating.
 const TRAIL_TEXT: f32 = scale::FS_11;
 const TRAIL_MAX: f32 = 120.0;
 /// The project name never shrinks below this while the branch still has room:
@@ -188,7 +188,7 @@ pub struct ProjectGroup {
     pub count: SharedString,
     /// Open: folder-open icon, chevron rotated, rows visible.
     pub open: bool,
-    /// Muted (`Archived`, `Other workspaces`): ink-3 at weight 500, and the
+    /// Muted (`Archived`, `Other workspaces`): fg-muted at weight 500, and the
     /// folder glyph stays even when a mark is set.
     pub muted: bool,
     /// The project's mark: its initial and label colour, drawn in the
@@ -627,7 +627,7 @@ fn rows<'a>(
 }
 
 /// The "Show N more" / "Show less" row after a folded project's sessions:
-/// 28 px, FS_12 ink-3, chevron-down (up once expanded) before the text, the
+/// 28 px, FS_12 fg-muted, chevron-down (up once expanded) before the text, the
 /// row's own hover ground. It carries the session rows' margins and gutter,
 /// so its text starts at [`NAV_LABEL_X`] like every other label. Clicking
 /// it reports [`GroupAction::ToggleMore`] for `group_id`.
@@ -644,7 +644,7 @@ pub(crate) fn fold_row(
     let p = cx.aui().colors;
     let id: ElementId = id.into();
     let label: SharedString = if expanded { "Show less".into() } else { format!("Show {hidden} more").into() };
-    let mut glyph = icon(IconName::ChevronDown).size(px(FOLD_CHEVRON)).color(p.ink_3);
+    let mut glyph = icon(IconName::ChevronDown).size(px(FOLD_CHEVRON)).color(p.fg_muted);
     if expanded {
         glyph = glyph.rotate(radians(std::f32::consts::PI));
     }
@@ -663,7 +663,7 @@ pub(crate) fn fold_row(
         .rounded(px(scale::R_SM))
         .paint_states(StatePaint::new(), &p)
         .ui(scale::FS_12)
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .cursor_pointer()
         .child(glyph)
         .child(div().flex_1().min_w(px(0.0)).truncate().child(label));
@@ -1134,7 +1134,7 @@ fn branch_natural_width(text: &SharedString, window: &mut Window, cx: &mut App) 
     let run = TextRun {
         len: text.len(),
         font: font(scale::FONT_MONO),
-        color: cx.aui().colors.ink_3,
+        color: cx.aui().colors.fg_muted,
         background_color: None,
         underline: None,
         strikethrough: None,
@@ -1242,12 +1242,12 @@ impl RenderOnce for ProjectGroupRow {
                 .mr(px(PJ_MARGIN_X))
                 .mt(px(PJ_MARGIN_TOP))
                 .ui(PJ_TEXT)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .cursor_pointer()
                 .hover_group();
             if self.chevron {
                 // `.pj .chev{width:11px}` rotates 0° → 90° on the swap spring.
-                let chev = super::chevron_sized(id.clone(), self.open, p.ink_3, PJ_CHEVRON, window, cx);
+                let chev = super::chevron_sized(id.clone(), self.open, p.fg_muted, PJ_CHEVRON, window, cx);
                 row = row.child(
                     div().flex_none().w(px(LEADING_BOX)).flex().items_center().justify_center().child(chev),
                 );
@@ -1330,7 +1330,7 @@ impl RenderOnce for ProjectGroupRow {
                 div()
                     .min_w(px(0.0))
                     .mono(TRAIL_TEXT)
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .max_w(px(TRAIL_MAX))
                     .truncate()
                     .hide_on_hover(no_tray)
@@ -1376,7 +1376,7 @@ impl RenderOnce for DateGroupHeader {
             .gap(px(DG_GAP))
             .px(px(DG_PAD_X))
             .text_role(TextRole::Caps)
-            .text_color(p.ink_3)
+            .text_color(p.fg_muted)
             .child(div().flex_none().child(self.label.to_uppercase()))
             .child(div().flex_1().h(px(DG_RULE)).bg(p.line))
     }

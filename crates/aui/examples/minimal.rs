@@ -319,7 +319,7 @@ impl MinimalApp {
 
     fn render_right(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let (p, note) = (cx.aui().colors, "Put the document, terminal or browser pane here. \u{2318}\\ closes it.");
-        v_flex().size_full().p(px(scale::SP_6)).gap(px(scale::SP_3)).child(div().text_role(aui_tokens::TextRole::Title).text_color(p.ink).child("Right pane")).child(div().ui(scale::FS_12).text_color(p.ink_3).child(note))
+        v_flex().size_full().p(px(scale::SP_6)).gap(px(scale::SP_3)).child(div().text_role(aui_tokens::TextRole::Title).text_color(p.ink).child("Right pane")).child(div().ui(scale::FS_12).text_color(p.fg_muted).child(note))
     }
 }
 

@@ -365,7 +365,7 @@ impl RenderOnce for Segmented {
         for (i, label) in self.labels.into_iter().enumerate() {
             let on = i == self.active;
             let preview = self.preview.and_then(|(at, s)| (at == i).then_some(s));
-            let mut paint = StatePaint::new().ink(p.ink_3, p.ink).preview(preview);
+            let mut paint = StatePaint::new().ink(p.fg_muted, p.ink).preview(preview);
             if on {
                 paint = paint.on(p.surface_6).ink(p.ink, p.ink).pressable(false);
             }

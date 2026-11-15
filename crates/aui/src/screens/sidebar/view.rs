@@ -75,8 +75,8 @@ type SwitchHandler = Rc<dyn Fn(Mode, &mut Window, &mut App)>;
 /// The Sessions | Browse switch: FF tabs (`registry/base/tabs.tsx`) at the
 /// icon size — a track with a 2 px inset and ONE indicator that slides
 /// between the two glyphs on the moderate spring. v3 (dark): the track is the
-/// hover overlay (5 %), the indicator Floating with the one edge and no drop;
-/// light keeps FF (surface-2 track, surface-4 + shadow-4 indicator). The
+/// hover overlay, the indicator a flat Floating fill; light: a surface-2
+/// track and a surface-4 indicator, no shadow in either theme. The
 /// sidebar's title bar and the closed state's pill draw the same switch.
 #[derive(IntoElement)]
 pub struct ModeSwitch {
@@ -146,7 +146,7 @@ impl RenderOnce for ModeSwitch {
         if p.is_dark() {
             Shape::Item.rounded(track.bg(p.hover_overlay())).into_any_element()
         } else {
-            surface(2, track).shape(Shape::Item).shadow(false).into_any_element()
+            surface(2, track).shape(Shape::Item).into_any_element()
         }
     }
 }
@@ -384,7 +384,7 @@ impl Ctx {
 
     /// A tab's mark: its favicon image when the host has one (the icon
     /// size, square, as sites draw them), else a favicon-style tile — a
-    /// `surface-3` square on the item radius with the initial in `ink-2`
+    /// `surface-3` square on the item radius with the initial in `fg-muted`
     /// (the mock's `.mark`).
     fn favicon(&self, initial: SharedString, image: Option<&SharedString>, cx: &App) -> AnyElement {
         let p = cx.aui().colors;
@@ -402,7 +402,7 @@ impl Ctx {
                     .bg(p.surface(3))
                     .role_in(TextRole::Micro, cx)
                     .semibold()
-                    .text_color(p.ink_2)
+                    .text_color(p.fg_muted)
                     .child(initial),
             )
             .into_any_element()
@@ -1235,7 +1235,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
                         .justify_center()
                         .text_role_in(TextRole::Body, Density::Standard)
                         .medium()
-                        .text_color(p.ink_2)
+                        .text_color(p.fg_muted)
                         .child(match pin.favicon.as_ref() {
                             Some(path) => gpui::img(std::path::PathBuf::from(path.as_ref())).size(metrics.icon).into_any_element(),
                             None => pin.initial.clone().into_any_element(),

@@ -94,7 +94,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             })
         })
         .after_tabs(icon_button("card50-add", IconName::Plus).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)))
-        .trailing(div().mr(px(HINT_MARGIN)).ui(HINT_TEXT).text_color(p.ink_3).whitespace_nowrap().child("⌘D split right · ⌘⇧D split down"))
+        .trailing(div().mr(px(HINT_MARGIN)).ui(HINT_TEXT).text_color(p.fg_muted).whitespace_nowrap().child("⌘D split right · ⌘⇧D split down"))
         .trailing(icon_button("card50-search", IconName::Search).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)))
         .trailing(icon_button("card50-split", IconName::Split).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)));
 

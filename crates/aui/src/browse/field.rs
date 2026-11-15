@@ -532,7 +532,7 @@ fn command_row(command: &FieldCommand) -> FieldRow {
 // -------------------------------------------------------------- the element
 
 /// `.field{width:640px;border-radius:var(--r-xl)}` on the overlay ground with
-/// a 1 px hairline border and `box-shadow:var(--shadow-3)`.
+/// a 1 px `line-strong` border and the float shadow.
 const FIELD_W: f32 = 640.0;
 /// `.q{gap:10px;padding:0 14px;height:46px;font-size:14px}` with a 16 px
 /// search icon, like the command palette's query row.
@@ -800,6 +800,8 @@ impl RenderOnce for Field {
             .max_w(gpui::relative(1.0))
             .rounded(px(scale::R_XL))
             .bg(p.overlay)
+            .border_1()
+            .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .overflow_hidden()
             .text_color(p.ink)
@@ -869,7 +871,7 @@ impl RenderOnce for Field {
                             .pb(px(CAPS_PAD_BOTTOM))
                             .text_role(TextRole::Caps)
                             .line_height(gpui::relative(scale::LH_UI))
-                            .text_color(p.ink_3)
+                            .text_color(p.fg_muted)
                             .child(caption),
                     );
                 }
@@ -920,10 +922,10 @@ fn input_row(
             .rounded(px(scale::R_SM))
             .bg(p.surface_3)
             .ui(scale::FS_12)
-            .text_color(p.ink_2)
-            .child(icon(glyph).size(px(11.0)).color(p.ink_3))
+            .text_color(p.fg_muted)
+            .child(icon(glyph).size(px(11.0)).color(p.fg_muted))
             .child(scope.clone())
-            .child(div().text_color(p.ink_3).child("×"))
+            .child(div().text_color(p.fg_muted).child("×"))
             .role(gpui::Role::Button)
             .aria_label(label);
         if let Some(handler) = on_intent.clone() {
@@ -960,7 +962,7 @@ fn input_row(
         .border_b_1()
         .border_color(p.line)
         .ui(Q_TEXT)
-        .child(icon(IconName::Search).size(px(Q_ICON)).color(p.ink_3))
+        .child(icon(IconName::Search).size(px(Q_ICON)).color(p.fg_muted))
         .children(pill)
         .child(text)
         .child(esc)
@@ -1030,7 +1032,7 @@ fn field_row(
 ) -> impl IntoElement {
     // The selection is the one lit row, painted by the one model with the
     // pointer's refinement off: what `↩` confirms is always what is lit.
-    let glyph_color = if on { p.ink } else { p.ink_3 };
+    let glyph_color = if on { p.ink } else { p.fg_muted };
 
     let mut el = h_flex()
         .id(row_id.clone())
@@ -1040,18 +1042,18 @@ fn field_row(
         .gap(px(ITEM_GAP))
         .px(px(ITEM_PAD_X))
         .rounded(px(scale::R_SM))
-        .paint_states(StatePaint::new().pointer(false).highlighted(on).ink(p.ink_2, p.ink), p)
+        .paint_states(StatePaint::new().pointer(false).highlighted(on).ink(p.fg_muted, p.ink), p)
         .ui(scale::FS_13)
         .child(icon(row_icon(&row.kind)).size(px(ITEM_ICON)).color(glyph_color))
         .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().child(row.title.clone()));
     if let Some(detail) = &row.detail {
-        el = el.child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().mono(DETAIL_TEXT).text_color(p.ink_3).child(detail.clone()));
+        el = el.child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().mono(DETAIL_TEXT).text_color(p.fg_muted).child(detail.clone()));
     }
     // A history row's hint is a relative word, a bookmark's its folder, a
     // folder's its count: plain faint text at the right edge. Every other
     // hint is a keycap.
     if matches!(row.kind, FieldRowKind::History { .. } | FieldRowKind::Bookmark { .. } | FieldRowKind::Folder { .. }) {
-        el = el.child(div().flex_none().ml_auto().ui(DETAIL_TEXT).text_color(p.ink_3).child(row.hint.clone()));
+        el = el.child(div().flex_none().ml_auto().ui(DETAIL_TEXT).text_color(p.fg_muted).child(row.hint.clone()));
     } else {
         el = el.child(div().flex_none().ml_auto().child(kbd(row.hint.clone())));
     }
@@ -1095,7 +1097,7 @@ fn footer(p: &aui_tokens::Palette) -> impl IntoElement {
         .border_t_1()
         .border_color(p.line)
         .ui(FT_TEXT)
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .child(footer_hint("↑↓", "navigate"))
         .child(open_hint())
         .child(footer_hint("⇥", "complete"))

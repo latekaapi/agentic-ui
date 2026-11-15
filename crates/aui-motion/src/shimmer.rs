@@ -23,7 +23,7 @@ pub const TEXT_PERIOD: Duration = Duration::from_millis(1800);
 /// One sweep of the surface skeleton.
 pub const SKELETON_PERIOD: Duration = Duration::from_millis(1400);
 
-/// A shimmering label: ink-3 base with an ink highlight sweeping left to right
+/// A shimmering label: fg-muted base with an ink highlight sweeping left to right
 /// every 1.8 s (`.shimmer` in base.css). The caller applies size and weight.
 pub fn shimmer_text(id: impl Into<ElementId>, text: impl Into<SharedString>, cx: &App) -> ShimmerText {
     let colors = cx.aui().colors;
@@ -38,7 +38,7 @@ pub fn shimmer_text(id: impl Into<ElementId>, text: impl Into<SharedString>, cx:
         spread: 0.45,
         style: StyleRefinement::default(),
     }
-    .text_color(colors.ink_3)
+    .text_color(colors.fg_muted)
 }
 
 /// The label [`shimmer_text`] builds: styled like any text (size, weight,

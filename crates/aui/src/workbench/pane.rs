@@ -291,7 +291,7 @@ pub fn pane_row_fade(cx: &App) -> gpui::Div {
 }
 
 /// An empty / error / not-shown state (docs/43 §2.11): centred, padding 0 32,
-/// gap 6 — a 40 px Raised tile r 10 with the edge and the glyph 18 muted (6
+/// gap 6 — a 40 px Raised tile r 10 with a `line` border and the glyph 18 muted (6
 /// more below it), the title 600, a line 13.2 / 18 muted (max 260), then at
 /// most one secondary action 8 below.
 #[derive(IntoElement)]
@@ -340,7 +340,8 @@ impl RenderOnce for StateBlock {
             .justify_center()
             .rounded(px(10.0))
             .bg(p.surface_3)
-            .shadow(p.edge())
+            .border_1()
+            .border_color(p.line)
             .child(icon(self.glyph).size(px(18.0)).color(p.fg_muted));
         let mut col = v_flex()
             .id(self.id)
@@ -364,7 +365,7 @@ impl RenderOnce for StateBlock {
     }
 }
 
-/// The pane's secondary button: 28 tall, r 6, Raised-lit with the edge,
+/// The pane's secondary button: 28 tall, r 6, Raised-lit with a `line` border,
 /// 14.3 foreground, an optional leading glyph 14 ("Open in default app",
 /// "Try again").
 pub fn secondary_action(id: impl Into<ElementId>, label: impl Into<SharedString>, glyph: Option<IconName>, cx: &App) -> gpui::Stateful<gpui::Div> {
@@ -380,7 +381,8 @@ pub fn secondary_action(id: impl Into<ElementId>, label: impl Into<SharedString>
         .gap(px(6.0))
         .items_center()
         .rounded(px(6.0))
-        .shadow(p.edge())
+        .border_1()
+        .border_color(p.line)
         .font_family(scale::FONT_UI)
         .text_px(NAME_TEXT)
         .text_color(p.fg)
@@ -577,29 +579,16 @@ impl RenderOnce for PaneStrip {
     }
 }
 
-/// A focused field's edge (docs/43 §2.4, §2.6): dark lifts the edge's ring to
-/// white 22 % under the top highlight; light draws one black ring at 28 %.
-pub fn focus_edge(cx: &App) -> Vec<gpui::BoxShadow> {
+/// A field's 1 px border (docs/83 §2.1): `line-strong` at rest, the focus
+/// colour (`accent-ring`) while focused. Inputs keep a border in the flat
+/// design; the old inset edge and its top highlight are gone.
+pub fn field_border(focused: bool, cx: &App) -> gpui::Hsla {
     let p = cx.aui().colors;
-    let ring = |color: gpui::Hsla| gpui::BoxShadow {
-        color,
-        offset: gpui::point(px(0.0), px(0.0)),
-        blur_radius: px(0.0),
-        spread_radius: px(1.0),
-        inset: true,
-    };
-    if p.is_dark() {
-        vec![
-            gpui::BoxShadow { color: gpui::white().alpha(0.07), offset: gpui::point(px(0.0), px(1.0)), blur_radius: px(0.0), spread_radius: px(0.0), inset: true },
-            ring(gpui::white().alpha(0.22)),
-        ]
-    } else {
-        vec![ring(gpui::black().alpha(0.28))]
-    }
+    if focused { p.accent_ring } else { p.line_strong }
 }
 
 /// Files' filter (docs/43 §2.4): a 32 px Well field under the pane row (inset
-/// 6 above, 8 at the sides, 2 below), the edge (22 % while focused), the
+/// 6 above, 8 at the sides, 2 below), a [`field_border`] (focus colour while focused), the
 /// search glyph 14 muted, the query, and `3 of 1,204` in faint mono 12.1 at
 /// the right.
 pub fn filter_field(
@@ -620,7 +609,8 @@ pub fn filter_field(
             .items_center()
             .rounded(px(6.0))
             .bg(p.well)
-            .shadow(if focused { focus_edge(cx) } else { p.edge() })
+            .border_1()
+            .border_color(field_border(focused, cx))
             .font_family(scale::FONT_UI)
             .text_px(NAME_TEXT)
             .text_color(p.fg)
@@ -631,8 +621,8 @@ pub fn filter_field(
 }
 
 /// Files' filter in the bar (owner 2026-10-21, canvas `D6OneBar`): while
-/// filtering, the pane row IS the field — the Well (28, r 6, the edge; the
-/// focus edge while focused), search glyph 12, the query, the match count
+/// filtering, the pane row IS the field — the Well (28, r 6, a [`field_border`]; the
+/// focus colour while focused), search glyph 12, the query, the match count
 /// faint mono at the right — then a 1 × 16 hairline and ✕, which closes the
 /// filter (as Esc does); the next ✕ closes the pane.
 pub fn filter_bar(
@@ -665,7 +655,8 @@ pub fn filter_bar(
                 .items_center()
                 .rounded(px(6.0))
                 .bg(p.well)
-                .shadow(if focused { focus_edge(cx) } else { p.edge() })
+                .border_1()
+            .border_color(field_border(focused, cx))
                 .font_family(scale::FONT_UI)
                 .text_px(13.2)
                 .text_color(p.fg)

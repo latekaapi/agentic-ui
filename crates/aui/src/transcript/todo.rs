@@ -84,7 +84,7 @@ fn todo_mark(id: ElementId, state: TodoState, p: &Palette, window: &mut Window, 
         .size(px(MARK))
         .rounded_full()
         .border(px(MARK_BORDER))
-        .border_color(if running { p.ink } else { p.ink_2 })
+        .border_color(if running { p.ink } else { p.fg_muted })
         .flex()
         .items_center()
         .justify_center()
@@ -118,7 +118,7 @@ impl RenderOnce for TodoList {
 
         let mut card = transcript_card(id.clone(), self.open)
             .header_height(px(HEADER_H))
-            .header(icon(IconName::List).size(px(HEADER_GLYPH)).color(p.ink_2))
+            .header(icon(IconName::List).size(px(HEADER_GLYPH)).color(p.fg_muted))
             .header(div().semibold().child(self.title.clone()))
             .header(div().mono(aui_tokens::scale::FS_11).text_color(p.ink_4).child(format!("{done} / {total}")))
             .header(div().flex_1());
@@ -126,7 +126,7 @@ impl RenderOnce for TodoList {
         // The 3 px bar under the header: a 7 % track, the muted fill.
         let mut body = v_flex()
             .w_full()
-            .child(div().w_full().h(px(BAR_H)).bg(p.line).child(div().h_full().w(relative(width)).bg(p.ink_2)));
+            .child(div().w_full().h(px(BAR_H)).bg(p.line).child(div().h_full().w(relative(width)).bg(p.fg_muted)));
         for (index, item) in self.items.iter().enumerate() {
             let label: SharedString = item.label.clone().into();
             let text = match item.state {
@@ -134,10 +134,10 @@ impl RenderOnce for TodoList {
                     .with_runs(vec![TextRun {
                         len: label.len(),
                         font: gpui::font(aui_tokens::scale::FONT_UI),
-                        color: p.ink_2,
+                        color: p.fg_muted,
                         background_color: None,
                         underline: None,
-                        strikethrough: Some(StrikethroughStyle { thickness: px(STRIKE_THICKNESS), color: Some(p.ink_2) }),
+                        strikethrough: Some(StrikethroughStyle { thickness: px(STRIKE_THICKNESS), color: Some(p.fg_muted) }),
                     }])
                     .into_any_element(),
                 _ => label.clone().into_any_element(),

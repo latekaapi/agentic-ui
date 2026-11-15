@@ -365,7 +365,7 @@ fn copy_button(id: &ElementId, p: &Palette, code: SharedString, on_copy: Option<
         .cursor_pointer()
         .role(gpui::Role::Button)
         .aria_label("Copy code")
-        .paint_states(StatePaint::new().ink(p.ink_2, p.ink), p)
+        .paint_states(StatePaint::new().ink(p.fg_muted, p.ink), p)
         .on_click(move |_, w, cx| {
             emit_copy(&code, &on_copy, w, cx);
             state.update(cx, |c, cx| {
@@ -417,7 +417,7 @@ fn block_header(p: &Palette, args: BlockHeaderArgs) -> impl IntoElement {
         .mono(HEADER_TEXT)
         .line_height(relative(1.0))
         .medium()
-        .text_color(p.ink_2)
+        .text_color(p.fg_muted)
         .child(icon(glyph).size(px(HEADER_GLYPH)))
         .child(div().min_w(px(0.0)).truncate().child(name))
         .children(after)
@@ -685,9 +685,11 @@ impl RenderOnce for CodeBlock {
             .pl(px(HEADER_PAD_L))
             .pr(px(HEADER_PAD_R))
             .bg(crate::util::raised_lit(&p, p.surface_2))
+            .border_b_1()
+            .border_color(p.line)
             .mono(HEADER_TEXT)
             .line_height(relative(1.0))
-            .text_color(p.ink_2)
+            .text_color(p.fg_muted)
             .child(icon(IconName::File).size(px(HEADER_GLYPH)))
             .child(div().min_w(px(0.0)).truncate().child(label))
             .child(div().flex_1())
@@ -758,7 +760,7 @@ impl RenderOnce for CodeBlock {
             body.into_any_element()
         };
 
-        let block = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.term_bg);
+        let block = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_3);
         let mut block = block
             .overflow_hidden()
             .hover_group()
@@ -785,7 +787,7 @@ impl RenderOnce for CodeBlock {
                     .border_t_1()
                     .border_color(p.line)
                     .ui(scale::FS_12)
-                    .paint_states(StatePaint::new().tint(false).ink(p.ink_2, p.ink), &p)
+                    .paint_states(StatePaint::new().tint(false).ink(p.fg_muted, p.ink), &p)
                     .cursor_pointer()
                     .role(gpui::Role::Button)
                     .aria_label(name)
@@ -957,7 +959,7 @@ impl RenderOnce for DiffBlock {
 
         let mut body = v_flex().w_full().mono(DIFF_TEXT).line_height(relative(DIFF_LH)).text_color(p.ink);
         for (h, hunk) in self.diff.hunks.iter().enumerate() {
-            body = body.child(div().w_full().py(px(HUNK_PAD_Y)).px(px(HUNK_PAD_X)).bg(p.surface_2).ui(scale::FS_11).font_family(scale::FONT_MONO).text_color(p.ink_3).child(hunk.header.clone()));
+            body = body.child(div().w_full().py(px(HUNK_PAD_Y)).px(px(HUNK_PAD_X)).bg(p.surface_2).ui(scale::FS_11).font_family(scale::FONT_MONO).text_color(p.fg_muted).child(hunk.header.clone()));
             for (i, line) in hunk.lines.iter().enumerate() {
                 let line_id: ElementId = (id.clone(), SharedString::from(format!("h{h}-l{i}"))).into();
                 let (bg, sign) = match line.kind {
@@ -1004,7 +1006,7 @@ impl RenderOnce for DiffBlock {
             }
         }
 
-        crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(scale::R_MD)), &p, p.surface_1)
+        crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(scale::R_MD)), &p, p.surface_2)
             .overflow_hidden()
             .hover_group()
             .child(header)

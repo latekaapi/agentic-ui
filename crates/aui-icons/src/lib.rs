@@ -8,7 +8,7 @@
 //! ```ignore
 //! use aui_icons::{icon, IconName};
 //!
-//! icon(IconName::ChevronDown).lg().color(theme.ink_3)
+//! icon(IconName::ChevronDown).lg().color(theme.fg_muted)
 //! ```
 //!
 //! Because gpui rasterises an SVG into an alpha mask that is then tinted with
@@ -319,8 +319,8 @@ impl FileType {
 
     /// The muted hue this file type is tinted with.
     ///
-    /// `None` means the icon carries no hue of its own: folders use `ink-3`,
-    /// lockfiles, images and generic files use `ink-4` / `ink-3` as the caller
+    /// `None` means the icon carries no hue of its own: folders use `fg-muted`,
+    /// lockfiles, images and generic files use `ink-4` / `fg-muted` as the caller
     /// sees fit. The library does not know the theme, so it hands back only the
     /// hues the spec fixes.
     pub fn hue(self) -> Option<Rgba> {

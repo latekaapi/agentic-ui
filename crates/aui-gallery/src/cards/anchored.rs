@@ -76,7 +76,7 @@ fn trigger(state: Entity<AnchoredCard>, index: usize, label: &'static str, x: f3
                 .border_color(p.line_strong)
                 .bg(p.surface_1)
                 .ui(scale::FS_12)
-                .text_color(p.ink_2)
+                .text_color(p.fg_muted)
                 .child(label),
         )
 }
@@ -105,7 +105,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     v_flex()
         .w_full()
         .child(
-            div().mb(px(NOTE_GAP)).ui(scale::FS_12).text_color(p.ink_3).child(
+            div().mb(px(NOTE_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child(
                 "Every trigger menu seats below-start of its trigger, flips above near the window bottom, and slides to stay inside — all four through anchored_menu.",
             ),
         )

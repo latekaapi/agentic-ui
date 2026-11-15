@@ -657,7 +657,7 @@ fn command_row(
         // One line: the row is `ROW_H` tall, so a description that outgrows
         // its column truncates (the full text belongs to `/help`), never
         // wraps onto the row below.
-        .child(div().flex_1().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).text_color(if on { p.fg } else { p.ink_2 }).child(item.description));
+        .child(div().flex_1().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).text_color(if on { p.fg } else { p.fg_muted }).child(item.description));
 
     if let Some(key) = item.key {
         row = row.child(div().flex_none().mono(DETAIL_MONO_TEXT).text_color(p.ink_4).child(key));
@@ -691,8 +691,8 @@ fn mention_row(
     let mut row = menu_row(id, p, on, index, on_hover, window, cx);
 
     row = match item.icon {
-        MentionIcon::Glyph(name) => row.child(icon(name).size(px(ROW_ICON)).color(p.ink_3)),
-        MentionIcon::Symbol => row.child(div().flex_none().mono(SYMBOL_TEXT).text_color(p.ink_3).child("ƒ")),
+        MentionIcon::Glyph(name) => row.child(icon(name).size(px(ROW_ICON)).color(p.fg_muted)),
+        MentionIcon::Symbol => row.child(div().flex_none().mono(SYMBOL_TEXT).text_color(p.fg_muted).child("ƒ")),
         MentionIcon::Dot(state) => row.child(status_dot(dot_id, state)),
     };
 
@@ -718,7 +718,7 @@ fn mention_row(
 
     // The detail sits at the right, muted; mono for a symbol's or a path's
     // location.
-    let detail = div().flex_1().min_w(px(0.0)).flex().justify_end().truncate().text_color(p.ink_2);
+    let detail = div().flex_1().min_w(px(0.0)).flex().justify_end().truncate().text_color(p.fg_muted);
     row = row.child(if item.detail_mono {
         detail.mono(DETAIL_MONO_TEXT).child(item.detail)
     } else {
@@ -763,7 +763,7 @@ fn footer(p: &Palette, enter: &'static str) -> impl IntoElement {
 
 /// A section's caption header: 24 px, muted, padded 0 / 10 / 4.
 fn section_label(title: SharedString, p: &Palette) -> impl IntoElement {
-    div().h(px(SECTION_H)).px(px(ROW_PAD_X)).pb(px(4.0)).flex().items_end().ui(scale::FS_12).text_color(p.ink_2).child(title)
+    div().h(px(SECTION_H)).px(px(ROW_PAD_X)).pb(px(4.0)).flex().items_end().ui(scale::FS_12).text_color(p.fg_muted).child(title)
 }
 
 #[cfg(test)]

@@ -258,7 +258,7 @@ fn status_line(id: ElementId, line: &StatusLine, p: &Palette) -> AnyElement {
                 .truncate()
                 .text_px(CAPTION_TEXT)
                 .line_height(px(CAPTION_LH))
-                .text_color(p.ink_2)
+                .text_color(p.fg_muted)
                 .child(line.text.clone()),
         )
         .into_any_element()
@@ -409,7 +409,7 @@ fn action_button(
         ActionStyle::Text => btn.ghost(),
     };
     if def.external {
-        btn = btn.trailing(icon(IconName::External).size(px(12.0)).color(p.ink_2));
+        btn = btn.trailing(icon(IconName::External).size(px(12.0)).color(p.fg_muted));
     }
     if let Some(handler) = on_click {
         btn = btn.on_click(move |_, w, cx| handler(w, cx));
@@ -458,7 +458,7 @@ fn assist_line(
         .gap(px(4.0))
         .text_px(CAPTION_TEXT)
         .line_height(px(CAPTION_LH))
-        .text_color(p.ink_2);
+        .text_color(p.fg_muted);
     for run in runs {
         line = match run {
             AssistRun::Text(text) => line.child(div().child(text.clone())),
@@ -475,7 +475,7 @@ fn assist_line(
                         .underline()
                         .role(gpui::Role::Link)
                         .aria_label(label.clone())
-                        .paint_states(StatePaint::new().tint(false).ink(p.ink_2, p.ink), p)
+                        .paint_states(StatePaint::new().tint(false).ink(p.fg_muted, p.ink), p)
                         .on_click(move |_, w, cx| {
                             if let Some(handler) = handler.clone() {
                                 handler(key.clone(), w, cx);
@@ -653,7 +653,7 @@ impl RenderOnce for ConnectScreen {
                     .text_center()
                     .text_px(BODY_TEXT)
                     .line_height(px(BODY_LH))
-                    .text_color(p.ink_2)
+                    .text_color(p.fg_muted)
                     .child(self.intro),
             );
 
@@ -661,7 +661,8 @@ impl RenderOnce for ConnectScreen {
             .w_full()
             .rounded(px(PANEL_R))
             .bg(p.surface_2)
-            .shadow(p.edge())
+            .border_1()
+            .border_color(p.line)
             .overflow_hidden();
         for (n, row) in self.rows.iter().enumerate() {
             rows_el = rows_el.child(connect_row(&self.id, row, n > 0, &p, on_intent.clone()));
@@ -712,7 +713,7 @@ fn footer(
             .max_w(px(NOTHING_W))
             .text_px(CAPTION_TEXT)
             .line_height(px(NOTHING_LH))
-            .text_color(p.ink_2)
+            .text_color(p.fg_muted)
             .child(nothing_ready)
             .into_any_element(),
     };
@@ -772,7 +773,8 @@ fn default_picker(id: &ElementId, picker: DefaultPicker, p: &Palette, on_intent:
         .gap(px(6.0))
         .items_center()
         .rounded(px(PICKER_R))
-        .shadow(p.edge())
+        .border_1()
+        .border_color(p.line)
         .cursor_pointer()
         .paint_states(StatePaint::new().on(p.surface_4).ink(p.ink, p.ink), p)
         .role(gpui::Role::Button)
@@ -784,7 +786,7 @@ fn default_picker(id: &ElementId, picker: DefaultPicker, p: &Palette, on_intent:
         })
         .child(provider_mark(picker.current).size(px(PICKER_MARK)))
         .child(name.clone())
-        .child(icon(IconName::ChevronDown).size(px(12.0)).color(p.ink_2));
+        .child(icon(IconName::ChevronDown).size(px(12.0)).color(p.fg_muted));
     let mut anchor = div().relative().flex_none().child(chip);
     if picker.open {
         let rows: Vec<PickerRow> = picker
@@ -819,7 +821,7 @@ fn default_picker(id: &ElementId, picker: DefaultPicker, p: &Palette, on_intent:
         .whitespace_nowrap()
         .text_px(CAPTION_TEXT)
         .line_height(px(CAPTION_LH))
-        .text_color(p.ink_2)
+        .text_color(p.fg_muted)
         .child("New sessions start in")
         .child(anchor)
         .into_any_element()
@@ -1059,7 +1061,8 @@ impl RenderOnce for ProviderCard {
             .w_full()
             .rounded(px(PANEL_R))
             .bg(p.surface_2)
-            .shadow(p.edge())
+            .border_1()
+            .border_color(p.line)
             .child(top);
 
         if !data.assist.is_empty() {
@@ -1097,7 +1100,7 @@ fn details_block(
         .cursor_pointer()
         .text_px(CAPTION_TEXT)
         .line_height(px(CAPTION_LH))
-        .paint_states(StatePaint::new().tint(false).ink(p.ink_2, p.ink), p)
+        .paint_states(StatePaint::new().tint(false).ink(p.fg_muted, p.ink), p)
         .role(gpui::Role::Button)
         .aria_label(format!("{name} details, {}", if details.open { "open" } else { "closed" }))
         .on_click(move |_, w, cx| {
@@ -1105,7 +1108,7 @@ fn details_block(
                 handler(w, cx);
             }
         })
-        .child(icon(chevron).size(px(12.0)).color(p.ink_2))
+        .child(icon(chevron).size(px(12.0)).color(p.fg_muted))
         .child("Details");
     let mut block = v_flex()
         .w_full()
@@ -1153,7 +1156,8 @@ fn details_block(
                 .py(px(8.0))
                 .rounded(px(BOX_R))
                 .bg(p.surface_3)
-                .shadow(p.edge())
+                .border_1()
+                .border_color(p.line)
                 .child(div().flex_none().mt(px(2.0)).child(icon(IconName::Alert).size(px(13.0)).color(p.warning)))
                 .child(div().flex_1().min_w(px(0.0)).child(notice_text(&details.notice, p))),
         );
@@ -1192,7 +1196,7 @@ fn notice_text(runs: &[AssistRun], p: &Palette) -> AnyElement {
     div()
         .text_px(CAPTION_TEXT)
         .line_height(px(CAPTION_LH))
-        .text_color(p.ink_2)
+        .text_color(p.fg_muted)
         .child(gpui::StyledText::new(text).with_highlights(highlights))
         .into_any_element()
 }
@@ -1249,7 +1253,8 @@ impl RenderOnce for SignedOutBanner {
             .py(px(8.0))
             .rounded(px(BOX_R))
             .bg(p.surface_3)
-            .shadow(p.edge())
+            .border_1()
+            .border_color(p.line)
             .role(gpui::Role::Status)
             .child(div().flex_none().size(px(DOT)).rounded_full().bg(p.warning))
             .child(
@@ -1390,7 +1395,7 @@ impl RenderOnce for UsageCard {
                 div()
                     .text_px(DETAIL_TEXT)
                     .line_height(gpui::relative(scale::LH_UI))
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(plan),
             );
         }
@@ -1412,20 +1417,20 @@ impl RenderOnce for UsageCard {
                 div()
                     .text_px(DETAIL_TEXT)
                     .line_height(gpui::relative(scale::LH_UI))
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child("Not reported yet"),
             );
         }
         for window in &self.windows {
             let used = window.used_fraction.clamp(0.0, 1.0);
-            let bar_ink = if used >= WARN_AT { p.warning } else { p.ink_3 };
+            let bar_ink = if used >= WARN_AT { p.warning } else { p.fg_muted };
             card = card.child(
                 v_flex().gap(px(2.0)).w_full().child(
                     h_flex().w_full().items_baseline().justify_between().gap(px(USAGE_GAP)).child(
                         div()
                             .text_px(DETAIL_TEXT)
                             .line_height(gpui::relative(scale::LH_UI))
-                            .text_color(p.ink_2)
+                            .text_color(p.fg_muted)
                             .child(window.label.clone()),
                     ).child(
                         div()
@@ -1453,7 +1458,7 @@ impl RenderOnce for UsageCard {
                     div()
                         .text_px(DETAIL_TEXT)
                         .line_height(gpui::relative(scale::LH_UI))
-                        .text_color(p.ink_3)
+                        .text_color(p.fg_muted)
                         .child(format!("resets in {}", window.resets_at_text)),
                 ),
             );
@@ -1463,7 +1468,7 @@ impl RenderOnce for UsageCard {
                 div()
                     .text_px(DETAIL_TEXT)
                     .line_height(gpui::relative(scale::LH_UI))
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(format!("as of {as_of}")),
             );
         }

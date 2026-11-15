@@ -204,7 +204,7 @@ impl RenderOnce for ProjectRow {
             .paint_states(StatePaint::new(), &p)
             .ui(ROW_TEXT)
             .medium()
-            .text_color(p.ink_2)
+            .text_color(p.fg_muted)
             .cursor_pointer()
             .child(icon(IconName::Folder))
             .child(div().min_w(px(0.0)).truncate().child(self.name))
@@ -214,7 +214,7 @@ impl RenderOnce for ProjectRow {
                     .flex_none()
                     .text_role(TextRole::MonoSmall)
                     .font_weight(gpui::FontWeight::MEDIUM)
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(SharedString::from(self.count.to_string())),
             );
         if let Some(on_select) = self.on_select {
@@ -258,7 +258,7 @@ impl RenderOnce for RoleSessionRow {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let s = self.session;
-        let rest_text = if self.active { p.ink } else { p.ink_3 };
+        let rest_text = if self.active { p.ink } else { p.fg_muted };
         let mut row = h_flex()
             .id(id)
             .relative()
@@ -273,7 +273,7 @@ impl RenderOnce for RoleSessionRow {
             .ui(ROW_TEXT)
             .cursor_pointer()
             .child(div().absolute().left(px(RAIL_LEFT)).top_0().bottom_0().w(px(RAIL_W)).bg(p.line))
-            .child(icon(s.kind.icon()).color(p.ink_3))
+            .child(icon(s.kind.icon()).color(p.fg_muted))
             .child(div().min_w(px(0.0)).truncate().child(s.name.clone()))
             .child(div().flex_1())
             .child(
@@ -281,7 +281,7 @@ impl RenderOnce for RoleSessionRow {
                     .flex_none()
                     .text_role(TextRole::MonoSmall)
                     .font_weight(gpui::FontWeight::MEDIUM)
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(s.elapsed.clone()),
             );
         if let Some(on_select) = self.on_select {
@@ -430,7 +430,7 @@ fn group_label(label: &'static str, count: usize, cx: &App) -> impl IntoElement 
         .gap(px(GROUP_GAP))
         .pl(px(GROUP_PAD_LEFT))
         .pr(px(GROUP_PAD_RIGHT))
-        .child(div().flex_none().text_role(TextRole::Caps).text_color(p.ink_3).child(label.to_uppercase()))
+        .child(div().flex_none().text_role(TextRole::Caps).text_color(p.fg_muted).child(label.to_uppercase()))
         .child(div().flex_1().h(px(RULE_H)).bg(p.line))
         .child(tag(count.to_string()))
 }
@@ -452,10 +452,10 @@ impl RenderOnce for RoleSection {
             .pr(px(ROLE_PAD_RIGHT))
             .ui(scale::FS_13)
             .semibold()
-            .text_color(if open { p.ink } else { p.ink_2 })
+            .text_color(if open { p.ink } else { p.fg_muted })
             .cursor_pointer()
-            .child(chevron((id.clone(), "chev"), open, if open { p.ink } else { p.ink_2 }, window, cx))
-            .child(icon(role.icon.icon()).color(p.ink_3))
+            .child(chevron((id.clone(), "chev"), open, if open { p.ink } else { p.fg_muted }, window, cx))
+            .child(icon(role.icon.icon()).color(p.fg_muted))
             .child(div().min_w(px(0.0)).truncate().child(role.name.clone()));
         if !open {
             header = header.child(div().flex_1()).child(tag(role.count.to_string()));

@@ -18,7 +18,7 @@ fn column(p: &Palette, title: &'static str, card: FolderDropCard) -> impl IntoEl
     v_flex()
         .flex_none()
         .w(px(COLUMN_W))
-        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.ink_3).child(title))
+        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child(title))
         .child(card)
 }
 

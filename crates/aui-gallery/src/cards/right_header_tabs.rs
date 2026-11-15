@@ -57,14 +57,14 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .mt(px(scale::SP_4))
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("A tabbed right pane needs no title: the strip stands in its place and the trailing close is unchanged. The strip is one tab stop with left and right arrows moving the selection like a click; it announces as a “Right pane” tab list and each tab announces its label and selected state."),
         )
         .into_any_element()
 }
 
 fn caps(p: Palette, label: &'static str) -> Div {
-    div().text_role(TextRole::Caps).line_height(relative(CAPS_LH)).text_color(p.ink_3).child(label.to_uppercase())
+    div().text_role(TextRole::Caps).line_height(relative(CAPS_LH)).text_color(p.fg_muted).child(label.to_uppercase())
 }
 
 /// The card frames each header row like a cell: line border, radius 8,

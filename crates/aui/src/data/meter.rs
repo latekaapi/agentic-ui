@@ -1,5 +1,5 @@
 //! `.meter`: the provider usage meter in the sidebar footer — an 11 px
-//! provider mark, a 40 × 3 bar in ink-3 on surface-3, and the percentage in
+//! provider mark, a 40 × 3 bar in fg-muted on surface-3, and the percentage in
 //! mono 11.
 
 use aui_icons::{provider_mark, Provider};
@@ -37,7 +37,7 @@ impl RenderOnce for UsageMeter {
             .gap(px(GAP))
             .text_role(TextRole::MonoSmall)
             .font_weight(gpui::FontWeight::MEDIUM)
-            .text_color(p.ink_3)
+            .text_color(p.fg_muted)
             .child(provider_mark(self.provider).size(px(MARK)))
             .child(
                 div()
@@ -46,7 +46,7 @@ impl RenderOnce for UsageMeter {
                     .rounded(px(BAR_RADIUS))
                     .bg(p.surface_3)
                     .overflow_hidden()
-                    .child(div().h_full().w(px(BAR_WIDTH * self.fraction)).rounded(px(BAR_RADIUS)).bg(p.ink_3)),
+                    .child(div().h_full().w(px(BAR_WIDTH * self.fraction)).rounded(px(BAR_RADIUS)).bg(p.fg_muted)),
             )
             .child(format!("{}%", (self.fraction * 100.0).round()))
     }

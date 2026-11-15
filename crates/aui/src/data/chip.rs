@@ -126,7 +126,7 @@ impl RenderOnce for Chip {
         let id = self.id.clone();
         if self.text_control {
             // Hover is the one model; `active` holds the lit ink.
-            let rest_ink = if self.active { p.ink } else { p.ink_2 };
+            let rest_ink = if self.active { p.ink } else { p.fg_muted };
             let mut el = div()
                 .id(id)
                 .flex_none()
@@ -158,7 +158,7 @@ impl RenderOnce for Chip {
         }
         // The bordered chip: its edge strengthens and its ink lifts under
         // the pointer (or while `active`), through the one model.
-        let rest_text = if self.accent { p.accent_ink } else if self.active { p.ink } else { p.ink_2 };
+        let rest_text = if self.accent { p.accent_ink } else if self.active { p.ink } else { p.fg_muted };
         let lit_text = if self.accent { p.accent_ink } else { p.ink };
         let rest_edge = if self.active { p.line_strong } else { p.line };
         let (height, pl, pr) = if self.composer {
@@ -189,7 +189,7 @@ impl RenderOnce for Chip {
         }
         el = el.child(self.label);
         if let Some(detail) = self.detail {
-            el = el.child(div().text_px(scale::FS_11).text_color(p.ink_3).child(detail));
+            el = el.child(div().text_px(scale::FS_11).text_color(p.fg_muted).child(detail));
         }
         if self.chevron {
             el = el.child(icon(IconName::ChevronDown).size(px(CHEVRON)));

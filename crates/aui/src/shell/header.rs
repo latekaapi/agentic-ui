@@ -143,7 +143,7 @@ impl CentreHeader {
         self
     }
 
-    /// A 14 px ink-3 glyph before the title instead of a provider mark (the assistant's role icon).
+    /// A 14 px fg-muted glyph before the title instead of a provider mark (the assistant's role icon).
     pub fn glyph(mut self, glyph: IconName) -> Self {
         self.glyph = Some(glyph);
         self
@@ -191,7 +191,7 @@ impl RenderOnce for CentreHeader {
             title = title.child(provider_mark(provider));
         }
         if let Some(glyph) = self.glyph {
-            title = title.child(aui_icons::icon(glyph).color(p.ink_3));
+            title = title.child(aui_icons::icon(glyph).color(p.fg_muted));
         }
         title = title.child(div().min_w(px(0.0)).truncate().child(self.title));
         if let Some(branch) = self.branch {

@@ -147,7 +147,7 @@ fn sidebar_column_on(id: &'static str, model: SidebarModel, width: f32, height: 
 }
 
 /// The lifted pane beside the sidebar: surface-1, hairline, container
-/// radius, shadow-1, inset 8 on three sides; a 44 px header with the
+/// radius, no shadow, inset 8 on three sides; a 44 px header with the
 /// session title and the composer at the foot.
 fn pane(cx: &App) -> AnyElement {
     let p = cx.aui().colors;
@@ -197,8 +197,7 @@ fn pane(cx: &App) -> AnyElement {
             surface(1, v_flex().size_full().child(header).child(div().flex_1()).child(div().px(metrics.inset).pb(metrics.inset).child(composer)))
                 .fill()
                 .shape(Shape::Container)
-                .ring(true)
-                .shadow(true),
+                .ring(true),
         )
         .into_any_element()
 }
@@ -290,7 +289,7 @@ fn site_page(cx: &App) -> AnyElement {
         .pt(metrics.item_px)
         .pr(metrics.item_px)
         .pb(metrics.item_px)
-        .child(surface(1, site_page_content(cx)).fill().shape(Shape::Container).ring(true).shadow(true))
+        .child(surface(1, site_page_content(cx)).fill().shape(Shape::Container).ring(true))
         .into_any_element()
 }
 
@@ -325,10 +324,10 @@ pub(crate) fn site_page_content(cx: &App) -> gpui::Div {
                 .border_color(light.line)
                 .role_in(TextRole::Body, cx)
                 .child(div().role_in(TextRole::Subtitle, cx).semibold().child("UDISE+ · PGI"))
-                .child(div().text_color(light.ink_2).child("Home"))
-                .child(div().text_color(light.ink_2).child("State scores"))
-                .child(div().text_color(light.ink_2).child("Report cards"))
-                .child(div().text_color(light.ink_2).child("Open data")),
+                .child(div().text_color(light.fg_muted).child("Home"))
+                .child(div().text_color(light.fg_muted).child("State scores"))
+                .child(div().text_color(light.fg_muted).child("Report cards"))
+                .child(div().text_color(light.fg_muted).child("Open data")),
         )
         .child(
             v_flex()
@@ -389,7 +388,7 @@ pub fn build_newtab(_window: &mut Window, cx: &mut App) -> AnyElement {
                         .justify_center()
                         .role_in(TextRole::Title, cx)
                         .medium()
-                        .text_color(p.ink_2)
+                        .text_color(p.fg_muted)
                         .child(initial),
                 )
                 .shape(Shape::Container),
@@ -420,7 +419,7 @@ pub fn build_newtab(_window: &mut Window, cx: &mut App) -> AnyElement {
         .pt(metrics.item_px)
         .pr(metrics.item_px)
         .pb(metrics.item_px)
-        .child(surface(1, content).fill().shape(Shape::Container).ring(true).shadow(true))
+        .child(surface(1, content).fill().shape(Shape::Container).ring(true))
         .into_any_element();
     window_frame(sidebar_column("screens-sidebar-newtab", model, SIDEBAR_W, WINDOW_H), page, cx)
 }

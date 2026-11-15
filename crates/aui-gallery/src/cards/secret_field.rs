@@ -13,7 +13,7 @@ const SAMPLE_KEY: &str = "sk-ant-9f2Kv7Qx3RmZ8tYvB4nM";
 const COLUMN_GAP: f32 = 24.0;
 /// The fields render at the login card's width.
 const FIELD_WIDTH: f32 = 420.0;
-/// Caps over each field: 11 px ink-3 with a 10 px gutter below.
+/// Caps over each field: 11 px fg-muted with a 10 px gutter below.
 const CAPS_TEXT: f32 = scale::FS_11;
 const CAPS_BOTTOM: f32 = 10.0;
 /// The gap between the two fields.
@@ -41,7 +41,7 @@ fn field(window: &mut Window, cx: &mut App, key: &'static str, masked: bool) -> 
 
 /// A caps label over a field.
 fn caps(p: Palette, text: &'static str) -> impl IntoElement {
-    div().mb(px(CAPS_BOTTOM)).ui(CAPS_TEXT).text_color(p.ink_3).child(text)
+    div().mb(px(CAPS_BOTTOM)).ui(CAPS_TEXT).text_color(p.fg_muted).child(text)
 }
 
 /// Builds the card content.
@@ -69,7 +69,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .pt(px(LEGEND_TOP))
                 .gap(px(LEGEND_GAP))
                 .ui(scale::FS_12)
-                .text_color(p.ink_2)
+                .text_color(p.fg_muted)
                 .child(lead_paragraph(p, "Masked.", " The single-line input in the library's bordered box: 34 px, 6 px radius, surface-2, hairline border, mono text. The dots are the caller's secret rendered masked."))
                 .child(lead_paragraph(p, "Reveal.", " The ghost eye reads the presentation snapshot to pick its glyph and reports back; the caller flips the masked flag. The ring lives on the box, never on the input."))
                 .child(lead_paragraph(p, "Caller owns.", " The state and its text belong to the caller. The component never logs, copies or formats what is inside.")),

@@ -195,7 +195,7 @@ const IMPORT_GAP: f32 = 12.0;
 const IMPORT_PAD_Y: f32 = 10.0;
 const IMPORT_PAD_X: f32 = 12.0;
 const IMPORT_TOK_W: f32 = 48.0;
-/// Title 17.6 / 600, subtitle 14.3 ink-3, row name 14.3 / 500.
+/// Title 17.6 / 600, subtitle 14.3 fg-muted, row name 14.3 / 500.
 const TITLE_TEXT: f32 = 17.6;
 const SUBTITLE_TEXT: f32 = 14.3;
 const ROW_NAME: f32 = 14.3;
@@ -317,7 +317,7 @@ impl RenderOnce for ImportPreview {
                                 .truncate()
                                 .ui(ROW_DESC)
                                 .line_height(relative(scale::LH_UI))
-                                .text_color(p.ink_3)
+                                .text_color(p.fg_muted)
                                 .child(row_model.description.clone()),
                         ),
                 );
@@ -364,7 +364,7 @@ impl RenderOnce for ImportPreview {
                     .px(px(24.0))
                     .ui(SUBTITLE_TEXT)
                     .line_height(relative(scale::LH_UI))
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(subtitle),
             );
         }
@@ -377,10 +377,10 @@ impl RenderOnce for ImportPreview {
                     .mt(px(12.0))
                     .px(px(12.0))
                     .py(px(10.0))
-                    .rounded(px(scale::R_SM)), &p, p.surface_1)
+                    .rounded(px(scale::R_SM)), &p, p.surface_2)
                     .ui(SUBTITLE_TEXT)
                     .line_height(relative(scale::LH_UI))
-                    .text_color(p.ink_2)
+                    .text_color(p.fg_muted)
                     .child(summary),
             );
         }
@@ -397,7 +397,7 @@ impl RenderOnce for ImportPreview {
             .border_t_1()
             .border_color(p.line);
         if let Some(hint) = self.hint {
-            foot = foot.child(div().flex_none().ui(ROW_TOK).text_color(p.ink_3).child(hint));
+            foot = foot.child(div().flex_none().ui(ROW_TOK).text_color(p.fg_muted).child(hint));
         }
         foot = foot.child(div().flex_1());
         let mut cancel = crate::data::button((id.clone(), "cancel"), self.cancel_label.clone());
@@ -510,9 +510,9 @@ impl RenderOnce for MenuTwoLineRow {
 
         let mut sub = div().flex_none().w_full();
         if self.subtitle_mono {
-            sub = sub.mono(MENU_ITEM_SUB).text_color(p.ink_3).child(self.subtitle.clone());
+            sub = sub.mono(MENU_ITEM_SUB).text_color(p.fg_muted).child(self.subtitle.clone());
         } else {
-            sub = sub.ui(MENU_ITEM_SUB).line_height(relative(1.0)).text_color(p.ink_3).child(self.subtitle.clone());
+            sub = sub.ui(MENU_ITEM_SUB).line_height(relative(1.0)).text_color(p.fg_muted).child(self.subtitle.clone());
         }
         let aria = self
             .accessibility_label
@@ -528,7 +528,7 @@ impl RenderOnce for MenuTwoLineRow {
             .rounded(px(scale::R_SM))
             .paint_states(StatePaint::new(), &p)
             .cursor_pointer()
-            .child(div().flex_none().mt(px(2.0)).child(icon(self.icon).size(px(MENU_ITEM_GLYPH)).color(p.ink_3)))
+            .child(div().flex_none().mt(px(2.0)).child(icon(self.icon).size(px(MENU_ITEM_GLYPH)).color(p.fg_muted)))
             .child(
                 v_flex()
                     .flex_1()
@@ -546,7 +546,7 @@ impl RenderOnce for MenuTwoLineRow {
             .role(gpui::Role::MenuItem)
             .aria_label(aria);
         if let Some(trailing) = self.trailing {
-            row = row.child(div().flex_none().mt(px(2.0)).ui(MENU_ITEM_TRAIL).text_color(p.ink_3).child(trailing));
+            row = row.child(div().flex_none().mt(px(2.0)).ui(MENU_ITEM_TRAIL).text_color(p.fg_muted).child(trailing));
         }
         if let Some(handler) = self.on_activate {
             let key = self.key.unwrap_or_else(|| self.title.clone());

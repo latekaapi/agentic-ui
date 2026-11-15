@@ -1,7 +1,7 @@
 //! `.strip`: a 34 px tab strip (44 px inside the shell header) whose 2 px
 //! ink indicator slides under the active tab on the swap spring. The close
 //! affordance appears on hover or on the active tab; dirty tabs show a 6 px
-//! ink-3 dot.
+//! fg-muted dot.
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -314,7 +314,7 @@ impl RenderOnce for TabStrip {
                 .flex_none()
                 .gap(px(TAB_GAP))
                 .px(px(tab_pad))
-                .paint_states(StatePaint::new().tint(false).ink(if active { p.ink } else { p.ink_3 }, p.ink), &p)
+                .paint_states(StatePaint::new().tint(false).ink(if active { p.ink } else { p.fg_muted }, p.ink), &p)
                 .hover_group()
                 .ui(scale::FS_12)
                 .whitespace_nowrap()
@@ -343,7 +343,7 @@ impl RenderOnce for TabStrip {
                 el = el.child(crate::data::pill(badge.clone()).height(BADGE_H).font_size(BADGE_TEXT).padding_x(BADGE_PAD));
             }
             if tab.dirty {
-                el = el.child(div().flex_none().size(px(DIRTY_SIZE)).rounded_full().bg(p.ink_3));
+                el = el.child(div().flex_none().size(px(DIRTY_SIZE)).rounded_full().bg(p.fg_muted));
             }
             if tab.closable {
                 let close_id: ElementId = (tab_id.clone(), "close").into();

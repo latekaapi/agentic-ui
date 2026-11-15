@@ -47,6 +47,8 @@ impl gpui::Render for RailTip {
             .py(px(scale::SP_2))
             .rounded(px(scale::R_SM))
             .bg(p.overlay)
+            .border_1()
+            .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .text_color(p.ink)
             .ui(scale::FS_12)
@@ -243,7 +245,7 @@ impl RenderOnce for Rail {
                     let paint = if current {
                         StatePaint::new().on(p.accent_soft).ink(p.accent_ink, p.accent_ink)
                     } else {
-                        StatePaint::new().ink(p.ink_3, p.ink)
+                        StatePaint::new().ink(p.fg_muted, p.ink)
                     };
                     let mut cell = div()
                         .id(cell_id)
@@ -286,7 +288,7 @@ impl RenderOnce for Rail {
                         Some(ground) => StatePaint::new().on(ground),
                         None => StatePaint::new(),
                     };
-                    let initial_color = tint.unwrap_or(if selected { p.accent_ink } else { p.ink_2 });
+                    let initial_color = tint.unwrap_or(if selected { p.accent_ink } else { p.fg_muted });
                     let mut cell = div()
                         .id(cell_id.clone())
                         .flex_none()

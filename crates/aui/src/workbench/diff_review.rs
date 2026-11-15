@@ -353,7 +353,7 @@ fn note_badge(p: &Palette, label: String) -> impl IntoElement {
 /// text-transform. `.caps` fixes no line height, so it keeps the inherited
 /// `--lh-ui` rather than the 1.0 of [`TextRole::Caps`].
 fn column_caps(p: &Palette, label: &'static str, top: f32) -> impl IntoElement {
-    div().pt(px(top)).px(px(CAPS_PAD_X)).pb(px(CAPS_PAD_BOTTOM)).ui(scale::FS_11).semibold().text_color(p.ink_3).child(label)
+    div().pt(px(top)).px(px(CAPS_PAD_X)).pb(px(CAPS_PAD_BOTTOM)).ui(scale::FS_11).semibold().text_color(p.fg_muted).child(label)
 }
 
 /// `.note` under a diff row: the numbered caps line, the body (a textarea while
@@ -460,15 +460,15 @@ impl RenderOnce for DiffReview {
             let text = format!("{lead} · {plus} {minus}");
             let head = text.len() - plus.len() - minus.len() - 1;
             let runs = vec![
-                run(head, scale::FONT_UI, p.ink_3, None),
+                run(head, scale::FONT_UI, p.fg_muted, None),
                 run(plus.len(), scale::FONT_UI, p.success, None),
-                run(1, scale::FONT_UI, p.ink_3, None),
+                run(1, scale::FONT_UI, p.fg_muted, None),
                 run(minus.len(), scale::FONT_UI, p.danger, None),
             ];
             // The summary is the lowest-priority header text: it shrinks first
             // and truncates with an ellipsis, so the scope/view controls,
             // search and Collapse survive intact at narrow widths.
-            div().flex_initial().min_w(px(0.0)).truncate().ui(SUMMARY_TEXT).text_color(p.ink_3).child(StyledText::new(text).with_runs(runs))
+            div().flex_initial().min_w(px(0.0)).truncate().ui(SUMMARY_TEXT).text_color(p.fg_muted).child(StyledText::new(text).with_runs(runs))
         });
         // The header wraps to a second line below ~460 px instead of clipping:
         // every control stays full-size and clickable down to the 280 px pane
@@ -521,7 +521,7 @@ impl RenderOnce for DiffReview {
                 .px(px(FILE_ROW_PAD_X))
                 .rounded(px(scale::R_SM))
                 .cursor_pointer()
-                .text_color(if file.selected { p.ink } else { p.ink_2 })
+                .text_color(if file.selected { p.ink } else { p.fg_muted })
                 .paint_states(StatePaint::new().selected(file.selected), &p)
                 .on_click(emit(DiffReviewAction::SelectFile(path)))
                 .child(div().flex_none().w(px(STATUS_W)).flex().justify_center().mono(STATUS_TEXT).line_height(relative(1.0)).semibold().text_color(letter_color).child(letter))
@@ -531,7 +531,7 @@ impl RenderOnce for DiffReview {
             }
             files = files.child(
                 row.child(div().flex_1())
-                    .child(div().flex_none().mono(COUNTS_TEXT).line_height(relative(1.0)).medium().text_color(p.ink_3).child(counts(file.change.added, file.change.removed))),
+                    .child(div().flex_none().mono(COUNTS_TEXT).line_height(relative(1.0)).medium().text_color(p.fg_muted).child(counts(file.change.added, file.change.removed))),
             );
         }
         files = files.child(column_caps(&p, "NOTES", NOTES_CAPS_TOP));
@@ -546,7 +546,7 @@ impl RenderOnce for DiffReview {
                     .py(px(NOTE_ROW_PAD_Y))
                     .px(px(FILE_ROW_PAD_X))
                     .ui(NOTE_ROW_TEXT)
-                    .text_color(p.ink_2)
+                    .text_color(p.fg_muted)
                     .child(div().flex_none().mt(px(NOTE_ROW_BADGE_TOP)).child(note_badge(&p, (i + 1).to_string())))
                     .child(div().min_w(px(0.0)).child(format!("line {} · {}", note.line, summary))),
             );
@@ -587,8 +587,8 @@ impl RenderOnce for DiffReview {
                     .border_b_1()
                     .border_color(p.line)
                     .text_px(HUNK_TEXT)
-                    .text_color(p.ink_3)
-                    .child(icon(IconName::Chev).size(px(HUNK_CHEV)).color(p.ink_3).rotate(gpui::radians(std::f32::consts::FRAC_PI_2)))
+                    .text_color(p.fg_muted)
+                    .child(icon(IconName::Chev).size(px(HUNK_CHEV)).color(p.fg_muted).rotate(gpui::radians(std::f32::consts::FRAC_PI_2)))
                     .child(div().min_w(px(0.0)).truncate().child(SharedString::from(hunk.header.clone()))),
             );
             for (i, line) in hunk.lines.iter().enumerate() {
@@ -684,7 +684,7 @@ impl RenderOnce for DiffReview {
             .bg(p.surface_2)
             .border_t_1()
             .border_color(p.line)
-            .child(div().flex_initial().min_w(px(0.0)).truncate().ui(HINT_TEXT).text_color(p.ink_3).child(hint))
+            .child(div().flex_initial().min_w(px(0.0)).truncate().ui(HINT_TEXT).text_color(p.fg_muted).child(hint))
             .child(div().flex_1())
             .child(button((id.clone(), "clear"), "Clear").sm().ghost().on_click(emit(DiffReviewAction::Clear)))
             .child(send.on_click(emit(DiffReviewAction::Send)));

@@ -103,7 +103,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 }),
         )
         .child(suggestion_chips("card40-suggestions", vec!["Run the e2e suite".into(), "Open the diff for review".into(), "Draft a commit message".into()]).at_rest())
-        .child(div().mt(px(CAPS_TOP)).text_role(TextRole::Caps).line_height(relative(scale::LH_UI)).text_color(p.ink_3).child("DOCKED · SPANS THE PANE AT THE BOTTOM"))
+        .child(div().mt(px(CAPS_TOP)).text_role(TextRole::Caps).line_height(relative(scale::LH_UI)).text_color(p.fg_muted).child("DOCKED · SPANS THE PANE AT THE BOTTOM"))
         .child(
             div().mx(px(DOCKED_BLEED)).child(composer("card40-docked", &docked_text, Provider::Codex, "gpt-5.5 medium").mode("Auto").docked(true).can_send(false)),
         )
@@ -111,7 +111,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("In the shell the composer is docked: full pane width, a top hairline, no card. The floating card above is the focused state with the accent ring. Context chips sit above the text; the toolbar holds the plus menu (rotates 45° and morphs the popover from its corner), model, mode and effort chips, then the send button which morphs to stop while a turn runs (click it). Queued messages stack above with a dashed border. Suggestions rise in with a 60 ms stagger."),
         )
         .into_any_element()

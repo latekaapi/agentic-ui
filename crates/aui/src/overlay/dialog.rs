@@ -289,7 +289,7 @@ impl RenderOnce for Dialog {
                     .w_full()
                     .ui(scale::FS_12)
                     .line_height(relative(scale::LH_UI))
-                    .text_color(p.ink_2)
+                    .text_color(p.fg_muted)
                     .child(body),
             );
         }
@@ -305,7 +305,7 @@ impl RenderOnce for Dialog {
                     .bg(p.surface_2)
                     .mono(scale::FS_11)
                     .line_height(relative(scale::LH_MONO))
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(detail),
             );
         }

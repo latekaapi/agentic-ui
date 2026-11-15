@@ -168,7 +168,7 @@ impl RenderOnce for DockedComposer {
             )
             .child(chip((id.clone(), "mode"), self.mode).composer().chevron().on_click(emit(DockedComposerIntent::Mode)));
         if let Some(percent) = self.context_percent {
-            bar = bar.child(div().ml(px(CONTEXT_MARGIN)).ui(scale::FS_11).text_color(p.ink_3).whitespace_nowrap().child(format!("context {percent}%")));
+            bar = bar.child(div().ml(px(CONTEXT_MARGIN)).ui(scale::FS_11).text_color(p.fg_muted).whitespace_nowrap().child(format!("context {percent}%")));
         }
         bar = bar.child(div().flex_1()).child(send);
 
@@ -187,7 +187,7 @@ impl RenderOnce for DockedComposer {
                     .min_h(px(TEXT_MIN_H))
                     .px(px(TEXT_PAD_X))
                     .ui(TEXT_SIZE)
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(self.placeholder),
             )
             .child(bar)

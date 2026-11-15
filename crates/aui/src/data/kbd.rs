@@ -31,7 +31,7 @@ impl RenderOnce for Kbd {
             .border_1()
             .border_color(p.line_strong)
             .bg(p.surface_2)
-            .text_color(p.ink_2)
+            .text_color(p.fg_muted)
             .font_family(scale::FONT_MONO)
             .text_px(scale::FS_11)
             .line_height(gpui::relative(1.0))

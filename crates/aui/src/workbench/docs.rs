@@ -220,7 +220,7 @@ impl RenderOnce for DocTabs {
                 .flex_none()
                 .gap(px(TAB_GAP))
                 .px(px(TAB_PAD))
-                .paint_states(StatePaint::new().tint(false).ink(if active { p.ink } else { p.ink_3 }, p.ink), &p)
+                .paint_states(StatePaint::new().tint(false).ink(if active { p.ink } else { p.fg_muted }, p.ink), &p)
                 .ui(scale::FS_12)
                 .whitespace_nowrap()
                 .cursor_pointer();
@@ -253,7 +253,7 @@ impl RenderOnce for DocTabs {
 
 /// The "Saved" hint that sits at the right of the tab band (`.subtle`, 11 px).
 pub fn doc_saved_hint(text: impl Into<SharedString>, cx: &App) -> impl IntoElement {
-    div().flex_none().ui(HINT_TEXT).text_color(cx.aui().colors.ink_3).child(text.into())
+    div().flex_none().ui(HINT_TEXT).text_color(cx.aui().colors.fg_muted).child(text.into())
 }
 
 // ---------------------------------------------------------------------------
@@ -485,7 +485,7 @@ fn mark_button(
         .justify_center()
         .size(cx.aui().metrics.control_xs)
         .rounded(px(scale::R_SM))
-        .paint_states(StatePaint::new().ink(p.ink_2, p.ink), &p)
+        .paint_states(StatePaint::new().ink(p.fg_muted, p.ink), &p)
         .cursor_pointer()
         .child(letter);
     if let Some(f) = on_action {
@@ -938,7 +938,7 @@ impl RenderOnce for DocPane {
         } else {
             // The paper caps at the pane width so a 520 px sheet in a 280 px
             // pane wraps its text instead of clipping mid-glyph on both sides.
-            paper = paper.flex_none().w(px(self.paper_width)).max_w(relative(1.0)).shadow(p.shadow(2));
+            paper = paper.flex_none().w(px(self.paper_width)).max_w(relative(1.0)).border_1().border_color(p.line);
         }
         paper = paper.child(
                 div()
@@ -1610,7 +1610,7 @@ impl RenderOnce for ArtifactStrip {
                     .flex_none()
                     .mr(px(ARTS_LABEL_MARGIN))
                     .text_role(TextRole::Caps)
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(self.label.to_uppercase()),
             );
         let (visible, hidden) = overflow_counts(self.artifacts.len(), self.max_visible);
@@ -1619,7 +1619,7 @@ impl RenderOnce for ArtifactStrip {
             let (border, bg, text) = if artifact.active {
                 (p.accent_ring, p.accent_soft, p.ink)
             } else {
-                (p.line, gpui::transparent_black(), p.ink_2)
+                (p.line, gpui::transparent_black(), p.fg_muted)
             };
             let mut el = h_flex()
                 .id(chip_id)
@@ -1650,7 +1650,7 @@ impl RenderOnce for ArtifactStrip {
                         .text_role(TextRole::MonoSmall)
                         .text_px(ART_VERSION_TEXT)
                         .medium()
-                        .text_color(p.ink_3)
+                        .text_color(p.fg_muted)
                         .child(version),
                 );
             }
@@ -1669,7 +1669,7 @@ impl RenderOnce for ArtifactStrip {
                 .rounded(px(scale::R_SM))
                 .border_1()
                 .border_color(p.line)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .ui(ART_TEXT)
                 .whitespace_nowrap()
                 .cursor_pointer()
@@ -1692,7 +1692,7 @@ impl RenderOnce for ArtifactStrip {
 pub struct PaneStatusItem {
     /// The text.
     pub text: SharedString,
-    /// Accent-ink instead of ink-3 (the "1 change from chat highlighted" note).
+    /// Accent-ink instead of fg-muted (the "1 change from chat highlighted" note).
     pub accent: bool,
 }
 
@@ -1728,7 +1728,7 @@ impl RenderOnce for PaneStatusRow {
         let item = move |i: PaneStatusItem| {
             div()
                 .flex_none()
-                .text_color(if i.accent { p.accent_ink } else { p.ink_3 })
+                .text_color(if i.accent { p.accent_ink } else { p.fg_muted })
                 .whitespace_nowrap()
                 .child(i.text)
         };
@@ -1742,7 +1742,7 @@ impl RenderOnce for PaneStatusRow {
             .border_t_1()
             .border_color(p.line)
             .ui(STATUS_TEXT)
-            .text_color(p.ink_3)
+            .text_color(p.fg_muted)
             .children(self.left.into_iter().map(item))
             .child(div().flex_1().min_w(px(0.0)))
             .children(self.right.into_iter().map(item))

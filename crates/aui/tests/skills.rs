@@ -122,8 +122,8 @@ fn ink_levels_are_the_palette_greys() {
     for kind in [ThemeKind::Dark, ThemeKind::Light] {
         let p = Palette::for_kind(kind);
         assert_eq!(InkLevel::Ink.color(&p), p.ink, "Ink in {kind:?}");
-        assert_eq!(InkLevel::Ink2.color(&p), p.ink_2, "Ink2 in {kind:?}");
-        assert_eq!(InkLevel::Ink3.color(&p), p.ink_3, "Ink3 in {kind:?}");
+        assert_eq!(InkLevel::Ink2.color(&p), p.fg_muted, "Ink2 in {kind:?}");
+        assert_eq!(InkLevel::Ink3.color(&p), p.fg_muted, "Ink3 in {kind:?}");
         assert_eq!(InkLevel::Ink4.color(&p), p.ink_4, "Ink4 in {kind:?}");
     }
 }

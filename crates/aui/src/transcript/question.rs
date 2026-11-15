@@ -304,7 +304,7 @@ fn preview_body(id: impl Into<ElementId>, preview: &QuestionPreview, p: &Palette
             .child(crate::transcript::prose(
                 id,
                 &preview.content,
-                ProseStyle { ink: p.ink_2, code_ink: p.ink_2, code_bg: p.surface_3, size: DESCRIPTION_TEXT, line_height: scale::LH_BODY, paragraph_gap: scale::SP_2 },
+                ProseStyle { ink: p.fg_muted, code_ink: p.fg_muted, code_bg: p.surface_3, size: DESCRIPTION_TEXT, line_height: scale::LH_BODY, paragraph_gap: scale::SP_2 },
             ))
             .into_any_element(),
         // MSP hands the diff over as text, not as hunks, so it takes the code
@@ -332,14 +332,14 @@ fn option_mark(id: ElementId, on: bool, multi: bool, p: &Palette, window: &mut W
     let mark = div().flex_none().mt(px(MARK_OFFSET)).size(px(MARK)).flex().items_center().justify_center();
     if multi {
         mark.rounded(px(CHECKBOX_RADIUS))
-            .when(!on, |d| d.border(px(MARK_BORDER)).border_color(p.ink_2))
+            .when(!on, |d| d.border(px(MARK_BORDER)).border_color(p.fg_muted))
             .when(on, |d| d.bg(p.ink))
             .when(phase > 0.0, |d| d.child(icon(IconName::CheckBold).size(px(10.0 * (DOT_FROM + (1.0 - DOT_FROM) * phase))).color(p.bg)))
     } else {
         let dot = DOT * (DOT_FROM + (1.0 - DOT_FROM) * phase);
         mark.rounded_full()
             .border(px(MARK_BORDER))
-            .border_color(if on { p.ink } else { p.ink_2 })
+            .border_color(if on { p.ink } else { p.fg_muted })
             .when(phase > 0.0, |d| d.child(div().size(px(dot)).rounded_full().bg(p.ink.alpha(phase))))
     }
 }
@@ -353,11 +353,12 @@ impl RenderOnce for QuestionCard {
             .size(px(TILE))
             .rounded(px(TILE_RADIUS))
             .bg(crate::util::raised_lit(&p, p.surface_2))
-            .shadow(p.edge())
+            .border_1()
+            .border_color(p.line)
             .flex()
             .items_center()
             .justify_center()
-            .child(icon(IconName::Question).size(px(TILE_GLYPH)).color(p.ink_2));
+            .child(icon(IconName::Question).size(px(TILE_GLYPH)).color(p.fg_muted));
         // The auto-resolve tag: caption, warning on warning-soft, radius 6.
         let countdown = self.timeout.map(|(remaining_ms, _)| {
             div().flex_none().px(px(8.0)).py(px(2.0)).rounded(px(6.0)).bg(p.warning_soft).ui(scale::FS_12).text_color(p.warning).child(countdown_label(remaining_ms))
@@ -366,12 +367,12 @@ impl RenderOnce for QuestionCard {
         let prompt_block = v_flex()
             .flex_1()
             .min_w(px(0.0))
-            .when(!self.header.is_empty(), |d| d.child(div().ui(SUB_TEXT).text_color(p.ink_2).child(self.header.clone())))
+            .when(!self.header.is_empty(), |d| d.child(div().ui(SUB_TEXT).text_color(p.fg_muted).child(self.header.clone())))
             .child(div().ui(TITLE_TEXT).semibold().text_color(p.ink).child(self.prompt.clone()))
-            .when(!self.subtitle.is_empty(), |d| d.child(div().ui(SUB_TEXT).text_color(p.ink_2).child(self.subtitle.clone())));
+            .when(!self.subtitle.is_empty(), |d| d.child(div().ui(SUB_TEXT).text_color(p.fg_muted).child(self.subtitle.clone())));
 
-        let mut card = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_1)
-            .shadow(crate::transcript::card::attention_edge(p.warning))
+        let mut card = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
+            .border_color(crate::transcript::card::attention_edge(p.warning))
             .overflow_hidden();
         match &self.wizard {
             // Several questions: one card, one question at a time — the topic
@@ -392,7 +393,7 @@ impl RenderOnce for QuestionCard {
                                     .flex_1()
                                     .min_w(px(0.0))
                                     .child(div().ui(TITLE_TEXT).semibold().text_color(p.ink).child(wizard.topic.clone()))
-                                    .when(!wizard.why.is_empty(), |d| d.child(div().ui(SUB_TEXT).text_color(p.ink_2).child(wizard.why.clone()))),
+                                    .when(!wizard.why.is_empty(), |d| d.child(div().ui(SUB_TEXT).text_color(p.fg_muted).child(wizard.why.clone()))),
                             )
                             .child(div().flex_none().mono(scale::FS_11).text_color(p.ink_4).child(format!("{} of {}", wizard.index + 1, wizard.total)))
                             .children(countdown),
@@ -436,7 +437,7 @@ impl RenderOnce for QuestionCard {
                         .flex_1()
                         .min_w(px(0.0))
                         .child(div().ui(LABEL_TEXT).when(on, |d| d.semibold()).text_color(p.ink).child(SharedString::from(option.label.clone())))
-                        .when(!option.description.is_empty(), |d| d.child(div().ui(DESCRIPTION_TEXT).text_color(p.ink_2).child(SharedString::from(option.description.clone())))),
+                        .when(!option.description.is_empty(), |d| d.child(div().ui(DESCRIPTION_TEXT).text_color(p.fg_muted).child(SharedString::from(option.description.clone())))),
                 );
             if !option.key.is_empty() {
                 row = row.child(key_cap(&p, option.key.clone()));
@@ -466,7 +467,7 @@ impl RenderOnce for QuestionCard {
                 .items_center()
                 .gap(px(PREVIEW_GAP))
                 .ui(DESCRIPTION_TEXT)
-                .paint_states(StatePaint::new().tint(false).ink(p.ink_2, p.ink), &p)
+                .paint_states(StatePaint::new().tint(false).ink(p.fg_muted, p.ink), &p)
                 .cursor_pointer()
                 .role(gpui::Role::Button)
                 .aria_label(preview_label)
@@ -504,11 +505,11 @@ impl RenderOnce for QuestionCard {
                 .rounded(px(OPT_RADIUS))
                 .bg(p.well)
                 .ui(OTHER_TEXT)
-                .text_color(p.ink_2)
+                .text_color(p.fg_muted)
                 .cursor_text()
                 .role(gpui::Role::Button)
                 .aria_label("Other, type your own answer")
-                .child(icon(IconName::Edit).size(px(OTHER_GLYPH)).color(p.ink_2))
+                .child(icon(IconName::Edit).size(px(OTHER_GLYPH)).color(p.fg_muted))
                 .child("Other…");
             if let Some(on_other) = self.on_other {
                 other = other.on_click(move |e, w, cx| on_other(e, w, cx));
@@ -565,7 +566,7 @@ pub(crate) fn progress_bar(p: &Palette, fraction: f32) -> impl IntoElement {
         .w_full()
         .h(px(3.0))
         .bg(p.line)
-        .child(div().absolute().top_0().left_0().h_full().w(gpui::relative(fraction.clamp(0.0, 1.0))).bg(p.ink_2))
+        .child(div().absolute().top_0().left_0().h_full().w(gpui::relative(fraction.clamp(0.0, 1.0))).bg(p.fg_muted))
 }
 
 /// The key cap at an option's right: faint mono on white 7 %, radius 4, 1 / 6.
@@ -662,7 +663,7 @@ impl AnsweredRow {
 impl RenderOnce for AnsweredRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let glyph = if self.outcome.answered() { status_check(p.success).into_any_element() } else { status_cross(p.ink_3).into_any_element() };
+        let glyph = if self.outcome.answered() { status_check(p.success).into_any_element() } else { status_cross(p.fg_muted).into_any_element() };
         let mut row = quiet_status_row(self.id.clone(), glyph).part(div().flex_none().child(self.outcome.label()));
         if let QuestionOutcome::Clarified(text) = &self.outcome {
             row = row.part(div().min_w(px(0.0)).truncate().text_color(p.ink).child(text.clone()));
@@ -693,7 +694,7 @@ impl RenderOnce for AnsweredRow {
                     .pt(px(SETTLED_QUESTION_PAD_TOP))
                     .min_w(px(0.0))
                     .ui(scale::FS_13)
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .truncate()
                     .child(question),
             )

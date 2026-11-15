@@ -129,7 +129,7 @@ impl RenderOnce for GenericItemCard {
             .hover_tint(self.on_intent.is_some())
             .children_header(glyph)
             .header(div().flex_none().whitespace_nowrap().child(self.kind))
-            .header(div().min_w(px(0.0)).truncate().mono(scale::FS_12).text_color(p.ink_2).child(self.status))
+            .header(div().min_w(px(0.0)).truncate().mono(scale::FS_12).text_color(p.fg_muted).child(self.status))
             .header(div().flex_1());
         // An item with no fallback text is a header and nothing else.
         if !self.text.is_empty() {
@@ -145,7 +145,7 @@ impl RenderOnce for GenericItemCard {
                         .pt(px(scale::SP_2))
                         .gap(px(6.0))
                         .ui(scale::FS_12)
-                        .text_color(p.ink_2)
+                        .text_color(p.fg_muted)
                         .cursor_pointer()
                         .role(gpui::Role::Button)
                         .aria_label(label)
@@ -223,7 +223,7 @@ impl RenderOnce for GoalCard {
             .px(px(12.0))
             .py(px(10.0))
             .child(div().flex_1().min_w(px(0.0)).truncate().ui(scale::FS_13).semibold().text_color(p.ink).child(self.objective))
-            .child(div().flex_none().px(px(8.0)).py(px(2.0)).rounded(px(6.0)).bg(p.line).ui(scale::FS_12).text_color(p.ink_2).child(self.status));
+            .child(div().flex_none().px(px(8.0)).py(px(2.0)).rounded(px(6.0)).bg(p.line).ui(scale::FS_12).text_color(p.fg_muted).child(self.status));
         let mut body = v_flex().w_full().px(px(12.0)).pb(px(12.0)).gap(px(DL_ROW_GAP));
         if let Some(percent) = self.percent {
             let fraction = (percent / 100.0).clamp(0.0, 1.0);
@@ -233,7 +233,7 @@ impl RenderOnce for GoalCard {
                     .items_center()
                     .gap(px(BAR_GAP))
                     .mb(px(6.0))
-                    .child(div().flex_1().min_w(px(0.0)).h(px(BAR_HEIGHT)).bg(p.line).child(div().h_full().w(gpui::relative(fraction)).bg(p.ink_2)))
+                    .child(div().flex_1().min_w(px(0.0)).h(px(BAR_HEIGHT)).bg(p.line).child(div().h_full().w(gpui::relative(fraction)).bg(p.fg_muted)))
                     .child(div().flex_none().mono(scale::FS_11).text_color(p.ink_4).child(format!("{percent:.0}%"))),
             );
         }
@@ -244,11 +244,11 @@ impl RenderOnce for GoalCard {
                     .w_full()
                     .items_start()
                     .ui(scale::FS_12)
-                    .child(div().flex_none().w(px(DL_LABEL_W)).text_color(p.ink_2).child(label))
+                    .child(div().flex_none().w(px(DL_LABEL_W)).text_color(p.fg_muted).child(label))
                     .child(div().flex_1().min_w(px(0.0)).text_color(p.ink).child(value)),
             );
         }
-        crate::util::raised_block(v_flex().id(id).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_1).overflow_hidden().child(header).child(body)
+        crate::util::raised_block(v_flex().id(id).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2).overflow_hidden().child(header).child(body)
     }
 }
 

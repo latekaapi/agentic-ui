@@ -170,10 +170,10 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
 
 /// `.caps`.
 fn caps(p: Palette, label: &'static str) -> Div {
-    div().text_role(TextRole::Caps).line_height(relative(CAPS_LH)).text_color(p.ink_3).child(label.to_uppercase())
+    div().text_role(TextRole::Caps).line_height(relative(CAPS_LH)).text_color(p.fg_muted).child(label.to_uppercase())
 }
 
 /// `.ds-note`.
 fn note(p: Palette, text: &'static str) -> Div {
-    div().mt(px(NOTE_TOP)).ui(scale::FS_12).text_color(p.ink_3).child(text)
+    div().mt(px(NOTE_TOP)).ui(scale::FS_12).text_color(p.fg_muted).child(text)
 }

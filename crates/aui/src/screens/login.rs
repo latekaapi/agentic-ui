@@ -52,7 +52,7 @@ const ERROR_PAD_X: f32 = scale::SP_4;
 /// The action row: hint on the left, spacer, secondary, primary at the right.
 const ACTION_GAP: f32 = scale::SP_3;
 const HINT_TEXT: f32 = scale::FS_11;
-/// The API-key field label, one step below the hint: 11 px in ink-3.
+/// The API-key field label, one step below the hint: 11 px in fg-muted.
 const FIELD_LABEL_TEXT: f32 = scale::FS_11;
 /// `@keyframes in{from{transform:translateY(8px)}}` — the card rises into place.
 const CARD_RISE: f32 = 8.0;
@@ -272,7 +272,7 @@ fn action_row(p: &Palette, hint: Option<SharedString>, buttons: Vec<gpui::AnyEle
                 .min_w(px(0.0))
                 .truncate()
                 .ui(HINT_TEXT)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(hint.unwrap_or_default()),
         )
         .children(buttons)
@@ -315,7 +315,7 @@ fn status_row(id: ElementId, p: &Palette, text: impl Into<SharedString>) -> impl
         .items_center()
         .gap(px(STATUS_GAP))
         .ui(STATUS_TEXT)
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .child(spinner(id))
         .child(div().flex_1().min_w(px(0.0)).child(text.into()))
 }
@@ -353,9 +353,10 @@ impl RenderOnce for Login {
             .gap(px(CARD_GAP))
             .p(px(CARD_PAD))
             .rounded(px(scale::R_LG))
-            // A card on the frame is a sheet (v3): Sheet + the one edge.
+            // A card on the ground: `surface-2` inside a `line` hairline.
             .bg(p.surface_2)
-            .shadow(p.elevation_shadow(2))
+            .border_1()
+            .border_color(p.line)
             .text_color(p.ink)
             .child(masthead(&p, provider, headline, subtitle))
             .children(blocks);
@@ -390,7 +391,7 @@ fn state_content(
                 // sentence muted after it (the board's two-tone line).
                 let first = "A Meta account draws on your Muse subscription. ";
                 let text = format!("{first}An API key bills every turn to that key.");
-                let muted = gpui::HighlightStyle { color: Some(p.ink_2), ..Default::default() };
+                let muted = gpui::HighlightStyle { color: Some(p.fg_muted), ..Default::default() };
                 blocks.push(
                     div()
                         .w_full()
@@ -407,7 +408,7 @@ fn state_content(
                         .ui(STATUS_TEXT)
                         .line_height(relative(scale::LH_UI))
                         .text_center()
-                        .text_color(p.ink_3)
+                        .text_color(p.fg_muted)
                         .child("A Meta account draws on your Muse subscription. An API key bills usage to that key.")
                         .into_any_element(),
                 );
@@ -426,19 +427,19 @@ fn state_content(
                 blocks.push(status_row((id.clone(), "waiting").into(), p, "Waiting for you to finish in the browser…").into_any_element());
             }
             let hint: SharedString = expires.unwrap_or_else(|| "Approve the request in your browser, then come back here.".into());
-            blocks.push(div().w_full().ui(STATUS_TEXT).text_color(p.ink_3).child(hint).into_any_element());
+            blocks.push(div().w_full().ui(STATUS_TEXT).text_color(p.fg_muted).child(hint).into_any_element());
             buttons.push(act("cancel", "Cancel", LoginIntent::Cancel, false));
             buttons.push(act("copy-code", "Copy code", LoginIntent::CopyCode, false));
             buttons.push(act("open", "Open in browser", LoginIntent::OpenBrowser, true));
         }
         LoginState::ApiKey { can_submit, error } => {
-            blocks.push(div().w_full().ui(FIELD_LABEL_TEXT).text_color(p.ink_3).child("Meta API key").into_any_element());
+            blocks.push(div().w_full().ui(FIELD_LABEL_TEXT).text_color(p.fg_muted).child("Meta API key").into_any_element());
             blocks.push(api_key_slot(api_key_field));
             blocks.push(
                 div()
                     .w_full()
                     .ui(HINT_TEXT)
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child("Saved by the muse CLI to ~/.config/muse/auth.json. Never logged.")
                     .into_any_element(),
             );
@@ -494,7 +495,7 @@ fn masthead(p: &Palette, provider: Provider, headline: SharedString, subtitle: O
                 .ui(STATUS_TEXT)
                 .line_height(relative(scale::LH_UI))
                 .text_center()
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(subtitle),
         );
     }
@@ -521,7 +522,7 @@ fn url_row(id: &ElementId, p: &Palette, url: SharedString, on_intent: Option<Int
         .border_color(p.line)
         .bg(p.surface_2)
         .mono(STATUS_TEXT)
-        .text_color(p.ink_2)
+        .text_color(p.fg_muted)
         .child(div().flex_1().min_w(px(0.0)).truncate().child(url))
         .child(open)
 }

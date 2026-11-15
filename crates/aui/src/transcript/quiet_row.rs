@@ -107,7 +107,7 @@ impl RenderOnce for QuietRow {
         let toggles = self.on_toggle.is_some();
         // A toggling row hovers with the one model and lifts its ink; the
         // chevron inherits that ink.
-        let paint = StatePaint::new().ink(p.ink_2, p.ink).disabled(!toggles).pressable(false);
+        let paint = StatePaint::new().ink(p.fg_muted, p.ink).disabled(!toggles).pressable(false);
 
         let fade = collapse_fluid_opacity((id.clone(), "body"), self.open, window, cx);
         let (reveal, progress) = match self.body {
@@ -141,7 +141,7 @@ impl RenderOnce for QuietRow {
             .gap(px(GAP))
             .items_center()
             .rounded(px(RADIUS))
-            .text_color(p.ink_2)
+            .text_color(p.fg_muted)
             .paint_states(paint, &p)
             .ui(scale::FS_13)
             .whitespace_nowrap()

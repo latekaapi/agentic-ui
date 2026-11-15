@@ -47,7 +47,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                 .mt(px(scale::SP_4))
                 .max_w(px(NOTE_MEASURE))
                 .text_role_in(TextRole::Caption, Density::Standard)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(
                     "One control height (36, compact 28) shared by controls and rows. \
                      Concentric radii: an item inside a container steps down one shape step \
@@ -63,7 +63,7 @@ fn section_label(p: Palette, label: &'static str) -> impl IntoElement {
         .mb(px(SECTION_LABEL_GAP))
         .text_role_in(TextRole::Caption, Density::Standard)
         .medium()
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .child(label)
 }
 
@@ -108,7 +108,7 @@ fn ladder_box(p: Palette, height: f32, label: String) -> impl IntoElement {
                 .text_px(CAPTION_SIZE)
                 .line_height(relative(LH_FLAT))
                 .medium()
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(label),
         )
 }
@@ -174,7 +174,7 @@ fn shape_caption(p: Palette, label: &'static str) -> impl IntoElement {
         .text_px(CAPTION_SIZE)
         .line_height(relative(LH_FLAT))
         .medium()
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .child(label)
 }
 
@@ -200,7 +200,7 @@ fn surface_ladder(p: Palette) -> impl IntoElement {
         .text_px(CAPTION_SIZE)
         .line_height(relative(LH_FLAT))
         .medium()
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .child(format!("surface-8 · {}", hex_of(8)))
         .into_any_element();
     for step in (1..=7).rev() {
@@ -222,7 +222,7 @@ fn surface_ladder(p: Palette) -> impl IntoElement {
                             .text_px(CAPTION_SIZE)
                             .line_height(relative(LH_FLAT))
                             .medium()
-                            .text_color(p.ink_3)
+                            .text_color(p.fg_muted)
                             .child(format!("surface-{step} · {}", hex_of(step))),
                     )
                     .child(div().flex_1().child(bar)),
@@ -260,24 +260,22 @@ fn radius_row(p: Palette) -> impl IntoElement {
                 .text_px(CAPTION_SIZE)
                 .line_height(relative(LH_FLAT))
                 .medium()
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(div().max_w(px(RADIUS_TILE.0)).child(label)),
         );
     }
     row
 }
 
-/// `.el`: the three shadow levels plus the flat docked-panel ground.
+/// `.el`: the flat design's depth (docs/83 §2.3) — a nested block (fill +
+/// `line`), a float (overlay + `line-strong` + the float shadow) and a
+/// dialog (the dialog shadow).
 fn elevation_row(p: Palette) -> impl IntoElement {
-    let mut row = h_flex().gap(px(18.0));
-    for (level, label) in [
-        (1u8, "1 · rows, chips"),
-        (2, "2 · popovers, toasts"),
-        (3, "3 · palette, dialogs"),
-    ] {
-        row = row.child(elevation_tile(p, label).bg(p.surface_1).shadow(p.shadow(level)));
-    }
-    row.child(elevation_tile(p, "flat · docked panels").bg(p.surface_2))
+    h_flex()
+        .gap(px(18.0))
+        .child(elevation_tile(p, "nested · fill + line").bg(p.surface_2))
+        .child(elevation_tile(p, "float · menus, popovers").bg(p.overlay).border_color(p.line_strong).shadow(p.floating_shadow()))
+        .child(elevation_tile(p, "dialog · palette, dialogs").bg(p.overlay).border_color(p.line_strong).shadow(p.dialog_shadow()))
 }
 
 /// One 120×64 elevation tile without its ground, so the caller can pick the
@@ -297,7 +295,7 @@ fn elevation_tile(p: Palette, label: &'static str) -> Div {
         .text_px(ELEVATION_LABEL_SIZE)
         .line_height(relative(LH_FLAT))
         .medium()
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .child(div().max_w(px(ELEVATION_TILE.0)).child(label))
 }
 

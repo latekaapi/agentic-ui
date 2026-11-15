@@ -2,7 +2,7 @@
 //!
 //! The host draws its own translucent window; everything here is plain
 //! content sized for it: the line is one 48 px row, 560–640 px wide, on the
-//! overlay surface at radius `r-xl` with a hairline and `shadow-3`; the card
+//! overlay surface at radius `r-xl` with a `line-strong` hairline and the float shadow; the card
 //! is 400 × 520 at radius 12 on the same surface; the column is the card's
 //! body without the frame, sized by the host's right pane.
 //!
@@ -111,7 +111,7 @@ pub struct ApprovalData {
     /// The host the request goes to (`data.gov.in`), drawn in mono.
     pub host: SharedString,
     /// The full second line (`data.gov.in · 14 MB · to ~/Downloads/pgi-compare`);
-    /// the host prefix renders in mono, the rest in `ink-2`.
+    /// the host prefix renders in mono, the rest in `fg-muted`.
     pub line: SharedString,
     /// The quiet pill at the right (`Download`).
     pub kind_pill: SharedString,
@@ -533,7 +533,7 @@ impl RenderOnce for AgentLine {
                 let label = v_flex()
                     .gap(px(0.0))
                     .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("You're driving"))
-                    .child(div().ui(SMALL_TEXT).text_color(p.ink_2).child("The agent is waiting"));
+                    .child(div().ui(SMALL_TEXT).text_color(p.fg_muted).child("The agent is waiting"));
                 work_row(&id, TaskFace::Paused, label, vec![hand_back.into_any_element()], handler, &p)
                     .into_any_element()
             }
@@ -564,7 +564,7 @@ impl RenderOnce for AgentLine {
                             .min_w(px(0.0))
                             .flex_shrink(100.0)
                             .truncate()
-                            .text_color(p.ink_2)
+                            .text_color(p.fg_muted)
                             .child(SharedString::from(format!("· {}", "not sent"))),
                     );
                 drafted_row(&id, label, vec![undo.into_any_element(), done.into_any_element()], &p).into_any_element()
@@ -606,6 +606,8 @@ fn work_row(
         .rounded(px(scale::R_XL))
         .bg(p.overlay)
         .text_color(p.ink)
+        .border_1()
+        .border_color(p.line_strong)
         .shadow(p.floating_shadow())
         .child(task_face(face))
         .child(div().flex_1().min_w(px(0.0)).truncate().ui(BODY_TEXT).text_color(p.ink).child(label))
@@ -661,6 +663,8 @@ fn ask_card(
         .rounded(px(scale::R_XL))
         .bg(p.overlay)
         .text_color(p.ink)
+        .border_1()
+        .border_color(p.line_strong)
         .shadow(p.floating_shadow())
         .pb(px(ROW_PAD_X))
         .child(row)
@@ -686,7 +690,7 @@ fn ask_card(
                 .px(px(ROW_PAD_X))
                 .pt(px(ROW_GAP))
                 .gap(px(4.0))
-                .child(div().h(px(SITE_CAPTION_H)).ui(CAPTION_TEXT).line_height(px(SITE_CAPTION_H)).medium().text_color(p.ink_3).child("ON THIS SITE"))
+                .child(div().h(px(SITE_CAPTION_H)).ui(CAPTION_TEXT).line_height(px(SITE_CAPTION_H)).medium().text_color(p.fg_muted).child("ON THIS SITE"))
                 .child(actions),
         );
     }
@@ -708,6 +712,8 @@ fn drafted_row(id: &ElementId, label: impl IntoElement, actions: Vec<gpui::AnyEl
         .rounded(px(scale::R_XL))
         .bg(p.overlay)
         .text_color(p.ink)
+        .border_1()
+        .border_color(p.line_strong)
         .shadow(p.floating_shadow())
         .child(crate::data::glyph_ok())
         .child(div().flex_1().min_w(px(0.0)).ui(BODY_TEXT).child(label))
@@ -739,7 +745,7 @@ fn answer_card(
             .gap(px(ROW_GAP))
             .px(px(ROW_PAD_X))
             .child(crate::data::spinner((id.clone(), "spin")))
-            .child(div().flex_1().min_w(px(0.0)).truncate().ui(BODY_TEXT).text_color(p.ink_2).child("Reading this page…"))
+            .child(div().flex_1().min_w(px(0.0)).truncate().ui(BODY_TEXT).text_color(p.fg_muted).child("Reading this page…"))
             .child(button((id.clone(), "stop"), "Stop").ghost().sm().on_click(click(handler.clone(), LineIntent::Stop)))
             .into_any_element(),
         Some(answer) => {
@@ -764,8 +770,8 @@ fn answer_card(
                         .mt(px(ROW_GAP))
                         .gap(px(6.0))
                         .items_center()
-                        .child(icon(IconName::File).size(px(CHIP_GLYPH)).color(p.ink_3))
-                        .child(div().min_w(px(0.0)).truncate().ui(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.ink_2).child(format!("From {source}"))),
+                        .child(icon(IconName::File).size(px(CHIP_GLYPH)).color(p.fg_muted))
+                        .child(div().min_w(px(0.0)).truncate().ui(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.fg_muted).child(format!("From {source}"))),
                 );
             }
             // Narrow, the row holds Copy, this and ×: the short label fits.
@@ -802,9 +808,9 @@ fn answer_card(
             .gap(px(ROW_GAP))
             .px(px(ROW_PAD_X))
             .child(icon(IconName::Sparkle).size(px(FACE_GLYPH)).color(p.accent_ink))
-            .child(div().flex_1().min_w(px(0.0)).truncate().ui(BODY_TEXT).text_color(p.ink_2).child(question.clone()))
+            .child(div().flex_1().min_w(px(0.0)).truncate().ui(BODY_TEXT).text_color(p.fg_muted).child(question.clone()))
             .into_any_element(),
-        Some(_) => ask_card(id, text, chips, &[], input, handler, cx).shadow(Vec::new()).into_any_element(),
+        Some(_) => ask_card(id, text, chips, &[], input, handler, cx).border_color(p.line).shadow(Vec::new()).into_any_element(),
     };
     v_flex()
         .id((id.clone(), "answer"))
@@ -814,6 +820,8 @@ fn answer_card(
         .rounded(px(scale::R_XL))
         .bg(p.overlay)
         .text_color(p.ink)
+        .border_1()
+        .border_color(p.line_strong)
         .shadow(p.floating_shadow())
         .overflow_hidden()
         .child(top)
@@ -1014,7 +1022,7 @@ fn approval_card(
         .truncate()
         .ui(SMALL_TEXT)
         .line_height(px(SMALL_LH))
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .child(data.hint.clone());
     let buttons = h_flex().flex_none().items_center().gap(px(ROW_GAP)).children(always).child(deny).child(allow);
     let card = card
@@ -1040,7 +1048,7 @@ fn approval_card(
     }
 }
 
-/// The approval's second line in `ink-2`, with the host in mono.
+/// The approval's second line in `fg-muted`, with the host in mono.
 fn approval_detail(data: &ApprovalData, cx: &mut App) -> gpui::AnyElement {
     let p = cx.aui().colors;
     let host = data.host.to_string();
@@ -1049,10 +1057,10 @@ fn approval_detail(data: &ApprovalData, cx: &mut App) -> gpui::AnyElement {
             .min_w(px(0.0))
             .h(px(SMALL_LH))
             .gap(px(4.0))
-            .child(div().flex_none().mono(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.ink_2).child(data.host.clone()))
-            .child(div().min_w(px(0.0)).truncate().ui(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.ink_2).child(tail.to_string()))
+            .child(div().flex_none().mono(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.fg_muted).child(data.host.clone()))
+            .child(div().min_w(px(0.0)).truncate().ui(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.fg_muted).child(tail.to_string()))
             .into_any_element(),
-        None => div().h(px(SMALL_LH)).truncate().ui(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.ink_2).child(data.line.clone()).into_any_element(),
+        None => div().h(px(SMALL_LH)).truncate().ui(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.fg_muted).child(data.line.clone()).into_any_element(),
     }
 }
 
@@ -1124,6 +1132,8 @@ impl RenderOnce for AgentCard {
                 .h(px(CARD_H))
                 .rounded(px(scale::R_LG))
                 .bg(p.overlay)
+                .border_1()
+                .border_color(p.line_strong)
                 .shadow(p.floating_shadow())
                 .overflow_hidden()
                 .child(header)
@@ -1177,7 +1187,7 @@ fn card_header(
                     button((id.clone(), "model"), transcript.model.clone())
                         .ghost()
                         .sm()
-                        .trailing(icon(IconName::ChevronDown).size(px(10.0)).color(p.ink_3))
+                        .trailing(icon(IconName::ChevronDown).size(px(10.0)).color(p.fg_muted))
                         .accessibility_label(SharedString::from(format!("Model, {}", transcript.model)))
                         .on_click(card_click(handler.clone(), CardIntent::Model)),
                 ),
@@ -1267,8 +1277,8 @@ fn agent_body(
                     h_flex()
                         .items_center()
                         .gap(px(6.0))
-                        .child(icon(IconName::Clock).size(px(12.0)).color(p.ink_3))
-                        .child(div().ui(SMALL_TEXT).text_color(p.ink_2).child(format!("{text} · queued"))),
+                        .child(icon(IconName::Clock).size(px(12.0)).color(p.fg_muted))
+                        .child(div().ui(SMALL_TEXT).text_color(p.fg_muted).child(format!("{text} · queued"))),
                 );
             }
             AgentItem::Answer(text) => {
@@ -1307,7 +1317,7 @@ fn agent_body(
                                         .child("Continued in")
                                         .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(title.clone())),
                                 )
-                                .child(div().ui(SMALL_TEXT).text_color(p.ink_2).child(detail.clone())),
+                                .child(div().ui(SMALL_TEXT).text_color(p.fg_muted).child(detail.clone())),
                         )
                         .child(
                             button((id.clone(), SharedString::from(format!("open-{i}"))), "Open")

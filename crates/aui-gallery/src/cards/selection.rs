@@ -80,7 +80,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("Cross-cell selection: one owner-level span (anchor cell + offset, focus cell + offset) with the cells in between fully selected. Drag from the paragraph into the code to move the scripted span (double-click a word, triple-click a paragraph); the highlight uses the selection token in both themes, and scrolling mid-drag never drops the span because the anchor lives in app state. The app copies Markdown::span_selected_text on ⌘C: blocks join with a blank line, wholly selected list items keep their markers, code keeps its exact bytes."),
         )
         .into_any_element()

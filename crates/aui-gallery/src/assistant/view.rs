@@ -386,7 +386,7 @@ impl AssistantMock {
                 .pb(px(STATUS_PAD_BOTTOM))
                 .gap(px(scale::SP_3))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(status_dot("assistant-status-dot", status.state))
                 .child(status.label.clone())
                 .child("\u{b7}")
@@ -972,7 +972,7 @@ pub fn build_all(window: &mut Window, cx: &mut App) -> AnyElement {
                         .items_center()
                         .gap(px(scale::SP_3))
                         .child(div().ui(scale::FS_13).semibold().text_color(p.ink).child(screen.caption()))
-                        .child(div().mono(scale::FS_11).text_color(p.ink_3).child("1440\u{d7}900")),
+                        .child(div().mono(scale::FS_11).text_color(p.fg_muted).child("1440\u{d7}900")),
                 )
                 .child(div().w(px(SCREEN_W)).h(px(SCREEN_H)).flex_none().overflow_hidden().child(mock(key, screen, false, window, cx))),
         );

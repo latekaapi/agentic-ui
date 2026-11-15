@@ -121,18 +121,18 @@ impl RenderOnce for NavItem {
             .pl(px(NAV_GUTTER))
             .pr(px(NAV_PAD_RIGHT))
             .rounded(px(scale::R_SM))
-            .paint_states(StatePaint::new().ink(p.ink_2, p.ink), &p)
+            .paint_states(StatePaint::new().ink(p.fg_muted, p.ink), &p)
             .ui(scale::FS_13)
             .medium()
             .cursor_pointer()
-            .child(div().flex_none().w(px(LEADING_BOX)).flex().items_center().justify_center().child(icon(self.icon).color(p.ink_3)))
+            .child(div().flex_none().w(px(LEADING_BOX)).flex().items_center().justify_center().child(icon(self.icon).color(p.fg_muted)))
             .child(div().min_w(px(0.0)).truncate().child(self.label));
         if let Some(count) = self.count {
             row = row.child(div().flex_1()).child(
                 div()
                     .text_role(TextRole::MonoSmall)
                     .font_weight(gpui::FontWeight::MEDIUM)
-                    .text_color(if self.count_warning { p.warning } else { p.ink_3 })
+                    .text_color(if self.count_warning { p.warning } else { p.fg_muted })
                     .child(count),
             );
         }
@@ -192,7 +192,7 @@ impl RenderOnce for GroupRow {
             .gap(px(GROUP_GAP))
             .pl(px(NAV_LABEL_X))
             .pr(px(GROUP_PAD_RIGHT))
-            .child(div().text_role(TextRole::Caps).text_color(p.ink_3).child(self.label.to_uppercase()))
+            .child(div().text_role(TextRole::Caps).text_color(p.fg_muted).child(self.label.to_uppercase()))
             .child(div().flex_1());
         if let Some(h) = self.on_view_options {
             row = row.child(
@@ -273,7 +273,7 @@ impl RenderOnce for GroupHeader {
             .gap(px(GROUP_GAP))
             .px(px(GROUP_PAD_RIGHT))
             .cursor_pointer()
-            .child(chevron((id, "chevron"), self.open, p.ink_3, window, cx))
+            .child(chevron((id, "chevron"), self.open, p.fg_muted, window, cx))
             .child(div().ui(scale::FS_12).semibold().text_color(p.ink).whitespace_nowrap().child(self.label));
         if let Some(count) = self.count {
             row = row.child(tag(count));
@@ -412,7 +412,7 @@ fn plan_natural_width(text: &SharedString, window: &mut Window, cx: &mut App) ->
     let run = TextRun {
         len: text.len(),
         font: font(scale::FONT_UI),
-        color: cx.aui().colors.ink_3,
+        color: cx.aui().colors.fg_muted,
         background_color: None,
         underline: None,
         strikethrough: None,
@@ -501,10 +501,10 @@ impl RenderOnce for SidebarFooter {
         // bare name keeps the quieter ink it always had.
         let stacked = self.detail.is_some() || self.plan.is_some();
         let mut name_row = h_flex().w_full().items_center().gap(px(FOOTER_GAP)).child(
-            div().min_w(px(FOOTER_NAME_MIN)).truncate().when(stacked, |d| d.text_color(p.ink_2)).child(self.name),
+            div().min_w(px(FOOTER_NAME_MIN)).truncate().when(stacked, |d| d.text_color(p.fg_muted)).child(self.name),
         );
         if let Some((plan, warning)) = self.plan {
-            let ink = if warning { p.warning } else { p.ink_3 };
+            let ink = if warning { p.warning } else { p.fg_muted };
             let label = SharedString::from(format!("\u{b7} {plan}"));
             let mut plan_row = h_flex()
                 .items_center()
@@ -546,7 +546,7 @@ impl RenderOnce for SidebarFooter {
             .px(px(FOOTER_PAD_X))
             .gap(px(FOOTER_GAP))
             .ui(scale::FS_12)
-            .text_color(p.ink_3)
+            .text_color(p.fg_muted)
             .child(avatar(self.initial))
             .child(stack);
         if let Some(trailing) = self.trailing {
@@ -626,7 +626,7 @@ impl RenderOnce for SidebarSearch {
             .border_color(p.line)
             .bg(p.surface_2)
             .ui(scale::FS_12)
-            .text_color(p.ink_2)
+            .text_color(p.fg_muted)
             .child(div().flex_none().child(icon(IconName::Search).size(px(SEARCH_GLYPH)).color(p.ink_4)))
             .child(div().flex_1().min_w(px(0.0)).overflow_hidden().child(self.field));
         if self.clearable {

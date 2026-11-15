@@ -446,7 +446,7 @@ fn picture_tile(p: &Palette, id: ElementId, attachment: &Attachment, video: bool
     tile = match picture {
         Some(path) => tile.child(gpui::img(path).object_fit(gpui::ObjectFit::Cover).absolute().top_0().left_0().size(px(TILE))),
         None if video => tile,
-        None => tile.flex().items_center().justify_center().child(icon(IconName::Image).size(px(PLAY_GLYPH)).color(p.ink_2)),
+        None => tile.flex().items_center().justify_center().child(icon(IconName::Image).size(px(PLAY_GLYPH)).color(p.fg_muted)),
     };
     if video {
         tile = tile
@@ -466,11 +466,11 @@ fn picture_tile(p: &Palette, id: ElementId, attachment: &Attachment, video: bool
                     .child(length)
             }));
     }
-    // The edge over the picture, so it reads on any image.
-    tile.child(div().absolute().inset_0().rounded(px(TILE_RADIUS)).shadow(p.edge()))
+    // A `line` hairline over the picture, so it reads on any image.
+    tile.child(div().absolute().inset_0().rounded(px(TILE_RADIUS)).border_1().border_color(p.line))
 }
 
-/// A 30 px file chip: Raised, radius 6, the edge; the file glyph, the name,
+/// A 30 px file chip: Raised, radius 6, a `line` border; the file glyph, the name,
 /// `TYPE · size` in caption muted.
 fn file_chip(p: &Palette, id: ElementId, attachment: &Attachment) -> gpui::Stateful<gpui::Div> {
     let mut chip = h_flex()
@@ -482,13 +482,14 @@ fn file_chip(p: &Palette, id: ElementId, attachment: &Attachment) -> gpui::State
         .gap(px(CHIP_GAP))
         .rounded(px(TILE_RADIUS))
         .bg(p.surface_3)
-        .shadow(p.edge())
+        .border_1()
+        .border_color(p.line)
         .ui(scale::FS_13)
         .text_color(p.ink)
-        .child(icon(IconName::File).size(px(CHIP_GLYPH)).color(p.ink_2))
+        .child(icon(IconName::File).size(px(CHIP_GLYPH)).color(p.fg_muted))
         .child(div().max_w(px(240.0)).truncate().child(attachment.name.clone()));
     if let Some(meta) = file_meta(attachment) {
-        chip = chip.child(div().flex_none().ui(scale::FS_12).text_color(p.ink_2).child(meta));
+        chip = chip.child(div().flex_none().ui(scale::FS_12).text_color(p.fg_muted).child(meta));
     }
     chip
 }
@@ -577,7 +578,8 @@ fn annotation_body(p: &Palette, id: &ElementId, batch: &AnnotationBatch, strip_w
                     .size(px(PIN))
                     .rounded_full()
                     .bg(p.ink)
-                    .shadow(vec![gpui::BoxShadow { color: gpui::black().alpha(0.4), offset: gpui::point(px(0.0), px(0.0)), blur_radius: px(0.0), spread_radius: px(1.0), inset: false }])
+                    .border_1()
+                    .border_color(p.line)
                     .flex()
                     .items_center()
                     .justify_center()
@@ -587,13 +589,13 @@ fn annotation_body(p: &Palette, id: &ElementId, batch: &AnnotationBatch, strip_w
                     .child(note.index.to_string()),
             );
         }
-        col = col.child(strip.child(div().absolute().inset_0().rounded(px(TILE_RADIUS)).shadow(p.edge())));
+        col = col.child(strip.child(div().absolute().inset_0().rounded(px(TILE_RADIUS)).border_1().border_color(p.line)));
     }
     let count = batch.notes.len();
     col = col.child(
         div()
             .ui(scale::FS_12)
-            .text_color(p.ink_2)
+            .text_color(p.fg_muted)
             .child(format!("{count} annotation{} · {}", if count == 1 { "" } else { "s" }, batch.address)),
     );
     for note in &batch.notes {
@@ -622,7 +624,7 @@ fn annotation_body(p: &Palette, id: &ElementId, batch: &AnnotationBatch, strip_w
                     v_flex()
                         .flex_1()
                         .min_w(px(0.0))
-                        .child(div().mono(scale::FS_11).text_color(p.ink_2).child(note.selector.clone()))
+                        .child(div().mono(scale::FS_11).text_color(p.fg_muted).child(note.selector.clone()))
                         .child(div().ui(scale::FS_12).text_color(p.ink).child(note.note.clone())),
                 ),
         );
@@ -678,7 +680,7 @@ impl RenderOnce for UserTurn {
             .overflow_hidden()
             .py(px(BUBBLE_PAD_Y))
             .px(px(BUBBLE_PAD_X))
-            .when(p.is_dark(), |d| d.rounded(px(BUBBLE_RADIUS_V3)).shadow(p.edge()))
+            .when(p.is_dark(), |d| d.rounded(px(BUBBLE_RADIUS_V3)))
             .when(!p.is_dark(), |d| d.rounded(px(BUBBLE_RADIUS)).rounded_br(px(scale::R_XS)))
             .bg(p.surface_3)
             .ui(BUBBLE_TEXT)

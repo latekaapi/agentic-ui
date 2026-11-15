@@ -189,7 +189,7 @@ impl RenderOnce for ContextMeter {
 /// colour carries meaning here and nowhere else on the meter.
 fn pressure_color(p: &Palette, pressure: ContextPressure) -> gpui::Hsla {
     match pressure {
-        ContextPressure::Normal => p.ink_3,
+        ContextPressure::Normal => p.fg_muted,
         ContextPressure::Warning => p.warning,
         ContextPressure::Blocked => p.danger,
     }
@@ -260,13 +260,15 @@ fn breakdown(
         .p(px(POP_PAD))
         .rounded(px(scale::R_LG))
         .bg(p.overlay)
+        .border_1()
+        .border_color(p.line_strong)
         .shadow(p.floating_shadow())
         .opacity(style.opacity)
         .child(
             div()
                 .pb(px(POP_HEAD_GAP))
                 .text_role(TextRole::Caps)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(SharedString::from("Context window")),
         );
 
@@ -286,9 +288,9 @@ fn breakdown(
                 .w_full()
                 .h(px(POP_ROW_H))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(div().flex_1().child(name))
-                .child(div().flex_none().mono(scale::FS_11).text_color(p.ink_2).child(value)),
+                .child(div().flex_none().mono(scale::FS_11).text_color(p.fg_muted).child(value)),
         );
     }
     if let Some(handler) = on_compact {

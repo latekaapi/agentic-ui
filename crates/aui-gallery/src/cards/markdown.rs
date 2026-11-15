@@ -52,7 +52,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("Headings step down the token ramp; links underline in accent and click through on_link; fences reuse the code block; tables scroll inside their own frame; images are placeholder tiles and never fetch. Drag inside any paragraph, heading, list item, quote, table cell or fence to select (double-click a word, triple-click a paragraph); a press-release on a link still follows it, and the app copies Markdown::selected_text on ⌘C. Selections never span cells."),
         )
         .into_any_element()

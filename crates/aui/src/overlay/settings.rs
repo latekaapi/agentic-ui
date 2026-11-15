@@ -19,7 +19,7 @@ pub struct SettingsSection {
 /// One row of a settings page.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SettingsRow {
-    /// A labelled switch: the label in ink, the optional detail in ink-3
+    /// A labelled switch: the label in ink, the optional detail in fg-muted
     /// mono 11 under it, the switch at the right.
     Switch {
         /// Stable identity, reported by [`SettingsDialog::on_switch`].

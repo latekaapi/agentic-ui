@@ -120,7 +120,7 @@ impl RenderOnce for HandoffPicker {
             .px(px(PAD_X))
             .border_b_1()
             .border_color(p.line)
-            .child(icon(IconName::Search).size(px(13.0)).color(p.ink_3))
+            .child(icon(IconName::Search).size(px(13.0)).color(p.fg_muted))
             .child(
                 crate::a11y_text::a11y_text_field((id.clone(), "query"), "Find a session or project", &self.input, false, cx)
                     .flex_1()
@@ -143,7 +143,7 @@ impl RenderOnce for HandoffPicker {
                     .pt(px(8.0))
                     .text_role(TextRole::Caps)
                     .line_height(relative(scale::LH_UI))
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(title),
             );
             for row in rows.iter() {
@@ -151,7 +151,7 @@ impl RenderOnce for HandoffPicker {
                 index += 1;
                 let lead = match row.provider {
                     Some(provider) => provider_mark(provider).into_any_element(),
-                    None => icon(IconName::Folder).size(px(14.0)).color(p.ink_2).into_any_element(),
+                    None => icon(IconName::Folder).size(px(14.0)).color(p.fg_muted).into_any_element(),
                 };
                 let choose = self.on_intent.clone();
                 let hover = self.on_intent.clone();
@@ -184,13 +184,13 @@ impl RenderOnce for HandoffPicker {
                         })
                         .child(lead)
                         .child(div().flex_1().min_w(px(0.0)).truncate().ui(BODY_TEXT).text_color(p.ink).child(row.title.clone()))
-                        .child(div().flex_none().ui(META_TEXT).text_color(p.ink_3).child(row.meta.clone())),
+                        .child(div().flex_none().ui(META_TEXT).text_color(p.fg_muted).child(row.meta.clone())),
                 );
             }
         }
         if index == 0 {
             body = body.child(
-                div().h(px(ITEM_H)).flex_none().px(px(PAD_X)).flex().items_center().ui(BODY_TEXT).text_color(p.ink_3).child("Nothing matches"),
+                div().h(px(ITEM_H)).flex_none().px(px(PAD_X)).flex().items_center().ui(BODY_TEXT).text_color(p.fg_muted).child("Nothing matches"),
             );
         }
         let close = self.on_intent.clone();
@@ -200,6 +200,8 @@ impl RenderOnce for HandoffPicker {
             .rounded(px(scale::R_LG))
             .bg(p.overlay)
             .text_color(p.ink)
+            .border_1()
+            .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .overflow_hidden()
             .on_mouse_down_out(move |_, w, cx| {
@@ -219,7 +221,7 @@ impl RenderOnce for HandoffPicker {
                     .border_color(p.line)
                     .ui(FOOT_TEXT)
                     .line_height(px(FOOT_LH))
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(self.note.clone()),
             )
     }

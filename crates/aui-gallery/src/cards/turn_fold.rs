@@ -126,7 +126,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(
             turn_fold("qf-fold-open", 74_000, 6, 1, 2)
                 .open(current[1])
-                .child(div().ui(scale::FS_12).text_color(p.ink_2).child("Checking the existing form flow, then patching the validator."))
+                .child(div().ui(scale::FS_12).text_color(p.fg_muted).child("Checking the existing form flow, then patching the validator."))
                 .child(tool_card("qf-fold-call2", "Read", "src/checkout/validators.ts", ToolStatus::Success, ToolBody::Read { lines: 180, output_lines: Vec::new() }).open(false))
                 .on_intent(move |intent, _, cx| {
                     if intent == TurnFoldIntent::Toggle {
@@ -182,7 +182,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("D4: settled turns fold to one quiet row — chevron on the left, counts, the +N −M chip that opens the turn's diff; open, the turn's cards follow on the measure, 8 apart. The live run is a quiet row naming the current call, its earlier count and elapsed. An unknown item kind is a folded card with the kind as the verb and its status in mono."),
         )
         .into_any_element()

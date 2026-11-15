@@ -1655,7 +1655,7 @@ fn render_block(
         Block::OrderedList { start, items } => {
             let mut list = v_flex().w_full().gap(px(LIST_ITEM_GAP));
             let mut muted = *style;
-            muted.ink = palette.ink_2;
+            muted.ink = palette.fg_muted;
             for (n, item) in items.iter().enumerate() {
                 list = list.child(list_item_marked(
                     format!("{}.", start + n as u64),
@@ -1766,7 +1766,7 @@ fn render_block(
             }
             // The table scrolls inside its own frame instead of squeezing
             // columns or spilling past the turn.
-            crate::util::raised_block(div().w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), palette, palette.surface_1)
+            crate::util::raised_block(div().w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), palette, palette.surface_2)
                 .overflow_hidden()
                 .child(div().id(block_id(id, index, "scroll")).w_full().overflow_x_scroll().child(grid))
                 .into_any_element()
@@ -1777,7 +1777,7 @@ fn render_block(
             // keys scope under the quote prefix so quoted cells never collide
             // with top-level ones.
             let mut dimmed = *style;
-            dimmed.ink = palette.ink_2;
+            dimmed.ink = palette.fg_muted;
             let nested: ElementId =
                 (id.clone(), SharedString::from(format!("md-{index}-q"))).into();
             let quoted = SelCtx {
@@ -1833,7 +1833,7 @@ fn image_block(id: ElementId, alt: &str, url: &str, root: Option<&str>, palette:
             crate::util::raised_block(h_flex().w_full().items_start().gap(px(CELL_PAD_X)).rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
                 .px(px(IMAGE_CAPTION_PAD_X + 2.0))
                 .py(px(IMAGE_CAPTION_PAD_X))
-                .child(div().pt(px(2.0)).child(icon(IconName::File).size(px(IMAGE_GLYPH)).color(p.ink_2)))
+                .child(div().pt(px(2.0)).child(icon(IconName::File).size(px(IMAGE_GLYPH)).color(p.fg_muted)))
                 .child(
                     v_flex()
                         .flex_1()
@@ -1862,7 +1862,7 @@ fn image_block(id: ElementId, alt: &str, url: &str, root: Option<&str>, palette:
                 .px(px(IMAGE_CAPTION_PAD_X))
                 .py(px(IMAGE_CAPTION_PAD_Y))
                 .ui(scale::FS_12)
-                .text_color(palette.ink_2)
+                .text_color(palette.fg_muted)
                 .child(alt.to_owned()),
         );
     }

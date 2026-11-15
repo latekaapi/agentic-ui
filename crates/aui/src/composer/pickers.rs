@@ -294,7 +294,7 @@ fn row_trailing(row: &PickerRow, p: &aui_tokens::Palette) -> Option<gpui::AnyEle
         trailing = trailing.child(div().flex_none().mono(DETAIL_TEXT).text_color(p.ink_4).child(meta.clone()));
     }
     for badge in &row.badges {
-        trailing = trailing.child(div().flex_none().px(px(6.0)).rounded_full().bg(p.selected_overlay()).ui(DETAIL_TEXT).line_height(px(16.0)).text_color(p.ink_2).child(badge.clone()));
+        trailing = trailing.child(div().flex_none().px(px(6.0)).rounded_full().bg(p.selected_overlay()).ui(DETAIL_TEXT).line_height(px(16.0)).text_color(p.fg_muted).child(badge.clone()));
     }
     Some(trailing.into_any_element())
 }
@@ -328,7 +328,7 @@ fn picker_item_placed(row: &PickerRow, checked: bool, p: &aui_tokens::Palette, p
 }
 
 fn chevron(p: &aui_tokens::Palette) -> impl IntoElement {
-    aui_icons::icon(aui_icons::IconName::Chev).size(px(12.0)).color(p.ink_2)
+    aui_icons::icon(aui_icons::IconName::Chev).size(px(12.0)).color(p.fg_muted)
 }
 
 /// Where the open submenu is: which row, since when the pointer has rested
@@ -671,7 +671,8 @@ impl RenderOnce for EffortSliderMenu {
                     .size(px(SLIDER_THUMB))
                     .rounded_full()
                     .bg(p.ink)
-                    .shadow(vec![gpui::BoxShadow { color: gpui::black().alpha(0.4), offset: gpui::point(px(0.0), px(0.0)), blur_radius: px(0.0), spread_radius: px(1.0), inset: false }]),
+                    .border_1()
+                    .border_color(p.line),
             );
         }
         {
@@ -732,7 +733,7 @@ impl RenderOnce for EffortSliderMenu {
                     .items_baseline()
                     .mb(px(8.0))
                     .child(div().flex_none().ui(scale::FS_13).semibold().text_color(p.ink).child(name))
-                    .child(div().min_w(px(0.0)).truncate().ui(scale::FS_12).text_color(p.ink_2).child(meaning)),
+                    .child(div().min_w(px(0.0)).truncate().ui(scale::FS_12).text_color(p.fg_muted).child(meaning)),
             )
             .child(track)
             .child(under);

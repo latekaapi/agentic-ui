@@ -10,7 +10,7 @@
 use aui_motion::{looping, Loop};
 use aui_protocol::{Block, DiffKind, DiffStat, ToolBody, ToolStatus, Turn};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Easing, Palette};
-use gpui::{div, linear_color_stop, linear_gradient, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, StyledText, Window};
+use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, StyledText, Window};
 use gpui_kit::base::{h_flex, v_flex};
 use std::cell::RefCell;
 
@@ -249,7 +249,7 @@ fn diff_stat_tags(stat: &DiffStat) -> (String, String) {
 }
 
 /// File-count label for a server-authored [`DiffStat`]: `{n} files`, in the
-/// same mono ink-3 style the `Read`/`Search` arms use for `{n} lines` /
+/// same mono fg-muted style the `Read`/`Search` arms use for `{n} lines` /
 /// `{n} hits`. Drawn only when the patch spans more than one file.
 fn diff_stat_files_label(stat: &DiffStat) -> Option<String> {
     if stat.files > 1 {
@@ -316,7 +316,7 @@ impl RenderOnce for ToolCard {
             .flat(self.flat)
             .header(glyph)
             .header(div().whitespace_nowrap().child(self.verb.clone()))
-            .header(div().min_w(px(0.0)).truncate().mono(scale::FS_12).text_color(p.ink_2).child(self.target.clone()))
+            .header(div().min_w(px(0.0)).truncate().mono(scale::FS_12).text_color(p.fg_muted).child(self.target.clone()))
             .header(div().flex_1());
 
         // The right cluster, gap 8: the result, then the duration, in faint
@@ -408,7 +408,7 @@ fn more_row(p: &Palette, label: String, emit: impl Fn(ToolCardIntent) -> IntentC
         .px(px(OUT_PAD_X))
         .gap(px(MORE_GAP))
         .ui(scale::FS_12)
-        .paint_states(StatePaint::new().tint(false).ink(p.ink_2, p.ink), p)
+        .paint_states(StatePaint::new().tint(false).ink(p.fg_muted, p.ink), p)
         .cursor_pointer()
         .role(gpui::Role::Button)
         .aria_label(name)
@@ -567,7 +567,7 @@ fn search_body(p: &Palette, hits: &[aui_protocol::SearchHit], unfolded: bool, em
         let snippet = search_capped_snippet(&hit.snippet);
         let text = format!("{head}{snippet}");
         let runs = vec![
-            gpui::TextRun { len: head.len(), font: gpui::font(scale::FONT_MONO), color: p.ink_2, background_color: None, underline: None, strikethrough: None },
+            gpui::TextRun { len: head.len(), font: gpui::font(scale::FONT_MONO), color: p.fg_muted, background_color: None, underline: None, strikethrough: None },
             gpui::TextRun { len: snippet.len(), font: gpui::font(scale::FONT_MONO), color: p.ink, background_color: None, underline: None, strikethrough: None },
         ];
         body = body.child(div().w_full().overflow_hidden().whitespace_nowrap().child(StyledText::new(text).with_runs(runs)));
@@ -599,9 +599,9 @@ fn web_body(p: &Palette, id: &ElementId, results: &[aui_protocol::WebResult], hi
             h_flex()
                 .w_full()
                 .gap(px(scale::SP_3))
-                .child(div().flex_none().size(px(FAVICON)).rounded(px(FAVICON_RADIUS)).bg(crate::util::raised_lit(p, p.surface_3)).shadow(p.edge()))
+                .child(div().flex_none().size(px(FAVICON)).rounded(px(FAVICON_RADIUS)).bg(crate::util::raised_lit(p, p.surface_3)).border_1().border_color(p.line))
                 .child(title)
-                .child(div().flex_none().text_color(p.ink_2).child(r.domain.clone())),
+                .child(div().flex_none().text_color(p.fg_muted).child(r.domain.clone())),
         );
     }
     if hidden > 0 {
@@ -635,13 +635,13 @@ fn browser_body(p: &Palette, id: &ElementId, screenshot: Option<&str>, caption: 
             .h(px(SHOT_H))
             .rounded(px(SHOT_RADIUS))
             .overflow_hidden()
-            .bg(linear_gradient(135.0, linear_color_stop(p.surface_4, 0.0), linear_color_stop(p.surface_3, 1.0)))
+            .bg(p.surface_3)
             // The page's picture when the call kept one, cropped to the
-            // strip from its top; the gradient is the stand-in without one.
+            // strip from its top; the flat fill is the stand-in without one.
             .children(screenshot.map(std::path::PathBuf::from).filter(|path| path.is_file()).map(|path| {
                 div().absolute().inset_0().child(gpui::img(path).object_fit(gpui::ObjectFit::Cover).size_full())
             }))
-            .child(div().absolute().inset_0().rounded(px(SHOT_RADIUS)).shadow(p.edge()))
+            .child(div().absolute().inset_0().rounded(px(SHOT_RADIUS)).border_1().border_color(p.line))
             .child(
                 div()
                     .absolute()
@@ -652,15 +652,7 @@ fn browser_body(p: &Palette, id: &ElementId, screenshot: Option<&str>, caption: 
                     .size(px(ring))
                     .rounded_full()
                     .border(px(RING_STROKE))
-                    .border_color(p.ink)
-                    // The 1 px 40 % black ring outside the stroke.
-                    .shadow(vec![gpui::BoxShadow {
-                        color: gpui::black().alpha(0.4),
-                        offset: gpui::point(px(0.0), px(0.0)),
-                        blur_radius: px(0.0),
-                        spread_radius: px(1.0),
-                        inset: false,
-                    }]),
+                    .border_color(p.ink),
             )
             .children(caption.map(|caption| {
                 div()
@@ -706,7 +698,7 @@ fn sub_agent_body(p: &Palette, turns: &[Turn]) -> impl IntoElement {
             h_flex()
                 .w_full()
                 .items_start()
-                .child(div().flex_none().w(px(SUB_WHO_W)).truncate().text_color(p.ink_2).child(who))
+                .child(div().flex_none().w(px(SUB_WHO_W)).truncate().text_color(p.fg_muted).child(who))
                 .child(div().flex_1().min_w(px(0.0)).child(text)),
         );
     }
@@ -720,13 +712,13 @@ fn mcp_body(p: &Palette, params: &[(String, String)], result_json: &str, unfolde
             h_flex()
                 .w_full()
                 .items_start()
-                .child(div().flex_none().w(px(MCP_KEY_W)).truncate().text_color(p.ink_2).child(k.clone()))
+                .child(div().flex_none().w(px(MCP_KEY_W)).truncate().text_color(p.fg_muted).child(k.clone()))
                 .child(div().flex_1().min_w(px(0.0)).mono(OUT_TEXT).child(v.clone())),
         );
     }
     let (shown, remainder) = if unfolded { (result_json.to_owned(), Remainder::default()) } else { mcp_visible_text(result_json) };
     if !shown.trim().is_empty() {
-        body = body.child(div().w_full().pt(px(if params.is_empty() { 0.0 } else { scale::SP_2 })).mono(OUT_TEXT).text_color(p.ink_2).child(shown));
+        body = body.child(div().w_full().pt(px(if params.is_empty() { 0.0 } else { scale::SP_2 })).mono(OUT_TEXT).text_color(p.fg_muted).child(shown));
     }
     let mut col = v_flex().w_full().child(body);
     if let Some(cut) = remainder.label() {

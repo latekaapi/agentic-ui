@@ -22,7 +22,7 @@ fn section(label: &'static str, p: &Palette) -> impl IntoElement {
         .mt(px(scale::SP_3))
         .text_role(aui_tokens::TextRole::Caps)
         .line_height(relative(scale::LH_UI))
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .child(label)
 }
 
@@ -136,7 +136,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .mt(px(scale::SP_4) - px(BLOCK_GAP))
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("Pending is the only marked state: a plain 1 px border in the warning colour, nothing else. Buttons enter staggered by 40 ms on ease-out, primary on the right, keys on the left. The remembered rule is spelled out on the Always button so the person knows exactly what they are granting. Once resolved the card goes quiet and single-line."),
         )
         .into_any_element()

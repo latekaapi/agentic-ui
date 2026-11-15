@@ -66,7 +66,7 @@ const MARK_OVERLAP: f32 = 4.0;
 /// Activity glyphs: spinner 10 px, shield 11 px.
 const ACTIVITY_SPINNER: f32 = 10.0;
 const ACTIVITY_ICON: f32 = 11.0;
-/// The pin at the start of a pinned session's meta line: 11 px ink-3.
+/// The pin at the start of a pinned session's meta line: 11 px fg-muted.
 const PIN_META: f32 = 11.0;
 /// `.acts{right:8px;top:6px;gap:2px;padding:1px}` and its 4 px slide.
 const ACTS_RIGHT: f32 = 8.0;
@@ -176,6 +176,8 @@ impl gpui::Render for RowTip {
             .py(px(scale::SP_2))
             .rounded(px(scale::R_SM))
             .bg(p.overlay)
+            .border_1()
+            .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .text_color(p.ink)
             .ui(scale::FS_12)
@@ -186,7 +188,7 @@ impl gpui::Render for RowTip {
 
 /// The pin at the start of a pinned session's meta line.
 fn pin_mark(p: &aui_tokens::Palette) -> AnyElement {
-    icon(IconName::Pin).size(px(PIN_META)).color(p.ink_3).into_any_element()
+    icon(IconName::Pin).size(px(PIN_META)).color(p.fg_muted).into_any_element()
 }
 
 /// The `.acts` hover tray: the actions, shown while the row is hovered (a
@@ -443,12 +445,12 @@ impl SecondLineKind {
 
     /// Ink for the slot's plain text: the placeholder sits a step dimmer
     /// (ink-4, the search-field placeholder tone); everything else reads in
-    /// the usual second-line ink-3. The byline's ask runs a step brighter at
-    /// ink-2 while its result uses this.
+    /// the usual second-line fg-muted. The byline's ask runs a step brighter at
+    /// fg-muted while its result uses this.
     pub fn ink(self, palette: &aui_tokens::Palette) -> gpui::Hsla {
         match self {
             SecondLineKind::Placeholder => palette.ink_4,
-            _ => palette.ink_3,
+            _ => palette.fg_muted,
         }
     }
 }
@@ -463,7 +465,7 @@ fn has_legacy_second_line(s: &SessionSummary) -> bool {
 
 /// The meta line: tags, marks and extra items, one line, truncating.
 fn meta_line(p: &aui_tokens::Palette, size: f32, items: Vec<gpui::AnyElement>) -> Div {
-    h_flex().w_full().min_w(px(0.0)).overflow_hidden().gap(px(META_GAP)).ui(size).text_color(p.ink_3).whitespace_nowrap().children(items)
+    h_flex().w_full().min_w(px(0.0)).overflow_hidden().gap(px(META_GAP)).ui(size).text_color(p.fg_muted).whitespace_nowrap().children(items)
 }
 
 fn meta_items(p: &aui_tokens::Palette, s: &SessionSummary, branch_max: f32) -> Vec<gpui::AnyElement> {
@@ -496,10 +498,10 @@ fn meta_items(p: &aui_tokens::Palette, s: &SessionSummary, branch_max: f32) -> V
 fn activity_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary, size: f32, max: Option<f32>) -> Option<Div> {
     let activity = s.activity.as_ref()?;
     let (color, glyph): (gpui::Hsla, Option<gpui::AnyElement>) = match activity.kind {
-        ActivityKind::Working => (p.ink_2, Some(spinner((id.clone(), "activity-spinner")).size(px(ACTIVITY_SPINNER)).into_any_element())),
+        ActivityKind::Working => (p.fg_muted, Some(spinner((id.clone(), "activity-spinner")).size(px(ACTIVITY_SPINNER)).into_any_element())),
         ActivityKind::Waiting => (p.warning, Some(icon(IconName::Shield).size(px(ACTIVITY_ICON)).color(p.warning).into_any_element())),
         ActivityKind::Failed => (p.danger, None),
-        ActivityKind::Plain => (p.ink_2, None),
+        ActivityKind::Plain => (p.fg_muted, None),
     };
     let mut text = div().min_w(px(0.0)).truncate().child(activity.text.clone());
     if let Some(max) = max {
@@ -655,16 +657,16 @@ impl RowTrailing {
     /// The slot's ink: muted for the age, the state colour otherwise.
     pub fn ink(self, palette: &aui_tokens::Palette) -> gpui::Hsla {
         match self {
-            RowTrailing::Age => palette.ink_3,
+            RowTrailing::Age => palette.fg_muted,
             RowTrailing::NeedsApproval => palette.warning,
             RowTrailing::Failed => palette.danger,
         }
     }
 }
 
-/// The compact row's title ink: full ink when selected, ink-2 otherwise.
+/// The compact row's title ink: full ink when selected, fg-muted otherwise.
 pub fn compact_row_title_ink(selected: bool, palette: &aui_tokens::Palette) -> gpui::Hsla {
-    if selected { palette.ink } else { palette.ink_2 }
+    if selected { palette.ink } else { palette.fg_muted }
 }
 
 /// The compact row's context (second) line: always exactly one line —
@@ -674,7 +676,7 @@ fn context_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> 
     if let Some(text) = &s.attention {
         let shown = if text.trim().is_empty() { SharedString::from(" ") } else { text.clone() };
         return meta_line(p, SR_META_TEXT, Vec::new())
-            .text_color(p.ink_2)
+            .text_color(p.fg_muted)
             .child(div().min_w(px(0.0)).truncate().child(shown))
             .into_any_element();
     }
@@ -698,7 +700,7 @@ fn context_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> 
             match (ask.is_empty(), result.is_empty()) {
                 (true, true) => line.child(div().child(" ")),
                 (true, false) => line.child(div().min_w(px(0.0)).truncate().child(result.clone())),
-                (false, true) => line.child(div().min_w(px(0.0)).truncate().text_color(p.ink_2).child(ask.clone())),
+                (false, true) => line.child(div().min_w(px(0.0)).truncate().text_color(p.fg_muted).child(ask.clone())),
                 // One line, not two `flex_1` halves: each side hugs its
                 // content, so a short ask no longer leaves half the row
                 // empty before the separator. When the row runs out of
@@ -706,7 +708,7 @@ fn context_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> 
                 // ellipsis (`min_w(0)` lets each shrink past its content —
                 // the same shape as the attention and preview lines above).
                 (false, false) => line
-                    .child(div().min_w(px(0.0)).truncate().text_color(p.ink_2).child(ask.clone()))
+                    .child(div().min_w(px(0.0)).truncate().text_color(p.fg_muted).child(ask.clone()))
                     .child(div().flex_none().child("·"))
                     .child(div().min_w(px(0.0)).truncate().child(result.clone())),
             }
@@ -715,7 +717,7 @@ fn context_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> 
         None => {
             if let Some(text) = project_branch_text(s) {
                 return meta_line(p, SR_META_TEXT, Vec::new())
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(div().min_w(px(0.0)).truncate().child(text))
                     .into_any_element();
             }
@@ -725,7 +727,7 @@ fn context_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> 
             let mut items = Vec::new();
             if let Some(activity) = &s.activity {
                 let color = match activity.kind {
-                    ActivityKind::Working | ActivityKind::Plain => p.ink_3,
+                    ActivityKind::Working | ActivityKind::Plain => p.fg_muted,
                     ActivityKind::Waiting => p.warning,
                     ActivityKind::Failed => p.danger,
                 };
@@ -758,7 +760,7 @@ impl RenderOnce for SessionRow {
             .mt(px(TIME_TOP))
             .text_role(TextRole::MonoSmall)
             .font_weight(gpui::FontWeight::MEDIUM)
-            .text_color(p.ink_3)
+            .text_color(p.fg_muted)
             .hide_on_hover(!self.show_actions)
             .child(s.elapsed.clone());
 
@@ -1208,14 +1210,14 @@ mod tests {
     }
 
     /// The placeholder reads dimmer than ordinary preview text, in both
-    /// themes: ink-4 against the second line's usual ink-3.
+    /// themes: ink-4 against the second line's usual fg-muted.
     #[test]
     fn placeholder_is_dimmer_than_preview_in_both_themes() {
         for theme in [ThemeKind::Dark, ThemeKind::Light] {
             let p: Palette = Palette::for_kind(theme);
             assert_eq!(SecondLineKind::Placeholder.ink(&p), p.ink_4, "placeholder ink in {theme:?}");
-            assert_eq!(SecondLineKind::Preview.ink(&p), p.ink_3, "preview ink in {theme:?}");
-            assert_eq!(SecondLineKind::Byline.ink(&p), p.ink_3, "byline result ink in {theme:?}");
+            assert_eq!(SecondLineKind::Preview.ink(&p), p.fg_muted, "preview ink in {theme:?}");
+            assert_eq!(SecondLineKind::Byline.ink(&p), p.fg_muted, "byline result ink in {theme:?}");
             assert_ne!(
                 SecondLineKind::Placeholder.ink(&p),
                 SecondLineKind::Preview.ink(&p),
@@ -1284,9 +1286,9 @@ mod tests {
                 "approval ink in {theme:?}"
             );
             assert_eq!(RowStatus::new(RowStatusKind::Asked, "q").ink(&p), p.warning, "asked ink in {theme:?}");
-            assert_eq!(RowStatus::new(RowStatusKind::Settled, "x").ink(&p), p.ink_3, "settled ink in {theme:?}");
+            assert_eq!(RowStatus::new(RowStatusKind::Settled, "x").ink(&p), p.fg_muted, "settled ink in {theme:?}");
             assert_eq!(RowStatus::new(RowStatusKind::Failed, "x").ink(&p), p.danger, "failed ink in {theme:?}");
-            assert_eq!(RowStatus::new(RowStatusKind::NoReply, "").ink(&p), p.ink_3, "no-reply ink in {theme:?}");
+            assert_eq!(RowStatus::new(RowStatusKind::NoReply, "").ink(&p), p.fg_muted, "no-reply ink in {theme:?}");
         }
     }
 
@@ -1442,7 +1444,7 @@ mod tests {
         // Ink: muted age, warning wait, danger failure — in both themes.
         for theme in [ThemeKind::Dark, ThemeKind::Light] {
             let p: Palette = Palette::for_kind(theme);
-            assert_eq!(RowTrailing::Age.ink(&p), p.ink_3, "age ink in {theme:?}");
+            assert_eq!(RowTrailing::Age.ink(&p), p.fg_muted, "age ink in {theme:?}");
             assert_eq!(RowTrailing::NeedsApproval.ink(&p), p.warning, "waiting ink in {theme:?}");
             assert_eq!(RowTrailing::Failed.ink(&p), p.danger, "failed ink in {theme:?}");
         }
@@ -1472,7 +1474,7 @@ mod tests {
             let (_, hover, _) = crate::interact::StatePaint::new().fills(&p);
             assert_ne!(selected, Some(hover), "active differs from hover in {theme:?}");
             assert_eq!(compact_row_title_ink(true, &p), p.ink, "selected title ink in {theme:?}");
-            assert_eq!(compact_row_title_ink(false, &p), p.ink_2, "resting title ink in {theme:?}");
+            assert_eq!(compact_row_title_ink(false, &p), p.fg_muted, "resting title ink in {theme:?}");
         }
     }
 

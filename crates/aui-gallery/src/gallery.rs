@@ -52,7 +52,7 @@ impl Gallery {
                 .child(
                     div()
                         .text_role(TextRole::UiSmall)
-                        .text_color(colors.ink_3)
+                        .text_color(colors.fg_muted)
                         .child(format!("{} · {}", self.selected.group, self.selected.title)),
                 )
                 .child(div().flex_1())
@@ -94,7 +94,7 @@ impl Gallery {
                     .flex()
                     .items_center()
                     .text_role(TextRole::Caps)
-                    .text_color(colors.ink_3)
+                    .text_color(colors.fg_muted)
                     .child(group.to_uppercase()),
             );
             for entry in ENTRIES.iter().filter(|e| e.group == group) {
@@ -110,7 +110,7 @@ impl Gallery {
                         .items_center()
                         .cursor_pointer()
                         .text_role(if selected { TextRole::UiMedium } else { TextRole::Ui })
-                        .text_color(if selected { colors.ink } else { colors.ink_2 })
+                        .text_color(if selected { colors.ink } else { colors.fg_muted })
                         .when(selected, |d| d.bg(colors.surface_3))
                         .hover(|d| d.bg(if selected { colors.surface_3 } else { colors.surface_2 }))
                         .on_click(cx.listener(move |this, _, window, cx| this.select(entry, window, cx)))
@@ -155,11 +155,11 @@ impl Gallery {
                 v_flex()
                     .gap(px(scale::SP_1))
                     .child(div().text_role(TextRole::Title).text_color(colors.ink).child(entry.title))
-                    .child(div().text_role(TextRole::UiSmall).text_color(colors.ink_3).child(entry.subtitle))
+                    .child(div().text_role(TextRole::UiSmall).text_color(colors.fg_muted).child(entry.subtitle))
                     .child(
                         div()
                             .text_role(TextRole::Tag)
-                            .text_color(colors.ink_3)
+                            .text_color(colors.fg_muted)
                             .child(format!("{} · {}×{} · {:?}", entry.id, entry.width, entry.height, entry.theme)),
                     ),
             )

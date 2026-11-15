@@ -131,7 +131,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         .into_any_element()
 }
 
-/// `.legend`: 12 px ink-2 paragraphs led by an ink 600 word.
+/// `.legend`: 12 px fg-muted paragraphs led by an ink 600 word.
 fn legend(p: Palette) -> impl IntoElement {
     let items = [
         ("Anatomy.", " Status dot, name, elapsed time; second line repo tag, branch, provider marks; optional third line is the live activity sentence, truncated, updated as the agent streams. A pinned session leads its meta line with a pin, and its hover tray flips the pin to unpin."),
@@ -140,7 +140,7 @@ fn legend(p: Palette) -> impl IntoElement {
         ("Rename.", " The dense field edits in place at the row-title size with no chrome; the focus border lives on its 22 px wrapper, so the row keeps its 30 px and siblings never move."),
         ("Children.", " Fan-out tasks nest under the parent with a hairline rail and a smaller name."),
     ];
-    let mut col = v_flex().max_w(px(LEGEND_MEASURE)).pt(px(LEGEND_TOP)).gap(px(LEGEND_GAP)).ui(scale::FS_12).text_color(p.ink_2);
+    let mut col = v_flex().max_w(px(LEGEND_MEASURE)).pt(px(LEGEND_TOP)).gap(px(LEGEND_GAP)).ui(scale::FS_12).text_color(p.fg_muted);
     for (lead, rest) in items {
         col = col.child(lead_paragraph(p, lead, rest));
     }

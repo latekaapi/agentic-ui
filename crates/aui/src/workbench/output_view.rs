@@ -230,7 +230,7 @@ pub fn output_fetching(cx: &App) -> gpui::Div {
 // ─────────────────────────────────────────────────────────────── image
 
 /// The image view (docs/43 §2.10): padding 16, the picture fitted (or at
-/// 100 % when `actual`), r 6 with the edge, and under it 10 px the facts in
+/// 100 % when `actual`), r 6 with a `line` border, and under it 10 px the facts in
 /// mono 12.1 faint (`1440 × 900 · PNG · 312 KB`). Click toggles fit ↔ 100 %
 /// (the host flips `actual`); at 100 % the view scrolls both ways.
 pub fn image_view(
@@ -262,7 +262,7 @@ pub fn image_view(
         (false, _, Some((w, h))) => picture.w(px(w)).h(px(h)),
         _ => picture.size(px(1.0)),
     };
-    let framed = div().rounded(px(6.0)).shadow(p.edge()).overflow_hidden().flex_none().child(picture);
+    let framed = div().rounded(px(6.0)).border_1().border_color(p.line).overflow_hidden().flex_none().child(picture);
     let measure = {
         let measured = measured.clone();
         gpui::canvas(

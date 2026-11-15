@@ -69,7 +69,7 @@ fn section_label(p: Palette, label: &'static str) -> impl IntoElement {
         .mb(px(SECTION_LABEL_GAP))
         .text_role(TextRole::Caps)
         .line_height(relative(CAPS_LH))
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .child(label.to_uppercase())
 }
 
@@ -122,7 +122,7 @@ fn glyph_grid(p: Palette) -> impl IntoElement {
                         // The caption is a flex item in the CSS, so a long
                         // word overflows its cell instead of wrapping.
                         .whitespace_nowrap()
-                        .text_color(p.ink_3)
+                        .text_color(p.fg_muted)
                         .child(label),
                 )
         }))
@@ -160,10 +160,10 @@ fn file_type_row(p: Palette) -> impl IntoElement {
     ];
     let mut row = marks_row(p);
     for (file_type, label) in files {
-        // `.fic` defaults to ink-3; `.fic.lock` overrides to ink-4.
+        // `.fic` defaults to fg-muted; `.fic.lock` overrides to ink-4.
         let color = match file_type {
             FileType::Lock => p.ink_4,
-            other => other.hue().map(Hsla::from).unwrap_or(p.ink_3),
+            other => other.hue().map(Hsla::from).unwrap_or(p.fg_muted),
         };
         row = row.child(mark_item(
             icon(file_type.icon()).size(px(ICON_SIZE)).color(color),
@@ -181,13 +181,13 @@ fn file_type_row(p: Palette) -> impl IntoElement {
     {
         let indent = if i == 0 { MARKS_GROUP_INDENT } else { 0.0 };
         row = row.child(mark_item(
-            icon(role.icon()).size(px(ICON_SIZE)).color(p.ink_3),
+            icon(role.icon()).size(px(ICON_SIZE)).color(p.fg_muted),
             label,
             indent,
         ));
     }
     row.child(mark_item(
-        icon(IconName::PanelRight).size(px(ICON_SIZE)).color(p.ink_3),
+        icon(IconName::PanelRight).size(px(ICON_SIZE)).color(p.fg_muted),
         "toggle pane",
         0.0,
     ))
@@ -199,7 +199,7 @@ fn status_row(p: Palette) -> impl IntoElement {
         (IconName::Doc, "docx", p.info),
         (IconName::Sheet, "xlsx", p.success),
         (IconName::Pdf, "pdf", p.danger),
-        (IconName::Image, "image", p.ink_2),
+        (IconName::Image, "image", p.fg_muted),
         (IconName::Play, "video", p.accent),
     ];
     let mut row = marks_row(p)
@@ -235,7 +235,7 @@ fn marks_row(p: Palette) -> Div {
         .mb(px(SECTION_GAP))
         .gap(px(MARKS_GAP))
         .ui(scale::FS_12)
-        .text_color(p.ink_2)
+        .text_color(p.fg_muted)
 }
 
 /// One `.marks span`: a 14–16 px glyph and its label.

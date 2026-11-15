@@ -378,24 +378,6 @@ pub fn place_native_lights(window: &mut Window, cx: &mut App) {
     }
 }
 
-/// The peek card's shadow (docs/37 G2): one drop cast to the right, so the
-/// card's edge over the sheet reads like Claude Desktop's hover panel (no
-/// edge ring: the card is the frame's own surface); light keeps FF's float
-/// recipe.
-fn peek_shadow(p: &aui_tokens::Palette) -> Vec<gpui::BoxShadow> {
-    if p.is_dark() {
-        vec![gpui::BoxShadow {
-            color: gpui::black().alpha(0.45),
-            offset: gpui::point(px(8.0), px(0.0)),
-            blur_radius: px(24.0),
-            spread_radius: px(-8.0),
-            inset: false,
-        }]
-    } else {
-        p.floating_shadow()
-    }
-}
-
 #[derive(Clone, Copy, Default)]
 struct ShellState {
     /// The column's last sampled openness, so the closed-only chrome can
@@ -574,11 +556,11 @@ impl RenderOnce for AppShell {
         let right_at_rest = if shell.right_open { right_rest + px(2.0 * SHEET_INSET) } else { px(SHEET_INSET) };
         let content_w = (win_w - left_at_rest - px(SHEET_INSET) - right_at_rest).max(px(0.0));
 
-        // The page sheet carries no ring: the native page covers it to the
-        // edge, and the 1 px black ring the canvas gave the white sheet only
-        // ever showed through the page's anti-aliased corners as a fringe
-        // (owner 2026-10-13: "a slight weird border at all 4 rounded edges").
-        let edge_of = |page: bool| if page { Vec::new() } else { p.elevation_shadow(2) };
+        // A sheet's edge is a 1 px `line` hairline (docs/83 §2.3: no inset
+        // edge shadow). The page sheet carries none: the native page covers
+        // it to the edge, and a ring only ever showed through the page's
+        // anti-aliased corners as a fringe (owner 2026-10-13: "a slight
+        // weird border at all 4 rounded edges").
         let sheet_box = |page: bool| {
             div()
                 .relative()
@@ -586,7 +568,7 @@ impl RenderOnce for AppShell {
                 .rounded(px(SHEET_RADIUS))
                 .overflow_hidden()
                 .bg(if page { gpui::Hsla::from(gpui::rgb(0xFAFAFA)) } else { p.surface_2 })
-                .shadow(edge_of(page))
+                .when(!page, |d| d.border_1().border_color(p.line))
         };
         // The fade's top corners follow the sheet's radius: `overflow_hidden`
         // clips to a rectangle, so a square fade painted the sheet's rounded
@@ -747,8 +729,8 @@ impl RenderOnce for AppShell {
                     // sidebar's own column in the frame's colour, flush with
                     // the window's left, top and bottom, the sidebar's width,
                     // rounded 8 at the bottom right; its rows start under its
-                    // row. Its drop to the right is what lifts it off the
-                    // sheet.
+                    // row. Its `line-strong` edge and the float shadow are
+                    // what lift it off the sheet.
                     let travel = rest * 1.08;
                     root = root.child(
                         div()
@@ -761,7 +743,12 @@ impl RenderOnce for AppShell {
                             .rounded_br(px(SHEET_RADIUS))
                             .overflow_hidden()
                             .bg(p.surface_1)
-                            .shadow(peek_shadow(&p))
+                            // It floats: a `line-strong` edge on its open
+                            // side and the one float shadow (docs/83 §2.3).
+                            .border_r_1()
+                            .border_b_1()
+                            .border_color(p.line_strong)
+                            .shadow(p.floating_shadow())
                             .occlude()
                             .on_hover(move |hovered, _, cx| {
                                 let hovered = *hovered;

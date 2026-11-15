@@ -230,7 +230,7 @@ impl RenderOnce for TerminalTabs {
                 .flex_none()
                 .gap(px(TAB_GAP))
                 .px(px(TAB_PAD))
-                .paint_states(StatePaint::new().tint(false).ink(if active { p.ink } else { p.ink_3 }, p.ink), &p)
+                .paint_states(StatePaint::new().tint(false).ink(if active { p.ink } else { p.fg_muted }, p.ink), &p)
                 .hover_group()
                 .ui(scale::FS_12)
                 .whitespace_nowrap()
@@ -337,7 +337,7 @@ pub fn terminal_dock(id: impl Into<ElementId>, header: impl IntoElement, body: O
 
 impl TerminalDock {
     /// Draw the dock as a surface inside its sheet (owner 2026-10-15): a
-    /// Raised card, radius 8, the one edge, inset 8 from the sheet's sides
+    /// Raised card, radius 8, a `line` border, inset 8 from the sheet's sides
     /// and bottom, the resize grip in the gap above it. A full-bleed dock
     /// painted square corners over the sheet's rounded bottom.
     pub fn surface(mut self, surface: bool) -> Self {
@@ -435,7 +435,7 @@ impl RenderOnce for TerminalDock {
             .border_color(p.line)
             .child(div().flex_1().min_w(px(0.0)).flex().child(self.header));
         if let Some(hint) = self.hint {
-            header = header.child(div().flex_none().ui(scale::FS_12).text_color(p.ink_3).whitespace_nowrap().child(hint));
+            header = header.child(div().flex_none().ui(scale::FS_12).text_color(p.fg_muted).whitespace_nowrap().child(hint));
         }
         header = header.child(maximize).child(dismiss);
 
@@ -448,7 +448,7 @@ impl RenderOnce for TerminalDock {
                     .items_center()
                     .justify_center()
                     .gap(px(scale::SP_4))
-                    .child(div().ui(scale::FS_13).text_color(p.ink_2).child("No terminal yet"));
+                    .child(div().ui(scale::FS_13).text_color(p.fg_muted).child("No terminal yet"));
                 let mut new = button((id.clone(), "new-terminal"), "New terminal");
                 if let Some(f) = self.on_action.clone() {
                     new = new.on_click(move |_, w, cx| f(TerminalDockAction::NewTerminal, w, cx));
@@ -474,7 +474,8 @@ impl RenderOnce for TerminalDock {
                 .w_full()
                 .rounded(radius)
                 .bg(p.surface_3)
-                .shadow(p.edge())
+                .border_1()
+                .border_color(p.line)
                 .overflow_hidden()
                 .child(header)
                 .child(body);

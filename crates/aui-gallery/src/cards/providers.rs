@@ -337,7 +337,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
     v_flex()
         .p(px(24.0))
         .gap(px(20.0))
-        .text_color(p.ink_2)
+        .text_color(p.fg_muted)
         .child(band("Settings › Providers › Claude Code (Details open)", page(ok.into_any_element())))
         .child(band("Details closed", page(closed.into_any_element())))
         .child(band("API-key login (say it, don’t block)", page(key.into_any_element())))

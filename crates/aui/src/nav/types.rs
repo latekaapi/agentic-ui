@@ -206,7 +206,7 @@ pub enum Byline {
 /// An item on the meta line.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MetaItem {
-    /// Plain ink-3 text (`PR #2491 open`).
+    /// Plain fg-muted text (`PR #2491 open`).
     Text(SharedString),
     /// A mono tag.
     Tag(SharedString),
@@ -228,13 +228,13 @@ pub struct Activity {
 /// How the activity line is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActivityKind {
-    /// 10 px spinner + ink-2 text: the agent is working.
+    /// 10 px spinner + fg-muted text: the agent is working.
     Working,
     /// Shield glyph + warning text: waiting for the person.
     Waiting,
     /// Danger text: something failed.
     Failed,
-    /// ink-2 text with no glyph.
+    /// fg-muted text with no glyph.
     Plain,
 }
 
@@ -302,7 +302,7 @@ impl RowStatus {
             RowStatusKind::Working => palette.accent_ink,
             RowStatusKind::NeedsApproval | RowStatusKind::Asked => palette.warning,
             RowStatusKind::Failed => palette.danger,
-            RowStatusKind::Settled | RowStatusKind::NoReply => palette.ink_3,
+            RowStatusKind::Settled | RowStatusKind::NoReply => palette.fg_muted,
         }
     }
 }

@@ -469,7 +469,7 @@ pub fn ahead_behind(ahead: u32, behind: u32) -> Option<SharedString> {
     (!s.is_empty()).then(|| s.into())
 }
 
-/// The commit box's frame: Raised r 10 with the edge (22 % while focused),
+/// The commit box's frame: Raised r 10 with a [`super::pane::field_border`],
 /// padding 8, gap 6.
 pub fn commit_frame(focused: bool, cx: &App) -> gpui::Div {
     let p = cx.aui().colors;
@@ -479,7 +479,8 @@ pub fn commit_frame(focused: bool, cx: &App) -> gpui::Div {
         .gap(px(6.0))
         .rounded(px(10.0))
         .bg(p.surface_3)
-        .shadow(if focused { super::pane::focus_edge(cx) } else { p.edge() })
+        .border_1()
+        .border_color(super::pane::field_border(focused, cx))
 }
 
 /// The message as drawn at rest: its first line 600, the rest muted, 14.3 /
@@ -516,13 +517,6 @@ pub fn commit_message_view(id: impl Into<ElementId>, message: &str, cx: &App) ->
 /// the first lines in mono 12.1 / 18 muted, then the two text controls.
 pub fn hook_failed_note(id: impl Into<ElementId>, title: impl Into<SharedString>, lines: &[String], actions: Vec<AnyElement>, cx: &App) -> gpui::Stateful<gpui::Div> {
     let p = cx.aui().colors;
-    let ring = gpui::BoxShadow { color: p.danger.alpha(0.7), offset: gpui::point(px(0.0), px(0.0)), blur_radius: px(0.0), spread_radius: px(1.0), inset: true };
-    let mut shadows = if p.is_dark() {
-        vec![gpui::BoxShadow { color: gpui::white().alpha(0.07), offset: gpui::point(px(0.0), px(1.0)), blur_radius: px(0.0), spread_radius: px(0.0), inset: true }]
-    } else {
-        Vec::new()
-    };
-    shadows.push(ring);
     v_flex()
         .id(id.into())
         .role(gpui::Role::Alert)
@@ -533,7 +527,8 @@ pub fn hook_failed_note(id: impl Into<ElementId>, title: impl Into<SharedString>
         .gap(px(4.0))
         .rounded(px(8.0))
         .bg(p.surface_3)
-        .shadow(shadows)
+        .border_1()
+        .border_color(p.attention_border(p.danger))
         .font_family(scale::FONT_UI)
         .text_px(BODY_TEXT)
         .child(
@@ -628,7 +623,8 @@ pub fn pr_card(
         .gap(px(6.0))
         .rounded(px(10.0))
         .bg(p.surface_3)
-        .shadow(p.edge())
+        .border_1()
+        .border_color(p.line)
         .font_family(scale::FONT_UI)
         .text_px(BODY_TEXT)
         .child(
@@ -675,7 +671,7 @@ pub fn form_field(label: impl Into<SharedString>, control: impl IntoElement, cx:
         .child(control)
 }
 
-/// The base-branch picker: 32, Raised-lit with the edge, mono 12.65, a
+/// The base-branch picker: 32, Raised-lit with a `line` border, mono 12.65, a
 /// chevron; the host opens its menu on click.
 pub fn base_picker(id: impl Into<ElementId>, base: impl Into<SharedString>, cx: &App) -> gpui::Stateful<gpui::Div> {
     let p = cx.aui().colors;
@@ -692,7 +688,8 @@ pub fn base_picker(id: impl Into<ElementId>, base: impl Into<SharedString>, cx: 
         .items_center()
         .rounded(px(6.0))
         .bg(p.surface_4)
-        .shadow(p.edge())
+        .border_1()
+        .border_color(p.line)
         .font_family(scale::FONT_MONO)
         .text_px(12.65)
         .text_color(p.fg)
@@ -721,7 +718,7 @@ pub fn base_and_head(picker: impl IntoElement, head: &str, cx: &App) -> gpui::Di
         )
 }
 
-/// A Well input frame (32 tall at least, r 6, the edge; 22 % focused),
+/// A Well input frame (32 tall at least, r 6, a [`super::pane::field_border`]),
 /// padding 5 / 10, 14.3 / 22 — around a host's input.
 pub fn well_input(child: impl IntoElement, min_h: f32, focused: bool, cx: &App) -> gpui::Div {
     let p = cx.aui().colors;
@@ -732,7 +729,8 @@ pub fn well_input(child: impl IntoElement, min_h: f32, focused: bool, cx: &App) 
         .py(px(5.0))
         .rounded(px(6.0))
         .bg(p.well)
-        .shadow(if focused { super::pane::focus_edge(cx) } else { p.edge() })
+        .border_1()
+        .border_color(super::pane::field_border(focused, cx))
         .font_family(scale::FONT_UI)
         .text_px(BODY_TEXT)
         .line_height(px(22.0))

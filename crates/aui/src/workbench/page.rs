@@ -99,7 +99,7 @@ pub fn split_url(url: &str) -> (SharedString, SharedString) {
     }
 }
 
-/// The address at rest (docs/43 §2.7): the Well, 28, r 6, the edge, padding
+/// The address at rest (docs/43 §2.7): the Well, 28, r 6, a field border, padding
 /// 0 8, gap 6 — lock 12 muted, the host 13.2 foreground, the path muted
 /// (ellipsis). A click starts editing.
 pub fn page_address(id: impl Into<ElementId>, url: &str, cx: &App) -> gpui::Stateful<gpui::Div> {
@@ -135,7 +135,8 @@ pub fn address_frame(id: impl Into<ElementId>, cx: &App) -> gpui::Stateful<gpui:
         .items_center()
         .rounded(px(6.0))
         .bg(p.well)
-        .shadow(p.edge())
+        .border_1()
+        .border_color(p.line)
         .whitespace_nowrap()
         .font_family(scale::FONT_UI)
         .text_px(13.2)
@@ -214,8 +215,8 @@ pub fn page_nav_row(
 
 // ─────────────────────────────────────────────────────────────── over the page
 
-/// The agent pill (docs/43 §2.7): Floating dark (#2C2C32, the edge + float
-/// drop, full radius), 32 tall, padding 0 14 / 0 10, gap 8 — the provider
+/// The agent pill (docs/43 §2.7): Floating dark (a `line-strong` border + the
+/// float shadow, full radius), 32 tall, padding 0 14 / 0 10, gap 8 — the provider
 /// mark 16, the action 13.2, a 12 px spinner. Dark in both themes; centre it
 /// 16 above the page's foot.
 pub fn agent_pill(id: impl Into<ElementId>, provider: Provider, text: impl Into<SharedString>, cx: &App) -> gpui::Stateful<gpui::Div> {
@@ -235,6 +236,8 @@ pub fn agent_pill(id: impl Into<ElementId>, provider: Provider, text: impl Into<
         .items_center()
         .rounded_full()
         .bg(d.overlay)
+        .border_1()
+        .border_color(d.line_strong)
         .shadow(d.floating_shadow())
         .font_family(scale::FONT_UI)
         .text_px(13.2)
@@ -380,6 +383,8 @@ pub fn notes_panel(
         .p(px(6.0))
         .rounded(px(10.0))
         .bg(d.overlay)
+        .border_1()
+        .border_color(d.line_strong)
         .shadow(d.floating_shadow())
         .font_family(scale::FONT_UI)
         .text_px(13.2)
@@ -431,7 +436,7 @@ pub fn no_page_state(id: impl Into<ElementId>, field: impl IntoElement, agent: &
         .when(cx.aui().colors.is_dark(), |d| d)
 }
 
-/// The address field of [`no_page_state`]: 32 tall on the Well with the edge.
+/// The address field of [`no_page_state`]: 32 tall on the Well with a field border.
 pub fn address_field_frame(focused: bool, cx: &App) -> gpui::Div {
     let p = cx.aui().colors;
     h_flex()
@@ -442,7 +447,8 @@ pub fn address_field_frame(focused: bool, cx: &App) -> gpui::Div {
         .items_center()
         .rounded(px(6.0))
         .bg(p.well)
-        .shadow(if focused { super::pane::focus_edge(cx) } else { p.edge() })
+        .border_1()
+        .border_color(super::pane::field_border(focused, cx))
         .font_family(scale::FONT_UI)
         .text_px(14.3)
         .child(icon(IconName::Search).size(px(14.0)).color(p.fg_muted))

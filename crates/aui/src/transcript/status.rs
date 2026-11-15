@@ -14,7 +14,7 @@ use crate::transcript::controls::{control, control_with, ControlKind};
 use crate::util::ClickHandler;
 
 /// `.err{padding:10px 12px;gap:2px 10px;font-size:12.5px}` with a 16 px glyph
-/// and a 12 px ink-2 body.
+/// and a 12 px fg-muted body.
 const ERR_PAD_Y: f32 = 10.0;
 const ERR_PAD_X: f32 = 12.0;
 const ERR_COL_GAP: f32 = 10.0;
@@ -104,7 +104,7 @@ impl RenderOnce for ErrorCard {
         let id = self.id.clone();
         // Raised, radius 8; the danger ring only while a retry is on offer —
         // a failure in the past needs nothing from the person.
-        let mut lines = v_flex().flex_1().min_w(px(0.0)).ui(scale::FS_12).text_color(p.ink_2);
+        let mut lines = v_flex().flex_1().min_w(px(0.0)).ui(scale::FS_12).text_color(p.fg_muted);
         lines = lines.child(div().w_full().ui(ERR_TEXT).semibold().text_color(p.ink).child(self.title.clone()));
         for line in self.detail.lines().filter(|l| !l.trim().is_empty()) {
             lines = lines.child(div().w_full().child(line.to_owned()));
@@ -128,10 +128,10 @@ impl RenderOnce for ErrorCard {
             );
         }
         let ringed = self.on_retry.is_some();
-        let mut row = crate::util::raised_block(h_flex().id(id.clone()).w_full().items_center().gap(px(ERR_COL_GAP)).rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_1)
+        let mut row = crate::util::raised_block(h_flex().id(id.clone()).w_full().items_center().gap(px(ERR_COL_GAP)).rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
             .py(px(ERR_PAD_Y))
             .px(px(ERR_PAD_X))
-            .when(ringed, |d| d.shadow(crate::transcript::card::attention_edge(p.danger)))
+            .when(ringed, |d| d.border_color(crate::transcript::card::attention_edge(p.danger)))
             .child(icon(IconName::X).size(px(ERR_GLYPH)).color(p.danger).lit(true))
             .child(lines);
         if let Some(on_retry) = self.on_retry {
@@ -208,14 +208,14 @@ impl RenderOnce for StatusRow {
         let id = self.id.clone();
         // 28 px, caption muted: the spinner, the label, ` · ` + the key cap
         // and its words, then the trailing notes faint (docs/41 §2.8).
-        let mut row = h_flex().id(id.clone()).flex_none().h(px(STATUS_H)).gap(px(STATUS_GAP)).ui(scale::FS_12).text_color(p.ink_2).whitespace_nowrap();
+        let mut row = h_flex().id(id.clone()).flex_none().h(px(STATUS_H)).gap(px(STATUS_GAP)).ui(scale::FS_12).text_color(p.fg_muted).whitespace_nowrap();
         match self.lead {
             StatusLead::None => {}
             StatusLead::Spinner => row = row.child(spinner((id.clone(), "spinner")).size(px(STATUS_SPINNER)).fluid(cx)),
             StatusLead::Braille => {
                 let phase = looping((id.clone(), "braille"), Loop::linear(BRAILLE_PERIOD).resting(BRAILLE_RESTING).stepped(BRAILLE_FRAMES.len() as u32), window, cx);
                 let frame = BRAILLE_FRAMES[((phase * BRAILLE_FRAMES.len() as f32) as usize).min(BRAILLE_FRAMES.len() - 1)];
-                row = row.child(div().flex_none().mono(scale::FS_12).text_color(p.ink_2).child(frame));
+                row = row.child(div().flex_none().mono(scale::FS_12).text_color(p.fg_muted).child(frame));
             }
         }
         row = if self.shimmer {
@@ -272,7 +272,7 @@ impl RenderOnce for RetryRow {
             .h(px(STATUS_H))
             .gap(px(STATUS_GAP))
             .ui(scale::FS_12)
-            .text_color(p.ink_2)
+            .text_color(p.fg_muted)
             .whitespace_nowrap()
             .child(spinner((self.id.clone(), "spinner")).size(px(STATUS_SPINNER)).fluid(cx))
             .child(div().flex_none().child(format!("Attempt {}/{}", self.attempt, self.max)))
@@ -330,7 +330,7 @@ impl RenderOnce for NeedsYouBanner {
         } else {
             PresenceStyle::fade_rise(presence((id.clone(), "enter"), true, EnterExit::DEFAULT, window, cx), NEED_RISE)
         };
-        // Raised-lit, radius 8, the edge: the warning glyph, the headline 600
+        // Raised-lit, radius 8, a `line` border: the warning glyph, the headline 600
         // and the detail muted on one line, one Jump control.
         let mut row = h_flex()
             .id(id.clone())
@@ -345,7 +345,8 @@ impl RenderOnce for NeedsYouBanner {
             .pr(px(NEED_PAD_RIGHT))
             .rounded(px(crate::transcript::card::CARD_RADIUS))
             .bg(crate::util::raised_lit(&p, p.surface_2))
-            .shadow(p.edge())
+            .border_1()
+            .border_color(p.line)
             .ui(NEED_TEXT)
             .text_color(p.ink)
             .child(icon(IconName::Alert).size(px(NEED_GLYPH)).color(p.warning))
@@ -357,7 +358,7 @@ impl RenderOnce for NeedsYouBanner {
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .child(div().flex_none().semibold().child(self.headline.clone()))
-                    .child(div().min_w(px(0.0)).truncate().text_color(p.ink_2).child(self.detail.clone())),
+                    .child(div().min_w(px(0.0)).truncate().text_color(p.fg_muted).child(self.detail.clone())),
             );
         if let Some(on_jump) = self.on_jump {
             row = row.child(
@@ -403,7 +404,7 @@ impl JumpPill {
 impl RenderOnce for JumpPill {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        // Floating, fully round, 28 px, the edge and the float drop: ↓, the
+        // Floating, fully round, 28 px, a `line-strong` border and the float shadow: ↓, the
         // label in caption, the count in a 9 % cap.
         let mut pill = h_flex()
             .id(self.id)
@@ -414,6 +415,8 @@ impl RenderOnce for JumpPill {
             .pr(px(JUMP_PAD_RIGHT))
             .rounded_full()
             .bg(p.overlay)
+            .border_1()
+            .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .ui(scale::FS_12)
             .text_color(p.ink)

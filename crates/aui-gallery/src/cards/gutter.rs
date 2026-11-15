@@ -42,7 +42,7 @@ fn panel(id: &'static str, width: f32, cx: &mut App) -> impl IntoElement {
     v_flex()
         .flex_none()
         .w(px(width))
-        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.ink_3).child(format!("{width:.0} px")))
+        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child(format!("{width:.0} px")))
         .child(
             v_flex()
                 .relative()
@@ -93,7 +93,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .mt(px(NOTE_TOP))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("Rulers at the leading centre (18 px) and NAV_LABEL_X (32 px): the nav icon, the chevron and the dot share one x; every label starts at one x."),
         )
         .into_any_element()

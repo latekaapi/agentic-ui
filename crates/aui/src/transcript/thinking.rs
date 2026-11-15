@@ -78,7 +78,7 @@ impl RenderOnce for ThinkingBlock {
         // D4 (docs/41 §2.4): a quiet row — chevron, the thinking glyph 14
         // muted, "Thought for 4.2 s · summary" — whose open content is the
         // trace in caption muted, 32 in from the measure.
-        let mut row = quiet_row(id.clone(), open).part(div().flex_none().child(icon(IconName::Brain).size(px(GLYPH)).color(p.ink_3)));
+        let mut row = quiet_row(id.clone(), open).part(div().flex_none().child(icon(IconName::Brain).size(px(GLYPH)).color(p.fg_muted)));
         if thinking {
             row = row
                 .part(div().flex_none().child(shimmer_text((id.clone(), "label"), "Thinking", cx).duration(SHIMMER)))
@@ -90,7 +90,7 @@ impl RenderOnce for ThinkingBlock {
             }
         }
 
-        let mut paragraphs = v_flex().w_full().ui(TRACE_TEXT).line_height(relative(TRACE_LH)).text_color(p.ink_2);
+        let mut paragraphs = v_flex().w_full().ui(TRACE_TEXT).line_height(relative(TRACE_LH)).text_color(p.fg_muted);
         let parts: Vec<&str> = self.text.split("\n\n").filter(|s| !s.trim().is_empty()).collect();
         let count = parts.len();
         for (i, para) in parts.into_iter().enumerate() {

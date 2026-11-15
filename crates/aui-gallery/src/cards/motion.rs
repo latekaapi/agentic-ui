@@ -30,7 +30,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .mb(px(8.0))
                 .text_role_in(TextRole::Caption, Density::Standard)
                 .medium()
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("Deprecated v1 springs — use the tiers above"),
         )
         .child(
@@ -60,7 +60,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .mt(px(12.0))
                 .max_w(px(632.0))
                 .text_role_in(TextRole::Caption, Density::Standard)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("Rules: animate transform and opacity, never layout when a fade will do; every animation has a readable resting state; motion explains change and is never ambient."),
         )
         .into_any_element()
@@ -139,14 +139,14 @@ fn tile(p: &Palette, title: &'static str, meta: String, stage: AnyElement) -> im
                 .font_family(scale::FONT_MONO)
                 .text_px(scale::FS_11)
                 .line_height(relative(1.3))
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(meta),
         )
         .child(h_flex().h(px(56.0)).items_center().gap(px(10.0)).child(stage))
 }
 
 fn caption(p: &Palette, text: &'static str) -> impl IntoElement {
-    div().text_role_in(TextRole::Caption, Density::Standard).text_color(p.ink_3).child(text)
+    div().text_role_in(TextRole::Caption, Density::Standard).text_color(p.fg_muted).child(text)
 }
 
 fn ball(p: &Palette, size: Pixels) -> Div {
@@ -302,7 +302,7 @@ fn check_shake_stage(p: &Palette, window: &mut Window, cx: &mut App) -> AnyEleme
         .into_any_element()
 }
 
-/// `.durs`: mono 11 / 1.4 ink-3 with ink 500 numbers, gap 18, margin-top 14.
+/// `.durs`: mono 11 / 1.4 fg-muted with ink 500 numbers, gap 18, margin-top 14.
 fn durations_row(p: &Palette) -> impl IntoElement {
     let items = [
         ("fast 120", "hover tints"),
@@ -318,7 +318,7 @@ fn durations_row(p: &Palette) -> impl IntoElement {
         .font_family(scale::FONT_MONO)
         .text_px(scale::FS_11)
         .line_height(relative(1.4))
-        .text_color(p.ink_3);
+        .text_color(p.fg_muted);
     for (bold, rest) in items {
         // Items shrink and their trailing words wrap, as flex items do in the CSS.
         row = row.child(

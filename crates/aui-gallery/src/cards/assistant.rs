@@ -89,14 +89,14 @@ fn header(cx: &App) -> impl IntoElement {
         .child(icon_button("card22-new", IconName::Plus).ghost().sm())
 }
 
-/// The legend: 12.5 px ink-2 paragraphs led by an ink 600 word.
+/// The legend: 12.5 px fg-muted paragraphs led by an ink 600 word.
 fn legend(p: Palette) -> impl IntoElement {
     let items = [
-        ("Sections.", " Each role is a bordered section: a 44 px header with chevron, muted icon and name, no background. The open role shows Projects and Knowledge groups with a hairline and a count; closed roles are one row. Hierarchy by weight and ink: roles 600, projects 500 in ink-2, sessions 400 in ink-3. A role has its own knowledge sources; projects count their sessions; sessions show the kind of work by icon: chat, document, sheet."),
+        ("Sections.", " Each role is a bordered section: a 44 px header with chevron, muted icon and name, no background. The open role shows Projects and Knowledge groups with a hairline and a count; closed roles are one row. Hierarchy by weight and ink: roles 600, projects 500 in fg-muted, sessions 400 in fg-muted. A role has its own knowledge sources; projects count their sessions; sessions show the kind of work by icon: chat, document, sheet."),
         ("Knowledge card.", " The orders, rules and regulations attached to the active role, so it is always visible what the assistant is grounded in. Projects and sessions can add more below it."),
         ("Light theme", " is the default here: the assistant is a writing tool and documents read best on paper-white."),
     ];
-    let mut col = v_flex().max_w(px(LEGEND_MEASURE)).pt(px(LEGEND_TOP)).gap(px(LEGEND_GAP)).ui(LEGEND_TEXT).text_color(p.ink_2);
+    let mut col = v_flex().max_w(px(LEGEND_MEASURE)).pt(px(LEGEND_TOP)).gap(px(LEGEND_GAP)).ui(LEGEND_TEXT).text_color(p.fg_muted);
     for (lead, rest) in items {
         col = col.child(crate::cards::rows::lead_paragraph(p, lead, rest));
     }

@@ -216,7 +216,7 @@ impl RenderOnce for PdfPane {
         if controls.pages {
             toolbar = toolbar
                 .child(ghost("prev", IconName::ArrowLeft).on_click(emit(PdfAction::Prev)))
-                .child(sel(div()).child(div().mono(scale::FS_12).child(self.page_no.to_string())).child(div().text_color(p.ink_3).child(format!("/ {}", self.page_count))))
+                .child(sel(div()).child(div().mono(scale::FS_12).child(self.page_no.to_string())).child(div().text_color(p.fg_muted).child(format!("/ {}", self.page_count))))
                 .child(ghost("next", IconName::ArrowRight).on_click(emit(PdfAction::Next)));
         }
         if controls.pages && (controls.zoom || controls.search) {
@@ -248,7 +248,8 @@ impl RenderOnce for PdfPane {
             Some((source, width, height)) => v_flex()
                 .flex_none()
                 .bg(gpui::rgb(PAPER_BG))
-                .shadow(p.shadow(2))
+                .border_1()
+                .border_color(p.line)
                 .child(gpui::img(source).w(px(width)).h(px(height)))
                 .into_any_element(),
             None => {
@@ -258,7 +259,8 @@ impl RenderOnce for PdfPane {
                     .py(px(PAGE_PAD_Y))
                     .px(px(PAGE_PAD_X))
                     .bg(gpui::rgb(PAPER_BG))
-                    .shadow(p.shadow(2))
+                    .border_1()
+                    .border_color(p.line)
                     .font_family(PAPER_SERIF)
                     .text_px(PAGE_TEXT)
                     .line_height(relative(PAGE_LH))

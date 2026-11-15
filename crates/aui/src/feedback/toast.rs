@@ -59,7 +59,7 @@ const FAN_GAP: f32 = scale::SP_3;
 /// The icon tile of a toast: neutral, success or warning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ToastKind {
-    /// `.ic`: surface-3 ground, ink-2, no glyph.
+    /// `.ic`: surface-3 ground, fg-muted, no glyph.
     #[default]
     Neutral,
     /// `.ic.ok`: success-soft ground, success check.
@@ -72,7 +72,7 @@ impl ToastKind {
     /// `(ground, ink, glyph)` for the 22 px tile.
     fn tile(self, p: &Palette) -> (Hsla, Hsla, Option<IconName>) {
         match self {
-            ToastKind::Neutral => (p.surface_3, p.ink_2, None),
+            ToastKind::Neutral => (p.surface_3, p.fg_muted, None),
             ToastKind::Ok => (p.success_soft, p.success, Some(IconName::Check)),
             ToastKind::Warn => (p.warning_soft, p.warning, Some(IconName::Shield)),
         }
@@ -112,7 +112,7 @@ pub struct ToastData {
     pub kind: ToastKind,
     /// Title, 13 px / 600.
     pub title: SharedString,
-    /// Body line, 12 px ink-2.
+    /// Body line, 12 px fg-muted.
     pub body: SharedString,
     /// Optional xs action buttons, 8 px below the body.
     pub actions: Vec<ToastAction>,
@@ -235,7 +235,7 @@ impl RenderOnce for Toast {
             .flex_1()
             .min_w(px(0.0))
             .child(div().text_role(TextRole::Subtitle).text_color(p.ink).child(self.data.title.clone()))
-            .child(div().mt(px(ROW_GAP)).ui(scale::FS_12).text_color(p.ink_2).child(self.data.body.clone()));
+            .child(div().mt(px(ROW_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child(self.data.body.clone()));
         if !self.data.actions.is_empty() {
             let mut row = h_flex().mt(px(ACTIONS_TOP)).gap(px(ACTIONS_GAP));
             for (i, action) in self.data.actions.iter().enumerate() {
@@ -278,6 +278,8 @@ impl RenderOnce for Toast {
             .py(px(TOAST_PAD_Y))
             .rounded(px(TOAST_RADIUS))
             .bg(p.overlay)
+            .border_1()
+            .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .child(
                 h_flex()
@@ -306,7 +308,7 @@ impl RenderOnce for Toast {
                     .h(px(PROGRESS_HEIGHT))
                     .rounded(px(PROGRESS_RADIUS))
                     .bg(p.surface_3)
-                    .child(div().h_full().w(relative(progress.clamp(0.0, 1.0))).rounded(px(PROGRESS_RADIUS)).bg(p.ink_3)),
+                    .child(div().h_full().w(relative(progress.clamp(0.0, 1.0))).rounded(px(PROGRESS_RADIUS)).bg(p.fg_muted)),
             );
         }
         card

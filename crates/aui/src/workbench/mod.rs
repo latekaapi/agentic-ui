@@ -54,7 +54,7 @@ pub use page::{
 };
 pub use pane::{
     pane_action, pane_row, pane_row_fade, pane_strip, pane_toggle, pushed_row, pushed_row_with, secondary_action, skeleton_bar, skeleton_rows,
-    state_block, strip_moving, strip_position, strip_visible, filter_bar, filter_field, focus_edge, PaneRow, PaneStrip, PushedRow, StateBlock, CONTEXT_MIN_WIDTH, PANE_ROW_FADE,
+    state_block, strip_moving, strip_position, strip_visible, filter_bar, filter_field, field_border, PaneRow, PaneStrip, PushedRow, StateBlock, CONTEXT_MIN_WIDTH, PANE_ROW_FADE,
     PANE_ROW_H, STRIP_GAP, STRIP_SLIDE,
 };
 pub use pdf::{pdf_pane, PdfAction, PdfControls, PdfPage, PdfPane, PdfRun};

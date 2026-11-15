@@ -89,7 +89,7 @@ impl RenderOnce for QueueRow {
                 }
             }
         };
-        // D4 (docs/41 §2.8): Raised-lit, radius 6, the edge, 32 px, padded
+        // D4 (docs/41 §2.8): Raised-lit, radius 6, a `line` border, 32 px, padded
         // 0 / 6 / 0 / 10: a 16 px `queued` cap, the text in caption, ✕.
         h_flex()
             .id(id.clone())
@@ -101,7 +101,8 @@ impl RenderOnce for QueueRow {
             .items_center()
             .rounded(px(6.0))
             .bg(crate::util::raised_lit(&p, p.surface_2))
-            .shadow(p.edge())
+            .border_1()
+            .border_color(p.line)
             .ui(ROW_TEXT)
             .text_color(p.ink)
             .child(
@@ -114,7 +115,7 @@ impl RenderOnce for QueueRow {
                     .rounded_full()
                     .bg(p.selected_overlay())
                     .mono(BADGE_TEXT)
-                    .text_color(p.ink_2)
+                    .text_color(p.fg_muted)
                     .child(if self.editing { "editing" } else { "queued" }),
             )
             .child(div().flex_1().min_w(px(0.0)).truncate().child(self.text))
@@ -128,7 +129,7 @@ impl RenderOnce for QueueRow {
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
-                    .paint_states(StatePaint::new().ink(p.ink_2, p.ink), &p)
+                    .paint_states(StatePaint::new().ink(p.fg_muted, p.ink), &p)
                     .role(gpui::Role::Button)
                     .aria_label("Remove queued message")
                     .on_click(emit(QueueIntent::Remove))
@@ -191,7 +192,7 @@ impl RenderOnce for SuggestionChips {
                 .gap(px(SUGG_GAP))
                 .rounded_full()
                 .border_1()
-                .paint_states(StatePaint::new().on(p.surface_1).tint(false).edge(p.line, p.line_strong).ink(p.ink_2, p.ink), &p)
+                .paint_states(StatePaint::new().on(p.surface_1).tint(false).edge(p.line, p.line_strong).ink(p.fg_muted, p.ink), &p)
                 .ui(scale::FS_12)
                 .opacity(style.opacity)
                 .cursor_pointer();

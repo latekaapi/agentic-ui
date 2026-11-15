@@ -11,7 +11,7 @@ use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::kbd;
 
-/// The folder glyph: 20 px, ink-2.
+/// The folder glyph: 20 px, fg-muted.
 const GLYPH: f32 = 20.0;
 /// The centred stack breathes as one: glyph, title, subtitle.
 const STACK_GAP: f32 = 4.0;
@@ -121,9 +121,9 @@ impl RenderOnce for FolderDropCard {
                     .flex_none()
                     .items_center()
                     .gap(px(STACK_GAP))
-                    .child(icon(IconName::Folder).size(px(GLYPH)).color(p.ink_2))
+                    .child(icon(IconName::Folder).size(px(GLYPH)).color(p.fg_muted))
                     .child(div().ui(scale::FS_13).semibold().text_color(p.ink).child(self.title))
-                    .child(div().ui(scale::FS_12).text_color(p.ink_3).child(self.subtitle)),
+                    .child(div().ui(scale::FS_12).text_color(p.fg_muted).child(self.subtitle)),
             )
             .child(div().flex_1().flex().justify_end().children(self.key.map(kbd)));
         if let Some(on_click) = self.on_click {

@@ -212,9 +212,9 @@ pub fn handoff_confirm_destination(to: WireProvider, to_model: &str) -> SharedSt
 /// item, the label in ink, the muted detail after it.
 fn carried_list(p: &Palette, carried: &[HandoffItem]) -> AnyElement {
     let mut list =
-        v_flex().w_full().gap(px(2.0)).child(div().text_role(TextRole::Caps).text_color(p.ink_3).child("Carried"));
+        v_flex().w_full().gap(px(2.0)).child(div().text_role(TextRole::Caps).text_color(p.fg_muted).child("Carried"));
     if carried.is_empty() {
-        list = list.child(div().ui(ITEM_TEXT).text_color(p.ink_3).child("Nothing carried over."));
+        list = list.child(div().ui(ITEM_TEXT).text_color(p.fg_muted).child("Nothing carried over."));
     }
     for item in carried {
         list = list.child(
@@ -224,7 +224,7 @@ fn carried_list(p: &Palette, carried: &[HandoffItem]) -> AnyElement {
                 .ui(ITEM_TEXT)
                 .child(div().flex_none().text_color(p.ink).child(item.label.clone()))
                 .children(item.detail.clone().map(|d| {
-                    div().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).text_color(p.ink_3).child(format!("· {d}"))
+                    div().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).text_color(p.fg_muted).child(format!("· {d}"))
                 })),
         );
     }
@@ -232,12 +232,12 @@ fn carried_list(p: &Palette, carried: &[HandoffItem]) -> AnyElement {
 }
 
 /// The `Not carried` list the card and the confirm dialog share: the same
-/// rows in ink-3, never hidden behind a fold.
+/// rows in fg-muted, never hidden behind a fold.
 fn lost_list(p: &Palette, lost: &[HandoffItem]) -> AnyElement {
     let mut list =
-        v_flex().w_full().gap(px(2.0)).child(div().text_role(TextRole::Caps).text_color(p.ink_3).child("Not carried"));
+        v_flex().w_full().gap(px(2.0)).child(div().text_role(TextRole::Caps).text_color(p.fg_muted).child("Not carried"));
     if lost.is_empty() {
-        list = list.child(div().ui(ITEM_TEXT).text_color(p.ink_3).child("Nothing left behind."));
+        list = list.child(div().ui(ITEM_TEXT).text_color(p.fg_muted).child("Nothing left behind."));
     }
     for item in lost {
         list = list.child(
@@ -245,7 +245,7 @@ fn lost_list(p: &Palette, lost: &[HandoffItem]) -> AnyElement {
                 .w_full()
                 .gap(px(scale::SP_2))
                 .ui(ITEM_TEXT)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(div().flex_none().child(item.label.clone()))
                 .children(item.detail.clone().map(|d| {
                     div().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).child(format!("· {d}"))
@@ -418,7 +418,7 @@ fn step_list(id: &ElementId, p: &Palette, steps: &[HandoffStep], halted: bool) -
             .items_center()
             .gap(px(scale::SP_2))
             .ui(ITEM_TEXT)
-            .text_color(if failed { p.danger } else if dimmed { p.ink_3 } else { p.ink })
+            .text_color(if failed { p.danger } else if dimmed { p.fg_muted } else { p.ink })
             .role(gpui::Role::ListItem)
             .aria_label(label)
             .child(mark)
@@ -429,7 +429,7 @@ fn step_list(id: &ElementId, p: &Palette, steps: &[HandoffStep], halted: bool) -
                     .min_w(px(0.0))
                     .truncate()
                     .ui(DETAIL_TEXT)
-                    .text_color(if failed { p.danger } else { p.ink_3 })
+                    .text_color(if failed { p.danger } else { p.fg_muted })
                     .child(detail.clone()),
             );
         }
@@ -472,14 +472,14 @@ impl RenderOnce for HandoffCard {
             .py(px(HEAD_PAD_Y))
             .px(px(HEAD_PAD_X))
             .child(provider_mark(mark(self.from)).size(px(MARK)))
-            .child(icon(IconName::ArrowRight).size(px(ARROW)).color(p.ink_3))
+            .child(icon(IconName::ArrowRight).size(px(ARROW)).color(p.fg_muted))
             .child(provider_mark(mark(self.to)).size(px(MARK)))
             .child(
                 v_flex()
                     .flex_1()
                     .min_w(px(0.0))
                     .child(div().min_w(px(0.0)).truncate().ui(TITLE_TEXT).semibold().text_color(p.ink).child(title))
-                    .child(div().min_w(px(0.0)).truncate().ui(SOURCE_TEXT).text_color(p.ink_3).child(source)),
+                    .child(div().min_w(px(0.0)).truncate().ui(SOURCE_TEXT).text_color(p.fg_muted).child(source)),
             )
             .child(div().flex_none().child(pill(pill_label).variant(pill_variant)));
 
@@ -499,7 +499,7 @@ impl RenderOnce for HandoffCard {
         };
         let failed = matches!(&self.state, HandoffState::Refused { .. } | HandoffState::Failed { .. });
         body = body.child(
-            div().w_full().ui(STATE_TEXT).text_color(if failed { p.danger } else { p.ink_2 }).child(state_line),
+            div().w_full().ui(STATE_TEXT).text_color(if failed { p.danger } else { p.fg_muted }).child(state_line),
         );
 
         // The progress steps while the move is live; settled cards collapse
@@ -514,7 +514,7 @@ impl RenderOnce for HandoffCard {
         }
 
         // Carried and Not carried share their rendering with the confirm
-        // dialog: the same rows, the lost ones in ink-3, never hidden
+        // dialog: the same rows, the lost ones in fg-muted, never hidden
         // behind a fold.
         body = body
             .child(div().w_full().mt(px(SECTION_GAP_TOP)).child(carried_list(&p, &self.carried)))
@@ -527,7 +527,7 @@ impl RenderOnce for HandoffCard {
         let mut card = crate::util::raised_block(v_flex()
             .id(id.clone())
             .w_full()
-            .rounded(px(scale::R_LG)), &p, p.surface_1)
+            .rounded(px(scale::R_LG)), &p, p.surface_2)
             .overflow_hidden()
             .child(head)
             .child(div().w_full().border_t_1().border_color(p.line).child(body.into_any_element()));
@@ -576,7 +576,7 @@ impl RenderOnce for HandoffCard {
 /// Built on the existing modal ([`dialog`]): the title names the destination
 /// and the structured body carries the destination row with the provider
 /// mark, the [`carried_list`] / [`lost_list`] rows the card draws, the pack
-/// size, and the honest note as its own paragraph in ink-3. Actions are
+/// size, and the honest note as its own paragraph in fg-muted. Actions are
 /// Cancel (secondary) and Hand off (primary); the host owns what they do
 /// through the dialog's own handlers.
 pub fn handoff_confirm(
@@ -620,7 +620,7 @@ pub fn handoff_confirm(
                     div()
                         .w_full()
                         .ui(DETAIL_TEXT)
-                        .text_color(p.ink_3)
+                        .text_color(p.fg_muted)
                         .child(HANDOFF_FRESH_NOTE),
                 )
                 .into_any_element()

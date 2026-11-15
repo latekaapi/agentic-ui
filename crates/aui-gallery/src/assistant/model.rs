@@ -45,7 +45,7 @@ pub enum BlockKind {
         steps: Vec<Step>,
         /// The folded summary line.
         summary: SharedString,
-        /// The ink-3 detail after the summary.
+        /// The fg-muted detail after the summary.
         detail: Option<SharedString>,
         /// The elapsed pill.
         elapsed: SharedString,

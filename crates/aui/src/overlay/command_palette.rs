@@ -32,8 +32,8 @@ const SCRIM_PAD_TOP: f32 = 56.0;
 use super::{SCRIM_TINT_BOTTOM, SCRIM_TINT_TOP};
 const SCRIM_ANGLE: f32 = 180.0;
 
-/// `.pal{width:560px;border-radius:var(--r-xl)}` on v3's Dialog level with the
-/// dialog shadow (the edge plus one deep drop), no drawn border.
+/// `.pal{width:560px;border-radius:var(--r-xl)}` on the Dialog level (`surface-2`) with the
+/// dialog shadow (one deep drop) and a 1 px `line-strong` border.
 const PAL_W: f32 = 560.0;
 /// `@keyframes in{from{opacity:0;transform:translateY(-6px) scale(.985)}}` —
 /// the palette drops in from 6 px above at 98.5 % of its width.
@@ -90,7 +90,7 @@ type DismissHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 /// dot for worktrees, a project mark for projects.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PaletteIcon {
-    /// A line icon from the sprite (ink-3, ink when the row is highlighted).
+    /// A line icon from the sprite (fg-muted, ink when the row is highlighted).
     Glyph(IconName),
     /// A 7 px status dot in the agent state's colour.
     Dot(AgentState),
@@ -341,6 +341,8 @@ impl RenderOnce for CommandPalette {
             .w(px(PAL_W * style.scale))
             .rounded(px(scale::R_XL))
             .bg(p.surface(aui_tokens::Palette::DIALOG_LEVEL))
+            .border_1()
+            .border_color(p.line_strong)
             .shadow(p.dialog_shadow())
             .overflow_hidden()
             .text_color(p.ink)
@@ -429,7 +431,7 @@ impl RenderOnce for CommandPalette {
                     .pb(px(CAPS_PAD_BOTTOM))
                     .text_role(TextRole::Caps)
                     .line_height(gpui::relative(scale::LH_UI))
-                    .text_color(p.ink_3)
+                    .text_color(p.fg_muted)
                     .child(section.title.to_uppercase()),
             );
             // The lead is not a row: it draws under the title with the
@@ -500,7 +502,7 @@ fn query_row(
         .border_b_1()
         .border_color(p.line)
         .ui(Q_TEXT)
-        .child(icon(IconName::Search).size(px(Q_ICON)).color(p.ink_3))
+        .child(icon(IconName::Search).size(px(Q_ICON)).color(p.fg_muted))
         .child(text)
         .child(esc)
 }
@@ -527,7 +529,7 @@ fn palette_row(
     // The one lit row (the pointer's or the keys') paints the hover look
     // through the one model; the pointer's own refinement is off, so a
     // resting pointer never lights a second row.
-    let glyph_color = if on { p.ink } else { p.ink_3 };
+    let glyph_color = if on { p.ink } else { p.fg_muted };
 
     let mut row = h_flex()
         .id(id.clone())
@@ -537,7 +539,7 @@ fn palette_row(
         .gap(px(ITEM_GAP))
         .px(px(ITEM_PAD_X))
         .rounded(px(scale::R_SM))
-        .paint_states(StatePaint::new().pointer(false).highlighted(on).ink(p.ink_2, p.ink), p)
+        .paint_states(StatePaint::new().pointer(false).highlighted(on).ink(p.fg_muted, p.ink), p)
         .ui(scale::FS_13)
         .cursor_pointer();
     // The old per-section block ended in bottom padding; the flattened body
@@ -578,7 +580,7 @@ fn palette_row(
     if let Some(context) = item.context {
         // The context yields after the label: a long snippet truncates
         // inside the row instead of running past the card's right edge.
-        row = row.child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().mono(CONTEXT_TEXT).text_color(p.ink_3).child(context));
+        row = row.child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().mono(CONTEXT_TEXT).text_color(p.fg_muted).child(context));
     }
     if let Some(badge) = item.badge {
         row = row.child(pill(badge).variant(PillVariant::Warning).height(BADGE_H));
@@ -618,7 +620,7 @@ fn footer(p: &Palette) -> impl IntoElement {
         .border_t_1()
         .border_color(p.line)
         .ui(FT_TEXT)
-        .text_color(p.ink_3)
+        .text_color(p.fg_muted)
         .child(footer_hint("↑↓", "navigate"))
         .child(footer_hint("↩", "open"))
         .child(footer_hint("⌘↩", "open to the side"))

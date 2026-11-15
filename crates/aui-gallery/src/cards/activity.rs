@@ -64,7 +64,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .mt(px(scale::SP_4) - px(BLOCK_GAP))
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("The header shows a shimmering status while working and a plain count when done; the row of step glyphs is the whole run at a glance. Expanded, each step is one line with verb, mono target and a right-aligned result. Steps pulse in accent while running and never show raw output here, that lives in the tool card."),
         )
         .into_any_element()

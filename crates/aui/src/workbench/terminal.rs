@@ -194,7 +194,7 @@ impl BlockTerminal {
     }
 }
 
-/// One output line as mono text runs on the terminal palette (ink-2 base).
+/// One output line as mono text runs on the terminal palette (fg-muted base).
 fn output_line(p: &Palette, line: &str, base: gpui::Hsla) -> impl IntoElement {
     let spans = parse_ansi(line);
     let (text, mut runs) = ansi_runs(&spans, p, scale::FONT_MONO);
@@ -256,7 +256,7 @@ fn block(p: &Palette, root: &ElementId, b: &TermBlock, on_action: Option<ActionH
                 .ui(WHO_TEXT)
                 .line_height(relative(1.0))
                 .medium()
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(provider_mark(agent).size(px(WHO_MARK)))
                 .child(agent_label(agent)),
         );
@@ -270,7 +270,7 @@ fn block(p: &Palette, root: &ElementId, b: &TermBlock, on_action: Option<ActionH
     dur = dur.child(b.duration.clone());
     cmd = cmd.child(dur);
 
-    let base_ink = if failed { p.ink } else { p.ink_2 };
+    let base_ink = if failed { p.ink } else { p.fg_muted };
     let mut out = v_flex().w_full().pt(px(OUT_PAD_TOP)).pr(px(OUT_PAD_RIGHT)).pb(px(OUT_PAD_BOTTOM)).pl(px(OUT_PAD_LEFT)).text_color(base_ink);
     for line in &b.output {
         out = out.child(output_line(p, line, base_ink));
@@ -301,7 +301,7 @@ fn block(p: &Palette, root: &ElementId, b: &TermBlock, on_action: Option<ActionH
                 .pl(px(OUT_PAD_LEFT))
                 .ui(scale::FS_11)
                 .line_height(relative(1.0))
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .cursor_pointer()
                 .on_click(move |_, w, cx| {
                     if let Some(h) = &unfold {
@@ -362,7 +362,7 @@ impl RenderOnce for BlockTerminal {
         if let Some(marker) = self.marker {
             let rule = || div().flex_1().h(px(1.0)).bg(p.line);
             scroll = scroll.child(
-                h_flex().w_full().gap(px(MARKER_GAP)).px(px(MARKER_PAD)).ui(MARKER_TEXT).text_color(p.ink_3).whitespace_nowrap().child(rule()).child(marker).child(rule()),
+                h_flex().w_full().gap(px(MARKER_GAP)).px(px(MARKER_PAD)).ui(MARKER_TEXT).text_color(p.fg_muted).whitespace_nowrap().child(rule()).child(marker).child(rule()),
             );
         }
         for b in &self.blocks {
@@ -385,7 +385,7 @@ impl RenderOnce for BlockTerminal {
                 .child(div().semibold().text_color(p.accent).child("$"))
                 .child(div().child(prompt.text))
                 .child(div().flex_none().w(px(CURSOR_W)).h(px(CURSOR_H)).bg(p.term_cursor).opacity(if on { 1.0 } else { 0.0 }));
-            let mut ctx = h_flex().flex_none().gap(px(CTX_GAP)).ui(CTX_TEXT).line_height(relative(1.0)).medium().text_color(p.ink_3);
+            let mut ctx = h_flex().flex_none().gap(px(CTX_GAP)).ui(CTX_TEXT).line_height(relative(1.0)).medium().text_color(p.fg_muted);
             for tag in prompt.context {
                 ctx = ctx.child(tag);
             }

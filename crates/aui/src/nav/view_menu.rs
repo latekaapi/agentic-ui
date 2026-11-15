@@ -28,7 +28,7 @@ pub enum MenuRow {
     Submenu {
         /// The left label.
         label: SharedString,
-        /// The current choice, ink-3 at the right.
+        /// The current choice, fg-muted at the right.
         value: SharedString,
         /// The submenu is open: surface-2 ground.
         highlighted: bool,

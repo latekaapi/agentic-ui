@@ -192,7 +192,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             AnnotationNote { index: 3, at: (1180.0, 70.0), selector: "div.card.enterprise".into(), note: "Drop the “Contact us” button here; link the text instead.".into() },
         ],
     };
-    let note = |text: &'static str| div().max_w(px(NOTE_MEASURE)).ui(scale::FS_12).text_color(p.ink_3).child(text);
+    let note = |text: &'static str| div().max_w(px(NOTE_MEASURE)).ui(scale::FS_12).text_color(p.fg_muted).child(text);
     v_flex()
         .w_full()
         .gap(px(TURN_GAP))

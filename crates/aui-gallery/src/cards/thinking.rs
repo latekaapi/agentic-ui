@@ -46,7 +46,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .mt(px(scale::SP_4) - px(BLOCK_GAP))
                 .max_w(px(NOTE_MEASURE))
                 .ui(scale::FS_12)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("D4: a quiet row — no surface. While it streams, \"Thinking\" shimmers with its elapsed and the trace shows capped, 32 in from the measure, under a 34 px top fade; once done it reads \"Thought for 4.2 s · summary\" and the whole row toggles the trace."),
         )
         .into_any_element()

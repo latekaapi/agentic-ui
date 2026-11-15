@@ -117,7 +117,7 @@ fn status_panel(p: &Palette, caption: &'static str, id: &'static str, width: f32
     v_flex()
         .flex_none()
         .w(px(width))
-        .child(div().mb(px(CAPTION_GAP)).ui(scale::FS_12).text_color(p.ink_3).child(caption))
+        .child(div().mb(px(CAPTION_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child(caption))
         .child(list)
 }
 
@@ -145,12 +145,12 @@ fn detail_example(p: &Palette) -> impl IntoElement {
         .branch("feature/auth-refresh")
         .turns(5)
         .updated("8m ago");
-    v_flex().w_full().gap(px(CAPTION_GAP)).child(div().ui(scale::FS_12).text_color(p.ink_3).child("Hover detail")).child(
+    v_flex().w_full().gap(px(CAPTION_GAP)).child(div().ui(scale::FS_12).text_color(p.fg_muted).child("Hover detail")).child(
         h_flex().w_full().items_start().gap(px(WRAP_GAP)).child(list).child(card),
     )
 }
 
-/// The legend: 12 px ink-2 paragraphs led by an ink 600 word.
+/// The legend: 12 px fg-muted paragraphs led by an ink 600 word.
 fn legend(p: Palette) -> impl IntoElement {
     let items = [
         ("Header", " holds the workspace switcher and three quiet actions. The sliders icon on the Workspaces row opens the view options (see Sidebar views)."),
@@ -164,7 +164,7 @@ fn legend(p: Palette) -> impl IntoElement {
         .pt(px(LEGEND_TOP))
         .gap(px(LEGEND_GAP))
         .ui(scale::FS_12)
-        .text_color(p.ink_2);
+        .text_color(p.fg_muted);
     for (lead, rest) in items {
         col = col.child(crate::cards::rows::lead_paragraph(p, lead, rest));
     }

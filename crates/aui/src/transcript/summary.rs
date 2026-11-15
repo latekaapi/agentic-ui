@@ -35,7 +35,7 @@ const CHECKS_PAD_BOTTOM: f32 = 10.0;
 const CHECK_GLYPH: f32 = 12.0;
 const CHECK_LABEL_GAP: f32 = 4.0;
 /// `.actions{gap:8px;padding:10px 12px;border-top:1px solid line}` with an
-/// 11 px ink-3 hint (`.actions .hint`).
+/// 11 px fg-muted hint (`.actions .hint`).
 const ACTIONS_GAP: f32 = 8.0;
 const ACTIONS_PAD_Y: f32 = 8.0;
 
@@ -92,9 +92,9 @@ impl SummaryCard {
 /// `.st`: the M / A / D letter and its colour (warning / success / danger).
 fn change_letter(kind: ChangeKind, p: &Palette) -> (&'static str, gpui::Hsla) {
     match kind {
-        ChangeKind::Modified => ("M", p.ink_2),
+        ChangeKind::Modified => ("M", p.fg_muted),
         ChangeKind::Added => ("A", p.success),
-        ChangeKind::Deleted => ("D", p.ink_2),
+        ChangeKind::Deleted => ("D", p.fg_muted),
     }
 }
 
@@ -140,7 +140,7 @@ impl RenderOnce for SummaryCard {
         }
 
         // The checks as one muted caption line with success ticks, 12 apart.
-        let mut checks = h_flex().w_full().px(px(PAD_X)).pb(px(CHECKS_PAD_BOTTOM)).gap(px(CHECKS_GAP)).ui(scale::FS_12).text_color(p.ink_2);
+        let mut checks = h_flex().w_full().px(px(PAD_X)).pb(px(CHECKS_PAD_BOTTOM)).gap(px(CHECKS_GAP)).ui(scale::FS_12).text_color(p.fg_muted);
         for check in &self.checks {
             let (glyph, colour) = if check.passed { (IconName::Check, p.success) } else { (IconName::X, p.danger) };
             checks = checks.child(
@@ -152,7 +152,7 @@ impl RenderOnce for SummaryCard {
             );
         }
 
-        let mut card = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_1)
+        let mut card = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
             .overflow_hidden()
             .child(head)
             .when(!self.files.is_empty(), |d| d.child(files))

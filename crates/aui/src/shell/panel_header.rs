@@ -1,5 +1,5 @@
 //! `.hd` of a floating or docked panel outside the shell: 36 px, grip, icon,
-//! title 600, subtitle ink-3, spacer, quiet xs actions.
+//! title 600, subtitle fg-muted, spacer, quiet xs actions.
 
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
@@ -43,7 +43,7 @@ impl PanelHeader {
         self
     }
 
-    /// The ink-3 subtitle after the title.
+    /// The fg-muted subtitle after the title.
     pub fn subtitle(mut self, subtitle: impl Into<SharedString>) -> Self {
         self.subtitle = Some(subtitle.into());
         self
@@ -108,7 +108,7 @@ impl RenderOnce for PanelHeader {
         }
         row = row.child(div().semibold().whitespace_nowrap().child(self.title));
         if let Some(subtitle) = self.subtitle {
-            row = row.child(div().text_color(p.ink_3).min_w(px(0.0)).truncate().child(subtitle));
+            row = row.child(div().text_color(p.fg_muted).min_w(px(0.0)).truncate().child(subtitle));
         }
         row.child(div().flex_1()).children(self.actions)
     }

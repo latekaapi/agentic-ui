@@ -128,27 +128,6 @@ impl Palette {
         ]
     }
 
-    /// The shadow recipe for FF level `level` (1–8, clamped; 0 = none).
-    /// Light is Fluid Functionalism's ladder: a 6 % hairline plus stacked
-    /// drops at 6 %. Dark is v3 (docs/31a §0 "v3 overrides"): each FF
-    /// level maps to its v3 equivalent — 1, 2, 4 = the edge (nested
-    /// surfaces, the tabs indicator), 3 = float (FF's popup level),
-    /// 5–8 = dialog.
-    pub fn shadow(&self, level: u8) -> Vec<gpui::BoxShadow> {
-        let layers = match level {
-            0 => &[][..],
-            1 => self.shadow_1,
-            2 => self.shadow_2,
-            3 => self.shadow_3,
-            4 => self.shadow_4,
-            5 => self.shadow_5,
-            6 => self.shadow_6,
-            7 => self.shadow_7,
-            _ => self.shadow_8,
-        };
-        layers_to_shadows(layers)
-    }
-
     /// The pending-dialog attention border: the status colour at 70 % alpha,
     /// as the design rules require (no halo, no glow).
     pub fn attention_border(&self, color: gpui::Hsla) -> gpui::Hsla {
@@ -177,9 +156,10 @@ impl Palette {
         }
     }
 
-    /// The hover tint (FF `--hover`): white at 6 % in dark (lightens), black
-    /// at 4 % in light (darkens). Surface-relative: paint it over whatever
-    /// step it sits on. Selected / pressed are FF's `--active` (10 % / 7 %).
+    /// The hover tint: white at 6 % in dark (lightens), black at 4 % in
+    /// light (darkens). Surface-relative: paint it over whatever step it
+    /// sits on. The ladder is hover < selected < pressed in both themes
+    /// (dark 6 / 12 / 16 %, light 4 / 7 / 10 %; docs/83 §2.1).
     pub fn hover_overlay(&self) -> gpui::Hsla {
         if self.is_dark() {
             gpui::white().alpha(scale::OV_HOVER_DARK)
@@ -222,16 +202,6 @@ impl Palette {
         }
     }
 
-    /// The hairline (FF `--border`): foreground at 12 %, both themes.
-    pub fn ring(&self) -> gpui::Hsla {
-        self.line
-    }
-
-    /// The hovered hairline: foreground at 18 %.
-    pub fn ring_hover(&self) -> gpui::Hsla {
-        self.line_strong
-    }
-
     /// The surface step `offset` stairs above `step`, capped at 8. A popover
     /// over a step-2 row opens on `elevated(2, 3)` = step 5.
     pub fn elevated(step: u8, offset: u8) -> u8 {
@@ -239,46 +209,28 @@ impl Palette {
     }
 
     /// The level every floating surface paints — menus, pills, popovers,
-    /// toasts, the peek: v3's **Floating** (#2C2C32), whatever it opens
-    /// over, so a popup reads as one three layers down without stacked
-    /// drops. In light, steps 3–8 are all white, so this changes nothing.
+    /// toasts, the peek: `surface-5` (= `overlay`), whatever it opens over.
     pub const FLOATING_LEVEL: u8 = 5;
 
     /// The level of a dialog, the ⌘K palette and anything over a scrim:
-    /// v3's **Dialog** (#35353C).
-    pub const DIALOG_LEVEL: u8 = 6;
+    /// `surface-2` (docs/83 §2.1 "dialogs"), told apart from the dimmed
+    /// ground by its `line-strong` border and the dialog shadow.
+    pub const DIALOG_LEVEL: u8 = 2;
 
-    /// The one edge every v3 surface carries (dark): a 7 % white top
-    /// highlight and a 6 % white ring, both inset. Light keeps FF's 6 %
-    /// hairline until light is designed.
-    pub fn edge(&self) -> Vec<gpui::BoxShadow> {
-        layers_to_shadows(self.shadow_edge)
-    }
-
-    /// The shadow of anything that floats over content — dropdowns,
-    /// popovers, pills, toasts, hover cards: the edge plus one soft drop
-    /// (dark: `0 8px 24px -10px` at 40 %), constant whatever depth the
-    /// popup opens at. Light keeps FF's `shadow-3`.
+    /// The one shadow of anything that floats over content — dropdowns,
+    /// popovers, pills, toasts, hover cards, the peek: one soft drop
+    /// (`0 8px 24px -8px`, black 50 % dark / 16 % light; docs/83 §2.3).
+    /// It carries no edge: a floating surface draws its own 1 px
+    /// `line-strong` border beside this shadow.
     pub fn floating_shadow(&self) -> Vec<gpui::BoxShadow> {
         layers_to_shadows(self.shadow_float)
     }
 
-    /// The dialog's shadow: the edge plus one deep drop (dark:
-    /// `0 24px 56px -16px` at 50 %). Light keeps FF's `shadow-5`.
+    /// The dialog's shadow: one deep drop (`0 24px 64px -16px`, black 60 %
+    /// dark / 22 % light). Like [`Palette::floating_shadow`] it carries no
+    /// edge; the dialog draws a 1 px `line-strong` border.
     pub fn dialog_shadow(&self) -> Vec<gpui::BoxShadow> {
         layers_to_shadows(self.shadow_dialog)
-    }
-
-    /// The shadow of a surface at `step` that sits *in* another (not
-    /// floating). Dark (v3): nested surfaces cast nothing — every level
-    /// above the frame carries just [`Palette::edge`], the frame (step 1)
-    /// nothing. Light: FF's 1:1 pairing, `shadow-N` for `bg-surface-N`.
-    pub fn elevation_shadow(&self, step: u8) -> Vec<gpui::BoxShadow> {
-        if self.is_dark() {
-            if step <= 1 { Vec::new() } else { self.edge() }
-        } else {
-            self.shadow(step.clamp(1, 8))
-        }
     }
 }
 
@@ -341,34 +293,20 @@ mod tests {
     }
 
     #[test]
-    fn shadows_follow_the_ff_ladder() {
-        // Light: a 6 % hairline plus one stacked drop per level above 1.
-        for n in 1..=8u8 {
-            assert_eq!(light().shadow(n).len(), n as usize);
-        }
-        assert_eq!(light().shadow_3[2].y, 3.0);
-        assert_eq!(light().shadow_3[2].spread, -1.5);
-        // Dark is v3 (canvas "Baaz v3", docs/31a §0): one edge — a 7 % top
-        // highlight and a 6 % ring, both inset — and two drops.
+    fn two_shadows_each_one_drop_and_no_edge() {
+        // docs/83 §2.3: eleven tokens became two. Each is a single outer
+        // drop; neither carries an inset ring or a top highlight (the
+        // floating surface draws a 1 px `line-strong` border instead).
         let d = dark();
-        let hi = d.shadow_edge[0];
-        assert!(hi.inset && hi.y == 1.0 && hi.blur == 0.0 && (hi.color.a - 0.07).abs() < 1e-6);
-        let ring = d.shadow_edge[1];
-        assert!(ring.inset && ring.y == 0.0 && ring.spread == 1.0 && (ring.color.a - 0.06).abs() < 1e-6);
-        let float = d.shadow_float[2];
-        assert!(!float.inset && (float.y, float.blur, float.spread) == (8.0, 24.0, -10.0) && (float.color.a - 0.4).abs() < 1e-6);
-        let dialog = d.shadow_dialog[2];
-        assert!(!dialog.inset && (dialog.y, dialog.blur, dialog.spread) == (24.0, 56.0, -16.0) && (dialog.color.a - 0.5).abs() < 1e-6);
-        // FF's levels map onto them: 1, 2, 4 = edge; 3 = float; 5–8 = dialog.
-        for (n, recipe) in [(1, d.shadow_edge), (2, d.shadow_edge), (3, d.shadow_float), (4, d.shadow_edge), (5, d.shadow_dialog), (8, d.shadow_dialog)] {
-            assert_eq!(d.shadow(n), layers_to_shadows(recipe), "dark shadow-{n}");
-        }
-        assert_eq!(d.floating_shadow(), layers_to_shadows(d.shadow_float));
-        assert_eq!(d.dialog_shadow(), layers_to_shadows(d.shadow_dialog));
-        // Nested surfaces cast nothing but the edge; the frame not even that.
-        assert!(d.elevation_shadow(1).is_empty());
-        for n in 2..=8 {
-            assert_eq!(d.elevation_shadow(n), d.edge());
+        let l = light();
+        for (pal, float_a, dialog_a) in [(d, 0.50, 0.60), (l, 0.16, 0.22)] {
+            assert_eq!(pal.shadow_float.len(), 1);
+            assert_eq!(pal.shadow_dialog.len(), 1);
+            let f = pal.shadow_float[0];
+            assert!(!f.inset && (f.x, f.y, f.blur, f.spread) == (0.0, 8.0, 24.0, -8.0) && (f.color.a - float_a).abs() < 1e-6);
+            let g = pal.shadow_dialog[0];
+            assert!(!g.inset && (g.x, g.y, g.blur, g.spread) == (0.0, 24.0, 64.0, -16.0) && (g.color.a - dialog_a).abs() < 1e-6);
+            assert!(pal.floating_shadow().iter().chain(pal.dialog_shadow().iter()).all(|s| !s.inset));
         }
     }
 
@@ -408,10 +346,12 @@ mod tests {
         // concentric for the 4 px popup inset (10 = 6 + 4).
         assert_eq!(scale::SHAPE_CONTAINER, 10.0);
         assert_eq!(scale::SHAPE_ITEM, 6.0);
-        assert_eq!(scale::OV_HOVER_DARK, 0.05);
-        assert_eq!(scale::OV_PRESSED_LIGHT, 0.07);
-        assert_eq!(scale::RING_DARK, 0.08);
-        assert_eq!(scale::RING_HOVER_DARK, 0.13);
+        assert_eq!(scale::OV_HOVER_DARK, 0.06);
+        assert_eq!(scale::OV_PRESSED_LIGHT, 0.10);
+        // docs/83 §2.4/§2.5 names (applied by task 2.10).
+        assert_eq!((scale::T_READ_FS, scale::T_READ_LH), (16.0, 26.0));
+        assert_eq!((scale::T_READ_MONO_FS, scale::T_READ_MONO_LH), (13.5, 22.0));
+        assert_eq!((scale::ROW_GAP, scale::LIST_INSET, scale::R_8), (2.0, 8.0, 8.0));
     }
 
     #[test]
@@ -450,7 +390,6 @@ mod tests {
         assert!(!light().is_dark());
         // The two-colour text rule has names.
         assert_eq!(light().fg, light().ink);
-        assert_eq!(light().fg_muted, light().ink_3);
         assert_eq!(dark().fg, dark().ink);
     }
 
@@ -463,15 +402,18 @@ mod tests {
         assert!((d.pressed_overlay().a - scale::OV_PRESSED_DARK).abs() < 1e-6);
         assert!((l.hover_overlay().a - scale::OV_HOVER_LIGHT).abs() < 1e-6);
         assert!((l.pressed_overlay().a - scale::OV_PRESSED_LIGHT).abs() < 1e-6);
-        // White over dark (v3: 5 / 9 / 12 %), black over light (FF: 4 % / 7 %).
+        // White over dark, black over light.
         assert!(d.hover_overlay().l > 0.99);
         assert!(l.hover_overlay().l < 0.01);
-        assert_eq!((scale::OV_HOVER_DARK, scale::OV_SELECTED_DARK, scale::OV_PRESSED_DARK), (0.05, 0.09, 0.12));
-        assert_eq!((scale::OV_HOVER_LIGHT, scale::OV_SELECTED_LIGHT), (0.04, 0.07));
-        // The line: v3 draws none on a surface edge, only inside one, at
-        // white 7 %; light draws its lines at black 7 % (docs/43 §2.8).
-        assert_eq!(d.ring(), d.line);
-        assert!((d.line.a - 0.07).abs() < 1e-6 && (l.line.a - 0.07).abs() < 1e-6);
+        // docs/83 §2.1: hover < selected < pressed, in both themes.
+        assert_eq!((scale::OV_HOVER_DARK, scale::OV_SELECTED_DARK, scale::OV_PRESSED_DARK), (0.06, 0.12, 0.16));
+        assert_eq!((scale::OV_HOVER_LIGHT, scale::OV_SELECTED_LIGHT, scale::OV_PRESSED_LIGHT), (0.04, 0.07, 0.10));
+        // Lines are solid colours, not alphas (docs/83 §2.1).
+        for pal in [d, l] {
+            for c in [pal.line, pal.line_region, pal.line_strong] {
+                assert!((c.a - 1.0).abs() < 1e-6);
+            }
+        }
     }
 
     #[test]
@@ -482,46 +424,32 @@ mod tests {
     }
 
     #[test]
-    fn light_elevation_shadow_pairs_each_level_with_its_recipe() {
-        for p in [light()] {
-            for n in 1..=8u8 {
-                assert_eq!(p.elevation_shadow(n), p.shadow(n));
-            }
-        }
-    }
-
-    #[test]
-    fn surfaces_are_v3_dark_and_d6_light() {
+    fn surfaces_are_the_flat_palette() {
         let hex = |c: gpui::Hsla| {
             let r: gpui::Rgba = c.into();
             format!("#{:02X}{:02X}{:02X}", (r.r * 255.0).round() as u8, (r.g * 255.0).round() as u8, (r.b * 255.0).round() as u8)
         };
+        // docs/83 §2.1 (dark, measured from the reference).
         let d = dark();
-        // v3: frame, sheet, raised, raised-lit, floating, dialog (7 and 8 clamp to dialog).
-        let want = ["#121215", "#1B1B1F", "#232328", "#2A2A30", "#2C2C32", "#35353C", "#35353C", "#35353C"];
+        let want = ["#191919", "#1F1F1F", "#252525", "#2A2A2A", "#303030", "#3A3A3A", "#3A3A3A", "#3A3A3A"];
         for (i, w) in want.iter().enumerate() {
             assert_eq!(hex(d.surface((i + 1) as u8)), *w);
         }
-        assert_eq!((hex(d.fg), hex(d.fg_muted), hex(d.ink_4)), ("#F2F2F4".into(), "#9D9DA6".into(), "#6E6E78".into()));
-        assert_eq!((hex(d.well), hex(d.overlay)), ("#151518".into(), "#2C2C32".into()));
-        assert_eq!(hex(d.surface(Palette::FLOATING_LEVEL)), "#2C2C32");
-        assert_eq!(hex(d.surface(Palette::DIALOG_LEVEL)), "#35353C");
+        assert_eq!((hex(d.fg), hex(d.fg_muted), hex(d.ink_4)), ("#EFEFEF".into(), "#9C9C9C".into(), "#6E6E6E".into()));
+        assert_eq!((hex(d.well), hex(d.overlay), hex(d.sidebar)), ("#141414".into(), "#303030".into(), "#232323".into()));
+        assert_eq!((hex(d.line), hex(d.line_region), hex(d.line_strong)), ("#2A2A2A".into(), "#353535".into(), "#404040".into()));
+        assert_eq!(hex(d.accent_ring), "#4C82E0");
+        assert_eq!(hex(d.surface(Palette::FLOATING_LEVEL)), "#303030");
+        assert_eq!(hex(d.surface(Palette::DIALOG_LEVEL)), "#1F1F1F");
+        // docs/83 §2.2 (light, derived).
         let l = light();
-        // Light, first drawn for D6 (docs/43 §2.8): frame, sheet, raised, raised-lit, floating.
-        let want = ["#ECECEF", "#FAFAFB", "#FFFFFF", "#F3F3F5", "#FFFFFF"];
+        let want = ["#FFFFFF", "#FAFAFA", "#F3F3F3", "#EEEEEE", "#FFFFFF", "#E8E8E8", "#E8E8E8", "#E8E8E8"];
         for (i, w) in want.iter().enumerate() {
             assert_eq!(hex(l.surface((i + 1) as u8)), *w);
         }
-        assert_eq!((hex(l.fg), hex(l.fg_muted), hex(l.ink_4)), ("#18181B".into(), "#63636D".into(), "#9A9AA4".into()));
-        assert_eq!(hex(l.well), "#F2F2F4");
-    }
-
-    #[test]
-    fn floating_shadow_is_the_constant_shadow_3() {
-        // Dark: v3 maps FF's popup level (3) to the float recipe. Light keeps
-        // FF's ladder; its float is the D6 recipe (docs/43 §2.8): ring + one drop.
-        let d = dark();
-        assert_eq!(d.floating_shadow(), d.shadow(3));
-        assert_eq!(light().floating_shadow().len(), 2);
+        assert_eq!((hex(l.fg), hex(l.fg_muted), hex(l.ink_4)), ("#1A1A1A".into(), "#666666".into(), "#9A9A9A".into()));
+        assert_eq!((hex(l.well), hex(l.overlay), hex(l.sidebar)), ("#F7F7F7".into(), "#FFFFFF".into(), "#F6F6F6".into()));
+        assert_eq!((hex(l.line), hex(l.line_region), hex(l.line_strong)), ("#EBEBEB".into(), "#E2E2E2".into(), "#D4D4D4".into()));
+        assert_eq!(hex(l.accent_ring), "#2F6FDB");
     }
 }

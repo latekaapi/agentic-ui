@@ -57,13 +57,15 @@ fn colors(p: &Palette, kind: ThemeKind) -> Map<String, Value> {
         ("primary.background", p.accent),
         ("primary.hover.background", p.accent_strong),
         ("primary.active.background", p.accent_ink),
-        ("primary.foreground", white()),
+        // The accent is ink on the ground (#EFEFEF dark, #1A1A1A light), so
+        // its text is the ground colour: dark text on a light fill and back.
+        ("primary.foreground", p.bg),
         ("secondary.background", p.surface_2),
         ("secondary.hover.background", p.surface_3),
         ("secondary.active.background", p.surface_3),
         ("secondary.foreground", p.ink),
         ("muted.background", p.surface_2),
-        ("muted.foreground", p.ink_3),
+        ("muted.foreground", p.fg_muted),
         // Hover accents on menu / list items are a surface step, never an accent wash.
         ("accent.background", p.surface_3),
         ("accent.foreground", p.ink),
@@ -76,7 +78,7 @@ fn colors(p: &Palette, kind: ThemeKind) -> Map<String, Value> {
         ("button.primary.background", p.accent),
         ("button.primary.hover.background", p.accent_strong),
         ("button.primary.active.background", p.accent_ink),
-        ("button.primary.foreground", white()),
+        ("button.primary.foreground", p.bg),
         ("button.secondary.background", p.surface_2),
         ("button.secondary.hover.background", p.surface_3),
         ("button.secondary.active.background", p.surface_3),
@@ -106,13 +108,13 @@ fn colors(p: &Palette, kind: ThemeKind) -> Map<String, Value> {
         ("overlay", scrim),
         ("window.border", p.line),
         // Sidebar.
-        ("sidebar.background", p.surface_1),
+        ("sidebar.background", p.sidebar),
         ("sidebar.foreground", p.ink),
         ("sidebar.border", p.line),
         ("sidebar.accent.background", p.surface_3),
         ("sidebar.accent.foreground", p.ink),
         ("sidebar.primary.background", p.accent),
-        ("sidebar.primary.foreground", white()),
+        ("sidebar.primary.foreground", p.bg),
         // Lists and tables: selected rows are a surface step.
         ("list.background", p.surface_1),
         ("list.hover.background", p.surface_2),
@@ -126,15 +128,15 @@ fn colors(p: &Palette, kind: ThemeKind) -> Map<String, Value> {
         ("table.active.border", p.line_strong),
         ("table.even.background", p.surface_1),
         ("table.head.background", p.surface_2),
-        ("table.head.foreground", p.ink_3),
+        ("table.head.foreground", p.fg_muted),
         ("table.foot.background", p.surface_2),
-        ("table.foot.foreground", p.ink_3),
+        ("table.foot.foreground", p.fg_muted),
         ("table.row.border", p.line),
-        // Tabs: indicator is ink, inactive ink-3.
+        // Tabs: indicator is ink, inactive fg-muted.
         ("tab.background", transparent()),
         ("tab.active.background", p.surface_1),
         ("tab.active.foreground", p.ink),
-        ("tab.foreground", p.ink_3),
+        ("tab.foreground", p.fg_muted),
         ("tab_bar.background", p.surface_1),
         ("tab_bar.segmented.background", p.surface_2),
         // Chrome.
@@ -146,17 +148,18 @@ fn colors(p: &Palette, kind: ThemeKind) -> Map<String, Value> {
         ("group_box.background", p.surface_2),
         ("group_box.foreground", p.ink),
         ("description_list.label.background", p.surface_2),
-        ("description_list.label.foreground", p.ink_3),
+        ("description_list.label.foreground", p.fg_muted),
         // Controls.
         ("link", p.accent_ink),
         ("link.hover", p.accent_strong),
         ("link.active", p.accent_ink),
-        ("progress.bar.background", p.ink_3),
+        ("progress.bar.background", p.fg_muted),
         ("slider.background", p.ink),
         ("slider.thumb.background", p.surface_1),
-        // FF switch: the off track is --accent (#525252 dark / #E5E5E5 light),
-        // the thumb white in both themes, on = the focus blue (set per call).
-        ("switch.background", if p.is_dark() { gpui::rgb(0x525252).into() } else { gpui::rgb(0xE5E5E5).into() }),
+        // Switch: the off track is `line-strong` (#404040 dark / #D4D4D4
+        // light; docs/83 §9), the thumb white in both themes, on = the focus
+        // blue (set per call).
+        ("switch.background", p.line_strong),
         ("switch.thumb.background", white()),
         ("skeleton.background", p.surface_3),
         ("scrollbar.background", transparent()),
@@ -305,7 +308,26 @@ mod tests {
         assert_eq!(set.themes[1].name.as_ref(), KIT_THEME_DARK);
         assert!(set.themes[1].mode.is_dark());
         assert_eq!(set.themes[0].font_family.as_deref(), Some("Inter"));
-        assert_eq!(set.themes[0].colors.primary.as_deref(), Some("#18181b"));
+        assert_eq!(set.themes[0].colors.primary.as_deref(), Some("#1a1a1a"));
         assert!(set.themes[0].highlight.is_some());
+    }
+
+    #[test]
+    fn primary_text_contrasts_with_its_fill_in_both_themes() {
+        for kind in [ThemeKind::Light, ThemeKind::Dark] {
+            let p = Palette::for_kind(kind);
+            let c = colors(&p, kind);
+            for (fill, text) in [("primary.background", "primary.foreground"), ("button.primary.background", "button.primary.foreground"), ("sidebar.primary.background", "sidebar.primary.foreground")] {
+                let l = |key: &str| {
+                    let v = c[key].as_str().unwrap();
+                    let n = u32::from_str_radix(&v[1..7], 16).unwrap();
+                    let h: Hsla = gpui::rgb(n).into();
+                    h.l
+                };
+                assert!((l(fill) - l(text)).abs() > 0.6, "{kind:?}: {text} does not contrast with {fill}");
+            }
+            // The switch's off track is a token, not gpui-kit's #525252.
+            assert_eq!(c["switch.background"].as_str().unwrap(), hex(p.line_strong));
+        }
     }
 }

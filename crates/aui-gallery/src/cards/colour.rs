@@ -24,7 +24,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                 .mt(px(12.0))
                 .max_w(px(632.0)) // 80ch at 12 px Geist
                 .text_role(TextRole::UiSmall)
-                .text_color(cx.aui().colors.ink_3)
+                .text_color(cx.aui().colors.fg_muted)
                 .child(
                     "Accent is iris (blue-violet) and is the only decorative hue. Status colours carry meaning only: \
                      success, warning, danger, info. Agent states map onto them: running = accent, needs-you = warning, \
@@ -50,7 +50,7 @@ fn theme_section(title: &'static str, p: Palette) -> impl IntoElement {
                 .text_role(TextRole::Caption)
                 .text_px(scale::FS_12)
                 .line_height(relative(scale::LH_UI)) // h3 inherits the body line height
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(title),
         )
         .child(swatches(p))
@@ -65,16 +65,16 @@ fn theme_section(title: &'static str, p: Palette) -> impl IntoElement {
 fn swatches(p: Palette) -> impl IntoElement {
     let rows: [[(&str, Hsla, Hsla); 4]; 3] = [
         [
-            ("bg", p.bg, p.ink_2),
-            ("surface-1", p.surface_1, p.ink_2),
-            ("surface-2", p.surface_2, p.ink_2),
-            ("surface-3", p.surface_3, p.ink_2),
+            ("bg", p.bg, p.fg_muted),
+            ("surface-1", p.surface_1, p.fg_muted),
+            ("surface-2", p.surface_2, p.fg_muted),
+            ("surface-3", p.surface_3, p.fg_muted),
         ],
         [
             ("ink", p.ink, p.bg),
-            ("ink-2", p.ink_2, gpui::white()),
-            ("ink-3", p.ink_3, gpui::white()),
-            ("line-strong", p.line_strong, p.ink_2),
+            ("fg-muted", p.fg_muted, gpui::white()),
+            ("fg-muted", p.fg_muted, gpui::white()),
+            ("line-strong", p.line_strong, p.fg_muted),
         ],
         [
             ("accent", p.accent, gpui::white()),
@@ -133,7 +133,7 @@ fn surface_ladder(p: Palette) -> impl IntoElement {
                 .text_px(10.0)
                 .line_height(relative(1.0))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child(format!("s{step}")),
         );
     }
@@ -146,7 +146,7 @@ fn surface_ladder(p: Palette) -> impl IntoElement {
                 .text_px(10.0)
                 .line_height(relative(1.0))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("Surface · eight steps, relative to the parent"),
         )
         .child(row)
@@ -199,7 +199,7 @@ fn overlay_grid(p: Palette) -> impl IntoElement {
                 .text_px(10.0)
                 .line_height(relative(1.0))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("Overlays · tint over the step beneath"),
         )
         .child(grid)
@@ -237,7 +237,7 @@ fn labels_row(p: Palette) -> impl IntoElement {
                 .text_px(10.0)
                 .line_height(relative(1.0))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(p.ink_3)
+                .text_color(p.fg_muted)
                 .child("Labels · project identity, never status"),
         )
         .child(row)
@@ -258,7 +258,7 @@ fn states(p: Palette, section: &'static str) -> impl IntoElement {
             h_flex()
                 .gap(px(6.0))
                 .text_role(TextRole::UiSmall)
-                .text_color(p.ink_2)
+                .text_color(p.fg_muted)
                 .child(pulse_ring(SharedString::from(format!("{section}-{label}")), px(7.0), color, pulse))
                 .child(label),
         );
