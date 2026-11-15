@@ -4,7 +4,7 @@
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
-use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::base::h_flex;
 
 use crate::interact::paint::{PaintHover, PaintStates, StatePaint};
 use crate::browse::{face::task_face, Pin, TabRowData, TaskFace};
@@ -25,7 +25,7 @@ const TILE_TEXT: f32 = 10.0;
 /// Pin tiles: 34 px squares in a 4-up grid.
 const PIN_TILE: f32 = 34.0;
 const PIN_GAP: f32 = 8.0;
-const PIN_COLS: usize = 4;
+const PIN_COLS: u16 = 4;
 /// The tab close `×`: 12 px glyph on an xs ghost button.
 const CLOSE_GLYPH: f32 = 12.0;
 /// Row titles: 12.5 px, like the sidebar rows.
@@ -80,39 +80,39 @@ impl RenderOnce for PinGrid {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let mut grid = v_flex().gap(px(PIN_GAP)).px(px(ROW_MARGIN_X));
-        for (chunk, pins) in self.pins.chunks(PIN_COLS).enumerate() {
-            let mut line = h_flex().gap(px(PIN_GAP));
-            for (i, pin) in pins.iter().enumerate() {
-                let tile_id: ElementId = (id.clone(), SharedString::from(format!("pin-{chunk}-{i}"))).into();
-                // Quiet at rest (border + letter only); hover is the one
-                // model's overlay.
-                let label: SharedString = format!("Pinned {}: {}", pin.position, pin.title).into();
-                record_ax_label(&label);
-                let key = pin.id.clone();
-                let mut tile = h_flex()
-                    .id(tile_id)
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .size(px(PIN_TILE))
-                    .rounded(px(scale::R_SM))
-                    .border_1()
-                    .border_color(p.line)
-                    .paint_states(StatePaint::new(), &p)
-                    .text_color(p.ink_2)
-                    .ui(scale::FS_13)
-                    .medium()
-                    .cursor_pointer()
-                    .role(gpui::Role::Button)
-                    .aria_label(label)
-                    .child(pin.letter.clone());
-                if let Some(on_select) = self.on_select.clone() {
-                    tile = tile.on_click(move |_, w, cx| on_select(&key, w, cx));
-                }
-                line = line.child(tile);
+        // Fixed-size tiles in content-sized columns: the grid packs its four
+        // tiles and their gaps against the left edge.
+        let mut grid = div().grid().grid_cols_max_content(PIN_COLS).gap(px(PIN_GAP)).px(px(ROW_MARGIN_X));
+        let cols = usize::from(PIN_COLS);
+        for (n, pin) in self.pins.iter().enumerate() {
+            // `pin-<row>-<column>`, the ids the row-by-row build gave.
+            let tile_id: ElementId = (id.clone(), SharedString::from(format!("pin-{}-{}", n / cols, n % cols))).into();
+            // Quiet at rest (border + letter only); hover is the one
+            // model's overlay.
+            let label: SharedString = format!("Pinned {}: {}", pin.position, pin.title).into();
+            record_ax_label(&label);
+            let key = pin.id.clone();
+            let mut tile = h_flex()
+                .id(tile_id)
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .size(px(PIN_TILE))
+                .rounded(px(scale::R_SM))
+                .border_1()
+                .border_color(p.line)
+                .paint_states(StatePaint::new(), &p)
+                .text_color(p.ink_2)
+                .ui(scale::FS_13)
+                .medium()
+                .cursor_pointer()
+                .role(gpui::Role::Button)
+                .aria_label(label)
+                .child(pin.letter.clone());
+            if let Some(on_select) = self.on_select.clone() {
+                tile = tile.on_click(move |_, w, cx| on_select(&key, w, cx));
             }
-            grid = grid.child(line);
+            grid = grid.child(tile);
         }
         grid
     }

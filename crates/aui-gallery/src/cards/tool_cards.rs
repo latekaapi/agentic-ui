@@ -5,7 +5,7 @@ use aui::protocol::{sample, Block};
 use aui::transcript::{tool_card, ToolCardIntent};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
-use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::base::v_flex;
 
 /// `.grid{grid-template-columns:1fr 1fr;gap:12px}`.
 const GRID_GAP: f32 = 12.0;
@@ -42,14 +42,9 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .into_any_element(),
         );
     }
-    // Rows of two, like the CSS grid: cards in a row share the row's height.
-    let mut rows = v_flex().w_full().gap(px(GRID_GAP));
-    let mut iter = cards.into_iter();
-    while let Some(left) = iter.next() {
-        let mut row = h_flex().w_full().items_stretch().gap(px(GRID_GAP)).child(div().flex_1().min_w(px(0.0)).flex().flex_col().child(left));
-        row = row.child(div().flex_1().min_w(px(0.0)).flex().flex_col().children(iter.next()));
-        rows = rows.child(row);
-    }
+    // The CSS grid: two equal columns; a card keeps its own height rather
+    // than stretching to its row.
+    let rows = div().grid().grid_cols(2).items_start().w_full().gap(px(GRID_GAP)).children(cards);
     v_flex()
         .w_full()
         .child(rows)

@@ -7,12 +7,13 @@
 //! turns an activation keystroke on a focused element into a `ClickEvent`, so
 //! the keyboard and the mouse run the same [`Button::on_click`] handler).
 //!
-//! gpui has no `:focus-visible`, so "the focus came from the keyboard" is
-//! approximated with one process-wide flag: any key pressed on a button turns
+//! "The focus came from the keyboard" is the library's own process-wide flag
+//! ([`crate::keys::keyboard_nav`]), not gpui's `focus_visible`, whose ring
+//! would drop on any pointer move: any key pressed on a button turns
 //! it on, any mouse press on a button turns it off, and the ring paints only
-//! while it is on. A mouse press on something that is not a button therefore
-//! does not clear it; the ring still never appears from a click on the button
-//! itself, which is what the design cares about.
+//! while it is on. A press elsewhere clears it only where the window root
+//! carries [`crate::keys::track_pointer`] (the app shell does); the ring
+//! never appears from a click on the button itself either way.
 
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};

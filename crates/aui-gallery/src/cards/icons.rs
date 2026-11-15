@@ -12,7 +12,7 @@ const SECTION_LABEL_GAP: f32 = 10.0;
 /// `.ig`, `.marks`{margin-bottom:18px}.
 const SECTION_GAP: f32 = 18.0;
 /// `.ig{grid-template-columns:repeat(12,1fr)}`.
-const GLYPH_COLUMNS: usize = 12;
+const GLYPH_COLUMNS: u16 = 12;
 /// `.ig{gap:10px 6px}` — row gap.
 const GLYPH_ROW_GAP: f32 = 10.0;
 /// `.ig{gap:10px 6px}` — column gap.
@@ -73,8 +73,7 @@ fn section_label(p: Palette, label: &'static str) -> impl IntoElement {
         .child(label.to_uppercase())
 }
 
-/// `.ig`: the glyph set on a twelve-column grid, built from equal-width flex
-/// cells because gpui has no CSS grid.
+/// `.ig`: the glyph set on a twelve-column grid.
 fn glyph_grid(p: Palette) -> impl IntoElement {
     let glyphs: [(IconName, &'static str); 24] = [
         (IconName::Terminal, "terminal"),
@@ -102,36 +101,31 @@ fn glyph_grid(p: Palette) -> impl IntoElement {
         (IconName::At, "mention"),
         (IconName::Slash, "command"),
     ];
-    let mut grid = v_flex()
+    div()
+        .grid()
+        .grid_cols(GLYPH_COLUMNS)
         .w_full()
         .mb(px(SECTION_GAP))
-        .gap(px(GLYPH_ROW_GAP));
-    for chunk in glyphs.chunks(GLYPH_COLUMNS) {
-        let mut row = h_flex().w_full().items_start().gap(px(GLYPH_COL_GAP));
-        for (name, label) in chunk {
-            row = row.child(
-                v_flex()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .items_center()
-                    .gap(px(GLYPH_LABEL_GAP))
-                    .child(icon(*name).size(px(GLYPH_SIZE)).color(p.ink))
-                    .child(
-                        div()
-                            .font_family(scale::FONT_MONO)
-                            .text_px(GLYPH_LABEL_SIZE)
-                            .line_height(relative(LH_FLAT))
-                            // The caption is a flex item in the CSS, so a long
-                            // word overflows its cell instead of wrapping.
-                            .whitespace_nowrap()
-                            .text_color(p.ink_3)
-                            .child(*label),
-                    ),
-            );
-        }
-        grid = grid.child(row);
-    }
-    grid
+        .gap_x(px(GLYPH_COL_GAP))
+        .gap_y(px(GLYPH_ROW_GAP))
+        .children(glyphs.into_iter().map(|(name, label)| {
+            v_flex()
+                .min_w(px(0.0))
+                .items_center()
+                .gap(px(GLYPH_LABEL_GAP))
+                .child(icon(name).size(px(GLYPH_SIZE)).color(p.ink))
+                .child(
+                    div()
+                        .font_family(scale::FONT_MONO)
+                        .text_px(GLYPH_LABEL_SIZE)
+                        .line_height(relative(LH_FLAT))
+                        // The caption is a flex item in the CSS, so a long
+                        // word overflows its cell instead of wrapping.
+                        .whitespace_nowrap()
+                        .text_color(p.ink_3)
+                        .child(label),
+                )
+        }))
 }
 
 /// `.marks`: the six provider marks with their names.

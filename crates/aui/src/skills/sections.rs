@@ -469,38 +469,33 @@ impl RenderOnce for SkillDetail {
 
         // The 2-column stats grid.
         if !self.stats.is_empty() {
-            let mut grid = crate::util::raised_block(v_flex()
+            let grid = crate::util::raised_block(div()
+                .grid()
+                .grid_cols(2)
+                // A row's cells centre on each other, as the flex rows did.
+                .items_center()
                 .flex_none()
                 .w_full()
-                .gap(px(STATS_GAP_Y))
+                .gap_x(px(STATS_GAP_X))
+                .gap_y(px(STATS_GAP_Y))
                 .mt(px(20.0))
                 .p(px(STATS_PAD_Y))
                 .px(px(STATS_PAD_X))
-                .rounded(px(scale::R_MD)), &p, p.surface_1);
-            for pair in self.stats.chunks(2) {
-                let mut row = h_flex().w_full().gap(px(STATS_GAP_X));
-                for (key, value) in pair {
-                    row = row.child(
-                        v_flex()
-                            .flex_1()
-                            .min_w(px(0.0))
-                            .child(div().flex_none().ui(STAT_KEY).text_color(p.ink_3).child(key.clone()))
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .ui(STAT_VALUE)
-                                    .line_height(relative(scale::LH_UI))
-                                    .text_color(p.ink)
-                                    .mt(px(2.0))
-                                    .child(value.clone()),
-                            ),
-                    );
-                }
-                if pair.len() == 1 {
-                    row = row.child(div().flex_1());
-                }
-                grid = grid.child(row);
-            }
+                .rounded(px(scale::R_MD)), &p, p.surface_1)
+            .children(self.stats.into_iter().map(|(key, value)| {
+                v_flex()
+                    .min_w(px(0.0))
+                    .child(div().flex_none().ui(STAT_KEY).text_color(p.ink_3).child(key))
+                    .child(
+                        div()
+                            .flex_none()
+                            .ui(STAT_VALUE)
+                            .line_height(relative(scale::LH_UI))
+                            .text_color(p.ink)
+                            .mt(px(2.0))
+                            .child(value),
+                    )
+            }));
             body = body.child(grid);
         }
 

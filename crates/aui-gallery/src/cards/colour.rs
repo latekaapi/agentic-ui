@@ -294,13 +294,10 @@ fn diff_pair(p: Palette) -> impl IntoElement {
 
 fn ansi_grid(p: Palette) -> impl IntoElement {
     let colors = p.ansi16();
-    let mut grid = v_flex().w_full().gap(px(4.0));
-    for row in colors.chunks(8) {
-        let mut r = h_flex().w_full().gap(px(4.0));
-        for c in row {
-            r = r.child(div().flex_1().h(px(18.0)).rounded(px(3.0)).bg(*c));
-        }
-        grid = grid.child(r);
-    }
-    grid
+    div()
+        .grid()
+        .grid_cols(8)
+        .w_full()
+        .gap(px(4.0))
+        .children(colors.into_iter().map(|c| div().h(px(18.0)).rounded(px(3.0)).bg(c)))
 }

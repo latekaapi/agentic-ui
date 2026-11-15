@@ -107,8 +107,9 @@ pub fn bind(cx: &mut App) {
     );
 }
 
-/// The `:focus-visible` approximation. gpui has no notion of it, so the library
-/// keeps one window-wide flag: the keyboard arms it (a key on a focusable
+/// The `:focus-visible` approximation. gpui 0.3.12's own `focus_visible`
+/// styles only the focused element (our ring is an outline drawn outside it)
+/// and drops on any pointer *move*, so the library keeps one window-wide flag: the keyboard arms it (a key on a focusable
 /// control, or a [`FocusNext`] / [`FocusPrev`] the application handles), a
 /// mouse press disarms it, and [`crate::data::Button`] draws its accent ring
 /// only while it is armed. [`track_pointer`] — which [`crate::shell::AppShell`]

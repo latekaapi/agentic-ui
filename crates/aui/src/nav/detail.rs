@@ -16,8 +16,8 @@
 //! warning-tinted border and fill, a small icon, `Asked:` / `Needs approval:`
 //! in semibold, then the question/command text wrapping up to three lines.
 //!
-//! gpui has no multi-line ellipsis, so the two excerpt budgets (ask: two
-//! lines, attention: three) are line budgets, not visual clamps: the card
+//! The two excerpt budgets (ask: two lines, attention: three) are line
+//! budgets, not visual clamps: the card
 //! keeps the first N newline-separated lines and appends an ellipsis when
 //! lines beyond the budget are dropped. Long lines wrap naturally. The title
 //! instead uses a real wrapped clamp (`line_clamp`, three laid-out lines) on
@@ -69,7 +69,7 @@ pub const SESSION_DETAIL_DELAY: Duration = durations::SLOW;
 pub const SESSION_DETAIL_WIDTH: f32 = 320.0;
 
 /// How many newline-separated lines the quoted ask keeps; further lines are
-/// dropped with an ellipsis (gpui has no multi-line ellipsis).
+/// dropped with an ellipsis.
 pub const SESSION_DETAIL_ASK_LINES: usize = 2;
 
 /// How many newline-separated lines the attention box keeps; further lines
