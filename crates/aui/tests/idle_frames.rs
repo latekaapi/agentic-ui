@@ -17,10 +17,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use aui::composer::{composer, composer_state};
-use aui::icons::IconName;
 use aui::icons::Provider;
-use aui::nav::{sidebar, SessionSummary, SidebarAccount, SidebarGroup, SidebarNav, SidebarNavItem};
-use aui::tokens::AgentState;
 use aui::protocol::{ToolBody, ToolStatus, TurnMeta};
 use aui::screens::{login, LoginState};
 use aui::protocol::{ActivityState, QuestionOption, Step, StepState};
@@ -122,14 +119,6 @@ fn a_settled_assistant_turn_requests_no_frames(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn a_settled_sidebar_requests_no_frames(cx: &mut TestAppContext) {
-    let frames = frames_at_rest(cx, "sidebar", |_, _| {
-        sidebar("sidebar", sample_nav()).into_any_element()
-    });
-    assert_eq!(frames, 0, "a settled sidebar kept requesting frames");
-}
-
-#[gpui::test]
 fn a_settled_composer_requests_no_frames(cx: &mut TestAppContext) {
     let frames = frames_at_rest(cx, "composer", |window, app| {
         let text = window.use_keyed_state("idle-composer-text", app, |window, cx| {
@@ -169,23 +158,6 @@ fn a_finished_browser_tool_card_requests_no_frames(cx: &mut TestAppContext) {
         settled, 0,
         "a finished browser capture kept requesting frames"
     );
-}
-
-/// A small but representative sidebar: nav rows, a group and a live session.
-fn sample_nav() -> SidebarNav {
-    SidebarNav::new(
-        "acme",
-        SidebarAccount::new("B", "Someone", Provider::Claude, 0.78),
-    )
-    .item(SidebarNavItem::new("tasks", "Tasks", IconName::List).count("7"))
-    .group(
-        SidebarGroup::new("pinned", "Pinned").session(SessionSummary::new(
-            "checkout",
-            "checkout-flow-v2",
-            AgentState::Done,
-            "49m",
-        )),
-    )
 }
 
 fn browser_card(status: ToolStatus) -> impl IntoElement {

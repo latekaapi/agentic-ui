@@ -41,7 +41,6 @@ impl Gallery {
         let colors = t.colors;
         let kind = t.kind;
         let density = t.density;
-        let text_scale = t.text_scale;
         TitleBar::new().child(
             h_flex()
                 .w_full()
@@ -62,16 +61,6 @@ impl Gallery {
                     format!("Theme: {}", kind.label()),
                     &colors,
                     cx.listener(|_, _, window, cx| AuiTheme::toggle_kind(Some(window), cx)),
-                ))
-                .child(chrome_button(
-                    "text-scale",
-                    format!("Text: {}%", (text_scale * 100.0).round()),
-                    &colors,
-                    cx.listener(move |_, _, window, cx| {
-                        // 100 → 110 → 120 → 130 → 100
-                        let next = if text_scale >= 1.29 { 1.0 } else { text_scale + 0.1 };
-                        AuiTheme::set_text_scale(next, Some(window), cx)
-                    }),
                 ))
                 .child(chrome_button(
                     "density",

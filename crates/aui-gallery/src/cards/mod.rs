@@ -40,7 +40,6 @@ pub mod screen_sidebar;
 pub mod shell_v3;
 pub mod secret_field;
 pub mod selection;
-pub mod settings;
 pub mod sidebar;
 pub mod sidebar_virtual;
 pub mod skills;
