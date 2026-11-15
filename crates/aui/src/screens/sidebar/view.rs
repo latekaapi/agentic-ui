@@ -1,5 +1,5 @@
 //! The sidebar screen, built to the approved mock: title bar, one
-//! [`FluidList`] holding every row (search, new session, nav, pinned,
+//! [`RowList`](crate::interact::RowList) holding every row (search, new session, nav, pinned,
 //! projects with their virtualised sessions — or Browse mode's address,
 //! controls, pins, tabs, folders and spaces), and the footer.
 //!
@@ -23,12 +23,13 @@
 //!   field is FF's focused InputField: surface-3 and the border ring).
 //!
 //! The screen is stateless: `model` is plain data, `state` the
-//! caller-owned [`ListState`] sized with [`screen_item_count`], `fluid`
-//! the caller-owned [`FluidHandle`]. Sync the list state like
+//! caller-owned [`ListState`] sized with [`screen_item_count`]. Rows hover
+//! plainly with the one model ([`crate::interact::paint`]). Sync the list
+//! state like
 //! [`virtual_sidebar_view`](crate::nav::virtual_sidebar_view): after a
 //! regroup `state.reset(count)`, after an insert/remove `state.splice`.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -48,9 +49,8 @@ use gpui_kit::base::{
 };
 
 use crate::data::{icon_button, record_ax_label, spinner, ButtonSize};
-use crate::interact::{fluid_list, interactive, surface, Axis, FluidHandle, Shape};
+use crate::interact::{interactive, row_list, surface, ListItems, RowList, Shape, StatePaint};
 use crate::nav::{flatten_sidebar, project_mark, Grouping, GroupAction, RowAction, SessionSummary, SidebarRow};
-use crate::util::{interaction_flags, TrackInteraction};
 
 use super::menus::{account_menu, view_options_menu};
 use super::{BrowseIntent, BrowseMenu, BrowseMenuTarget, BrowseNaming, Bylines, FolderKind, Mode, SidebarIntent, SidebarModel};
@@ -59,7 +59,7 @@ use super::{BrowseIntent, BrowseMenu, BrowseMenuTarget, BrowseNaming, Bylines, F
 /// (`sidebar-core.tsx`: `SIDEBAR_WIDTH = "16rem"`), owner 2026-10-11.
 pub const SIDEBAR_WIDTH: f32 = 256.0;
 
-/// FluidList indices: chrome rows count up from 0, pinned rows from
+/// RowList indices: chrome rows count up from 0, pinned rows from
 /// `PINNED_BASE`, virtualised session rows from `VIRTUAL_BASE` (plus their
 /// flattened index), Browse rows from `BROWSE_BASE`.
 const PINNED_BASE: usize = 100;
@@ -216,9 +216,8 @@ pub fn screen_item_count(model: &SidebarModel) -> usize {
     }
 }
 
-/// The widest of the index ranges FluidList items are spread over; the
-/// bases below must stay in visual order (chrome < pinned < browse <
-/// virtual) because the nearest rule reads indices as positions.
+/// The index ranges the list's items are spread over; they must not overlap,
+/// since an index names one item for activation and the pointer report.
 const _: () = assert!(PINNED_BASE < BROWSE_BASE && BROWSE_BASE < TASK_BASE && TASK_BASE < VIRTUAL_BASE);
 
 /// The task pane's cap: six rows, so the person's own tabs keep the room.
@@ -226,22 +225,17 @@ fn task_pane_max(cx: &App) -> Pixels {
     list_row_height(cx) * 6.0 + cx.aui().metrics.item_px
 }
 
-/// The sidebar screen for `model`, virtualised through `state`, with its
-/// one highlight kept in `fluid`.
+/// The sidebar screen for `model`, virtualised through `state`.
 ///
-/// The host creates `state` ([`crate::nav::sidebar_list_state`]) and
-/// `fluid` ([`FluidHandle::new`]) ONCE per sidebar and keeps both across
-/// frames, like any `ListState`: the highlight and selection are measured
-/// one frame and painted the next, and a fresh handle every frame paints
-/// nothing. One handle per sidebar; never share it between lists.
+/// The host creates `state` ([`crate::nav::sidebar_list_state`]) ONCE per
+/// sidebar and keeps it across frames, like any `ListState`.
 ///
 /// ```ignore
 /// let state = sidebar_list_state(screen_item_count(&model)); // once
-/// let fluid = FluidHandle::new();                               // once
-/// sidebar_screen("sidebar", model, state.clone(), fluid.clone()).on_intent(|intent, _, _| { /* host acts */ })
+/// sidebar_screen("sidebar", model, state.clone()).on_intent(|intent, _, _| { /* host acts */ })
 /// ```
-pub fn sidebar_screen(id: impl Into<ElementId>, model: SidebarModel, state: ListState, fluid: FluidHandle) -> SidebarScreen {
-    SidebarScreen { id: id.into(), model, state, fluid, width: px(SIDEBAR_WIDTH), rename_input: None, on_intent: None, ground: true, external_menus: false }
+pub fn sidebar_screen(id: impl Into<ElementId>, model: SidebarModel, state: ListState) -> SidebarScreen {
+    SidebarScreen { id: id.into(), model, state, width: px(SIDEBAR_WIDTH), rename_input: None, on_intent: None, ground: true, external_menus: false }
 }
 
 /// The sidebar screen. Build with [`sidebar_screen`].
@@ -250,7 +244,6 @@ pub struct SidebarScreen {
     id: ElementId,
     model: SidebarModel,
     state: ListState,
-    fluid: FluidHandle,
     width: Pixels,
     rename_input: Option<RenameInput>,
     on_intent: Option<IntentHandler>,
@@ -309,7 +302,11 @@ impl SidebarScreen {
 struct Ctx {
     id: ElementId,
     model: Rc<SidebarModel>,
-    fluid: FluidHandle,
+    /// The list's per-item wrapping, for rows built outside its children
+    /// (the virtual rows, Browse's scrolling rows).
+    items: ListItems,
+    /// What each list index activates; filled while the list is built.
+    targets: Rc<RefCell<HashMap<usize, Target>>>,
     state: ListState,
     rename_input: Option<RenameInput>,
     on_intent: Option<IntentHandler>,
@@ -522,7 +519,7 @@ impl Ctx {
 
     /// One session row: dot, title (+ byline), age — or the three hover
     /// actions in the trailing slot while the pointer is on it. Selection
-    /// and hover paint come from the FluidList, never from the row.
+    /// and hover paint come from the row list's item box, never from the row.
     fn session_row(&self, session: &SessionSummary, nested: bool, window: &mut Window, cx: &mut App) -> AnyElement {
         let p = cx.aui().colors;
         let metrics = cx.aui().metrics;
@@ -917,23 +914,14 @@ pub fn second_line_for(session: &SessionSummary, bylines: Bylines) -> Option<Sha
 }
 
 /// Builds the Sessions-mode chrome and list, or the Browse-mode rows, into
-/// one FluidList; returns the list element and the index → session map the
-/// highlight and activation handlers translate through.
-fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<HashMap<usize, Target>>) {
+/// `list` (the screen's [`RowList`], its handlers already set); filling
+/// `ctx.targets`, the index → target map the handlers translate through.
+fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
     let metrics = cx.aui().metrics;
     let model = ctx.model.clone();
-    let mut targets: HashMap<usize, Target> = HashMap::new();
+    let targets = ctx.targets.clone();
     let mut index_of_session: HashMap<SharedString, usize> = HashMap::new();
-    let mut list = fluid_list((ctx.id.clone(), "rows"), Axis::Y)
-        .label("Sidebar")
-        .gap(px(0.0))
-        .gap_click(false)
-        .fill()
-        // Pills never touch: 1 px clear above and below each, 2 px between
-        // lit neighbours (owner, from Claude Desktop's sidebar).
-        .block_inset_y(px(scale::SP_1 / 2.0))
-        .handle(&ctx.fluid);
     let mut next = 0usize;
 
     if model.mode == Mode::Browse {
@@ -996,7 +984,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
 .when(model.hovered.as_deref() == Some("address"), |d| d.child(ctx.chip("⌘L", cx)));
             record_ax_label("Address");
             list = list.item(next, surface(2, address).shape(Shape::Item).into_any_element());
-            targets.insert(next, Target::Intent(SidebarIntent::Browse(BrowseIntent::Address)));
+            targets.borrow_mut().insert(next, Target::Intent(SidebarIntent::Browse(BrowseIntent::Address)));
             next += 1;
             // Page controls: back, forward, reload, new tab | ask, menu.
             let control = |ctx: &Ctx, key: &str, glyph: IconName, label: &str, intent: BrowseIntent, enabled: bool, cx: &App| {
@@ -1049,7 +1037,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                     div().on_prepaint(move |bounds, _, _| anchor.set(Some(bounds))).child(button)
                 });
             // A toolbar: the pointer over its buttons lights no row.
-            list = list.item_toolbar(next, controls);
+            list = list.item_static(next, controls);
             next += 1;
         }
     }
@@ -1062,7 +1050,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
         .when(search_hovered || model.search.is_some(), |d| d.text_color(p.fg));
     record_ax_label("Search");
     list = list.item(next, search.id(ctx.child("search")).role(gpui::Role::Button).aria_label("Search"));
-    targets.insert(next, Target::Intent(SidebarIntent::Search));
+    targets.borrow_mut().insert(next, Target::Intent(SidebarIntent::Search));
     next += 1;
 
     if model.mode == Mode::Sessions {
@@ -1073,7 +1061,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             .when(new_hovered, |d| d.text_color(p.fg));
         record_ax_label("New session");
         list = list.item(next, new_row.id(ctx.child("new-session")).role(gpui::Role::Button).aria_label("New session"));
-        targets.insert(next, Target::Intent(SidebarIntent::NewSession));
+        targets.borrow_mut().insert(next, Target::Intent(SidebarIntent::NewSession));
         next += 1;
         for item in &model.nav {
             let trailing = if item.soon {
@@ -1085,7 +1073,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             let row = ctx.row(ctx.lead_icon_lit(item.icon, lit, cx), item.label.clone(), trailing, false, cx).when(lit, |d| d.text_color(p.fg));
             record_ax_label(&item.label);
             list = list.item(next, row.id(ctx.child(format!("nav-{}", item.id))).role(gpui::Role::Button).aria_label(item.label.clone()));
-            targets.insert(next, Target::Intent(SidebarIntent::Nav(item.id.clone())));
+            targets.borrow_mut().insert(next, Target::Intent(SidebarIntent::Nav(item.id.clone())));
             next += 1;
         }
 
@@ -1116,13 +1104,13 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                     .child(div().ml(px(scale::SP_2 + scale::SP_1) - metrics.gap).text_color(p.fg_muted).child(model.pinned.len().to_string()));
                 record_ax_label("Pinned");
                 list = list.item(next, head.id(ctx.child("pinned-head")).role(gpui::Role::Button).aria_label("Pinned"));
-                targets.insert(next, Target::Intent(SidebarIntent::TogglePinned));
+                targets.borrow_mut().insert(next, Target::Intent(SidebarIntent::TogglePinned));
                 next += 1;
                 if model.pinned_open {
                     for (i, session) in model.pinned.iter().enumerate() {
                         let index = PINNED_BASE + i;
                         list = list.item(index, ctx.session_row(session, false, window, cx));
-                        targets.insert(index, Target::Session(session.id.clone()));
+                        targets.borrow_mut().insert(index, Target::Session(session.id.clone()));
                         index_of_session.insert(session.id.clone(), index);
                     }
                 }
@@ -1150,7 +1138,6 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 }
                 acts.into_any_element()
             });
-            let (header_state, _) = interaction_flags(ctx.child("projects-head"), window, cx);
             let hover_ctx = ctx.clone();
             let header = ctx
                 .section(
@@ -1163,11 +1150,11 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                     cx,
                 )
                 .id(ctx.child("projects-head"))
-                .track_interaction_reported(&header_state, move |hovered: bool, w: &mut Window, cx: &mut App| {
-                    hover_ctx.emit(SidebarIntent::HoverProjectsHeader(hovered), w, cx);
+                .on_hover(move |hovered: &bool, w: &mut Window, cx: &mut App| {
+                    hover_ctx.emit(SidebarIntent::HoverProjectsHeader(*hovered), w, cx);
                 });
             // A toolbar: its hover actions answer the pointer, never a row.
-            list = list.item_toolbar(next, header);
+            list = list.item_static(next, header);
             next += 1;
             if project_count == 0 {
                 let words = if by_date { "No sessions yet" } else { "No projects yet" };
@@ -1182,7 +1169,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                         SidebarRow::ProjectHead { group } => {
                             if let Grouping::Project(groups) = model.grouping.as_ref() {
                                 if let Some(project) = groups.get(*group) {
-                                    targets.insert(index, Target::Intent(SidebarIntent::Toggle(project.id.clone())));
+                                    targets.borrow_mut().insert(index, Target::Intent(SidebarIntent::Toggle(project.id.clone())));
                                 }
                             }
                         }
@@ -1193,14 +1180,14 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                                 Grouping::Status(_) => None,
                             };
                             if let Some(summary) = summary {
-                                targets.insert(index, Target::Session(summary.id.clone()));
+                                targets.borrow_mut().insert(index, Target::Session(summary.id.clone()));
                                 index_of_session.insert(summary.id.clone(), index);
                             }
                         }
                         SidebarRow::Fold { group } => {
                             if let Grouping::Project(groups) = model.grouping.as_ref() {
                                 if let Some(project) = groups.get(*group) {
-                                    targets.insert(index, Target::Intent(SidebarIntent::ToggleMore(project.id.clone())));
+                                    targets.borrow_mut().insert(index, Target::Intent(SidebarIntent::ToggleMore(project.id.clone())));
                                 }
                             }
                         }
@@ -1212,7 +1199,10 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                     match rows.get(ix) {
                         // Date headers are titles, never highlight targets.
                         Some(row @ SidebarRow::DateHeader { .. }) => row_ctx.flat_row(row, window, cx),
-                        Some(row) => row_ctx.fluid.item(VIRTUAL_BASE + ix, row_ctx.flat_row(row, window, cx)),
+                        Some(row) => {
+                            let built = row_ctx.flat_row(row, window, cx);
+                            row_ctx.wrap_virtual(VIRTUAL_BASE + ix, built, cx)
+                        }
                         None => div().into_any_element(),
                     }
                 };
@@ -1278,13 +1268,12 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 .into_any_element()
         });
         let tab_total = browse.tabs.len() + browse.folders.iter().map(|f| f.tabs.len()).sum::<usize>();
-        let (today_state, _) = interaction_flags(ctx.child("today-head"), window, cx);
         let hover_ctx = ctx.clone();
         let today = ctx
             .section("Today", (tab_total > 0).then(|| tab_total.to_string().into()), today_actions, cx)
             .id(ctx.child("today-head"))
-            .track_interaction_reported(&today_state, move |hovered: bool, w: &mut Window, cx: &mut App| {
-                hover_ctx.emit(SidebarIntent::Browse(BrowseIntent::HoverTodayHeader(hovered)), w, cx);
+            .on_hover(move |hovered: &bool, w: &mut Window, cx: &mut App| {
+                hover_ctx.emit(SidebarIntent::Browse(BrowseIntent::HoverTodayHeader(*hovered)), w, cx);
             });
         scroll_rows.push(today.into_any_element());
         next += 1;
@@ -1334,13 +1323,14 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                 .role(gpui::Role::Tab)
                 .aria_label(label)
                 .on_mouse_down(gpui::MouseButton::Right, menu_at(ctx, BrowseMenuTarget::Tab { id: tab.id.clone(), pinned: false, in_folder }));
-            rows.push(ctx.fluid.item(index, built));
+            let highlighted = model.highlighted.as_ref() == Some(&tab.id);
+            rows.push(ctx.items.wrap(index, built, StatePaint::new().selected(tab.active).highlighted(highlighted), cx));
         };
         let mut selected_index: Option<usize> = None;
         for tab in &browse.tabs {
             let index = BROWSE_BASE + next;
             tab_row(ctx, &mut scroll_rows, index, tab, false, false, None, cx);
-            targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(tab.id.clone()))));
+            targets.borrow_mut().insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(tab.id.clone()))));
             index_of_session.insert(tab.id.clone(), index);
             if tab.active {
                 selected_index = Some(index);
@@ -1401,15 +1391,16 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
         for folder in &browse.folders {
             let index = BROWSE_BASE + next;
             let head = folder_head(ctx, folder, window, cx);
-            scroll_rows.push(ctx.fluid.item(index, head));
-            targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::ToggleFolder(folder.id.clone()))));
+            let highlighted = model.highlighted.as_deref() == Some(format!("folder-{}", folder.id).as_str());
+            scroll_rows.push(ctx.items.wrap(index, head, StatePaint::new().highlighted(highlighted), cx));
+            targets.borrow_mut().insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::ToggleFolder(folder.id.clone()))));
             index_of_session.insert(format!("folder-{}", folder.id).into(), index);
             next += 1;
             if folder.open {
                 for tab in &folder.tabs {
                     let index = BROWSE_BASE + next;
                     tab_row(ctx, &mut scroll_rows, index, tab, true, true, None, cx);
-                    targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(tab.id.clone()))));
+                    targets.borrow_mut().insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(tab.id.clone()))));
                     index_of_session.insert(tab.id.clone(), index);
                     if tab.active {
                         selected_index = Some(index);
@@ -1425,15 +1416,17 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
         let new_tab = ctx.row(ctx.lead_icon(IconName::Plus, cx), "New tab", Some(ctx.chip("⌘T", cx)), false, cx);
         record_ax_label("New tab");
         let index = BROWSE_BASE + next;
-        scroll_rows.push(ctx.fluid.item(index, surface(2, new_tab.id(ctx.child("new-tab")).role(gpui::Role::Button).aria_label("New tab")).shape(Shape::Item).ring(true)));
+        scroll_rows.push(ctx.items.wrap(
+            index,
+            surface(2, new_tab.id(ctx.child("new-tab")).role(gpui::Role::Button).aria_label("New tab")).shape(Shape::Item),
+            StatePaint::new(),
+            cx,
+        ));
         scroll_rows.push(div().w_full().h(metrics.item_px).into_any_element());
-        targets.insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::NewTab)));
+        targets.borrow_mut().insert(index, Target::Intent(SidebarIntent::Browse(BrowseIntent::NewTab)));
         next += 1;
         // Your tabs scroll in the main area, clipped to it.
-        let scroll_host = ctx.fluid.clip_range(
-            BROWSE_BASE..TASK_BASE,
-            div().id(ctx.child("browse-scroll")).size_full().overflow_y_scroll().child(v_flex().w_full().children(scroll_rows)),
-        );
+        let scroll_host = div().id(ctx.child("browse-scroll")).size_full().overflow_y_scroll().child(v_flex().w_full().children(scroll_rows));
         list = list.item_static_fill(next, scroll_host);
         next += 1;
         // Task folders: a shorter pane of their own at the foot (owner
@@ -1444,13 +1437,14 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
             let mut ti = TASK_BASE;
             for folder in &browse.task_folders {
                 let head = folder_head(ctx, folder, window, cx);
-                task_rows.push(ctx.fluid.item(ti, head));
-                targets.insert(ti, Target::Intent(SidebarIntent::Browse(BrowseIntent::OpenTaskChat(folder.id.clone()))));
+                let highlighted = model.highlighted.as_deref() == Some(format!("folder-{}", folder.id).as_str());
+                task_rows.push(ctx.items.wrap(ti, head, StatePaint::new().highlighted(highlighted), cx));
+                targets.borrow_mut().insert(ti, Target::Intent(SidebarIntent::Browse(BrowseIntent::OpenTaskChat(folder.id.clone()))));
                 index_of_session.insert(format!("folder-{}", folder.id).into(), ti);
                 ti += 1;
                 for tab in &folder.tabs {
                     tab_row(ctx, &mut task_rows, ti, tab, true, false, None, cx);
-                    targets.insert(ti, Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(tab.id.clone()))));
+                    targets.borrow_mut().insert(ti, Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(tab.id.clone()))));
                     index_of_session.insert(tab.id.clone(), ti);
                     if tab.active {
                         selected_index = Some(ti);
@@ -1468,10 +1462,9 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
                     div()
                         .w_full()
                         .max_h(task_pane_max(cx))
-                        .child(ctx.fluid.clip_range(
-                            TASK_BASE..VIRTUAL_BASE,
+                        .child(
                             div().id(ctx.child("task-scroll")).w_full().max_h(task_pane_max(cx)).overflow_y_scroll().py(metrics.item_px / 2.0).child(v_flex().w_full().children(task_rows)),
-                        )),
+                        ),
                 );
             list = list.item_static(next, pane);
             next += 1;
@@ -1549,7 +1542,7 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
         // the list's, whether or not task folders sit above it.
         let foot = v_flex().w_full().flex_none().child(div().mx(-metrics.item_px).h(px(1.0)).bg(p.line)).child(chips);
         // A toolbar: its chips and + answer the pointer, never the row above.
-        list = list.item_toolbar(next, foot);
+        list = list.item_static(next, foot);
         if let Some(index) = selected_index {
             list = list.selected(Some(index));
         }
@@ -1567,53 +1560,93 @@ fn build_list(ctx: &Ctx, window: &mut Window, cx: &mut App) -> (AnyElement, Rc<H
     if highlighted.is_some() {
         list = list.highlighted(highlighted);
     }
-    let targets = Rc::new(targets);
-    // Hover: the FluidList's highlight is the one source; sessions report
-    // their id, chrome rows report their key, nothing reports None twice.
-    let hover_targets = targets.clone();
-    let hover_ctx = ctx.clone();
-    list = list.on_highlight(move |index: Option<usize>, w: &mut Window, cx: &mut App| {
-        let target = index.and_then(|i| hover_targets.get(&i));
-        let id = match target {
-            Some(Target::Session(id)) => Some(id.clone()),
-            Some(Target::Intent(SidebarIntent::Search)) => Some("search".into()),
-            Some(Target::Intent(SidebarIntent::NewSession)) => Some("new-session".into()),
-            Some(Target::Intent(SidebarIntent::Nav(nav))) => Some(format!("nav-{nav}").into()),
-            Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::Address))) => Some("address".into()),
-            Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(id)))) => Some(id.clone()),
-            Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::ToggleFolder(id) | BrowseIntent::OpenTaskChat(id)))) => Some(format!("folder-{id}").into()),
-            _ => None,
-        };
-        // A project head under the pointer shows its actions.
-        let group = match target {
-            Some(Target::Intent(SidebarIntent::Toggle(id))) => Some(id.clone()),
-            _ => None,
-        };
-        hover_ctx.emit(SidebarIntent::HoverGroup(group), w, cx);
-        let bounds = index.filter(|_| id.is_some()).and_then(|i| hover_ctx.fluid.bounds_of(i));
-        hover_ctx.emit(SidebarIntent::Hover(id, bounds), w, cx);
-    });
-    let activate_targets = targets.clone();
-    let activate_ctx = ctx.clone();
-    list = list.on_activate(move |index: usize, w: &mut Window, cx: &mut App| match activate_targets.get(&index) {
-        Some(Target::Session(id)) => activate_ctx.emit(SidebarIntent::Select(id.clone()), w, cx),
-        Some(Target::Intent(intent)) => activate_ctx.emit(intent.clone(), w, cx),
-        None => {}
-    });
-    (list.into_any_element(), targets)
+    list.into_any_element()
 }
 
-/// What activating a FluidList index means.
+/// What activating a list index means.
 #[derive(Clone)]
 enum Target {
     Session(SharedString),
     Intent(SidebarIntent),
 }
 
+/// The sidebar's one [`RowList`], its handlers set: activation emits the
+/// index's target; the pointer report emits `Hover` (sessions their id,
+/// chrome rows their key) and `HoverGroup` (a project head), with the
+/// item's bounds for the hover card.
+fn screen_list(id: &ElementId, targets: Rc<RefCell<HashMap<usize, Target>>>, on_intent: Option<IntentHandler>) -> RowList {
+    let emit = move |intent: SidebarIntent, w: &mut Window, cx: &mut App| {
+        if let Some(handler) = on_intent.as_ref() {
+            handler(intent, w, cx);
+        }
+    };
+    let emit = Rc::new(emit);
+    let hover_targets = targets.clone();
+    let hover_emit = emit.clone();
+    let activate_targets = targets;
+    row_list((id.clone(), "rows"))
+        .label("Sidebar")
+        .gap(px(0.0))
+        .fill()
+        .on_highlight_at(move |index, bounds, w, cx| {
+            let targets = hover_targets.borrow();
+            let target = index.and_then(|i| targets.get(&i));
+            let key: Option<SharedString> = match target {
+                Some(Target::Session(id)) => Some(id.clone()),
+                Some(Target::Intent(SidebarIntent::Search)) => Some("search".into()),
+                Some(Target::Intent(SidebarIntent::NewSession)) => Some("new-session".into()),
+                Some(Target::Intent(SidebarIntent::Nav(nav))) => Some(format!("nav-{nav}").into()),
+                Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::Address))) => Some("address".into()),
+                Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::SelectTab(id)))) => Some(id.clone()),
+                Some(Target::Intent(SidebarIntent::Browse(BrowseIntent::ToggleFolder(id) | BrowseIntent::OpenTaskChat(id)))) => {
+                    Some(format!("folder-{id}").into())
+                }
+                _ => None,
+            };
+            // A project head under the pointer shows its actions.
+            let group = match target {
+                Some(Target::Intent(SidebarIntent::Toggle(id))) => Some(id.clone()),
+                _ => None,
+            };
+            drop(targets);
+            hover_emit(SidebarIntent::HoverGroup(group), w, cx);
+            let bounds = bounds.filter(|_| key.is_some());
+            hover_emit(SidebarIntent::Hover(key, bounds), w, cx);
+        })
+        .on_activate(move |index, w, cx| {
+            let target = activate_targets.borrow().get(&index).cloned();
+            match target {
+                Some(Target::Session(id)) => emit(SidebarIntent::Select(id), w, cx),
+                Some(Target::Intent(intent)) => emit(intent, w, cx),
+                None => {}
+            }
+        })
+}
+
+impl Ctx {
+    /// Wraps a virtual row (index `index`) in the list's item box: a session
+    /// row holds `ov-selected` when it is the selection and the hover look
+    /// when the keyboard is on it; the row being renamed is the field's and
+    /// paints nothing.
+    fn wrap_virtual(&self, index: usize, element: AnyElement, cx: &App) -> AnyElement {
+        let session = match self.targets.borrow().get(&index) {
+            Some(Target::Session(id)) => Some(id.clone()),
+            _ => None,
+        };
+        let model = &self.model;
+        if session.is_some() && model.editing.as_ref().map(|e| &e.session) == session.as_ref() {
+            return element;
+        }
+        let selected = session.is_some() && model.selected.as_ref() == session.as_ref();
+        let highlighted = session.is_some() && model.highlighted.as_ref() == session.as_ref();
+        self.items.wrap(index, element, StatePaint::new().selected(selected).highlighted(highlighted), cx)
+    }
+}
+
 /// How far the sidebar list's scroll edges fade (see [`list_host`]).
 const LIST_EDGE_FADE: f32 = 24.0;
 
-/// The virtualised list, filling its FluidList slot.
+/// The virtualised list, filling its slot in the row list.
 fn list_host(ctx: &Ctx, render: impl Fn(usize, &mut Window, &mut App) -> AnyElement + 'static, cx: &App) -> AnyElement {
     // The list's two scroll edges fade into the column (owner 2026-10-14,
     // after Claude Desktop): rows passing under the Projects header or the
@@ -1636,7 +1669,7 @@ fn list_host(ctx: &Ctx, render: impl Fn(usize, &mut Window, &mut App) -> AnyElem
         .h_full()
         .flex_1()
         .min_h(px(0.0))
-        .child(ctx.fluid.clip_region(VIRTUAL_BASE, list(state, render).w_full().h_full()))
+        .child(list(state, render).w_full().h_full())
         .when(scrolled, |d| d.child(edge(true).top(px(0.0))))
         .when(more_below, |d| d.child(edge(false).bottom(px(0.0))))
         // The bar stands in the body's right gutter (owner 2026-10-11): its
@@ -1682,10 +1715,14 @@ impl RenderOnce for SidebarScreen {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let metrics = cx.aui().metrics;
+        let targets: Rc<RefCell<HashMap<usize, Target>>> = Rc::new(RefCell::new(HashMap::new()));
+        let rows = screen_list(&self.id, targets.clone(), self.on_intent.clone());
+        let items = rows.items(window, cx);
         let ctx = Ctx {
             id: self.id.clone(),
             model: Rc::new(self.model.clone()),
-            fluid: self.fluid.clone(),
+            items,
+            targets,
             rename_input: self.rename_input.clone(),
             on_intent: self.on_intent.clone(),
             state: self.state.clone(),
@@ -1694,7 +1731,7 @@ impl RenderOnce for SidebarScreen {
 
         // The bar above the column (the shell's) carries the toggle and the
         // mode switch; the column starts with its rows.
-        let (rows, _targets) = build_list(&ctx, window, cx);
+        let rows = build_list(&ctx, rows, window, cx);
         let body = div().w_full().flex_1().min_h(px(0.0)).flex().flex_col().px(metrics.item_px).pt(metrics.item_px).relative().child(rows);
 
         // Footer: avatar · name · plan · chevron. No rule above it (v3: the

@@ -10,7 +10,7 @@
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_motion::{collapse, tint_fade, Tween};
+use aui_motion::collapse;
 use aui_tokens::{scale, scaled, ActiveAui, AuiStyled, TextRole};
 use gpui::{
     div, font, prelude::*, px, radians, AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
@@ -18,10 +18,10 @@ use gpui::{
 };
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintHover, PaintStates, StatePaint};
 use crate::data::{icon_button, tag, ButtonSize};
 use crate::nav::{compact_session_row, group_header, group_row, project_mark, RowAction, SessionSummary};
 use crate::nav::{LEADING_BOX, NAV_GUTTER, NAV_LABEL_X};
-use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.pj{height:30px;margin:4px 8px 0}`. The height is the shared row metric;
 /// the ground keeps its 8 px inset from the column edge while the content
@@ -638,13 +638,11 @@ pub(crate) fn fold_row(
     hidden: usize,
     expanded: bool,
     on_group_action: &Option<GroupActionHandler>,
-    window: &mut Window,
+    _window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
     let p = cx.aui().colors;
     let id: ElementId = id.into();
-    let (state, flags) = interaction_flags(id.clone(), window, cx);
-    let bg = tint_fade((id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
     let label: SharedString = if expanded { "Show less".into() } else { format!("Show {hidden} more").into() };
     let mut glyph = icon(IconName::ChevronDown).size(px(FOLD_CHEVRON)).color(p.ink_3);
     if expanded {
@@ -663,11 +661,10 @@ pub(crate) fn fold_row(
         .ml(px(PJ_MARGIN_X))
         .mr(px(PJ_MARGIN_X))
         .rounded(px(scale::R_SM))
-        .bg(bg)
+        .paint_states(StatePaint::new(), &p)
         .ui(scale::FS_12)
         .text_color(p.ink_3)
         .cursor_pointer()
-        .track_interaction(&state)
         .child(glyph)
         .child(div().flex_1().min_w(px(0.0)).truncate().child(label));
     if let Some(h) = on_group_action.clone() {
@@ -1064,21 +1061,13 @@ impl ProjectGroupRow {
 /// is up. The tray covers this end of the row, so the two are complementary:
 /// whatever the tray gains, they give up, on the one tween. Opacity only —
 /// both keep their boxes, so nothing under the pointer reflows (D6).
-fn under_tray(tray_opacity: f32) -> f32 {
-    1.0 - tray_opacity
-}
-
 /// The hover tray at a project row's right end: `Plus` (new session here)
 /// and `Dots` (this project's menu), over the row's own surface-2 ground so
 /// it covers the count the way the session row's tray covers its meta.
-#[allow(clippy::too_many_arguments)]
 fn group_tray(
     id: &ElementId,
-    visible: bool,
-    opacity: f32,
     on_group_action: &Option<GroupRowActionHandler>,
     menu_bounds: &Option<(SharedString, BoundsHandler)>,
-    _window: &mut Window,
     cx: &mut App,
 ) -> gpui::Div {
     let p = cx.aui().colors;
@@ -1090,7 +1079,7 @@ fn group_tray(
         .p(px(TRAY_PAD))
         .rounded(px(scale::R_SM))
         .bg(p.surface_2)
-        .opacity(opacity);
+        .reveal_on_hover(false);
     for (glyph, action, name) in [(IconName::Plus, GroupAction::New, "new"), (IconName::Dots, GroupAction::Menu, "menu")] {
         let mut b = icon_button((id.clone(), name), glyph).ghost().size(ButtonSize::Xs).icon_size(px(TRAY_GLYPH));
         if let Some(handler) = on_group_action.clone() {
@@ -1120,9 +1109,6 @@ fn group_tray(
             }
         }
         tray = tray.child(b);
-    }
-    if !visible && opacity <= 0.001 {
-        tray = tray.invisible();
     }
     tray
 }
@@ -1229,7 +1215,6 @@ impl RenderOnce for ProjectGroupRow {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let (hover_state, flags) = interaction_flags(id.clone(), window, cx);
         // Plain by default: the name is a small muted label whose first
         // glyph starts at the leading centre. With `chevron` (or an explicit
         // mark, which other consumers may pass), the box is taken and the
@@ -1259,7 +1244,7 @@ impl RenderOnce for ProjectGroupRow {
                 .ui(PJ_TEXT)
                 .text_color(p.ink_3)
                 .cursor_pointer()
-                .track_interaction(&hover_state);
+                .hover_group();
             if self.chevron {
                 // `.pj .chev{width:11px}` rotates 0° → 90° on the swap spring.
                 let chev = super::chevron_sized(id.clone(), self.open, p.ink_3, PJ_CHEVRON, window, cx);
@@ -1331,15 +1316,10 @@ impl RenderOnce for ProjectGroupRow {
         }
         row = row.child(div().flex_1());
         // The tray covers this end of the row, so the branch and the count
-        // step aside while it is up: one tween drives both, so they fade out
-        // exactly as the tray fades in. Opacity only — they keep their boxes,
-        // so nothing reflows under the pointer (D6).
-        let tray_opacity = if self.on_group_action.is_some() {
-            aui_motion::tween((id.clone(), "tray-opacity"), if flags.hovered { 1.0f32 } else { 0.0 }, aui_motion::Tween::FAST, window, cx)
-        } else {
-            0.0
-        };
-        let under_tray = under_tray(tray_opacity);
+        // step aside while it is up: both are hover-group refinements, so
+        // they hide exactly as the tray shows. Visibility only — they keep
+        // their boxes, so nothing reflows under the pointer (D6).
+        let no_tray = self.on_group_action.is_none();
         if let Some(trailing) = self.trailing {
             // The branch yields room before the name does: it shrinks while
             // the name holds `NAME_MIN`, truncates inside whatever room is
@@ -1353,7 +1333,7 @@ impl RenderOnce for ProjectGroupRow {
                     .text_color(p.ink_3)
                     .max_w(px(TRAIL_MAX))
                     .truncate()
-                    .opacity(under_tray)
+                    .hide_on_hover(no_tray)
                     .child(trailing)
                     .into_any_element(),
             ));
@@ -1362,10 +1342,10 @@ impl RenderOnce for ProjectGroupRow {
         // that has no number to show (a project with no sessions) says so by
         // passing none (audit 2026-09-13).
         if !self.count.is_empty() {
-            row = row.child(div().flex_none().opacity(under_tray).child(tag(self.count)));
+            row = row.child(div().flex_none().hide_on_hover(no_tray).child(tag(self.count)));
         }
         if self.on_group_action.is_some() {
-            row = row.child(group_tray(&id, flags.hovered, tray_opacity, &self.on_group_action, &self.menu_bounds, window, cx));
+            row = row.child(group_tray(&id, &self.on_group_action, &self.menu_bounds, cx));
         }
         if let Some(on_toggle) = self.on_toggle {
             row = row.on_click(move |e, w, cx| on_toggle(e, w, cx));
@@ -1405,18 +1385,6 @@ impl RenderOnce for DateGroupHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// D6: the branch and the count are exactly what the tray is not, so a
-    /// half-faded tray leaves them half-visible and the two never both claim
-    /// the row's right end.
-    #[test]
-    fn the_tray_and_what_it_covers_are_complementary() {
-        for tray in [0.0f32, 0.25, 0.5, 0.75, 1.0] {
-            assert!((tray + under_tray(tray) - 1.0).abs() < f32::EPSILON, "tray {tray} leaves {}", under_tray(tray));
-        }
-        assert_eq!(under_tray(0.0), 1.0, "at rest the branch and the count are fully drawn");
-        assert_eq!(under_tray(1.0), 0.0, "a fully shown tray hides both");
-    }
 
     /// D4: `current` survives the builder, and it is independent of `muted` —
     /// the current project can be an archived one.

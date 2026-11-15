@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use aui::interact::{fluid_list, Axis};
+use aui::interact::row_list;
 use aui::protocol::{ChangeKind, Diff, DiffKind, DiffLine, FileChange, Hunk};
 use aui::workbench::{
     base_and_head, base_picker, branch_label, change_row, changes_caption, diff_fold, commit_foot, commit_frame, commit_message_view,
@@ -119,8 +119,8 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let session = [fc("crates/baaz/src/right.rs", ChangeKind::Modified, 148, 12), fc("crates/baaz/src/layout.rs", ChangeKind::Modified, 31, 4), fc("crates/baaz/src/panes/mod.rs", ChangeKind::Added, 64, 0)];
     let other = [fc("docs/02-app.md", ChangeKind::Modified, 22, 9), fc("scripts/old_probe.py", ChangeKind::Deleted, 0, 37)];
 
-    // The live screen: captions + rows on one fluid list, the diff under the open row.
-    let mut list = fluid_list("d6-chg-list", Axis::Y).gap(px(0.0)).item_static(0, changes_caption("d6-cap-s", "This session", Some(3), true, cx));
+    // The live screen: captions + rows on one row list, the diff under the open row.
+    let mut list = row_list("d6-chg-list").gap(px(0.0)).item_static(0, changes_caption("d6-cap-s", "This session", Some(3), true, cx));
     let mut ix = 1;
     for (i, change) in session.iter().chain(other.iter()).enumerate() {
         if i == 3 {
@@ -159,7 +159,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         list = list.item(ix, row);
         ix += 1;
         if let Some(fold) = fold {
-            list = list.item_toolbar(ix, fold);
+            list = list.item_static(ix, fold);
             ix += 1;
         }
     }

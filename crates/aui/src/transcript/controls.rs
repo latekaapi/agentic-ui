@@ -8,6 +8,7 @@ use aui_tokens::{scale, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, ElementId, SharedString};
 use gpui_kit::base::h_flex;
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::record_ax_label;
 use crate::icons::{icon, IconName};
 
@@ -52,17 +53,16 @@ pub fn control_with(id: impl Into<ElementId>, glyph: Option<IconName>, label: im
         .role(gpui::Role::Button)
         .aria_label(label.clone())
         .children(glyph.map(|g| icon(g).size(px(12.0))));
-    let (fg, hover) = (p.ink, p.hover_overlay());
     match kind {
-        ControlKind::Text => base.text_color(p.ink_2).hover(move |d| d.text_color(fg).bg(hover)).child(label),
+        ControlKind::Text => base.paint_states(StatePaint::new().ink(p.ink_2, p.ink), p).child(label),
         ControlKind::Secondary => {
             let lit = crate::util::raised_lit(p, p.surface_2);
-            base.bg(lit).shadow(p.edge()).text_color(p.ink).hover(move |d| d.bg(lit.blend(hover))).child(label)
+            base.shadow(p.edge()).paint_states(StatePaint::new().on(lit).ink(p.ink, p.ink), p).child(label)
         }
-        ControlKind::Primary => {
-            let (fill, text) = (p.ink, p.bg);
-            base.bg(fill).text_color(text).font_weight(gpui::FontWeight::SEMIBOLD).hover(move |d| d.bg(fill.opacity(0.9))).child(label)
-        }
+        ControlKind::Primary => base
+            .font_weight(gpui::FontWeight::SEMIBOLD)
+            .paint_states(StatePaint::new().on(p.ink).ink(p.bg, p.bg), p)
+            .child(label),
     }
 }
 

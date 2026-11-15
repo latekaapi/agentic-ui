@@ -4,24 +4,24 @@
 //! the Browse menus, the header and group menus, the composer's `+` menu and
 //! pickers all build their rows here, so one change reaches every menu.
 //!
-//! - **Panel:** [`menu_surface`] (substrate + 2, shadow-3, container radius)
-//!   with a 6 px inset (every menu, docs/41 §6 decision 9); `Role::Menu` and its accessible name.
-//! - **Rows:** one `control` tall (36), `item_px` padding, the item radius,
-//!   an optional 16 px icon on its own axis, labels muted at rest and lit to
-//!   the foreground with the icon's stroke; a second line (Caption, muted)
-//!   for two-line rows; checked rows semibold with FF's check; the current
-//!   row of a single choice on the `active` block; danger rows red; disabled
-//!   rows at 50 % and inert.
-//! - **Hover:** FF's FluidHoverHighlight — one block that glides between rows
-//!   on the fast spring ([`FluidList`]); the current row's block springs on
-//!   the moderate tier. The keyboard drives the same block
-//!   ([`Dropdown::highlighted`]).
-//! - **Separators:** full bleed through the inset at border/60, 4 px above
-//!   and below. **Group labels:** Caption, muted, 28 tall.
+//! - **Panel:** [`menu_panel`] — `overlay`, 1 px `line-strong`, radius 10,
+//!   the one float shadow, 4 px padding (docs/83 §7); `Role::Menu` and its
+//!   accessible name.
+//! - **Rows:** [`MENU_ROW_H`] (28) tall, radius [`R_MENU_ROW`] (6), an
+//!   optional 16 px icon on its own axis, labels muted at rest and lit to
+//!   the foreground; a second line (Caption, muted) for two-line rows;
+//!   checked rows with the check; the current row of a single choice on
+//!   `ov-selected`; danger rows red; disabled rows at 50 % and inert.
+//! - **Highlight:** the one model ([`StatePaint`]) with the pointer's own
+//!   refinement off: the pointer and the keys light ONE row — the row the
+//!   pointer last moved over, or the keyboard's ([`Dropdown::highlighted`])
+//!   after an arrow press — never two.
+//! - **Separators:** 1 px `line-strong`, inset [`MENU_SEPARATOR_INSET`] (8)
+//!   from the panel's sides, 4 px above and below. **Group labels:**
+//!   Caption, muted, 28 tall.
 //! - **Motion:** enter = opacity 0 → 1 and a 4 px slide toward the trigger
 //!   over spring.fast's 80 ms; exit = back over spring.fast.exit's 60 ms
-//!   ([`EnterExit::POPUP`]). Adaptation: gpui has no transform, so FF's
-//!   `scaleY 0.96` is dropped (the 4 px slide carries the direction alone).
+//!   ([`EnterExit::POPUP`]): the menu appearing, not its hover.
 //!
 //! The host keeps rendering a closing menu with [`Dropdown::open`]`(false)`
 //! until [`dropdown_present`] says the exit has finished.
@@ -34,10 +34,10 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, Density, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, Pixels, RenderOnce, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex, PresencePhase};
 
-use super::{fluid_list, menu_surface, Axis, Shape};
+use super::paint::{PaintStates, StatePaint};
+use super::{menu_panel, MENU_ROW_H, MENU_SEPARATOR_INSET, PANEL_PAD, R_MENU_ROW};
 use crate::data::record_ax_label;
 
-type IndexHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 type HighlightHandler = Rc<dyn Fn(Option<usize>, &mut Window, &mut App)>;
 type Handler = Rc<dyn Fn(&mut Window, &mut App)>;
 
@@ -238,10 +238,6 @@ pub struct Dropdown {
     row_px: Option<Pixels>,
 }
 
-/// The panel's padding around the row highlight: 6 px in every menu (the
-/// owner, 2026-10-13, docs/41 §6 decision 9).
-pub const PANEL_PAD: f32 = 6.0;
-
 /// A menu panel named `label` (its accessible name).
 pub fn dropdown(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Dropdown {
     Dropdown {
@@ -338,7 +334,7 @@ impl Dropdown {
     }
 
     /// The keyboard highlight: the row (entry index) the arrows are on.
-    /// The pointer takes over when it moves, as in every fluid list.
+    /// The pointer takes over when it moves over a row.
     pub fn highlighted(mut self, index: Option<usize>) -> Self {
         self.highlighted = index;
         self
@@ -367,17 +363,16 @@ impl Dropdown {
     }
 }
 
-/// The separator: one hairline, full bleed through the panel's 6 px inset,
-/// 4 px above and below. Dark (v3): the line inside a surface, white 7 %;
-/// light keeps FF's border/60.
+/// The separator: 1 px `line-strong`, inset 8 from the panel's sides (the
+/// panel's 4 px padding plus 4), 4 px above and below (docs/83 §7).
 pub fn dropdown_separator(cx: &App) -> AnyElement {
     let metrics = cx.aui().metrics;
-    let colors = cx.aui().colors;
-    let mut line = colors.line;
-    if !colors.is_dark() {
-        line.a *= 0.6;
-    }
-    div().h(px(1.0)).mx(px(-PANEL_PAD)).my(metrics.item_px / 2.0).bg(line).into_any_element()
+    div()
+        .h(px(1.0))
+        .mx(px(MENU_SEPARATOR_INSET - PANEL_PAD))
+        .my(metrics.item_px / 2.0)
+        .bg(cx.aui().colors.line_strong)
+        .into_any_element()
 }
 
 /// FF's group label: Caption, muted, 28 tall.
@@ -399,9 +394,10 @@ pub fn dropdown_label(text: impl Into<SharedString>, cx: &App) -> AnyElement {
 /// overlay over a native page) needs before the first layout.
 pub fn dropdown_height(rows: usize, separators: usize, labels: usize, cx: &App) -> Pixels {
     let metrics = cx.aui().metrics;
-    let inset = px(2.0 * PANEL_PAD); // 6 above + 6 below
+    // The panel's padding and its 1 px edge, above and below.
+    let inset = px(2.0 * PANEL_PAD + 2.0);
     let separator = px(1.0) + metrics.item_px; // 1 px + 4 above + 4 below
-    metrics.control * rows as f32 + separator * separators as f32 + metrics.control_md * labels as f32 + inset
+    px(MENU_ROW_H) * rows as f32 + separator * separators as f32 + metrics.control_md * labels as f32 + inset
 }
 
 /// One row's body: icon slot, label (+ detail), trailing.
@@ -421,8 +417,8 @@ fn row_body(item: DropdownItem, lit: bool, row_px: Option<Pixels>, cx: &App) -> 
     let disabled = item.disabled;
     let mut body = h_flex().w_full().items_center().px(row_px.unwrap_or(metrics.item_px)).gap(metrics.gap);
     body = match item.detail {
-        Some(_) => body.min_h(metrics.control).py(metrics.gap / 2.0),
-        None => body.h(metrics.control),
+        Some(_) => body.min_h(px(MENU_ROW_H)).py(metrics.gap / 2.0),
+        None => body.h(px(MENU_ROW_H)),
     };
     if let Some(leading) = item.leading {
         body = body.child(div().flex_none().size(metrics.icon).flex().items_center().justify_center().child(leading));
@@ -483,10 +479,10 @@ impl RenderOnce for Dropdown {
             DropdownSide::Beside => 0.0,
         };
         let style = PresenceStyle::fade_rise(sample, slide);
-        // The lit row: what the fluid block sits on. FluidList's rule — the
-        // pointer takes over when it moves, a new keyboard row takes it back
-        // — so the label lights on the row the block is on (the pointer's
-        // row stayed grey under a keyboard row that was off the list).
+        // The lit row: ONE row, the pointer's or the keyboard's. The pointer
+        // takes over when it moves over a row; a new keyboard row takes it
+        // back. Rows paint it through the one model with the pointer's own
+        // refinement off, so the pointer and the arrows never light two.
         let lit = window.use_keyed_state((self.id.clone(), "lit"), cx, |_, _| (None::<usize>, None::<usize>));
         let (keys_seen, pointer) = *lit.read(cx);
         let pointer = if keys_seen != self.highlighted {
@@ -496,63 +492,71 @@ impl RenderOnce for Dropdown {
             pointer
         };
         let lit_now = pointer.or(self.highlighted);
-        let current = self.entries.iter().position(|e| matches!(e, DropdownEntry::Item(item) if item.current));
-        let mut selects: Vec<(usize, Handler)> = Vec::new();
-        let mut list = fluid_list((self.id.clone(), "rows"), Axis::Y)
-            .gap(px(0.0))
-            .label(self.label.clone())
-            .selected(current)
-            .highlighted(self.highlighted);
+        let mut list = v_flex().w_full();
         for (index, entry) in self.entries.into_iter().enumerate() {
             match entry {
                 DropdownEntry::Item(item) => {
+                    let current = item.current;
                     let (body, on_select, role, label, disabled) = row_body(item, lit_now == Some(index), self.row_px, cx);
-                    let row = Shape::Item
-                        .rounded(body)
+                    let paint = StatePaint::new()
+                        .pointer(false)
+                        .highlighted(lit_now == Some(index))
+                        .selected(current)
+                        .disabled(disabled);
+                    let mut row = div()
                         .id(crate::util::indexed_child(&self.id, "row", index))
+                        .w_full()
+                        .rounded(px(R_MENU_ROW))
+                        .paint_states(paint, cx)
                         .role(role)
-                        .aria_label(label.clone());
+                        .aria_label(label.clone())
+                        .child(body);
                     record_ax_label(&label);
-                    if disabled {
-                        list = list.item_static(index, row);
-                    } else {
+                    if !disabled {
+                        // The pointer report: a move over the row lights it
+                        // (and tells the host, which opens submenus on it).
+                        let state = lit.clone();
+                        let report = self.on_highlight.clone();
+                        row = row.cursor_pointer().on_mouse_move(move |_, window, cx| {
+                            if state.read(cx).1 != Some(index) {
+                                state.update(cx, |lit, cx| {
+                                    lit.1 = Some(index);
+                                    cx.notify();
+                                });
+                                if let Some(report) = report.as_ref() {
+                                    report(Some(index), window, cx);
+                                }
+                            }
+                        });
                         if let Some(on_select) = on_select {
-                            selects.push((index, on_select));
+                            row = row.on_click(move |_, window, cx| on_select(window, cx));
                         }
-                        list = list.item(index, row);
                     }
+                    list = list.child(row);
                 }
-                DropdownEntry::Separator => list = list.item_static(index, dropdown_separator(cx)),
-                DropdownEntry::Label(text) => list = list.item_static(index, dropdown_label(text, cx)),
-                DropdownEntry::Static(element) => list = list.item_static(index, element),
+                DropdownEntry::Separator => list = list.child(dropdown_separator(cx)),
+                DropdownEntry::Label(text) => list = list.child(dropdown_label(text, cx)),
+                DropdownEntry::Static(element) => list = list.child(element),
             }
         }
-        let selects: Rc<Vec<(usize, Handler)>> = Rc::new(selects);
-        let on_activate: IndexHandler = Rc::new(move |index, window, cx| {
-            if let Some((_, f)) = selects.iter().find(|(i, _)| *i == index) {
-                f(window, cx);
+        // The pointer leaving the rows hands the highlight back to the keys.
+        let leave = lit.clone();
+        let report = self.on_highlight.clone();
+        let list = list.id((self.id.clone(), "rows")).on_hover(move |hovered, window, cx| {
+            if !*hovered && leave.read(cx).1.is_some() {
+                leave.update(cx, |lit, cx| {
+                    lit.1 = None;
+                    cx.notify();
+                });
+                if let Some(report) = report.as_ref() {
+                    report(None, window, cx);
+                }
             }
         });
-        let report = self.on_highlight.clone();
-        let lit_state = lit.clone();
-        list = list
-            .on_activate(move |index, window, cx| on_activate(index, window, cx))
-            .on_highlight(move |index, window, cx| {
-                if lit_state.read(cx).1 != index {
-                    lit_state.update(cx, |lit, cx| {
-                        lit.1 = index;
-                        cx.notify();
-                    });
-                }
-                if let Some(report) = report.as_ref() {
-                    report(index, window, cx);
-                }
-            });
         let backdrop = self.on_backdrop.clone();
         let mut panel = v_flex()
             .id((self.id.clone(), "panel"))
             .w_full()
-            .p(px(PANEL_PAD))
             .role(gpui::Role::Menu)
             .aria_label(self.label.clone())
             .occlude()
@@ -581,7 +585,7 @@ impl RenderOnce for Dropdown {
         if !self.open && !exiting(sample) {
             return div().into_any_element();
         }
-        root.child(menu_surface(panel)).into_any_element()
+        root.child(menu_panel(panel, cx)).into_any_element()
     }
 }
 

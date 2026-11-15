@@ -11,12 +11,12 @@
 //! the screens phase; they will reuse [`artifact_strip`] and
 //! [`pane_status_row`].
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::util::ScrollAxisLock as _;
 use std::ops::Range;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{
     div, font, prelude::*, px, relative, rgb, AnyElement, App, ElementId, FontWeight, Hsla, IntoElement, ScrollHandle, SharedString, StyledText,
@@ -29,7 +29,6 @@ use crate::shell::TabItem;
 use crate::transcript::{
     MessageSelection, SelectionEndpoint, SelectionHandler, SelectionKey, SpanHandler, TextSelection, selectable_text,
 };
-use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.dtabs{height:34px;gap:2px;padding:0 6px}`.
 const TABS_H: f32 = 34.0;
@@ -198,7 +197,7 @@ impl DocTabs {
 }
 
 impl RenderOnce for DocTabs {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let mut band = h_flex()
@@ -214,8 +213,6 @@ impl RenderOnce for DocTabs {
         for (index, tab) in self.tabs.iter().enumerate() {
             let tab_id: ElementId = (id.clone(), tab.id.clone()).into();
             let active = index == self.active;
-            let (state, flags) = interaction_flags(tab_id.clone(), window, cx);
-            let color = tween((tab_id.clone(), "color"), if active || flags.hovered { p.ink } else { p.ink_3 }, Tween::FAST, window, cx);
             let mut el = h_flex()
                 .id(tab_id)
                 .relative()
@@ -223,13 +220,13 @@ impl RenderOnce for DocTabs {
                 .flex_none()
                 .gap(px(TAB_GAP))
                 .px(px(TAB_PAD))
-                .text_color(color)
+                .paint_states(StatePaint::new().tint(false).ink(if active { p.ink } else { p.ink_3 }, p.ink), &p)
                 .ui(scale::FS_12)
                 .whitespace_nowrap()
-                .cursor_pointer()
-                .track_interaction(&state);
+                .cursor_pointer();
             if let Some(glyph) = tab.icon {
-                el = el.child(icon(glyph).size(px(SMALL_GLYPH)).color(color));
+                // The glyph inherits the tab's ink, so it lifts with it.
+                el = el.child(icon(glyph).size(px(SMALL_GLYPH)));
             }
             el = el.child(tab.label.clone());
             if active {
@@ -469,19 +466,16 @@ fn mark_button(
     id: impl Into<ElementId>,
     mark: FormatMark,
     on_action: Option<ToolbarHandler>,
-    window: &mut Window,
+    _window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement {
     let p = cx.aui().colors;
     let id: ElementId = id.into();
-    let (state, flags) = interaction_flags(id.clone(), window, cx);
-    let bg = tint_fade((id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
-    let text = tween((id.clone(), "text"), if flags.hovered { p.ink } else { p.ink_2 }, Tween::FAST, window, cx);
     let mut letter = div().ui(scale::FS_11).line_height(relative(1.0)).child(mark.letter());
     letter = match mark {
         FormatMark::Bold => letter.semibold(),
         FormatMark::Italic => letter.italic(),
-        FormatMark::Underline => letter.text_decoration_1().text_decoration_color(text),
+        FormatMark::Underline => letter.text_decoration_1(),
     };
     let mut el = div()
         .id(id)
@@ -491,10 +485,8 @@ fn mark_button(
         .justify_center()
         .size(cx.aui().metrics.control_xs)
         .rounded(px(scale::R_SM))
-        .bg(bg)
-        .text_color(text)
+        .paint_states(StatePaint::new().ink(p.ink_2, p.ink), &p)
         .cursor_pointer()
-        .track_interaction(&state)
         .child(letter);
     if let Some(f) = on_action {
         el = el.on_click(move |_, w, cx| f(&DocToolbarAction::Mark(mark), w, cx));

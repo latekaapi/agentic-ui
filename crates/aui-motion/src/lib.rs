@@ -65,7 +65,7 @@ pub use shimmer::{shimmer_text, skeleton, ShimmerText};
 pub use spring::{spring, spring_phase, spring_px, SpringKind};
 pub use stagger::stagger_delay;
 pub use ticker::number_ticker;
-pub use tween::{tint_fade, tween, Tween};
+pub use tween::{tween, Tween};
 
 /// Human-readable label for this crate's role in the workspace, for
 /// diagnostics that print which pieces of `aui` are linked in.

@@ -24,7 +24,6 @@
 //! siblings never move while a rename is open.
 
 use aui_icons::{icon, provider_mark, IconName};
-use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{
     div, prelude::*, px, relative, AnyElement, App, Bounds, Div, ElementId, Entity, IntoElement, Pixels, SharedString,
@@ -34,10 +33,11 @@ use gpui_kit::base::input::TextareaState;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintHover, PaintStates, StatePaint};
 use crate::data::{icon_button, spinner, status_dot, tag, ButtonSize};
 use crate::nav::{ActivityKind, Byline, MetaItem, RowStatusKind, SessionSummary};
 use crate::nav::{LEADING_BOX, NAV_GUTTER, NAV_LABEL_X};
-use crate::util::{indexed_child, interaction_flags, TrackInteraction};
+use crate::util::indexed_child;
 
 /// `.wt{grid-template-columns:14px 1fr auto;gap:2px 8px;padding:9px 10px;margin:2px 8px}`.
 /// Inside a flex column (the sidebar) CSS keeps both margins, 4 px apart;
@@ -73,7 +73,6 @@ const ACTS_RIGHT: f32 = 8.0;
 const ACTS_TOP: f32 = 6.0;
 const ACTS_GAP: f32 = 2.0;
 const ACTS_PAD: f32 = 1.0;
-const ACTS_SLIDE: f32 = 4.0;
 const ACTS_GLYPH: f32 = 12.0;
 /// `.unread{left:2px;width:3px;height:16px;border-radius:2px}`.
 const UNREAD_LEFT: f32 = 2.0;
@@ -190,7 +189,8 @@ fn pin_mark(p: &aui_tokens::Palette) -> AnyElement {
     icon(IconName::Pin).size(px(PIN_META)).color(p.ink_3).into_any_element()
 }
 
-/// The `.acts` hover tray: the actions, faded and slid in on hover.
+/// The `.acts` hover tray: the actions, shown while the row is hovered (a
+/// [`HOVER_GROUP`](crate::interact::HOVER_GROUP) refinement, no keyed state).
 ///
 /// Shared by both rows so a rename affordance looks the same wherever it is.
 /// On a pinned session the pin button flips to unpin: it draws `PinOff`
@@ -201,35 +201,23 @@ fn action_tray(
     session_id: &SharedString,
     actions: &[RowAction],
     pinned: bool,
-    visible: bool,
     on_action: &Option<ActionHandler>,
-    window: &mut Window,
     cx: &mut App,
 ) -> Div {
     let p = cx.aui().colors;
-    let opacity = tween((id.clone(), "acts-opacity"), if visible { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
-    let slide = tween(
-        (id.clone(), "acts-slide"),
-        if visible { 0.0f32 } else { ACTS_SLIDE },
-        Tween::BASE.with_easing(aui_tokens::Easing::OUT),
-        window,
-        cx,
-    );
-    let mut tray = h_flex()
+    let tray = h_flex()
         .absolute()
-        .right(px(ACTS_RIGHT) - px(slide))
+        .right(px(ACTS_RIGHT))
         .top(px(ACTS_TOP))
         .gap(px(ACTS_GAP))
         .p(px(ACTS_PAD))
         .rounded(px(scale::R_SM))
         .bg(p.surface_2)
-        .opacity(opacity);
-    if visible {
-        // Rows open on press: a press on the shown tray must not reach the
-        // row, or the pin (pencil, archive) would re-open the session before
-        // its own click lands.
-        tray = tray.on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation());
-    }
+        .reveal_on_hover(false);
+    // Rows open on press: a press on the shown tray must not reach the row,
+    // or the pin (pencil, archive) would re-open the session before its own
+    // click lands. A hidden tray takes no presses at all.
+    let mut tray = tray.on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation());
     for action in actions {
         let action = *action;
         let unpin = action == RowAction::Pin && pinned;
@@ -257,16 +245,12 @@ fn action_tray(
             div().id((id.clone(), SharedString::from(format!("{}-tip", action.name())))).tooltip(move |_, cx| cx.new(|_| RowTip(tip.clone())).into()).child(b),
         );
     }
-    if !visible && opacity <= 0.001 {
-        tray = tray.invisible();
-    }
     tray
 }
 
 type SelectHandler = std::rc::Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 type ActionHandler = std::rc::Rc<dyn Fn(&SharedString, RowAction, &mut Window, &mut App)>;
-/// Hover enter/leave with the session id: the hover card's arm. See
-/// [`crate::util::TrackInteraction::track_interaction_reported`].
+/// Hover enter/leave with the session id: the hover card's arm.
 pub(crate) type HoverHandler = std::rc::Rc<dyn Fn(&SharedString, bool, &mut Window, &mut App)>;
 /// Hover enter/leave with the session id and the row's own window bounds,
 /// measured in prepaint: the hover card's arm and seat. The bounds travel
@@ -678,12 +662,6 @@ impl RowTrailing {
     }
 }
 
-/// The compact row's ground: selected fills surface-3, a step above hover's
-/// surface-2 — so the active row reads apart from a hovered one.
-pub fn compact_row_ground(selected: bool, palette: &aui_tokens::Palette) -> gpui::Hsla {
-    if selected { palette.surface_3 } else { palette.surface_2 }
-}
-
 /// The compact row's title ink: full ink when selected, ink-2 otherwise.
 pub fn compact_row_title_ink(selected: bool, palette: &aui_tokens::Palette) -> gpui::Hsla {
     if selected { palette.ink } else { palette.ink_2 }
@@ -767,18 +745,10 @@ fn context_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> 
 }
 
 impl RenderOnce for SessionRow {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let s = self.session;
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let hovered = flags.hovered;
-
-        let tint = if self.selected { p.surface_3 } else { p.surface_2 };
-        let bg = tint_fade((id.clone(), "bg"), self.selected || hovered, tint, Tween::FAST, window, cx);
-        let acts_visible = hovered && self.show_actions;
-        let acts_opacity = tween((id.clone(), "acts-opacity"), if acts_visible { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
-        let time_opacity = 1.0 - acts_opacity;
 
         let dot = div().flex_none().w(px(DOT_COL)).mt(px(DOT_TOP)).child(status_dot((id.clone(), "dot"), s.state).pulse(s.pulse));
         let name_size = if self.nested { scale::FS_12 } else { self.name_size };
@@ -789,7 +759,7 @@ impl RenderOnce for SessionRow {
             .text_role(TextRole::MonoSmall)
             .font_weight(gpui::FontWeight::MEDIUM)
             .text_color(p.ink_3)
-            .opacity(time_opacity)
+            .hide_on_hover(!self.show_actions)
             .child(s.elapsed.clone());
 
         let mut lines = v_flex().flex_1().min_w(px(0.0)).gap(px(self.row_gap));
@@ -820,9 +790,9 @@ impl RenderOnce for SessionRow {
             .mb(px(self.margin_bottom))
             .mx(px(self.margin_x))
             .rounded(px(scale::R_MD))
-            .bg(bg)
+            .paint_states(StatePaint::new().selected(self.selected).pressable(false), &p)
+            .hover_group()
             .cursor_pointer()
-            .track_interaction(&state)
             .child(dot)
             .child(lines);
 
@@ -842,7 +812,7 @@ impl RenderOnce for SessionRow {
 
         if self.show_actions {
             let actions = self.actions.clone().unwrap_or_else(|| RowAction::ALL.to_vec());
-            row = row.child(action_tray(&id, &s.id, &actions, s.pinned, acts_visible, &self.on_action, window, cx));
+            row = row.child(action_tray(&id, &s.id, &actions, s.pinned, &self.on_action, cx));
         }
 
         if let Some(on_select) = self.on_select.clone() {
@@ -996,16 +966,13 @@ impl CompactSessionRow {
 }
 
 impl RenderOnce for CompactSessionRow {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let s = self.session;
         let density = self.density;
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
-        // The active row fills surface-3, a step above hover's surface-2,
-        // with full-ink title — visibly different from hover.
-        let tint = compact_row_ground(self.selected, &p);
-        let bg = tint_fade((id.clone(), "bg"), self.selected || flags.hovered, tint, Tween::FAST, window, cx);
+        // The active row holds the selected overlay with a full-ink title;
+        // hover is the one model's overlay.
         let text = compact_row_title_ink(self.selected, &p);
         let label = s.name.clone();
 
@@ -1017,7 +984,6 @@ impl RenderOnce for CompactSessionRow {
         let trailing_ink = trailing_kind.ink(&p);
 
         let editing = self.editor.is_some();
-        let acts_visible = flags.hovered && !self.actions.is_empty() && !editing;
         let mut lines = v_flex().flex_1().min_w(px(0.0)).gap(px(ROW_GAP));
         let title: AnyElement = match self.editor {
             Some(editor) => div().flex_1().min_w(px(0.0)).child(editor).into_any_element(),
@@ -1074,7 +1040,8 @@ impl RenderOnce for CompactSessionRow {
             .ml(px(if self.nested { SR_CHILD_INDENT } else { SR_MARGIN_X }))
             .mr(px(SR_MARGIN_X))
             .rounded(px(scale::R_MD))
-            .bg(bg)
+            .paint_states(StatePaint::new().selected(self.selected).pressable(false), &p)
+            .hover_group()
             .ui(SR_TEXT)
             .text_color(text)
             .cursor_pointer();
@@ -1091,17 +1058,17 @@ impl RenderOnce for CompactSessionRow {
             (Some(report), _) => {
                 let key = s.id.clone();
                 let cell = bounds_cell.clone().expect("cell made with the bounds report");
-                row_base.track_interaction_reported(&state, move |hovered, w, cx| {
+                row_base.on_hover(move |hovered, w, cx| {
                     if let Some(bounds) = *cell.borrow() {
-                        report(&key, hovered, bounds, w, cx);
+                        report(&key, *hovered, bounds, w, cx);
                     }
                 })
             }
             (None, Some(report)) => {
                 let key = s.id.clone();
-                row_base.track_interaction_reported(&state, move |hovered, w, cx| report(&key, hovered, w, cx))
+                row_base.on_hover(move |hovered, w, cx| report(&key, *hovered, w, cx))
             }
-            (None, None) => row_base.track_interaction(&state),
+            (None, None) => row_base,
         };
         row = row.child(
                 div()
@@ -1122,8 +1089,8 @@ impl RenderOnce for CompactSessionRow {
         if self.nested {
             row = row.child(div().absolute().left(px(-1.0)).top(px(SR_RAIL_INSET)).bottom(px(SR_RAIL_INSET)).w(px(1.0)).bg(p.line));
         }
-        if !self.actions.is_empty() {
-            row = row.child(action_tray(&id, &s.id, &self.actions, s.pinned, acts_visible, &self.on_action, window, cx));
+        if !self.actions.is_empty() && !editing {
+            row = row.child(action_tray(&id, &s.id, &self.actions, s.pinned, &self.on_action, cx));
         }
         // A row being renamed is not a row waiting to be opened: a click on the
         // field it is holding would otherwise close the field it just opened.
@@ -1481,8 +1448,8 @@ mod tests {
         }
     }
 
-    /// The selected row renders on surface-3 — a step above the surface-2 a
-    /// hovered row rests on — with a full-ink title: both rows go through the
+    /// The selected row holds the selected overlay — a step above the hover
+    /// overlay — with a full-ink title: both rows go through the
     /// real render path in a window (so the test proves the path wires the
     /// states, not just the helpers), and the fills the path resolves for
     /// the two states differ, in both themes.
@@ -1500,9 +1467,10 @@ mod tests {
         // The fills the render path resolves for selected vs rest differ.
         for theme in [ThemeKind::Dark, ThemeKind::Light] {
             let p: Palette = Palette::for_kind(theme);
-            assert_eq!(compact_row_ground(true, &p), p.surface_3, "selected ground in {theme:?}");
-            assert_eq!(compact_row_ground(false, &p), p.surface_2, "hover ground in {theme:?}");
-            assert_ne!(compact_row_ground(true, &p), compact_row_ground(false, &p), "active differs from hover in {theme:?}");
+            // The one model: the selected rest fill is not the hover fill.
+            let (selected, _, _) = crate::interact::StatePaint::new().selected(true).fills(&p);
+            let (_, hover, _) = crate::interact::StatePaint::new().fills(&p);
+            assert_ne!(selected, Some(hover), "active differs from hover in {theme:?}");
             assert_eq!(compact_row_title_ink(true, &p), p.ink, "selected title ink in {theme:?}");
             assert_eq!(compact_row_title_ink(false, &p), p.ink_2, "resting title ink in {theme:?}");
         }

@@ -6,9 +6,9 @@
 //! ([`task_folder_row`], [`task_face`]) and the footer with the space chip
 //! ([`browse_footer`]).
 //!
-//! Row sizing and hover-tint conventions follow `crate::nav` (30 px rows,
-//! `surface-2` hover via [`aui_motion::tint_fade`](aui_motion), `surface-3`
-//! for the active row); colours come from [`aui_tokens`] only.
+//! Row sizing follows `crate::nav` (30 px rows); hover, press and the
+//! active row are the one model ([`crate::interact::paint`]); colours come
+//! from [`aui_tokens`] only.
 
 mod address;
 /// The agent surface over a web page: the line, the card, the column.

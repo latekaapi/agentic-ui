@@ -8,6 +8,7 @@
 use aui_motion::{open_close, SpringKind, COLLAPSE_EXIT};
 use aui_protocol::{ActivityState, Block, ToolCall, ToolStatus};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::record_ax_label;
 use gpui::{div, prelude::*, px, radians, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -257,8 +258,7 @@ impl RenderOnce for ToolGroup {
                 preview = preview.child(
                     div()
                         .id((id.clone(), "more"))
-                        .text_color(p.ink_3)
-                        .hover(|d| d.text_color(p.ink).underline())
+                        .paint_states(StatePaint::new().tint(false).underline(true).ink(p.ink_3, p.ink), &p)
                         .child(more_label(hidden)),
                 );
             }

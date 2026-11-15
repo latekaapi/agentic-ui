@@ -12,6 +12,7 @@ use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::h_flex;
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::record_ax_label;
 use crate::util::ClickHandler;
 
@@ -106,9 +107,8 @@ fn pill_text(id: impl Into<ElementId>, label: SharedString, cx: &App) -> gpui::S
         .px(px(8.0))
         .rounded(px(6.0))
         .ui(scale::FS_12)
-        .text_color(p.ink_2)
         .cursor_pointer()
-        .hover(|d| d.text_color(p.ink).bg(p.hover_overlay()))
+        .paint_states(StatePaint::new().ink(p.ink_2, p.ink), &p)
         .role(gpui::Role::Button)
         .aria_label(label.clone())
         .child(label)
@@ -162,8 +162,7 @@ impl RenderOnce for ToastChip {
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
-                    .text_color(p.ink_2)
-                    .hover(|d| d.text_color(p.ink).bg(p.hover_overlay()))
+                    .paint_states(StatePaint::new().ink(p.ink_2, p.ink), &p)
                     .role(gpui::Role::Button)
                     .aria_label("Dismiss notification")
                     .on_click(move |e, w, cx| on_close(e, w, cx))
@@ -234,9 +233,7 @@ impl RenderOnce for FeedbackPill {
             .items_center()
             .justify_center()
             .cursor_pointer()
-            .text_color(if self.active { p.ink } else { p.ink_2 })
-            .when(self.active, |d| d.bg(p.selected_overlay()))
-            .when(!self.active, |d| d.hover(|d| d.bg(p.hover_overlay()).text_color(p.ink)))
+            .paint_states(StatePaint::new().selected(self.active).ink(p.ink_2, p.ink), &p)
             .role(gpui::Role::Button)
             .aria_label(label)
             .child(icon(IconName::MessagePlus).size(px(14.0)).lit(self.active));

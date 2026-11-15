@@ -25,7 +25,6 @@ use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, chip, glyph_ok, spinner, tag, ButtonVariant};
 use crate::icons::{icon, IconName};
-use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.pan{border-radius:var(--r-lg)}`.
 const PANEL_RADIUS: f32 = scale::R_LG;
@@ -267,7 +266,6 @@ impl RenderOnce for GitChanges {
             let (letter, colour) = change_letter(file.change, &p);
             let path = SharedString::from(file.path.clone());
             let row_id: ElementId = (id.clone(), SharedString::from(format!("file:{path}"))).into();
-            let (state, _) = interaction_flags(row_id.clone(), window, cx);
             let mut row = h_flex()
                 .id(row_id.clone())
                 .w_full()
@@ -278,7 +276,6 @@ impl RenderOnce for GitChanges {
                 .text_color(p.ink_2)
                 .ui(ROW_TEXT)
                 .cursor_pointer()
-                .track_interaction(&state)
                 .child(row_checkbox((row_id.clone(), "check").into(), *on, &p, window, cx))
                 .child(
                     div()

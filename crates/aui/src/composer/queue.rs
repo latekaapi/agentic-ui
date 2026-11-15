@@ -9,7 +9,8 @@ use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::util::{indexed_child, interaction_flags, named_child, TrackInteraction};
+use crate::interact::paint::{PaintStates, StatePaint};
+use crate::util::{indexed_child, named_child};
 
 /// The queued row: 32 px, gap 8, caption text.
 const ROW_H: f32 = 32.0;
@@ -127,8 +128,7 @@ impl RenderOnce for QueueRow {
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
-                    .text_color(p.ink_2)
-                    .hover(|d| d.bg(p.hover_overlay()).text_color(p.ink))
+                    .paint_states(StatePaint::new().ink(p.ink_2, p.ink), &p)
                     .role(gpui::Role::Button)
                     .aria_label("Remove queued message")
                     .on_click(emit(QueueIntent::Remove))
@@ -182,7 +182,6 @@ impl RenderOnce for SuggestionChips {
                 let sample = presence((chip_id.clone(), "enter"), true, EnterExit::BASE.with_delay(stagger_delay(i, count, SUGG_STAGGER)), window, cx);
                 PresenceStyle::fade_rise(sample, SUGG_RISE)
             };
-            let (state, flags) = interaction_flags(chip_id.clone(), window, cx);
             let mut chip = h_flex()
                 .id(chip_id)
                 .relative()
@@ -192,13 +191,10 @@ impl RenderOnce for SuggestionChips {
                 .gap(px(SUGG_GAP))
                 .rounded_full()
                 .border_1()
-                .border_color(if flags.hovered { p.line_strong } else { p.line })
-                .bg(p.surface_1)
+                .paint_states(StatePaint::new().on(p.surface_1).tint(false).edge(p.line, p.line_strong).ink(p.ink_2, p.ink), &p)
                 .ui(scale::FS_12)
-                .text_color(if flags.hovered { p.ink } else { p.ink_2 })
                 .opacity(style.opacity)
-                .cursor_pointer()
-                .track_interaction(&state);
+                .cursor_pointer();
             if i == 0 && self.sparkle_first {
                 chip = chip.child(icon(IconName::Sparkle).size(px(SUGG_GLYPH)));
             }

@@ -7,9 +7,9 @@
 //! rail whose height is always reserved, so nothing shifts.
 
 use aui_icons::{icon, IconName};
-use aui_motion::{icon_morph, tween, IconMorph, Tween};
+use aui_motion::{icon_morph, IconMorph};
 use aui_protocol::{Attachment, AttachmentKind, TurnMeta};
-use aui_tokens::{scale, ActiveAui, AuiStyled, Easing, Palette};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{
     div, prelude::*, px, relative, App, Bounds, ElementId, IntoElement, Pixels, SharedString,
     TextRun, Window,
@@ -21,12 +21,12 @@ use std::rc::Rc;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
+use crate::interact::paint::PaintHover;
 use crate::transcript::{caret_top_in_line, ProseStyle, CARET_H, CARET_MARGIN_LEFT, CARET_W};
 use crate::transcript::{LinkTarget, MessageSelection, SelectionHandler, SpanEvent, SpanHandler, TextSelection, last_block_runs, markdown, markdown_selected_text, markdown_selected_text_settled, message_selected_text, message_selected_text_settled, CodeBlockAction, LinkHandler};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, icon_content_button, ButtonSize};
-use crate::util::{interaction_flags, TrackInteraction};
 
 /// The bubble's column: at most 78 % of the measure, right-aligned.
 const USER_MAX: f32 = 0.78;
@@ -73,9 +73,6 @@ const PARAGRAPH_GAP: f32 = 16.0;
 /// Under an answer, on hover: one copy button 8 below, the footer 10 below it.
 const COPY_TOP: f32 = 8.0;
 const FOOTER_TOP: f32 = 10.0;
-/// Hover reveals: opacity 80 ms in, 60 ms out, no translation (docs/41 §3).
-const REVEAL_IN: Tween = Tween::new(Duration::from_millis(80), Easing::OUT);
-const REVEAL_OUT: Tween = Tween::new(Duration::from_millis(60), Easing::OUT);
 /// How long the copy button's success check holds before the copy glyph
 /// returns: 1.2 s, the same hold the code block header uses. The library owns
 /// no timers, so the caller waits this long after the copy intent before it
@@ -133,11 +130,6 @@ fn copy_morph(
         icon(IconName::Copy).size(size),
         icon(IconName::CheckBold).size(size).color(p.success),
     )
-}
-
-/// The reveal opacity of a turn's hover controls.
-fn reveal(id: &ElementId, name: &'static str, hovered: bool, window: &mut Window, cx: &mut App) -> f32 {
-    tween((id.clone(), name), if hovered { 1.0f32 } else { 0.0 }, if hovered { REVEAL_IN } else { REVEAL_OUT }, window, cx)
 }
 
 /// One Browse annotation batch drawn as the person's turn (docs/41 §2.2):
@@ -642,9 +634,6 @@ impl RenderOnce for UserTurn {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let rail_opacity = reveal(&id, "rail", flags.hovered, window, cx);
-
         // The column is definite (`w_full` capped at `USER_MAX`) so the
         // percentage resolves; `items_end` keeps a short bubble hugging the
         // right, and `ml_auto` puts the capped column itself on the right
@@ -656,7 +645,7 @@ impl RenderOnce for UserTurn {
             .max_w(relative(self.max_width))
             .ml_auto()
             .items_end()
-            .track_interaction(&state);
+            .hover_group();
 
         // What was sent with it, above the bubble: tiles then chips.
         type Indexed<'a> = Vec<(usize, &'a Attachment)>;
@@ -726,10 +715,7 @@ impl RenderOnce for UserTurn {
         col = col.child(bubble);
 
         // The rail: always 24 px tall, its contents only while hovered.
-        let mut rail = h_flex().h(px(RAIL_H)).mt(px(4.0)).gap(px(RAIL_GAP)).items_center().opacity(rail_opacity);
-        if rail_opacity <= 0.001 {
-            rail = rail.invisible();
-        }
+        let mut rail = h_flex().h(px(RAIL_H)).mt(px(4.0)).gap(px(RAIL_GAP)).items_center().reveal_on_hover(false);
         let mut buttons = h_flex().gap(px(0.0)).my(px(-(ACT_SIZE - RAIL_H) / 2.0));
         for action in &self.actions {
             let action = *action;
@@ -1045,9 +1031,6 @@ impl RenderOnce for AssistantTurn {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let rail_opacity = reveal(&id, "rail", flags.hovered, window, cx);
-
         let style = prose_style(&p, BODY_TEXT, BODY_LH, p.line, p.ink);
         // gpui text hosts no inline elements, so the caret is an absolutely
         // positioned sibling of the prose: last frame's prose bounds give the
@@ -1097,7 +1080,7 @@ impl RenderOnce for AssistantTurn {
             .ui(BODY_TEXT)
             .line_height(relative(BODY_LH))
             .text_color(p.ink)
-            .track_interaction(&state);
+            .hover_group();
         turn = turn.child(
             div()
                 .relative()
@@ -1137,7 +1120,7 @@ impl RenderOnce for AssistantTurn {
             if let Some(h) = self.on_action.clone() {
                 copy = copy.on_click(move |_, w, cx| h(AssistantTurnAction::Copy, w, cx));
             }
-            let mut rail = v_flex().mt(px(COPY_TOP)).items_start().opacity(rail_opacity).child(copy);
+            let mut rail = v_flex().mt(px(COPY_TOP)).items_start().reveal_on_hover(false).child(copy);
             if !self.footer.is_empty() {
                 rail = rail.child(
                     div()
@@ -1148,9 +1131,6 @@ impl RenderOnce for AssistantTurn {
                         .text_color(p.ink_4)
                         .child(self.footer.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(" · ")),
                 );
-            }
-            if rail_opacity <= 0.001 {
-                rail = rail.invisible();
             }
             turn = turn.child(rail);
         }

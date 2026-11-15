@@ -12,6 +12,7 @@ use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, AnyElement, App, ClickEvent, ElementId, FontWeight, IntoElement, Pixels, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{icon_button, Button};
 
 /// The pane row's height (the sheet's own row, on the lights' line).
@@ -109,8 +110,7 @@ fn title_menu_button(id: ElementId, name: SharedString, open: bool, on_click: Ha
         .gap(px(4.0))
         .items_center()
         .rounded(px(6.0))
-        .when(open, |d| d.bg(p.selected_overlay()))
-        .when(!open, |d| d.hover(|d| d.bg(p.hover_overlay())))
+        .paint_states(StatePaint::new().selected(open), &p)
         .cursor_pointer()
         .role(gpui::Role::Button)
         .aria_label(SharedString::from("Recent pages"))
@@ -380,13 +380,12 @@ pub fn secondary_action(id: impl Into<ElementId>, label: impl Into<SharedString>
         .gap(px(6.0))
         .items_center()
         .rounded(px(6.0))
-        .bg(p.surface_4)
         .shadow(p.edge())
         .font_family(scale::FONT_UI)
         .text_px(NAME_TEXT)
         .text_color(p.fg)
         .whitespace_nowrap()
-        .hover(|s| s.bg(p.surface_4.blend(p.hover_overlay())))
+        .paint_states(StatePaint::new().on(p.surface_4), &p)
         .when_some(glyph, |d, g| d.child(icon(g).size(px(GLYPH)).color(p.fg_muted)))
         .child(label)
 }

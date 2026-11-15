@@ -1,6 +1,7 @@
-//! `.btn`: secondary (filled, bordered, hairline shadow) by default; primary
-//! (accent), ghost (quiet icon/text), outline and danger (outlined) variants;
-//! md 28 / sm 24 / xs 20 heights; square icon buttons; the press spring.
+//! `.btn`: secondary (a see-through tint) by default; primary (accent), ghost
+//! (quiet icon/text), outline and danger (outlined) variants; md 28 / sm 24 /
+//! xs 20 heights; square icon buttons. Hover and press are the one model
+//! ([`crate::interact::paint`]): overlays over the resting fill, no tween.
 //!
 //! Buttons are tab stops and activate on `enter` / `space` while focused (gpui
 //! turns an activation keystroke on a focused element into a `ClickEvent`, so
@@ -14,11 +15,12 @@
 //! itself, which is what the design cares about.
 
 use aui_icons::{icon, IconName};
-use aui_motion::{spring_phase, tween, SpringKind, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
-use gpui::{div, point, prelude::*, px, AnyElement, App, BoxShadow, ElementId, Hsla, IntoElement, MouseButton, Pixels, SharedString, Window};
+use gpui::{div, prelude::*, px, AnyElement, App, ElementId, Hsla, IntoElement, MouseButton, Pixels, SharedString, Window};
 
-use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
+use crate::interact::paint::{PaintStates, StatePaint};
+use crate::interact::InteractState;
+use crate::util::ClickHandler;
 
 use std::cell::RefCell;
 
@@ -140,13 +142,13 @@ pub struct Button {
     variant: ButtonVariant,
     size: ButtonSize,
     square: bool,
-    muted: bool,
     disabled: bool,
     accessibility_label: Option<SharedString>,
     tooltip: bool,
     tooltip_right: Option<gpui::Pixels>,
     menu_open: bool,
     toggled: Option<bool>,
+    preview: Option<InteractState>,
     on_click: Option<ClickHandler>,
 }
 
@@ -162,13 +164,13 @@ pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Butto
         variant: ButtonVariant::Secondary,
         size: ButtonSize::Md,
         square: false,
-        muted: false,
         disabled: false,
         accessibility_label: None,
         tooltip: true,
         tooltip_right: None,
         menu_open: false,
         toggled: None,
+        preview: None,
         on_click: None,
     }
 }
@@ -257,8 +259,7 @@ impl Button {
     }
 
     /// Kept for source compatibility: an FF ghost is always muted at rest.
-    pub fn muted(mut self) -> Self {
-        self.muted = true;
+    pub fn muted(self) -> Self {
         self
     }
 
@@ -310,6 +311,13 @@ impl Button {
         self
     }
 
+    /// Pins a state for a gallery card or a capture: the hover or pressed
+    /// look, or the focus ring, with no pointer or keyboard.
+    pub fn preview(mut self, state: InteractState) -> Self {
+        self.preview = Some(state);
+        self
+    }
+
     /// Click handler.
     pub fn on_click(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Box::new(f));
@@ -317,68 +325,40 @@ impl Button {
     }
 }
 
-/// Resting, hover and pressed colours of a variant (Fluid Functionalism's
-/// `button.tsx`: primary / secondary / tertiary / ghost; Danger is ours).
+/// The resting colours of a variant (Fluid Functionalism's `button.tsx`:
+/// primary / secondary / tertiary / ghost; Danger is ours). Hover and press
+/// are not part of the look: they are the one model's overlays over the
+/// resting fill ([`StatePaint`]).
 struct Look {
     bg: Hsla,
-    bg_hover: Hsla,
-    bg_pressed: Hsla,
     border: Hsla,
     text: Hsla,
     text_hover: Hsla,
 }
 
 impl Look {
-    fn of(variant: ButtonVariant, _muted: bool, p: &Palette) -> Self {
+    fn of(variant: ButtonVariant, p: &Palette) -> Self {
         let transparent = gpui::transparent_black();
-        // FF --tint / --tint-hover: see-through, so the button takes on the
-        // surface beneath it.
-        let (tint, tint_hover) = if p.is_dark() {
-            (gpui::white().alpha(0.25), gpui::white().alpha(0.20))
-        } else {
-            (gpui::black().alpha(0.08), gpui::black().alpha(0.065))
-        };
+        // FF --tint: see-through, so the button takes on the surface beneath it.
+        let tint = if p.is_dark() { gpui::white().alpha(0.25) } else { gpui::black().alpha(0.08) };
         match variant {
-            // FF secondary.
-            ButtonVariant::Secondary => Look { bg: tint, bg_hover: tint_hover, bg_pressed: tint, border: transparent, text: p.fg, text_hover: p.fg },
-            // FF primary: the foreground fill, background text; hover and
-            // press mix toward the background (90 % / 80 %).
-            ButtonVariant::Primary => Look {
-                bg: p.accent,
-                bg_hover: p.accent_strong,
-                bg_pressed: mix(p.accent, p.bg, 0.8),
-                border: transparent,
-                text: p.bg,
-                text_hover: p.bg,
-            },
-            // FF ghost: muted text that lights on hover, the hover / active overlays.
-            ButtonVariant::Ghost => Look {
-                bg: transparent,
-                bg_hover: p.hover_overlay(),
-                bg_pressed: p.pressed_overlay(),
-                border: transparent,
-                text: p.fg_muted,
-                text_hover: p.fg,
-            },
-            // FF tertiary: transparent with the 1 px --border ring.
-            ButtonVariant::Outline => Look { bg: transparent, bg_hover: p.hover_overlay(), bg_pressed: p.pressed_overlay(), border: p.line, text: p.fg, text_hover: p.fg },
-            // Not in FF: a tertiary button in the danger colour.
-            ButtonVariant::Danger => Look { bg: transparent, bg_hover: p.danger_soft, bg_pressed: p.danger_soft, border: p.line, text: p.danger, text_hover: p.danger },
+            ButtonVariant::Secondary => Look { bg: tint, border: transparent, text: p.fg, text_hover: p.fg },
+            // The foreground fill, background text.
+            ButtonVariant::Primary => Look { bg: p.accent, border: transparent, text: p.bg, text_hover: p.bg },
+            // Muted text that lights on hover.
+            ButtonVariant::Ghost => Look { bg: transparent, border: transparent, text: p.fg_muted, text_hover: p.fg },
+            // Transparent with the 1 px ring.
+            ButtonVariant::Outline => Look { bg: transparent, border: p.line, text: p.fg, text_hover: p.fg },
+            // A tertiary button in the danger colour.
+            ButtonVariant::Danger => Look { bg: transparent, border: p.line, text: p.danger, text_hover: p.danger },
         }
     }
-}
-
-/// `a` mixed toward `b` keeping `amount` of `a` (FF's `color-mix(in oklab, …)`,
-/// approximated in RGB — the two greys it mixes differ only in lightness).
-fn mix(a: Hsla, b: Hsla, amount: f32) -> Hsla {
-    let (a, b): (gpui::Rgba, gpui::Rgba) = (a.into(), b.into());
-    gpui::Rgba { r: a.r * amount + b.r * (1.0 - amount), g: a.g * amount + b.g * (1.0 - amount), b: a.b * amount + b.b * (1.0 - amount), a: 1.0 }.into()
 }
 
 impl RenderOnce for Button {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let look = Look::of(self.variant, self.muted, &p);
+        let look = Look::of(self.variant, &p);
         let height = self.size.height(cx);
         let id = self.id.clone();
 
@@ -388,28 +368,31 @@ impl RenderOnce for Button {
             .read(cx)
             .clone()
             .tab_stop(!self.disabled);
-        let ring = !self.disabled && focus.is_focused(window) && crate::keys::keyboard_nav(cx);
+        let ring = self.preview.is_some_and(|s| s.focused && !self.disabled)
+            || (!self.disabled && focus.is_focused(window) && crate::keys::keyboard_nav(cx));
 
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let hovered = (flags.hovered || self.menu_open) && !self.disabled;
-        let pressed = flags.pressed && !self.disabled;
-
-        // Colours tween on the fast tier (FF: background 80 ms). The press is
-        // FF's: the surface shrinks exactly 1 px per side — fast in, a slower
-        // release (FF 80 ms / 180 ms) — never a scale.
+        // Hover, press, the toggled lit look and the open-menu hold are the
+        // one model: gpui refinements over the resting fill, no tween.
         let lit = self.toggled == Some(true);
-        let target = if pressed { look.bg_pressed } else if lit { p.selected_overlay() } else if hovered { look.bg_hover } else { look.bg };
-        let bg = tween((id.clone(), "bg"), target, Tween::FAST, window, cx);
-        let border = look.border;
-        let text = tween((id.clone(), "text"), if hovered || pressed || lit { look.text_hover } else { look.text }, Tween::FAST, window, cx);
-        let press = spring_phase((id.clone(), "press"), pressed, if pressed { SpringKind::Fast } else { SpringKind::Moderate }, window, cx).clamp(0.0, 1.0);
-        let inset = px(1.0) * press;
+        let base = if look.bg.a > 0.0 { Some(look.bg) } else { None };
+        let mut paint = StatePaint::new()
+            .ink(look.text, look.text_hover)
+            .selected(lit)
+            .highlighted(self.menu_open)
+            .disabled(self.disabled)
+            .preview(self.preview);
+        if let Some(base) = base {
+            paint = paint.on(base);
+        }
 
-        let pad = if self.square { px(0.0) } else { px(self.size.padding()) - inset };
+        let pad = if self.square { px(0.0) } else { px(self.size.padding()) };
         let glyph_size = self.icon_size.unwrap_or(px(self.size.icon_size()));
 
-        let mut inner = div()
-            .size_full()
+        let mut outer = div()
+            .id(id)
+            .flex_none()
+            .h(height)
+            .when(self.square, |d| d.w(height))
             .flex()
             .items_center()
             .justify_center()
@@ -417,49 +400,35 @@ impl RenderOnce for Button {
             .px(pad)
             .rounded(px(scale::SHAPE_ITEM))
             .border_1()
-            .border_color(border)
-            .bg(bg)
-            .text_color(text)
+            .border_color(look.border)
+            .paint_states(paint, cx)
             .font_family(scale::FONT_UI)
             .text_px(self.size.font_size())
             .line_height(gpui::relative(1.0))
-            .whitespace_nowrap();
-        // FF's native-control focus ring: 1 px of #6B97FF, no offset.
+            .whitespace_nowrap()
+            .when(self.disabled, |d| d.opacity(DISABLED_OPACITY))
+            .when(!self.disabled, |d| d.cursor_pointer());
+        // The one focus-visible ring (an outline, not a shadow: a spread
+        // shadow shows through the see-through fills).
         if ring {
-            inner = inner.shadow(vec![BoxShadow {
-                color: p.accent_ring,
-                offset: point(px(0.0), px(0.0)),
-                blur_radius: px(0.0),
-                spread_radius: px(1.0),
-                inset: false,
-            }]);
+            outer = outer.relative().child(crate::interact::focus_ring(px(scale::SHAPE_ITEM), &p));
         }
+        // The glyph inherits the button's ink, so it lifts with the hover.
         if let Some(content) = self.icon_content {
-            inner = inner.child(content);
+            outer = outer.child(content);
         } else if let Some(glyph) = self.icon {
-            // FF: a button's glyph strokes at 2 while hovered or pressed.
-            inner = inner.child(icon(glyph).size(glyph_size).color(text).lit(hovered || pressed));
+            outer = outer.child(icon(glyph).size(glyph_size).lit(lit || self.menu_open));
         }
         if let Some(label) = self.label.clone().filter(|l| !l.is_empty()) {
-            inner = inner.child(label);
+            outer = outer.child(label);
         }
         if let Some(trailing) = self.trailing {
-            inner = inner.child(trailing);
+            outer = outer.child(trailing);
         }
 
-        let mut outer = div()
-            .id(id)
-            .flex_none()
-            .h(height)
-            .p(inset)
-            .when(self.square, |d| d.w(height))
-            .when(self.disabled, |d| d.opacity(DISABLED_OPACITY))
-            .when(!self.disabled, |d| d.cursor_pointer())
-            .child(inner);
         if !self.disabled {
             outer = outer
                 .track_focus(&focus)
-                .track_interaction(&state)
                 // The `:focus-visible` approximation: keys arm the ring, the
                 // mouse disarms it. `window.refresh()` repaints the flip.
                 .on_key_down(|_, window, cx| {

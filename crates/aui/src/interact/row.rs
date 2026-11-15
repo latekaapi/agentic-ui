@@ -1,27 +1,30 @@
-//! [`Row`]: a ladder-sized row that never paints hover.
+//! [`Row`]: the one list row. [`list_row`] is the flat list row of
+//! docs/83 (32 tall, 10 px inner padding, radius 8, paints its own hover,
+//! press and selection with the one model); [`row`] is the same row on the
+//! older size ladder, unpainted, for hosts whose list paints the rows
+//! ([`RowList`](super::RowList)).
 
 use aui_tokens::{ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, Pixels, RenderOnce, Role, SharedString, Window};
 use gpui_kit::base::h_flex;
 
+use super::paint::{PaintStates, StatePaint};
+use super::{InteractState, LIST_ROW_H, ROW_PAD_X, R_ITEM};
 use crate::data::record_ax_label;
 use crate::util::ClickHandler;
 
-/// A one- or two-line row on the size ladder: height `metrics.control`
-/// (36 / 28) for one line, `metrics.row_2` (52 / 44) with
-/// [`.two_line`](Row::two_line).
+/// A one- or two-line row. Build with [`list_row`] (the flat row) or
+/// [`row`] (the ladder row).
 ///
-/// The leading slot is `item_px + icon` wide with the text starting on the
-/// text axis (`item_px + icon + gap`); the trailing slot carries a count, a
-/// time, a kbd or actions. Title text is [`TextRole::Body`], the byline
-/// [`TextRole::Caption`] in `fg-muted`; on a selected row the title turns
-/// semibold with its width reserved (an invisible semibold copy in flow,
-/// the visible label painted over it).
+/// The trailing slot carries a count, a time, a kbd or actions. Title text
+/// is [`TextRole::Body`], the byline [`TextRole::Caption`] in `fg-muted`.
 ///
-/// A `Row` does NOT paint hover: it lives inside a
-/// [`FluidList`](super::FluidList) (which paints the highlight) or is
-/// wrapped in [`interactive`](super::interactive) when standalone. There is
-/// no focus ring on rows. Build with [`row`].
+/// A painted row ([`list_row`]) draws its own states with the one model
+/// ([`StatePaint`]): hover and press are gpui refinements, selected holds
+/// `ov-selected`. Selection is the fill only — the title keeps its weight.
+/// An unpainted row ([`row`]) paints nothing: its list does, and on a
+/// selected ladder row the title turns semibold with its width reserved.
+/// There is no focus ring on rows.
 #[derive(IntoElement)]
 pub struct Row {
     id: ElementId,
@@ -30,11 +33,17 @@ pub struct Row {
     leading: Option<AnyElement>,
     trailing: Option<AnyElement>,
     selected: bool,
+    disabled: bool,
     depth: u8,
     on_click: Option<ClickHandler>,
+    /// The flat list row: painted, 32 tall, 10 px padding, no reserved
+    /// leading slot, no bold on selection.
+    flat: bool,
+    preview: Option<InteractState>,
 }
 
-/// A one-line [`Row`] with `label`.
+/// A one-line ladder [`Row`] with `label`: unpainted, `metrics.control`
+/// tall, the leading slot always reserved.
 pub fn row(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Row {
     Row {
         id: id.into(),
@@ -43,9 +52,21 @@ pub fn row(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Row {
         leading: None,
         trailing: None,
         selected: false,
+        disabled: false,
         depth: 0,
         on_click: None,
+        flat: false,
+        preview: None,
     }
+}
+
+/// The flat list row (docs/83 §2.5, §4): 32 tall ([`LIST_ROW_H`]), 10 px
+/// inner padding ([`ROW_PAD_X`]), radius 8 ([`R_ITEM`]), an optional leading
+/// element and a trailing slot; hover / press / selected from the one model.
+/// Its accessible name is its title; with a click handler it is a button,
+/// otherwise a list item.
+pub fn list_row(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Row {
+    Row { flat: true, ..row(id, label) }
 }
 
 impl Row {
@@ -55,7 +76,8 @@ impl Row {
         self
     }
 
-    /// The leading glyph, on the icon axis.
+    /// The leading glyph. A glyph built without its own colour inherits the
+    /// row's ink, so it lifts with the row.
     pub fn leading(mut self, element: impl IntoElement) -> Self {
         self.leading = Some(element.into_any_element());
         self
@@ -67,11 +89,22 @@ impl Row {
         self
     }
 
-    /// Whether the row is selected: the title turns semibold (width
-    /// reserved) and the enclosing [`FluidList`](super::FluidList) paints
-    /// the selected block beneath it.
+    /// Whether the row is selected: a painted row holds `ov-selected`; a
+    /// ladder row's title turns semibold and its list paints the block.
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
+        self
+    }
+
+    /// A disabled row: muted, no state paint, no clicks.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    /// Pins a state for a gallery card or a capture (painted rows only).
+    pub fn preview(mut self, state: InteractState) -> Self {
+        self.preview = Some(state);
         self
     }
 
@@ -81,25 +114,28 @@ impl Row {
         self
     }
 
-    /// Click handler for standalone rows. Rows inside a
-    /// [`FluidList`](super::FluidList) leave this unset: activation flows
-    /// through the list's `on_activate`.
+    /// Click handler. Rows inside a [`RowList`](super::RowList) leave this
+    /// unset: activation flows through the list's `on_activate`.
     pub fn on_click(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Box::new(f));
         self
     }
 
-    /// The row height at the active density: `control` for one line,
-    /// `row_2` for two lines.
+    /// The row height: [`LIST_ROW_H`] for a one-line flat row,
+    /// `metrics.control` for a one-line ladder row, `row_2` for two lines.
     pub fn height(&self, cx: &App) -> Pixels {
         let metrics = &cx.aui().metrics;
-        if self.byline.is_some() { metrics.row_2 } else { metrics.control }
+        match (self.byline.is_some(), self.flat) {
+            (true, _) => metrics.row_2,
+            (false, true) => px(LIST_ROW_H),
+            (false, false) => metrics.control,
+        }
     }
 
     /// One copy of the title. The `hidden` copy is always semibold and lays
     /// out in flow, reserving the selected width; the visible copy paints
     /// over it and is semibold only while selected, so selecting a row
-    /// never reflows its neighbours.
+    /// never reflows its neighbours (ladder rows only).
     ///
     /// The weight is applied AFTER the role: `role_in` sets the role's own
     /// weight last, so the order matters (a `semibold()` before it is
@@ -122,47 +158,62 @@ impl RenderOnce for Row {
         let p = theme.colors;
         let metrics = theme.metrics;
         let height = self.height(cx);
-        let clickable = self.on_click.is_some();
-
-        // The leading slot reserves icon-axis space even without an icon,
-        // so text aligns across rows in a list.
-        let mut leaders = h_flex()
-            .flex_none()
-            .w(metrics.item_px + metrics.icon)
-            .h_full()
-            .items_center()
-            .justify_center();
-        // Width reservation for the selected semibold title (see `title`),
-        // built before the slots take ownership of their elements.
-        let (title_hidden, title_shown) = (self.title(true, cx), self.title(false, cx));
-        if let Some(leading) = self.leading {
-            leaders = leaders.child(leading);
-        }
+        let clickable = self.on_click.is_some() && !self.disabled;
         let byline = |text: &SharedString| {
             div().role_in(TextRole::Caption, cx).text_color(p.fg_muted).truncate().child(text.clone())
         };
 
-        let mut text = div().relative().flex_1().min_w(px(0.0));
-        if let Some(second) = self.byline.as_ref() {
-            text = text
-                .child(div().child(title_hidden).child(byline(second)))
-                .child(div().absolute().inset(px(0.0)).child(title_shown).child(byline(second)));
-        } else {
-            text = text
-                .child(title_hidden)
-                .child(div().absolute().inset(px(0.0)).truncate().child(title_shown));
-        }
-
+        // Width reservation for the selected semibold title of a ladder row
+        // (see `title`), built before the slots take ownership.
+        let titles = (!self.flat).then(|| (self.title(true, cx), self.title(false, cx)));
         let mut el = h_flex()
             .id(self.id)
             .w_full()
             .h(height)
             .items_center()
             .gap(metrics.gap)
-            .pr(metrics.item_px)
-            .when(self.depth > 0, |d| d.ml(metrics.inset * f32::from(self.depth)))
-            .child(leaders)
-            .child(text);
+            .when(self.depth > 0, |d| d.ml(metrics.inset * f32::from(self.depth)));
+
+        if self.flat {
+            // The flat row: the leading element only when there is one, the
+            // title in the row's ink (fg; muted when disabled), no reserved
+            // bold width — selection is the fill.
+            let ink = if self.disabled { p.fg_muted } else { p.fg };
+            el = el
+                .px(px(ROW_PAD_X))
+                .rounded(px(R_ITEM))
+                .text_color(ink)
+                .paint_states(
+                    StatePaint::new().selected(self.selected).disabled(self.disabled).preview(self.preview),
+                    cx,
+                );
+            if let Some(leading) = self.leading {
+                el = el.child(div().flex_none().flex().items_center().child(leading));
+            }
+            let title = div().role_in(TextRole::Body, cx).truncate().child(self.label.clone());
+            let text = match self.byline.as_ref() {
+                Some(second) => div().flex_1().min_w(px(0.0)).child(title).child(byline(second)),
+                None => div().flex_1().min_w(px(0.0)).child(title),
+            };
+            el = el.child(text);
+        } else {
+            // The leading slot reserves icon-axis space even without an
+            // icon, so text aligns across rows in a list.
+            let mut leaders = h_flex().flex_none().w(metrics.item_px + metrics.icon).h_full().items_center().justify_center();
+            let (title_hidden, title_shown) = titles.unwrap_or_else(|| (div(), div()));
+            if let Some(leading) = self.leading {
+                leaders = leaders.child(leading);
+            }
+            let mut text = div().relative().flex_1().min_w(px(0.0));
+            if let Some(second) = self.byline.as_ref() {
+                text = text
+                    .child(div().child(title_hidden).child(byline(second)))
+                    .child(div().absolute().inset(px(0.0)).child(title_shown).child(byline(second)));
+            } else {
+                text = text.child(title_hidden).child(div().absolute().inset(px(0.0)).truncate().child(title_shown));
+            }
+            el = el.pr(metrics.item_px).child(leaders).child(text);
+        }
         if let Some(trailing) = self.trailing {
             el = el.child(h_flex().flex_none().items_center().gap(metrics.gap).child(trailing));
         }

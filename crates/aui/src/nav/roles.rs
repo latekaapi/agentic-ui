@@ -4,14 +4,14 @@
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName, RoleIcon};
-use aui_motion::{collapse, tint_fade, tween, Tween};
+use aui_motion::collapse;
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{chip, tag};
 use crate::nav::chevron;
-use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.role{height:44px;padding:0 12px 0 10px;gap:8px}`.
 const ROLE_PAD_LEFT: f32 = 10.0;
@@ -187,13 +187,11 @@ impl ProjectRow {
 }
 
 impl RenderOnce for ProjectRow {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
         // `.proj` has no hover rule in the card; the row is clickable, so it
-        // takes the same quiet surface-2 tint as `.sess:hover`.
-        let bg = tint_fade((id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
+        // takes the one model's hover like `.sess:hover`.
         let mut row = h_flex()
             .id(id)
             .w_full()
@@ -203,12 +201,11 @@ impl RenderOnce for ProjectRow {
             .pl(px(PROJECT_INDENT))
             .pr(px(ROW_PAD_RIGHT))
             .rounded(px(scale::R_SM))
-            .bg(bg)
+            .paint_states(StatePaint::new(), &p)
             .ui(ROW_TEXT)
             .medium()
             .text_color(p.ink_2)
             .cursor_pointer()
-            .track_interaction(&state)
             .child(icon(IconName::Folder))
             .child(div().min_w(px(0.0)).truncate().child(self.name))
             .child(div().flex_1())
@@ -257,15 +254,11 @@ impl RoleSessionRow {
 }
 
 impl RenderOnce for RoleSessionRow {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let s = self.session;
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let tint = if self.active { p.surface_3 } else { p.surface_2 };
-        let bg = tint_fade((id.clone(), "bg"), self.active || flags.hovered, tint, Tween::FAST, window, cx);
         let rest_text = if self.active { p.ink } else { p.ink_3 };
-        let text = tween((id.clone(), "text"), if flags.hovered { p.ink } else { rest_text }, Tween::FAST, window, cx);
         let mut row = h_flex()
             .id(id)
             .relative()
@@ -276,11 +269,9 @@ impl RenderOnce for RoleSessionRow {
             .pl(px(SESSION_INDENT))
             .pr(px(ROW_PAD_RIGHT))
             .rounded(px(scale::R_SM))
-            .bg(bg)
+            .paint_states(StatePaint::new().selected(self.active).ink(rest_text, p.ink), &p)
             .ui(ROW_TEXT)
-            .text_color(text)
             .cursor_pointer()
-            .track_interaction(&state)
             .child(div().absolute().left(px(RAIL_LEFT)).top_0().bottom_0().w(px(RAIL_W)).bg(p.line))
             .child(icon(s.kind.icon()).color(p.ink_3))
             .child(div().min_w(px(0.0)).truncate().child(s.name.clone()))

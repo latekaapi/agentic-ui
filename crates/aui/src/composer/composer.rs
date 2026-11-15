@@ -10,8 +10,9 @@ use gpui_kit::base::input::TextareaState;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{chip, context_meter, icon_button, ContextMeterState};
-use crate::util::{interaction_flags, named_child, TrackInteraction};
+use crate::util::named_child;
 
 /// `.cp{border-radius:14px}`.
 const CARD_RADIUS: f32 = 14.0;
@@ -52,7 +53,6 @@ const IMAGE_CHIP_GAP: f32 = 5.0;
 const IMAGE_CHIP_PAD_R: f32 = 8.0;
 /// The send glyph (14) and the press scale (.92, the docked composer only).
 const SEND_ICON: f32 = 14.0;
-const SEND_PRESS: f32 = 0.92;
 /// The raised composer's stop square, the glyph swap's starting scale and the
 /// fill's cross-fade (docs/41 §2.9, §3).
 const STOP_SQUARE: f32 = 10.0;
@@ -529,7 +529,7 @@ fn composer_quote_block(id: &ElementId, q: &ComposerQuote, p: &aui_tokens::Palet
                 .items_center()
                 .justify_center()
                 .cursor_pointer()
-                .hover(|d| d.bg(p.hover_overlay()))
+                .paint_states(StatePaint::new(), p)
                 .role(gpui::Role::Button)
                 .aria_label("Remove quote")
                 .on_click(remove)
@@ -607,7 +607,7 @@ fn attachment_chip(id: &ElementId, c: &ComposerChip, p: &aui_tokens::Palette, re
                 .items_center()
                 .justify_center()
                 .cursor_pointer()
-                .hover(|d| d.bg(p.hover_overlay()))
+                .paint_states(StatePaint::new(), p)
                 .role(gpui::Role::Button)
                 .aria_label(SharedString::from(format!("Remove {}", c.label)))
                 .on_click(remove)
@@ -773,7 +773,6 @@ impl RenderOnce for Composer {
             )
             .children(self.plus_menu);
 
-        let (send_state, send_flags) = interaction_flags((id.clone(), "send"), window, cx);
         let enabled = self.streaming || self.can_send;
         let send = if raised {
             // D4 (docs/41 §2.9): the composer's only solid fill. Empty: the
@@ -794,12 +793,11 @@ impl RenderOnce for Composer {
                     .size(control)
                     .rounded_full()
                     .when(!enabled, |d| d.shadow(p.edge()))
-                    .bg(bg)
+                    .paint_states(StatePaint::new().on(bg), &p)
                     .flex()
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
-                    .track_interaction(&send_state)
                     .role(gpui::Role::Button)
                     .aria_label(if self.streaming { "Stop" } else { "Send" })
                     .on_click(emit(if self.streaming { ComposerIntent::Stop } else { ComposerIntent::Send }))
@@ -816,8 +814,6 @@ impl RenderOnce for Composer {
                     }),
             )
         } else {
-            let press = spring_phase((id.clone(), "send-press"), send_flags.pressed, SpringKind::Press, window, cx).clamp(0.0, 1.0);
-            let send_size = control * (1.0 - (1.0 - SEND_PRESS) * press);
             let sample = icon_morph((id.clone(), "send-stop"), self.streaming, window, cx);
             let glyph_color = if enabled { gpui::white() } else { p.ink_4 };
             let send_bg = tween((id.clone(), "send-bg"), if enabled { p.accent } else { p.surface_3 }, Tween::FAST, window, cx);
@@ -825,14 +821,13 @@ impl RenderOnce for Composer {
             div().flex_none().size(control).flex().items_center().justify_center().child(
                 div()
                     .id((id.clone(), "send"))
-                    .size(send_size)
+                    .size(control)
                     .rounded(px(scale::R_SM))
-                    .bg(send_bg)
+                    .paint_states(StatePaint::new().on(send_bg), &p)
                     .flex()
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
-                    .track_interaction(&send_state)
                     .role(gpui::Role::Button)
                     .aria_label(if self.streaming { "Stop" } else { "Send" })
                     .on_click(emit(if self.streaming { ComposerIntent::Stop } else { ComposerIntent::Send }))

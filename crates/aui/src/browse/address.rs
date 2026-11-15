@@ -4,14 +4,14 @@
 //! is one quiet button; the host opens the Field on click.
 
 use aui_icons::{icon, IconName};
-use aui_motion::{tint_fade, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::h_flex;
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::browse::Address;
 use crate::data::{record_ax_label, tag};
-use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
+use crate::util::ClickHandler;
 
 /// The row height: 28 px, quiet (tint on hover only, no border).
 const ROW_H: f32 = 28.0;
@@ -44,11 +44,9 @@ impl AddressLine {
 }
 
 impl RenderOnce for AddressLine {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let bg = tint_fade((id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
         // Internal pages never show the insecure state; a non-local,
         // non-internal `http:` page does (`not secure` in the name).
         let insecure = !self.address.is_internal() && !self.address.local && !self.address.secure;
@@ -80,11 +78,10 @@ impl RenderOnce for AddressLine {
             .px(px(ROW_PAD_X))
             .mx(px(ROW_PAD_X))
             .rounded(px(scale::R_SM))
-            .bg(bg)
+            .paint_states(StatePaint::new(), &p)
             .cursor_pointer()
             .role(gpui::Role::Button)
             .aria_label(label)
-            .track_interaction(&state)
             .child(icon(glyph).size(px(GLYPH)).color(glyph_color))
             .child(
                 h_flex()

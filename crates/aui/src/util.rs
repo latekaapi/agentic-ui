@@ -1,17 +1,21 @@
-//! Small helpers shared by the components: per-element interaction state
-//! (hover / press) kept in the window, keyed by element id.
+//! Small helpers shared by the components: the pointer-over flag kept in the
+//! window, keyed by element id, and element id building.
+//!
+//! The pointer flag is NOT how anything paints hover or press — that is the
+//! one model, [`crate::interact::paint`]. It survives only where hover
+//! drives behaviour rather than a tint: the single highlight a menu or the
+//! palette shares between the pointer and the keys, a hover-opened
+//! breakdown, the toast stack's fan (a layout spring), a dismiss timer that
+//! holds while the pointer is over it.
 
 use gpui::{App, ElementId, Entity, Window};
 
-/// Hover and press flags for one interactive element. Lives in the window's
-/// element state, so stateless (`RenderOnce`) components can animate hover
-/// tints and press springs without owning a view.
+/// The pointer-over flag for one element. Lives in the window's element
+/// state, so stateless (`RenderOnce`) components can read it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Interaction {
     /// The pointer is over the element.
     pub hovered: bool,
-    /// The primary button is down on the element.
-    pub pressed: bool,
 }
 
 /// The interaction state for `id`, created on first use.
@@ -20,63 +24,23 @@ pub fn interaction(id: impl Into<ElementId>, window: &mut Window, cx: &mut App) 
     window.use_keyed_state((id, "aui-interaction"), cx, |_, _| Interaction::default())
 }
 
-/// Reads the current flags without keeping the entity.
+/// Reads the current flag without keeping the entity.
 pub fn interaction_flags(id: impl Into<ElementId>, window: &mut Window, cx: &mut App) -> (Entity<Interaction>, Interaction) {
     let state = interaction(id, window, cx);
     let flags = *state.read(cx);
     (state, flags)
 }
 
-/// Wires hover / press tracking into a stateful element.
+/// Wires the pointer-over flag into a stateful element (behaviour only —
+/// paint hover with [`crate::interact::paint`]).
 pub trait TrackInteraction: gpui::StatefulInteractiveElement + gpui::InteractiveElement + Sized {
-    /// Updates `state` from hover, mouse-down and mouse-up events.
+    /// Updates `state` on hover enter / leave.
     fn track_interaction(self, state: &Entity<Interaction>) -> Self {
-        self.track_interaction_reported(state, |_, _, _| {})
-    }
-
-    /// Like [`Self::track_interaction`], plus a hover report: `report`
-    /// fires on every hover enter/leave beside the state update, so a caller
-    /// that owns hover-driven UI (a detail card's delay arm) learns about
-    /// the pointer even when nothing re-renders. A gpui element carries a
-    /// single `on_hover` slot, so the report must share it rather than add
-    /// a second handler.
-    fn track_interaction_reported(
-        self,
-        state: &Entity<Interaction>,
-        report: impl Fn(bool, &mut Window, &mut App) + 'static,
-    ) -> Self {
         let hover = state.clone();
-        let down = state.clone();
-        let up = state.clone();
-        let up_out = state.clone();
-        self.on_hover(move |hovered, window, cx| {
-            report(*hovered, window, cx);
+        self.on_hover(move |hovered, _, cx| {
             hover.update(cx, |s, cx| {
                 if s.hovered != *hovered {
                     s.hovered = *hovered;
-                    if !*hovered {
-                        s.pressed = false;
-                    }
-                    cx.notify();
-                }
-            })
-        })
-        .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
-            down.update(cx, |s, cx| {
-                s.pressed = true;
-                cx.notify();
-            })
-        })
-        .on_mouse_up(gpui::MouseButton::Left, move |_, _, cx| {
-            up.update(cx, |s, cx| {
-                s.pressed = false;
-                cx.notify();
-            })
-        })
-        .on_mouse_up_out(gpui::MouseButton::Left, move |_, _, cx| {
-            up_out.update(cx, |s, cx| {
-                if s.pressed {
-                    s.pressed = false;
                     cx.notify();
                 }
             })

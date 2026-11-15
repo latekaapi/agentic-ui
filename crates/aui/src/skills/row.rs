@@ -4,18 +4,18 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aui_motion::{tint_fade, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, relative, App, Bounds, ElementId, IntoElement, Pixels, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::pill;
 use crate::data::PillVariant;
 use crate::nav::{view_menu, MenuRow};
 use crate::overlay::{anchored_menu, MenuAlign, MenuSide};
-use crate::util::{interaction_flags, TrackInteraction};
 
-use super::controls::{mode_chip, switch, SwitchIntent};
+use super::controls::mode_chip;
+use crate::data::{switch, SwitchIntent};
 
 /// How a skill runs: Muse's `on` versus `user-invocable-only`, named plainly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -192,9 +192,6 @@ impl RenderOnce for SkillRow {
         let p = cx.aui().colors;
         let model = self.model;
         let row_id: ElementId = model.id.clone().into();
-        let (istate, flags) = interaction_flags(row_id.clone(), window, cx);
-        let lit = flags.hovered && !model.selected;
-        let ground = tint_fade((row_id.clone(), "bg"), lit, p.surface_2, Tween::FAST, window, cx);
 
         let menu_state = window
             .use_keyed_state((row_id.clone(), "mode-menu"), cx, |_, _| Rc::new(RefCell::new(ModeMenuState::default())))
@@ -254,7 +251,6 @@ impl RenderOnce for SkillRow {
             .py(px(ROW_PAD_Y))
             .rounded(px(scale::R_SM))
             .cursor_pointer()
-            .track_interaction(&istate)
             .child(text)
             .child(
                 div()
@@ -308,11 +304,12 @@ impl RenderOnce for SkillRow {
         // fully visible while the left block wraps or clips.
         row = row.child(div().flex_none().child(toggle));
 
-        if model.selected {
-            row = row.bg(p.surface_3).border_1().border_color(p.line);
+        // Selected keeps its surface-3 card; hover is the one model.
+        row = if model.selected {
+            row.bg(p.surface_3).border_1().border_color(p.line)
         } else {
-            row = row.bg(ground);
-        }
+            row.paint_states(StatePaint::new().pressable(false), &p)
+        };
         if !model.on || model.dimmed {
             row = row.opacity(DIM_OPACITY);
         }

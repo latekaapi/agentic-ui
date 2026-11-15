@@ -27,7 +27,10 @@ pub use browser::{
     agent_action_pill, annotation_pin, annotations_panel, browser_nav, element_outline, note_popover, AgentActionPill, Annotation, AnnotationPin,
     AnnotationsPanel, AnnotatorAction, BrowserAction, BrowserNav, ElementOutline, NoteAction, NotePopover,
 };
-pub use diff_review::{diff_review, segmented, DiffHighlight, DiffReview, DiffReviewAction, DiffScope, DiffView, ReviewFile, ReviewNote, Segmented};
+pub use diff_review::{diff_review, DiffHighlight, DiffReview, DiffReviewAction, DiffScope, DiffView, ReviewFile, ReviewNote};
+/// The segmented control moved to [`crate::data`]; re-exported here because
+/// the app imports it from this path.
+pub use crate::data::{segmented, Segmented};
 pub use git::{git_changes, pr_check, pr_form, GitAction, GitChanges, PrAction, PrCheck, PrDescription, PrForm};
 pub use file_card::{file_card, FileCard};
 pub use files::{file_tree, FileNode, FileTree, FileTreeAction, FileTreeMenu, GitBadge};

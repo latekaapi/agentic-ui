@@ -13,7 +13,7 @@
 //! Stateless like every other component here: the state comes in, the
 //! **Compact** intent goes out.
 
-use aui_motion::{presence, tint_fade, EnterExit, PresenceStyle, Tween};
+use aui_motion::{presence, EnterExit, PresenceStyle};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::{canvas, div, prelude::*, px, App, ElementId, IntoElement, PathBuilder, Pixels, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -142,7 +142,6 @@ impl RenderOnce for ContextMeter {
         let open = self.open.unwrap_or(flags.hovered);
         let blocked = self.state.pressure == ContextPressure::Blocked;
 
-        let text = tint_fade((id.clone(), "text"), true, ink, Tween::FAST, window, cx);
         let mut row = h_flex()
             .id(id.clone())
             .relative()
@@ -151,7 +150,7 @@ impl RenderOnce for ContextMeter {
             .text_role(TextRole::MonoSmall)
             .text_px(LABEL)
             .font_weight(gpui::FontWeight::MEDIUM)
-            .text_color(text)
+            .text_color(ink)
             .whitespace_nowrap()
             .child(ring(self.state.fraction(), p.surface_3, ink))
             .child(self.state.label());

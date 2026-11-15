@@ -39,6 +39,7 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::composer::{provider_display_name, provider_menu, PickerRow};
 use crate::data::{button, spinner, ButtonSize};
 
@@ -474,7 +475,7 @@ fn assist_line(
                         .underline()
                         .role(gpui::Role::Link)
                         .aria_label(label.clone())
-                        .hover(|s| s.text_color(p.ink))
+                        .paint_states(StatePaint::new().tint(false).ink(p.ink_2, p.ink), p)
                         .on_click(move |_, w, cx| {
                             if let Some(handler) = handler.clone() {
                                 handler(key.clone(), w, cx);
@@ -771,13 +772,11 @@ fn default_picker(id: &ElementId, picker: DefaultPicker, p: &Palette, on_intent:
         .gap(px(6.0))
         .items_center()
         .rounded(px(PICKER_R))
-        .bg(p.surface_4)
         .shadow(p.edge())
         .cursor_pointer()
-        .text_color(p.ink)
+        .paint_states(StatePaint::new().on(p.surface_4).ink(p.ink, p.ink), p)
         .role(gpui::Role::Button)
         .aria_label(format!("New sessions start in {name}. Change"))
-        .hover(|s| s.bg(p.surface_5))
         .on_click(move |_, w, cx| {
             if let Some(handler) = toggle.clone() {
                 handler(ConnectIntent::ToggleDefaultMenu, w, cx);
@@ -1098,8 +1097,7 @@ fn details_block(
         .cursor_pointer()
         .text_px(CAPTION_TEXT)
         .line_height(px(CAPTION_LH))
-        .text_color(p.ink_2)
-        .hover(|s| s.text_color(p.ink))
+        .paint_states(StatePaint::new().tint(false).ink(p.ink_2, p.ink), p)
         .role(gpui::Role::Button)
         .aria_label(format!("{name} details, {}", if details.open { "open" } else { "closed" }))
         .on_click(move |_, w, cx| {

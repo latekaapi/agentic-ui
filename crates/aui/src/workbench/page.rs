@@ -14,6 +14,7 @@ use aui_tokens::{dark, scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, relative, AnyElement, App, ClickEvent, ElementId, FontWeight, Hsla, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{icon_button, spinner};
 
 /// The Page's one bar (owner 2026-10-21, canvas board `D6OneBar`): the old
@@ -59,8 +60,7 @@ pub fn recent_pages_chevron(id: impl Into<ElementId>, open: bool, on_click: impl
         .cursor_pointer()
         .role(gpui::Role::Button)
         .aria_label("Recent pages")
-        .when(open, |d| d.bg(p.selected_overlay()))
-        .when(!open, |d| d.hover(|d| d.bg(p.hover_overlay())))
+        .paint_states(StatePaint::new().selected(open), &p)
         .child(icon(IconName::ChevronDown).size(px(12.0)).color(p.fg_muted))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, window, cx| {
@@ -351,8 +351,7 @@ pub fn notes_panel(
         .px(px(10.0))
         .items_center()
         .rounded(px(6.0))
-        .text_color(d.fg_muted)
-        .hover(move |s| s.bg(d.hover_overlay()).text_color(d.fg))
+        .paint_states(StatePaint::new().ink(d.fg_muted, d.fg), &d)
         .child("Clear")
         .when_some(on_clear, |b, f| b.on_click(move |e, w, cx| f(e, w, cx)));
     // `compact` (a narrow page): "Send N" and no hint, so the footer fits

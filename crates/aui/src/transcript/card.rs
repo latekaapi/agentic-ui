@@ -8,14 +8,15 @@
 //! with a retry) swaps the edge's white ring for its status colour at 70 %
 //! ([`TranscriptCard::attention`]); nothing else is ever marked.
 
-use aui_motion::{collapse_fluid, collapse_fluid_opacity, tint_fade, Tween};
+use aui_motion::{collapse_fluid, collapse_fluid_opacity};
 use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, radians, AnyElement, App, ElementId, IntoElement, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::record_ax_label;
 use crate::icons::{icon, IconName};
-use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
+use crate::util::ClickHandler;
 
 /// D4 header: gap 8, padding 0 / 8 / 0 / 12.
 const HEADER_GAP: f32 = 8.0;
@@ -128,9 +129,8 @@ impl RenderOnce for TranscriptCard {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let header_id: ElementId = (id.clone(), "header").into();
-        let (state, flags) = interaction_flags(header_id.clone(), window, cx);
-        let tint = self.hover_tint && flags.hovered;
-        let bg = tint_fade((header_id.clone(), "bg"), tint, crate::util::raised_lit(&p, p.surface_2), Tween::FAST, window, cx);
+        // A header that toggles hovers with the one model.
+        let paint = StatePaint::new().tint(self.hover_tint).pressable(false);
 
         // The body's motion runs whether or not there is a body, so the
         // chevron turns on the same curve the height follows.
@@ -152,11 +152,10 @@ impl RenderOnce for TranscriptCard {
             .gap(px(HEADER_GAP))
             .pl(px(HEADER_PAD_LEFT))
             .pr(px(HEADER_PAD_RIGHT))
-            .bg(bg)
+            .paint_states(paint, &p)
             .ui(HEADER_TEXT)
             .text_color(p.ink)
             .cursor_pointer()
-            .track_interaction(&state)
             .children(self.header);
         if self.chevron {
             header = header.child(

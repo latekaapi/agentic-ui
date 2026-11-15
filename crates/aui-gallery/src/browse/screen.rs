@@ -15,7 +15,6 @@ use aui::browse::field::{
     FieldKey, FieldModel, FieldRowKind, FieldSources, FieldTab,
 };
 use aui::browse::{split_address, task_face, TaskFace};
-use aui::interact::FluidHandle;
 use aui::nav::sidebar_list_state;
 use aui::screens::sidebar::{
     mode_switch, sample_model, screen_item_count, sidebar_screen, BrowseFolder, BrowseIntent, BrowseModel, BrowsePin,
@@ -28,7 +27,7 @@ use aui::keys::{Cancel, Confirm, SelectNext, SelectPrev, MENU_CONTEXT};
 use aui_icons::IconName;
 use aui::overlay::popover_layer;
 use aui::shell::app_shell;
-use aui::util::{interaction_flags, TrackInteraction};
+use aui::interact::PaintHover;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::input::TextareaState;
@@ -69,7 +68,7 @@ const STEPS_DELAY: std::time::Duration = std::time::Duration::from_millis(50);
 
 thread_local! {
     /// The sidebar's list state per column, kept across renders as a host does.
-    static SIDEBAR_LISTS: std::cell::RefCell<std::collections::HashMap<&'static str, (gpui::ListState, FluidHandle)>> =
+    static SIDEBAR_LISTS: std::cell::RefCell<std::collections::HashMap<&'static str, gpui::ListState>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
@@ -1296,13 +1295,12 @@ impl BrowseView {
     fn render_sidebar(&self, id: &'static str, cx: &mut Context<Self>) -> AnyElement {
         let model = self.sidebar_model();
         let count = screen_item_count(&model);
-        let (list, fluid) = SIDEBAR_LISTS
-            .with(|c| c.borrow_mut().entry(id).or_insert_with(|| (sidebar_list_state(count), FluidHandle::new())).clone());
+        let list = SIDEBAR_LISTS.with(|c| c.borrow_mut().entry(id).or_insert_with(|| sidebar_list_state(count)).clone());
         if list.item_count() != count {
             list.reset(count);
         }
         let view = cx.entity().downgrade();
-        sidebar_screen(id, model, list, fluid)
+        sidebar_screen(id, model, list)
             .width(px(SIDEBAR_WIDTH))
             .transparent()
             .on_intent(move |intent, window, cx| {
@@ -1748,7 +1746,7 @@ impl BrowseView {
     /// sidebar), the page beneath dimmed, a × floating in its top-right
     /// corner at full opacity, and the peeked page's host as a caption at
     /// its foot — but only while the pointer is over the card.
-    fn render_peek(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn render_peek(&self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let caption = format!("{} · Peek · Esc closes", page_host(&self.peek_page));
         record_ax_label(&caption);
         let p = cx.aui().colors;
@@ -1758,8 +1756,6 @@ impl BrowseView {
         });
         let noop = cx.listener(|_, _: &ClickEvent, _, _| {});
         let noop2 = cx.listener(|_, _: &ClickEvent, _, _| {});
-        let (hover, flags) = interaction_flags(SharedString::from("browse-peek-card"), window, cx);
-        let show_caption = flags.hovered;
         let mut card = v_flex()
             .id("browse-peek-card")
             .w(relative(0.72))
@@ -1768,7 +1764,7 @@ impl BrowseView {
             .bg(p.surface_1)
             .shadow(p.shadow(3))
             .overflow_hidden()
-            .track_interaction(&hover)
+            .hover_group()
             .child(
                 div()
                     .flex_none()
@@ -1797,9 +1793,11 @@ impl BrowseView {
                     .overflow_y_scroll()
                     .child(render_page(&self.peek_page, link, peek_link, noop, noop2)),
             );
-        if show_caption {
+        {
+            // The caption shows while the card is hovered.
             card = card.child(
                 div()
+                    .reveal_on_hover(false)
                     .flex_none()
                     .w_full()
                     .py(px(6.0))

@@ -11,7 +11,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_motion::{presence, tint_fade, tween, EnterExit, PresenceStyle, Tween};
+use aui_motion::{presence, EnterExit, PresenceStyle};
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette, TextRole};
 use gpui::{
     black, div, linear_color_stop, linear_gradient, prelude::*, px, App, ElementId, FontWeight, HighlightStyle, Hsla, IntoElement, ScrollHandle,
@@ -19,6 +19,7 @@ use gpui::{
 };
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{kbd, pill, status_dot, PillVariant};
 use crate::nav::project_mark;
 use crate::util::{interaction_flags, Interaction};
@@ -520,12 +521,13 @@ fn palette_row(
     trailing: bool,
     on_select: &Option<SelectHandler>,
     on_hover: &Option<HoverHandler>,
-    window: &mut Window,
-    cx: &mut App,
+    _window: &mut Window,
+    _cx: &mut App,
 ) -> impl IntoElement {
-    let ground = tint_fade((id.clone(), "bg"), on, p.surface_3, Tween::FAST, window, cx);
-    let glyph_color = tween((id.clone(), "glyph"), if on { p.ink } else { p.ink_3 }, Tween::FAST, window, cx);
-    let text_color = tween((id.clone(), "text"), if on { p.ink } else { p.ink_2 }, Tween::FAST, window, cx);
+    // The one lit row (the pointer's or the keys') paints the hover look
+    // through the one model; the pointer's own refinement is off, so a
+    // resting pointer never lights a second row.
+    let glyph_color = if on { p.ink } else { p.ink_3 };
 
     let mut row = h_flex()
         .id(id.clone())
@@ -535,9 +537,8 @@ fn palette_row(
         .gap(px(ITEM_GAP))
         .px(px(ITEM_PAD_X))
         .rounded(px(scale::R_SM))
-        .bg(ground)
+        .paint_states(StatePaint::new().pointer(false).highlighted(on).ink(p.ink_2, p.ink), p)
         .ui(scale::FS_13)
-        .text_color(text_color)
         .cursor_pointer();
     // The old per-section block ended in bottom padding; the flattened body
     // moves it onto the section's last row, so sections keep their spacing.
@@ -545,9 +546,9 @@ fn palette_row(
         row = row.mb(px(SEC_PAD_BOTTOM));
     }
 
-    // One `on_hover` per element is all gpui allows, so the row's own hover
-    // tint and the caller's hover intent share a single handler instead of
-    // going through `track_interaction`.
+    // One `on_hover` per element is all gpui allows, so the pointer report
+    // the single highlight reads and the caller's hover intent share one
+    // handler.
     {
         let hovered_state = state.clone();
         let handler = on_hover.clone();

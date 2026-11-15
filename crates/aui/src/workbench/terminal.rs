@@ -4,14 +4,14 @@
 //! command row. Plus the restored-scrollback marker and the prompt row.
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
-use aui_motion::{looping, tween, Loop, Tween};
+use aui_motion::{looping, Loop};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, ScrollHandle, SharedString, StyledText, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintHover, PaintStates, StatePaint};
 use crate::data::{icon_button, spinner, ButtonSize};
 use crate::transcript::{ansi_runs, parse_ansi};
-use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.scroll{padding:10px 12px;gap:8px;font:12px/1.55 mono}`.
 const SCROLL_PAD_Y: f32 = 10.0;
@@ -213,15 +213,17 @@ fn output_line(p: &Palette, line: &str, base: gpui::Hsla) -> impl IntoElement {
     div().w_full().overflow_hidden().whitespace_nowrap().child(StyledText::new(text).with_runs(runs))
 }
 
-fn block(p: &Palette, root: &ElementId, b: &TermBlock, on_action: Option<ActionHandler>, window: &mut Window, cx: &mut App) -> impl IntoElement {
+fn block(p: &Palette, root: &ElementId, b: &TermBlock, on_action: Option<ActionHandler>, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
     let id: ElementId = (root.clone(), SharedString::from(format!("blk-{}", b.id))).into();
-    let (state, flags) = interaction_flags(id.clone(), window, cx);
     let live = b.state == BlockState::Running;
     let failed = b.state == BlockState::Failed;
-    let lifted = live || flags.hovered;
-    let bg = tween((id.clone(), "bg"), if lifted { p.surface_1 } else { p.term_bg.alpha(0.0) }, Tween::FAST, window, cx);
-    let border = tween((id.clone(), "border"), if lifted { p.line } else { p.line.alpha(0.0) }, Tween::FAST, window, cx);
-    let acts_opacity = tween((id.clone(), "acts"), if flags.hovered { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
+    // A live block is lifted (surface-1 and its line); the others lift
+    // under the pointer through the one model (overlay + edge).
+    let paint = if live {
+        StatePaint::new().on(p.surface_1).edge(p.line, p.line).pressable(false)
+    } else {
+        StatePaint::new().edge(p.line.alpha(0.0), p.line).pressable(false)
+    };
 
     let dot: gpui::AnyElement = match b.state {
         BlockState::Done => div().size(px(EXIT_DOT)).rounded_full().bg(p.success).into_any_element(),
@@ -280,10 +282,9 @@ fn block(p: &Palette, root: &ElementId, b: &TermBlock, on_action: Option<ActionH
         .w_full()
         .rounded(px(scale::R_MD))
         .border_1()
-        .border_color(border)
-        .bg(bg)
-        .when(b.old && !flags.hovered, |d| d.opacity(OLD_OPACITY))
-        .track_interaction(&state)
+        .paint_states(paint, p)
+        .hover_group()
+        .when(b.old, |d| d.dim_until_hover(OLD_OPACITY))
         .child(cmd);
     if !b.output.is_empty() {
         el = el.child(out);
@@ -312,7 +313,7 @@ fn block(p: &Palette, root: &ElementId, b: &TermBlock, on_action: Option<ActionH
         );
     }
     // Hover actions: copy, ask the agent.
-    let mut acts = h_flex().absolute().right(px(ACTS_RIGHT)).top(px(ACTS_TOP)).gap(px(ACTS_GAP)).opacity(acts_opacity);
+    let mut acts = h_flex().absolute().right(px(ACTS_RIGHT)).top(px(ACTS_TOP)).gap(px(ACTS_GAP)).reveal_on_hover(false);
     for (name, glyph, make) in [
         ("copy", IconName::Copy, TerminalAction::Copy as fn(SharedString) -> TerminalAction),
         ("ask", IconName::Sparkle, TerminalAction::Ask as fn(SharedString) -> TerminalAction),
@@ -323,9 +324,6 @@ fn block(p: &Palette, root: &ElementId, b: &TermBlock, on_action: Option<ActionH
             btn = btn.on_click(move |_, w, cx| h(make(key.clone()), w, cx));
         }
         acts = acts.child(btn);
-    }
-    if acts_opacity <= 0.001 {
-        acts = acts.invisible();
     }
     el.child(acts)
 }

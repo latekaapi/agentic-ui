@@ -3,14 +3,12 @@
 //! footer, and Browse mode's four right-click menus (tab, folder, task
 //! folder, space).
 //!
-//! Every menu is Fluid Functionalism's dropdown (`registry/base/dropdown.tsx`,
-//! `registry/default/menu-item.tsx`) on our radii: a [`menu_surface`] panel
-//! (substrate + 2, shadow-3, container radius) with a 4 px inset, rows one
-//! `control` tall (36) on the item radius, labels muted at rest and lit to
-//! the foreground, checked rows in the foreground at the semibold weight
-//! with the check mark, the current row of a single-choice submenu on the
-//! `active` overlay, separators full-bleed at border/60, disabled rows at
-//! 50 %. A menu enters on the popup tier (fade and a 4 px slide); a
+//! Every menu is the library's [`dropdown`](crate::interact::dropdown) on
+//! the one floating panel ([`menu_panel`](crate::interact::menu_panel)):
+//! rows 28 on radius 6, labels muted at rest and lit to the foreground,
+//! checked rows with the check mark, the current row of a single-choice
+//! submenu on `ov-selected`, separators 1 px `line-strong` inset 8,
+//! disabled rows at 50 % (docs/83 §7). A menu enters on the popup tier (fade and a 4 px slide); a
 //! submenu opens on hover, 2 px clear of its menu, its first row level with
 //! the row that opened it.
 //!

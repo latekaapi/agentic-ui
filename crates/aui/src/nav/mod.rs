@@ -25,7 +25,7 @@ pub use parts::{
     chevron, chevron_sized, group_header, group_row, nav_item, sidebar_footer, sidebar_search, GroupHeader, GroupRow, NavItem,
     SidebarFooter, SidebarSearch, LEADING_BOX, NAV_GUTTER, NAV_LABEL_X,
 };
-pub use session_row::{compact_session_row, compact_row_ground, compact_row_title_ink, context_line_kind, dense_field, project_branch_text, row_trailing_kind, second_line_kind, session_row, CompactSessionRow, ContextLineKind, RowAction, RowDensity, RowTrailing, SecondLineKind, SessionRow, DENSE_FIELD_H};
+pub use session_row::{compact_session_row, compact_row_title_ink, context_line_kind, dense_field, project_branch_text, row_trailing_kind, second_line_kind, session_row, CompactSessionRow, ContextLineKind, RowAction, RowDensity, RowTrailing, SecondLineKind, SessionRow, DENSE_FIELD_H};
 pub use types::{Activity, ActivityKind, Byline, MetaItem, RowStatus, RowStatusKind, SessionSummary};
 pub use rail::{rail, Rail, RailItem, RAIL_WIDTH};
 pub use roles::{knowledge_card, project_row, role_section, role_session_row, KnowledgeCard, Project, ProjectRow, Role, RoleIntent, RoleSection, RoleSession, RoleSessionRow, SessionKind};

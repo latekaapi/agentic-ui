@@ -14,6 +14,7 @@ use gpui::{div, linear_color_stop, linear_gradient, prelude::*, px, relative, Ap
 use gpui_kit::base::{h_flex, v_flex};
 use std::cell::RefCell;
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{record_ax_label, spinner};
 use crate::icons::{icon, IconName};
 use crate::transcript::ansi::{ansi_runs, ansi_spans};
@@ -407,9 +408,8 @@ fn more_row(p: &Palette, label: String, emit: impl Fn(ToolCardIntent) -> IntentC
         .px(px(OUT_PAD_X))
         .gap(px(MORE_GAP))
         .ui(scale::FS_12)
-        .text_color(p.ink_2)
+        .paint_states(StatePaint::new().tint(false).ink(p.ink_2, p.ink), p)
         .cursor_pointer()
-        .hover(|d| d.text_color(p.ink))
         .role(gpui::Role::Button)
         .aria_label(name)
         .on_click(move |e, w, cx| unfold(e, w, cx))
@@ -587,7 +587,7 @@ fn web_body(p: &Palette, id: &ElementId, results: &[aui_protocol::WebResult], hi
             let url = r.url.clone();
             title = title
                 .cursor_pointer()
-                .hover(|d| d.underline())
+                .paint_states(StatePaint::new().tint(false).underline(true), p)
                 .role(gpui::Role::Link)
                 .aria_label(r.title.clone())
                 .on_click(move |_, w, cx| {

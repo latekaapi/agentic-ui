@@ -22,7 +22,8 @@ use gpui::{
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::status_dot;
-use crate::interact::{fluid_list, menu_surface, Axis, FluidHandle};
+use crate::interact::paint::{PaintStates, StatePaint};
+use crate::interact::{menu_panel, R_MENU_ROW};
 use crate::util::interaction_flags;
 
 /// `.pop{margin-bottom:8px}` — the gap to the composer the popover sits above.
@@ -196,7 +197,6 @@ impl RenderOnce for CommandMenu {
         // hover: scrolling the row under the pointer into view on every
         // frame fought the wheel and read as jank.
         let scroll = menu_scroll(&id, &counts, self.selected, window, cx);
-        let fluid = fluid_handle(&id, window, cx);
         let mut pop = popover_frame(id.clone(), &scroll, self.max_rows_h);
 
         let mut index = 0usize;
@@ -204,11 +204,11 @@ impl RenderOnce for CommandMenu {
             pop = pop.child(section_label(section.title, &p));
             for item in section.items {
                 let key: ElementId = (id.clone(), SharedString::from(format!("command-{s}-{index}"))).into();
-                pop = pop.child(fluid.item(index, command_row(key, &p, item, &self.query, index, index == active, &self.on_select, &self.on_hover, window, cx)));
+                pop = pop.child(command_row(key, &p, item, &self.query, index, index == active, &self.on_select, &self.on_hover, window, cx));
                 index += 1;
             }
         }
-        finish(id, sample, pop, footer(&p, "run"), &fluid, self.selected, cx)
+        finish(id, sample, pop, footer(&p, "run"), cx)
     }
 }
 
@@ -369,7 +369,6 @@ impl RenderOnce for MentionPicker {
         let counts: Vec<usize> = self.sections.iter().map(|s| s.items.len()).collect();
         let active = active_row(&id, "mention", &counts, self.selected, window, cx);
         let scroll = menu_scroll(&id, &counts, self.selected, window, cx);
-        let fluid = fluid_handle(&id, window, cx);
         let mut pop = popover_frame(id.clone(), &scroll, self.max_rows_h);
 
         let mut index = 0usize;
@@ -377,11 +376,11 @@ impl RenderOnce for MentionPicker {
             pop = pop.child(section_label(section.title, &p));
             for item in section.items {
                 let key: ElementId = (id.clone(), SharedString::from(format!("mention-{s}-{index}"))).into();
-                pop = pop.child(fluid.item(index, mention_row(key, &p, item, &self.query, index, index == active, &self.on_select, &self.on_hover, window, cx)));
+                pop = pop.child(mention_row(key, &p, item, &self.query, index, index == active, &self.on_select, &self.on_hover, window, cx));
                 index += 1;
             }
         }
-        finish(id, sample, pop, footer(&p, "insert"), &fluid, self.selected, cx)
+        finish(id, sample, pop, footer(&p, "insert"), cx)
     }
 }
 
@@ -394,21 +393,13 @@ fn popover_frame(id: ElementId, scroll: &ScrollHandle, max_h: f32) -> Stateful<D
     v_flex().id((id, "rows")).w_full().max_h(px(max_h)).overflow_y_scroll().track_scroll(scroll)
 }
 
-/// The fluid list's geometry for one caret menu: its rows register through
-/// it from inside the scrolling column.
-fn fluid_handle(id: &ElementId, window: &mut Window, cx: &mut App) -> FluidHandle {
-    window.use_keyed_state((id.clone(), "fluid"), cx, |_, _| FluidHandle::new()).read(cx).clone()
-}
-
-/// The panel around `rows`: the one menu ground (FF's dropdown — the
-/// substrate + 2, shadow-3, a 4 px inset), the gliding highlight the
-/// keyboard's `selected` and the pointer both drive, and the popup enter
+/// The panel around `rows`: the one floating panel ([`menu_panel`]), and
+/// the popup enter
 /// (fade + 4 px up out of the composer, 80 ms). It takes its container's
 /// width up to the 520 px ceiling, 8 px above the composer, and owns the
 /// wheel over it.
-fn finish(id: ElementId, sample: aui_motion::PresenceSample, rows: Stateful<Div>, footer: impl IntoElement, fluid: &FluidHandle, selected: usize, _cx: &App) -> impl IntoElement {
+fn finish(id: ElementId, sample: aui_motion::PresenceSample, rows: Stateful<Div>, footer: impl IntoElement, cx: &App) -> impl IntoElement {
     let style = PresenceStyle::fade_rise(sample, scale::SP_2);
-    let list = fluid_list((id.clone(), "fluid"), Axis::Y).handle(fluid).gap(px(0.0)).highlighted(Some(selected)).item_static(usize::MAX, rows);
     div()
         .id(id)
         .relative()
@@ -418,18 +409,18 @@ fn finish(id: ElementId, sample: aui_motion::PresenceSample, rows: Stateful<Div>
         .max_w(px(MENU_W_MAX))
         .mb(px(POP_GAP))
         .child(
-            menu_surface(
+            menu_panel(
                 v_flex()
                     .id("caret-menu-panel")
-                    .p(px(crate::interact::PANEL_PAD))
                     .role(gpui::Role::Menu)
                     // The open menu owns the wheel over it: it occludes the
                     // transcript behind and stops the wheel after the rows'
                     // own scroll handler has run.
                     .occlude()
                     .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-                    .child(list)
+                    .child(rows)
                     .child(footer),
+                cx,
             ),
         )
 }
@@ -510,15 +501,15 @@ fn row_child_index(counts: &[usize], active: usize) -> usize {
 /// item count of each section, in order, and `prefix` the row key prefix.
 fn active_row(id: &ElementId, prefix: &str, counts: &[usize], selected: usize, window: &mut Window, cx: &mut App) -> usize {
     // The keyboard owns the highlight from an arrow press until the pointer
-    // really moves (the FluidList's own rule, `effective_keyboard`). These
+    // really moves. These
     // menus open where the pointer already rests — just above the composer
     // — so "the hovered row always wins" pinned the highlight under a still
     // pointer and the arrows looked dead (owner, 2026-10-14 and 10-15).
     let mouse = window.mouse_position();
     let keys = window.use_keyed_state((id.clone(), "keyboard"), cx, |_, _| KeyboardHold { selected, mouse, held: true });
-    // Held from the open, too: the gliding band starts on `selected` (the
-    // FluidList's keyboard prop), and a hover-first text lit a second row
-    // under the resting pointer — two rows emphasised at once.
+    // Held from the open, too: the lit row starts on `selected`, and a
+    // hover-first text lit a second row under the resting pointer — two
+    // rows emphasised at once.
     let mut hold = *keys.read(cx);
     if hold.selected != selected {
         hold = KeyboardHold { selected, mouse, held: true };
@@ -576,8 +567,9 @@ fn menu_row(
     cx: &mut App,
 ) -> Stateful<Div> {
     let (state, _) = interaction_flags(id.clone(), window, cx);
-    // The ground is the list's one gliding block; the row only lights its
-    // text (FF: muted at rest, foreground when lit).
+    // The one lit row (the pointer's or the keys', [`active_row`]) paints
+    // the hover look through the one model; the pointer's own refinement
+    // is off so a resting pointer never lights a second row.
     let metrics = cx.aui().metrics;
     let mut row = h_flex()
         .id(id)
@@ -586,6 +578,8 @@ fn menu_row(
         .h(metrics.control)
         .gap(px(ROW_GAP))
         .px(px(ROW_PAD_X))
+        .rounded(px(R_MENU_ROW))
+        .paint_states(StatePaint::new().pointer(false).highlighted(on), cx)
         .text_role_in(TextRole::Body, aui_tokens::Density::Standard)
         .text_color(if on { p.fg } else { p.fg_muted })
         .cursor_pointer();
@@ -604,8 +598,20 @@ fn menu_row(
     // ([`active_row`]), and the caller's selection has to follow it there,
     // or the next arrow continues from the stale keyboard row (live,
     // 2026-10-16).
-    if let Some(handler) = on_hover.clone() {
-        row = row.on_mouse_move(move |_, w, cx| handler(index, w, cx));
+    //
+    // A move over a row that is not lit redraws the menu, so the pointer
+    // takes the highlight from the keys at once (the lit row is painted
+    // from state, not from gpui's hover refinement, so nothing else would).
+    let handler = on_hover.clone();
+    if handler.is_some() || !on {
+        row = row.on_mouse_move(move |_, w, cx| {
+            if let Some(handler) = handler.as_ref() {
+                handler(index, w, cx);
+            }
+            if !on {
+                w.refresh();
+            }
+        });
     }
     row
 }

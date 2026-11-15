@@ -2,13 +2,12 @@
 //! active session in its state colour, the avatar at the bottom.
 
 use aui_icons::{icon, IconName};
-use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::v_flex;
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{avatar, status_dot};
-use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.rail{width:48px;padding:8px 0;gap:4px}`.
 pub const RAIL_WIDTH: f32 = 48.0;
@@ -222,7 +221,7 @@ impl Rail {
 }
 
 impl RenderOnce for Rail {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let mut col = v_flex().flex_none().h_full().items_center().py(px(RAIL_PAD_Y)).gap(px(RAIL_GAP)).overflow_hidden();
@@ -239,11 +238,13 @@ impl RenderOnce for Rail {
                 }
                 RailItem::Nav { name, glyph, badge, current } => {
                     let cell_id: ElementId = (id.clone(), SharedString::from(format!("nav-{i}"))).into();
-                    let (state, flags) = interaction_flags(cell_id.clone(), window, cx);
-                    let rest_fg = if current { p.accent_ink } else { p.ink_3 };
-                    let tint = if current { p.accent_soft } else { p.surface_2 };
-                    let bg = tint_fade((cell_id.clone(), "bg"), current || flags.hovered, tint, Tween::FAST, window, cx);
-                    let fg = tween((cell_id.clone(), "fg"), if flags.hovered && !current { p.ink } else { rest_fg }, Tween::FAST, window, cx);
+                    // The current cell holds the accent-soft fill; the
+                    // others hover with the one model, lifting their ink.
+                    let paint = if current {
+                        StatePaint::new().on(p.accent_soft).ink(p.accent_ink, p.accent_ink)
+                    } else {
+                        StatePaint::new().ink(p.ink_3, p.ink)
+                    };
                     let mut cell = div()
                         .id(cell_id)
                         .relative()
@@ -253,11 +254,10 @@ impl RenderOnce for Rail {
                         .justify_center()
                         .size(px(CELL))
                         .rounded(px(scale::R_SM))
-                        .bg(bg)
-                        .text_color(fg)
+                        .paint_states(paint, &p)
                         .cursor_pointer()
-                        .track_interaction(&state)
-                        .child(icon(glyph).size(px(GLYPH)).color(fg));
+                        // The glyph inherits the cell's ink, so it lifts with it.
+                        .child(icon(glyph).size(px(GLYPH)));
                     if badge {
                         cell = cell.child(
                             div()
@@ -278,13 +278,14 @@ impl RenderOnce for Rail {
                 }
                 RailItem::Session { id: session_id, state: agent_state, pulse, selected, label, tint } => {
                     let cell_id: ElementId = (id.clone(), SharedString::from(format!("session-{i}"))).into();
-                    let (state, flags) = interaction_flags(cell_id.clone(), window, cx);
-                    let ground = if selected { p.accent_soft } else { p.surface_2 };
                     // A titled cell is a tile that reads even when it is not
-                    // selected: the ground is always there, only its tint
-                    // moves with hover and selection.
-                    let lit = selected || flags.hovered || label.is_some();
-                    let bg = tint_fade((cell_id.clone(), "bg"), lit, ground, Tween::FAST, window, cx);
+                    // selected: its ground is always there; hover is the one
+                    // model's overlay over it.
+                    let ground = if selected { Some(p.accent_soft) } else if label.is_some() { Some(p.surface_2) } else { None };
+                    let paint = match ground {
+                        Some(ground) => StatePaint::new().on(ground),
+                        None => StatePaint::new(),
+                    };
                     let initial_color = tint.unwrap_or(if selected { p.accent_ink } else { p.ink_2 });
                     let mut cell = div()
                         .id(cell_id.clone())
@@ -295,10 +296,9 @@ impl RenderOnce for Rail {
                         .justify_center()
                         .size(px(CELL))
                         .rounded(px(scale::R_SM))
-                        .bg(bg)
+                        .paint_states(paint, &p)
                         .text_color(initial_color)
-                        .cursor_pointer()
-                        .track_interaction(&state);
+                        .cursor_pointer();
                     match label {
                         Some(title) => {
                             let initial: String = title

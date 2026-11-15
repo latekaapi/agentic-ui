@@ -24,15 +24,15 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, ScrollHandle, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::base::input::TextareaState;
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{kbd, record_ax_label};
 use crate::keys::MENU_CONTEXT;
-use crate::util::{indexed_child, interaction_flags};
+use crate::util::indexed_child;
 
 // ---------------------------------------------------------------- the model
 
@@ -792,11 +792,6 @@ impl RenderOnce for Field {
         // One highlight: the selection. Hovering reports through `on_hover`
         // so the host can move the selection, but never lights the row
         // itself — what `↩` confirms is always what is lit.
-        let mut states = Vec::with_capacity(len);
-        for index in 0..len {
-            let (state, _) = interaction_flags(indexed_child(&id, "row-", index), window, cx);
-            states.push(state);
-        }
 
         let mut card = v_flex()
             .flex_none()
@@ -881,7 +876,6 @@ impl RenderOnce for Field {
             }
             body = body.child(field_row(
                 indexed_child(&id, "row-", index),
-                states[index].clone(),
                 &p,
                 row,
                 index,
@@ -1024,7 +1018,6 @@ fn query_text(
 #[allow(clippy::too_many_arguments)]
 fn field_row(
     row_id: ElementId,
-    state: gpui::Entity<crate::util::Interaction>,
     p: &aui_tokens::Palette,
     row: &FieldRow,
     index: usize,
@@ -1032,12 +1025,12 @@ fn field_row(
     on_choose: &Option<ChooseHandler>,
     on_hover: &Option<HoverHandler>,
     on_intent: &Option<IntentHandler>,
-    window: &mut Window,
-    cx: &mut App,
+    _window: &mut Window,
+    _cx: &mut App,
 ) -> impl IntoElement {
-    let ground = tint_fade((row_id.clone(), "bg"), on, p.surface_3, Tween::FAST, window, cx);
-    let glyph_color = tween((row_id.clone(), "glyph"), if on { p.ink } else { p.ink_3 }, Tween::FAST, window, cx);
-    let text_color = tween((row_id.clone(), "text"), if on { p.ink } else { p.ink_2 }, Tween::FAST, window, cx);
+    // The selection is the one lit row, painted by the one model with the
+    // pointer's refinement off: what `↩` confirms is always what is lit.
+    let glyph_color = if on { p.ink } else { p.ink_3 };
 
     let mut el = h_flex()
         .id(row_id.clone())
@@ -1047,9 +1040,8 @@ fn field_row(
         .gap(px(ITEM_GAP))
         .px(px(ITEM_PAD_X))
         .rounded(px(scale::R_SM))
-        .bg(ground)
+        .paint_states(StatePaint::new().pointer(false).highlighted(on).ink(p.ink_2, p.ink), p)
         .ui(scale::FS_13)
-        .text_color(text_color)
         .child(icon(row_icon(&row.kind)).size(px(ITEM_ICON)).color(glyph_color))
         .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().child(row.title.clone()));
     if let Some(detail) = &row.detail {
@@ -1064,20 +1056,11 @@ fn field_row(
         el = el.child(div().flex_none().ml_auto().child(kbd(row.hint.clone())));
     }
 
-    // One `on_hover` per element is all gpui allows, so the row's own hover
-    // tint and the host's hover report share a single handler — the palette's
-    // arrangement. The report fires on enter only, with the row index, so the
-    // host can move the selection to it.
+    // The host's hover report fires on enter only, with the row index, so
+    // the host can move the selection to it.
     {
-        let hovered_state = state.clone();
         let handler = on_hover.clone();
         el = el.on_hover(move |hovered, w, cx| {
-            hovered_state.update(cx, |s, cx| {
-                if s.hovered != *hovered {
-                    s.hovered = *hovered;
-                    cx.notify();
-                }
-            });
             if *hovered {
                 if let Some(handler) = &handler {
                     handler(index, w, cx);

@@ -27,14 +27,14 @@
 use std::{cell::RefCell, rc::Rc};
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
-use aui_motion::{spring_px, tween, SpringKind, Tween};
+use aui_motion::{spring_px, SpringKind};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, AnyElement, App, Bounds, ElementId, IntoElement, Pixels, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex, ElementExt};
 
+use crate::interact::paint::{PaintHover, PaintStates, StatePaint};
 use crate::data::{button, icon_button, icon_content_button, ButtonSize};
 use crate::shell::{resize_handle, RESIZE_HANDLE_W};
-use crate::util::{interaction_flags, TrackInteraction};
 
 /// Tabs share the shell strip's tab anatomy: 7 px gaps, 12 px side padding,
 /// 12 px type.
@@ -217,10 +217,8 @@ impl RenderOnce for TerminalTabs {
         for (index, tab) in self.tabs.iter().enumerate() {
             let tab_id: ElementId = (id.clone(), tab.id.clone()).into();
             let active = index == self.active;
-            let (state, flags) = interaction_flags(tab_id.clone(), window, cx);
-            let color = tween((tab_id.clone(), "ink"), if active || flags.hovered { p.ink } else { p.ink_3 }, Tween::FAST, window, cx);
-            let show_close = active || flags.hovered;
-            let close_opacity = tween((tab_id.clone(), "close"), if show_close { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
+            // Hover lifts the tab's ink and shows its close: the one
+            // model's ink refinement and a hover-group reveal.
             // Tabs keep their natural width; a strip short of room clips at
             // its edge, like the shell strip. The active tab takes the body
             // ground so it merges with the pane below; inactive tabs are
@@ -232,11 +230,11 @@ impl RenderOnce for TerminalTabs {
                 .flex_none()
                 .gap(px(TAB_GAP))
                 .px(px(TAB_PAD))
-                .text_color(color)
+                .paint_states(StatePaint::new().tint(false).ink(if active { p.ink } else { p.ink_3 }, p.ink), &p)
+                .hover_group()
                 .ui(scale::FS_12)
                 .whitespace_nowrap()
                 .cursor_pointer()
-                .track_interaction(&state)
                 .when(active, |d| d.bg(p.term_bg))
                 .on_prepaint({
                     let geometry = geometry.clone();
@@ -263,9 +261,9 @@ impl RenderOnce for TerminalTabs {
                 .justify_center()
                 .size(px(CLOSE_SIZE))
                 .rounded(px(CLOSE_RADIUS))
-                .opacity(close_opacity)
-                .hover(|s| s.bg(p.surface_3))
-                .child(icon(IconName::X).size(px(CLOSE_ICON)).color(color));
+                .reveal_on_hover(active)
+                .paint_states(StatePaint::new(), &p)
+                .child(icon(IconName::X).size(px(CLOSE_ICON)));
             if let Some(on_close) = self.on_action.clone() {
                 close = close.on_click(move |_, w, cx| on_close(TerminalTabsAction::Close(index), w, cx));
             }

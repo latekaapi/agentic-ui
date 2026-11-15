@@ -19,7 +19,6 @@ use std::collections::HashMap;
 
 use aui::composer::{composer, composer_state_rows};
 use aui::data::{icon_button, ButtonSize};
-use aui::interact::FluidHandle;
 use aui::nav::sidebar_list_state;
 use aui::screens::sidebar::{mode_switch, sample_model, screen_item_count, sidebar_screen, Mode, SIDEBAR_WIDTH};
 use aui::shell::app_shell;
@@ -51,7 +50,7 @@ fn steps() -> Vec<String> {
 }
 
 thread_local! {
-    static LISTS: RefCell<HashMap<&'static str, (gpui::ListState, FluidHandle)>> = RefCell::new(HashMap::new());
+    static LISTS: RefCell<HashMap<&'static str, gpui::ListState>> = RefCell::new(HashMap::new());
 }
 
 /// The v2 sidebar on the frame (no ground of its own), its list state kept
@@ -60,12 +59,12 @@ fn sidebar(id: &'static str, mode: Mode, state: &Entity<V3>) -> AnyElement {
     let mut model = sample_model();
     model.mode = mode;
     let count = screen_item_count(&model);
-    let (list, fluid) = LISTS.with(|c| c.borrow_mut().entry(id).or_insert_with(|| (sidebar_list_state(count), FluidHandle::new())).clone());
+    let list = LISTS.with(|c| c.borrow_mut().entry(id).or_insert_with(|| sidebar_list_state(count)).clone());
     if list.item_count() != count {
         list.reset(count);
     }
     let state = state.clone();
-    sidebar_screen(id, model, list, fluid)
+    sidebar_screen(id, model, list)
         .width(px(SIDEBAR_WIDTH))
         .transparent()
         .on_intent(move |intent, _, cx| {

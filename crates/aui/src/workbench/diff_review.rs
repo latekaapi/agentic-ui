@@ -4,21 +4,20 @@
 //! highlights and per-line notes, and the action row that sends the batch of
 //! notes back to an agent.
 //!
-//! The segmented control ([`segmented`]) is exported on its own: cards 51 and
-//! 53 use the same track.
+//! The scope and view toggles are the library's segmented control
+//! ([`crate::data::segmented`]).
 
+use crate::interact::paint::{PaintHover, PaintStates, StatePaint};
 use crate::util::ScrollAxisLock as _;
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
-use aui_motion::{child_id, spring_px, tween, SpringKind, Tween};
 use aui_protocol::{ChangeKind, Diff, DiffKind, FileChange};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
-use gpui::{div, prelude::*, px, relative, App, Bounds, ElementId, Hsla, IntoElement, Pixels, SharedString, StyledText, TextRun, Window};
-use gpui_kit::base::{h_flex, v_flex, ElementExt};
+use gpui::{div, prelude::*, px, relative, App, ElementId, Hsla, IntoElement, SharedString, StyledText, TextRun, Window};
+use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{button, icon_button, pill, ButtonSize, PillVariant};
-use crate::util::{interaction_flags, TrackInteraction};
+use crate::data::{button, icon_button, pill, segmented, ButtonSize, PillVariant};
 
 // ── the frame ────────────────────────────────────────────────────────────────
 /// `.dv{height:610px;border:1px solid line-strong;border-radius:12px;grid-template-columns:230px 1fr;grid-template-rows:38px 1fr 44px}`.
@@ -32,14 +31,6 @@ const TOP_PAD_X: f32 = 10.0;
 /// The summary line (`.subtle{font-size:12px}`).
 const SUMMARY_TEXT: f32 = 12.0;
 
-// ── the segmented control ───────────────────────────────────────────────────
-/// `.seg{border-radius:r-sm;padding:2px;gap:2px}`; `.seg span{height:24px;padding:0 10px;border-radius:5px;font-size:12px}`.
-const SEG_PAD: f32 = 2.0;
-const SEG_GAP: f32 = 2.0;
-const SEG_H: f32 = 24.0;
-const SEG_PAD_X: f32 = 10.0;
-const SEG_RADIUS: f32 = 5.0;
-const SEG_TEXT: f32 = 12.0;
 
 // ── the files column ────────────────────────────────────────────────────────
 /// `.files{padding:8px;font-size:12px}` and `.files .caps{padding:4px 6px 6px}`.
@@ -251,198 +242,6 @@ pub enum DiffReviewAction {
 
 type Handler = Rc<dyn Fn(DiffReviewAction, &mut Window, &mut App)>;
 
-// ── segmented control ───────────────────────────────────────────────────────
-
-type SelectHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
-
-/// Previous-frame geometry the sliding thumb is positioned from.
-#[derive(Default)]
-struct SegGeometry {
-    track: Option<Bounds<Pixels>>,
-    segments: Vec<Option<Bounds<Pixels>>>,
-}
-
-/// `.seg`: a surface-2 track of 24 px segments; the active one wears a single
-/// surface-1 thumb at elevation 1 that *slides* between segments on the layout
-/// spring rather than cross-fading. Build with [`segmented`].
-///
-/// The track is one tab stop: `←` / `→` move the selection while it is
-/// focused and report through [`Segmented::on_select`] like a click does.
-#[derive(IntoElement)]
-pub struct Segmented {
-    id: ElementId,
-    labels: Vec<SharedString>,
-    active: usize,
-    accessibility_label: Option<SharedString>,
-    on_select: Option<SelectHandler>,
-}
-
-/// A segmented control over `labels` with `active` selected.
-pub fn segmented(id: impl Into<ElementId>, labels: Vec<SharedString>, active: usize) -> Segmented {
-    Segmented { id: id.into(), labels, active, accessibility_label: None, on_select: None }
-}
-
-impl Segmented {
-    /// Called with the index of the segment that was clicked.
-    pub fn on_select(mut self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
-        self.on_select = Some(Rc::new(f));
-        self
-    }
-
-    /// The accessible name of the group (the track's `radiogroup` label).
-    /// Each segment already announces its own visible label as a `radio`.
-    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
-        self.accessibility_label = Some(label.into());
-        self
-    }
-}
-
-impl RenderOnce for Segmented {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let p = cx.aui().colors;
-        let id = self.id.clone();
-        let count = self.labels.len();
-
-        let geometry = window
-            .use_keyed_state((id.clone(), "seg-geometry"), cx, |_, _| Rc::new(RefCell::new(SegGeometry::default())))
-            .read(cx)
-            .clone();
-
-        // The thumb is placed from last frame's bounds: an absolute `left` is
-        // measured from the track's content box while the captured track
-        // bounds are its border box, so the track's own padding comes back out.
-        // The first frame has no bounds yet — draw nothing and ask for another.
-        let target = {
-            let g = geometry.borrow();
-            match (g.track, g.segments.get(self.active).copied().flatten()) {
-                (Some(track), Some(seg)) => Some((seg.origin.x - track.origin.x - px(SEG_PAD), seg.size.width)),
-                _ => None,
-            }
-        };
-        // Reduced motion snaps: `spring_px` resolves instantly.
-        let thumb = match target {
-            Some((left, width)) => {
-                let left = spring_px((id.clone(), "thumb-left"), left, SpringKind::Layout, window, cx);
-                let width = spring_px((id.clone(), "thumb-width"), width, SpringKind::Layout, window, cx);
-                Some(
-                    div()
-                        .absolute()
-                        .top(px(0.0))
-                        .left(left)
-                        .w(width.max(px(0.0)))
-                        .h(px(SEG_H))
-                        .rounded(px(SEG_RADIUS))
-                        .bg(p.surface_1)
-                        .shadow(p.shadow(1)),
-                )
-            }
-            None => {
-                aui_motion::request_frame(window);
-                None
-            }
-        };
-
-        // One tab stop for the group; the arrows move the selection while it
-        // holds the keyboard. Nothing is focused on open: this only arms.
-        let focus = window
-            .use_keyed_state((id.clone(), "seg-focus"), cx, |_, cx| cx.focus_handle())
-            .read(cx)
-            .clone()
-            .tab_stop(true);
-        let ring = focus.is_focused(window) && crate::keys::keyboard_nav(cx);
-        let key_select = self.on_select.clone();
-        let key_active = self.active;
-        let group_label = self.accessibility_label.clone();
-
-        // The thumb is the track's first child so the labels paint over it.
-        let mut track = h_flex()
-            .id((id.clone(), "track"))
-            .relative()
-            .flex_none()
-            .p(px(SEG_PAD))
-            .gap(px(SEG_GAP))
-            .rounded(px(scale::R_SM))
-            .bg(p.surface_2)
-            .track_focus(&focus)
-            .on_key_down(move |event, window, cx| {
-                let held = &event.keystroke.modifiers;
-                if held.control || held.alt || held.shift || held.platform || held.function {
-                    return;
-                }
-                let next = match event.keystroke.key.as_str() {
-                    "left" => key_active.saturating_sub(1),
-                    "right" => (key_active + 1).min(count.saturating_sub(1)),
-                    _ => return,
-                };
-                cx.stop_propagation();
-                if next != key_active {
-                    if let Some(f) = &key_select {
-                        f(next, window, cx);
-                    }
-                }
-            })
-            .on_prepaint({
-                let geometry = geometry.clone();
-                move |bounds, _, _| geometry.borrow_mut().track = Some(bounds)
-            })
-            .children(thumb);
-        if ring {
-            track = track.shadow(vec![gpui::BoxShadow {
-                color: p.accent_ring,
-                offset: gpui::point(px(0.0), px(0.0)),
-                blur_radius: px(0.0),
-                spread_radius: px(3.0),
-                inset: false,
-            }]);
-        }
-        if let Some(label) = group_label {
-            track = track.role(gpui::Role::RadioGroup).aria_label(label);
-        }
-        for (i, label) in self.labels.into_iter().enumerate() {
-            let on = i == self.active;
-            let seg_id: ElementId = child_id(id.clone(), i);
-            // The label colour follows the thumb on the fast tween.
-            let text = tween((seg_id.clone(), "text"), if on { p.ink } else { p.ink_3 }, Tween::FAST, window, cx);
-            let select = self.on_select.clone();
-            track = track.child(
-                div()
-                    .id(seg_id)
-                    .relative()
-                    .flex_none()
-                    .h(px(SEG_H))
-                    .px(px(SEG_PAD_X))
-                    .rounded(px(SEG_RADIUS))
-                    .flex()
-                    .items_center()
-                    .cursor_pointer()
-                    .ui(SEG_TEXT)
-                    .line_height(relative(1.0))
-                    .text_color(text)
-                    .whitespace_nowrap()
-                    .role(gpui::Role::RadioButton)
-                    .aria_label(label.clone())
-                    .on_prepaint({
-                        let geometry = geometry.clone();
-                        move |bounds, _, _| {
-                            let mut g = geometry.borrow_mut();
-                            if g.segments.len() < count {
-                                g.segments.resize(count, None);
-                            }
-                            g.segments[i] = Some(bounds);
-                        }
-                    })
-                    .child(div().relative().child(label))
-                    .on_click(move |_, w, cx| {
-                        if let Some(f) = &select {
-                            f(i, w, cx)
-                        }
-                    }),
-            );
-        }
-        track
-    }
-}
-
 // ── the pane ────────────────────────────────────────────────────────────────
 
 /// The diff review pane. Build with [`diff_review`].
@@ -620,7 +419,7 @@ fn review_note(p: &Palette, id: ElementId, index: usize, note: &ReviewNote, on_a
 }
 
 impl RenderOnce for DiffReview {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let emit = |action: DiffReviewAction| {
@@ -710,16 +509,8 @@ impl RenderOnce for DiffReview {
             .child(column_caps(&p, "CHANGED FILES", CAPS_PAD_TOP));
         for (i, file) in self.files.iter().enumerate() {
             let row_id: ElementId = (id.clone(), SharedString::from(format!("file-{i}"))).into();
-            let (state, flags) = interaction_flags(row_id.clone(), window, cx);
             let (letter, letter_color) = change_letter(file.change.change, &p);
             let name = file.change.path.rsplit('/').next().unwrap_or(&file.change.path).to_string();
-            let bg = if file.selected {
-                Some(p.surface_3)
-            } else if flags.hovered {
-                Some(p.surface_2)
-            } else {
-                None
-            };
             let path = SharedString::from(file.change.path.clone());
             let mut row = h_flex()
                 .id(row_id)
@@ -731,13 +522,10 @@ impl RenderOnce for DiffReview {
                 .rounded(px(scale::R_SM))
                 .cursor_pointer()
                 .text_color(if file.selected { p.ink } else { p.ink_2 })
-                .track_interaction(&state)
+                .paint_states(StatePaint::new().selected(file.selected), &p)
                 .on_click(emit(DiffReviewAction::SelectFile(path)))
                 .child(div().flex_none().w(px(STATUS_W)).flex().justify_center().mono(STATUS_TEXT).line_height(relative(1.0)).semibold().text_color(letter_color).child(letter))
                 .child(div().min_w(px(0.0)).truncate().child(name));
-            if let Some(bg) = bg {
-                row = row.bg(bg);
-            }
             if file.notes > 0 {
                 row = row.child(note_badge(&p, file.notes.to_string()));
             }
@@ -805,11 +593,15 @@ impl RenderOnce for DiffReview {
             );
             for (i, line) in hunk.lines.iter().enumerate() {
                 let line_id: ElementId = (id.clone(), SharedString::from(format!("h{h}-l{i}"))).into();
-                let (line_state, line_flags) = interaction_flags(line_id.clone(), window, cx);
-                let (ground, hover_ground, old_color) = match line.kind {
-                    DiffKind::Add => (Some(p.diff_add), p.diff_add_strong, p.success),
-                    DiffKind::Del => (Some(p.diff_del), p.diff_del_strong, p.danger),
-                    DiffKind::Context => (None, p.surface_2, p.ink_4),
+                let (ground, old_color) = match line.kind {
+                    DiffKind::Add => (Some(p.diff_add), p.success),
+                    DiffKind::Del => (Some(p.diff_del), p.danger),
+                    DiffKind::Context => (None, p.ink_4),
+                };
+                // Hover is the one model over the line's own ground.
+                let paint = match ground {
+                    Some(ground) => StatePaint::new().on(ground),
+                    None => StatePaint::new(),
                 };
                 let strong = match line.kind {
                     DiffKind::Add => p.diff_add_strong,
@@ -826,15 +618,15 @@ impl RenderOnce for DiffReview {
                     ]),
                     None => StyledText::new(text),
                 };
-                let plus = tween((line_id.clone(), "plus"), if line_flags.hovered { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
                 let target = line.new_no.or(line.old_no).unwrap_or(0);
-                let mut row = h_flex()
+                let row = h_flex()
                     .id(line_id)
                     .relative()
                     .w_full()
                     .flex_none()
                     .pr(px(LINE_PAD_R))
-                    .track_interaction(&line_state)
+                    .paint_states(paint.pressable(false), &p)
+                    .hover_group()
                     .on_click(emit(DiffReviewAction::AddNote(target)))
                     .child(
                         div()
@@ -847,20 +639,13 @@ impl RenderOnce for DiffReview {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .opacity(plus)
+                            .reveal_on_hover(false)
                             .cursor_pointer()
                             .child(icon(IconName::Plus).size(px(PLUS_GLYPH)).color(gpui::white())),
                     )
                     .child(div().flex_none().w(px(OLD_W)).pr(px(GUTTER_PAD)).flex().justify_end().text_color(old_color).child(line.old_no.map(|n| n.to_string()).unwrap_or_default()))
                     .child(div().flex_none().w(px(NEW_W)).pr(px(GUTTER_PAD)).flex().justify_end().text_color(p.ink_4).child(line.new_no.map(|n| n.to_string()).unwrap_or_default()))
                     .child(div().flex_1().min_w(px(0.0)).overflow_hidden().child(styled));
-                row = if line_flags.hovered {
-                    row.bg(hover_ground)
-                } else if let Some(ground) = ground {
-                    row.bg(ground)
-                } else {
-                    row
-                };
                 body = body.child(row);
                 for (n, note) in self.notes.iter().enumerate() {
                     if note.file.as_ref() == self.diff.path && Some(note.line) == line.new_no {
@@ -919,6 +704,7 @@ impl RenderOnce for DiffReview {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui::{Bounds, Pixels};
     use std::cell::RefCell;
 
     /// `+8 −3`, dropping a zero side; the minus is U+2212 as in the design.

@@ -6,12 +6,12 @@
 use std::{cell::RefCell, rc::Rc};
 
 use aui_icons::{icon, IconName};
-use aui_motion::{spring_px, tween, SpringKind, Tween};
+use aui_motion::{spring_px, SpringKind};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, Bounds, ElementId, IntoElement, Pixels, SharedString, Window};
 use gpui_kit::base::{h_flex, ElementExt};
 
-use crate::util::{interaction_flags, TrackInteraction};
+use crate::interact::paint::{PaintHover, PaintStates, StatePaint};
 
 /// `.strip .t{gap:7px;padding:0 12px;font-size:12px}`; `.hd .tab{padding:0 10px}`.
 const TAB_GAP: f32 = 7.0;
@@ -302,10 +302,8 @@ impl RenderOnce for TabStrip {
         for (index, tab) in self.tabs.into_iter().enumerate() {
             let tab_id: ElementId = (id.clone(), SharedString::from(format!("tab-{}", tab.id))).into();
             let active = index == self.active;
-            let (state, flags) = interaction_flags(tab_id.clone(), window, cx);
-            let color = tween((tab_id.clone(), "color"), if active || flags.hovered { p.ink } else { p.ink_3 }, Tween::FAST, window, cx);
-            let show_close = tab.closable && (active || flags.hovered);
-            let close_opacity = tween((tab_id.clone(), "close"), if show_close { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
+            // Hover lifts the tab's ink (glyphs inherit it) and shows its
+            // close: the one model's ink refinement and a hover-group reveal.
 
             // Tabs keep their natural width; a strip short of room clips at
             // its edge (the design lets labels wrap; see docs/03 known gaps).
@@ -316,14 +314,14 @@ impl RenderOnce for TabStrip {
                 .flex_none()
                 .gap(px(TAB_GAP))
                 .px(px(tab_pad))
-                .text_color(color)
+                .paint_states(StatePaint::new().tint(false).ink(if active { p.ink } else { p.ink_3 }, p.ink), &p)
+                .hover_group()
                 .ui(scale::FS_12)
                 .whitespace_nowrap()
                 .cursor_pointer()
                 .role(gpui::Role::Tab)
                 .aria_label(tab.label.clone())
                 .aria_selected(active)
-                .track_interaction(&state)
                 .on_prepaint({
                     let geometry = geometry.clone();
                     move |bounds, _, _| {
@@ -335,7 +333,7 @@ impl RenderOnce for TabStrip {
                     }
                 });
             if let Some(glyph) = tab.icon {
-                el = el.child(icon(glyph).size(px(TAB_ICON)).color(color));
+                el = el.child(icon(glyph).size(px(TAB_ICON)));
             }
             if let Some(provider) = tab.mark {
                 el = el.child(aui_icons::provider_mark(provider).size(px(TAB_ICON)));
@@ -357,9 +355,9 @@ impl RenderOnce for TabStrip {
                     .justify_center()
                     .size(px(CLOSE_SIZE))
                     .rounded(px(CLOSE_RADIUS))
-                    .opacity(close_opacity)
-                    .hover(|s| s.bg(p.surface_3))
-                    .child(icon(IconName::X).size(px(CLOSE_ICON)).color(color));
+                    .reveal_on_hover(active)
+                    .paint_states(StatePaint::new(), &p)
+                    .child(icon(IconName::X).size(px(CLOSE_ICON)));
                 if let Some(on_close) = self.on_close.clone() {
                     let tab_key = tab.id.clone();
                     close = close.on_click(move |_, w, cx| on_close(&tab_key, w, cx));

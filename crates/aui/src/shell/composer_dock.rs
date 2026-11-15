@@ -9,6 +9,7 @@ use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{chip, icon_button};
 
 /// `.comp{padding:12px 32px 12px}`.
@@ -145,12 +146,11 @@ impl RenderOnce for DockedComposer {
             .flex_none()
             .size(control)
             .rounded(px(scale::R_SM))
-            .bg(if enabled { p.accent } else { p.surface_3 })
+            .paint_states(StatePaint::new().on(if enabled { p.accent } else { p.surface_3 }).disabled(!enabled), &p)
             .flex()
             .items_center()
             .justify_center()
             .cursor_pointer()
-            .hover(move |s| if enabled { s.bg(p.accent_strong) } else { s })
             .on_click(emit(send_intent))
             .child(IconMorph::new(sample, px(SEND_ICON), glyph(IconName::ArrowUp), glyph(IconName::Stop)));
 

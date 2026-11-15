@@ -2,11 +2,11 @@
 //! scope chips in panes, knowledge sources in the assistant sidebar).
 
 use aui_icons::{icon, IconName};
-use aui_motion::{tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 
-use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
+use crate::interact::paint::{PaintStates, StatePaint};
+use crate::util::ClickHandler;
 
 /// `.chip{height:22px;padding:0 8px 0 7px}`.
 const HEIGHT: f32 = 22.0;
@@ -121,14 +121,12 @@ impl Chip {
 }
 
 impl RenderOnce for Chip {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let lift = flags.hovered || self.active;
         if self.text_control {
-            let text = tween((id.clone(), "text"), if lift { p.ink } else { p.ink_2 }, Tween::FAST, window, cx);
-            let tint = aui_motion::tint_fade((id.clone(), "tint"), flags.hovered, p.hover_overlay(), Tween::FAST, window, cx);
+            // Hover is the one model; `active` holds the lit ink.
+            let rest_ink = if self.active { p.ink } else { p.ink_2 };
             let mut el = div()
                 .id(id)
                 .flex_none()
@@ -138,18 +136,16 @@ impl RenderOnce for Chip {
                 .px(px(TEXT_CONTROL_PAD))
                 .gap(px(TEXT_CONTROL_GAP))
                 .rounded(px(scale::R_MD))
-                .bg(tint)
-                .text_color(text)
+                .paint_states(StatePaint::new().ink(rest_ink, p.ink).pressable(false), &p)
                 .font_family(scale::FONT_UI)
                 .text_px(scale::FS_13)
                 .line_height(gpui::relative(1.0))
                 .whitespace_nowrap()
                 .cursor_pointer()
-                .track_interaction(&state)
                 .children(self.leading)
                 .child(self.label);
             if self.chevron {
-                el = el.child(icon(IconName::ChevronDown).size(px(TEXT_CONTROL_CHEVRON)).color(text));
+                el = el.child(icon(IconName::ChevronDown).size(px(TEXT_CONTROL_CHEVRON)));
             }
             el = el.children(self.trailing);
             if let Some(label) = self.accessibility_label {
@@ -160,9 +156,11 @@ impl RenderOnce for Chip {
             }
             return el;
         }
-        let border = tween((id.clone(), "border"), if lift { p.line_strong } else { p.line }, Tween::FAST, window, cx);
-        let rest_text = if self.accent { p.accent_ink } else { p.ink_2 };
-        let text = tween((id.clone(), "text"), if lift && !self.accent { p.ink } else { rest_text }, Tween::FAST, window, cx);
+        // The bordered chip: its edge strengthens and its ink lifts under
+        // the pointer (or while `active`), through the one model.
+        let rest_text = if self.accent { p.accent_ink } else if self.active { p.ink } else { p.ink_2 };
+        let lit_text = if self.accent { p.accent_ink } else { p.ink };
+        let rest_edge = if self.active { p.line_strong } else { p.line };
         let (height, pl, pr) = if self.composer {
             (cx.aui().metrics.control_md, COMPOSER_PAD_LEFT, COMPOSER_PAD_RIGHT)
         } else {
@@ -179,16 +177,13 @@ impl RenderOnce for Chip {
             .gap(px(GAP))
             .rounded(px(scale::R_SM))
             .border_1()
-            .border_color(border)
-            .bg(p.surface_1)
-            .text_color(text)
+            .paint_states(StatePaint::new().on(p.surface_1).tint(false).ink(rest_text, lit_text).edge(rest_edge, p.line_strong), &p)
             .font_family(scale::FONT_UI)
             .text_px(scale::FS_12)
             .line_height(gpui::relative(1.0))
             .medium()
             .whitespace_nowrap()
-            .cursor_pointer()
-            .track_interaction(&state);
+            .cursor_pointer();
         if let Some(leading) = self.leading {
             el = el.child(leading);
         }
@@ -197,7 +192,7 @@ impl RenderOnce for Chip {
             el = el.child(div().text_px(scale::FS_11).text_color(p.ink_3).child(detail));
         }
         if self.chevron {
-            el = el.child(icon(IconName::ChevronDown).size(px(CHEVRON)).color(text));
+            el = el.child(icon(IconName::ChevronDown).size(px(CHEVRON)));
         }
         if let Some(trailing) = self.trailing {
             el = el.child(trailing);

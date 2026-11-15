@@ -3,7 +3,7 @@
 //! spring and the account footer.
 
 use aui_icons::{icon, IconName, Provider};
-use aui_motion::{spring_phase, tint_fade, tween, SpringKind, Tween};
+use aui_motion::{spring_phase, SpringKind};
 use aui_tokens::{scale, scaled, ActiveAui, AuiStyled, TextRole};
 use gpui::{
     div, font, prelude::*, px, radians, AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
@@ -11,8 +11,9 @@ use gpui::{
 };
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{avatar, icon_button, tag, usage_meter, ButtonSize};
-use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
+use crate::util::ClickHandler;
 
 /// One gutter for every sidebar row kind.
 ///
@@ -108,12 +109,9 @@ impl NavItem {
 }
 
 impl RenderOnce for NavItem {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let bg = tint_fade((id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
-        let text = tween((id.clone(), "text"), if flags.hovered { p.ink } else { p.ink_2 }, Tween::FAST, window, cx);
         let mut row = h_flex()
             .id(id)
             .w_full()
@@ -123,12 +121,10 @@ impl RenderOnce for NavItem {
             .pl(px(NAV_GUTTER))
             .pr(px(NAV_PAD_RIGHT))
             .rounded(px(scale::R_SM))
-            .bg(bg)
-            .text_color(text)
+            .paint_states(StatePaint::new().ink(p.ink_2, p.ink), &p)
             .ui(scale::FS_13)
             .medium()
             .cursor_pointer()
-            .track_interaction(&state)
             .child(div().flex_none().w(px(LEADING_BOX)).flex().items_center().justify_center().child(icon(self.icon).color(p.ink_3)))
             .child(div().min_w(px(0.0)).truncate().child(self.label));
         if let Some(count) = self.count {

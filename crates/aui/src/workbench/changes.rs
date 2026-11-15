@@ -15,8 +15,8 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, radians, AnyElement, App, ClickEvent, ElementId, FontWeight, Hsla, IntoElement, Pixels, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintHover, PaintStates, StatePaint};
 use crate::data::{icon_button, spinner};
-use crate::util::{interaction_flags, TrackInteraction};
 
 /// The type the screen uses.
 const BODY_TEXT: f32 = 14.3;
@@ -80,7 +80,8 @@ pub const CHANGE_FOLDER_MIN_WIDTH: f32 = 340.0;
 /// a 16 slot 4 in, the status letter in mono 12.1, the name 14.3, the folder
 /// 13.2 muted (hidden under 340 wide), `+N −M` at the right; on hover one
 /// "open file" button after the counts. The whole row toggles its diff. The
-/// row paints no hover itself: the screen's fluid list does (5 %).
+/// row paints no hover itself: the screen's [`RowList`](crate::interact::RowList)
+/// does (the one model's overlay).
 #[derive(IntoElement)]
 pub struct ChangeRow {
     id: ElementId,
@@ -127,7 +128,6 @@ impl ChangeRow {
 impl RenderOnce for ChangeRow {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let (state, flags) = interaction_flags(self.id.clone(), window, cx);
         let (letter, letter_color) = change_letter(self.change.change, &p);
         let (name, folder) = split_path(&self.change.path);
         let show_folder = self.width.is_none_or(|w| f32::from(w) >= CHANGE_FOLDER_MIN_WIDTH) && !folder.is_empty();
@@ -156,7 +156,7 @@ impl RenderOnce for ChangeRow {
             .role(gpui::Role::Button)
             .aria_label(label)
             .aria_expanded(self.open)
-            .track_interaction(&state)
+            .hover_group()
             .when(self.flash > 0.0, |d| d.bg(p.selected_overlay().alpha(p.selected_overlay().a * self.flash.clamp(0.0, 1.0))))
             .child(
                 div()
@@ -172,10 +172,12 @@ impl RenderOnce for ChangeRow {
             .when(show_folder, |d| d.child(div().min_w(px(0.0)).overflow_hidden().text_ellipsis().text_px(SMALL_TEXT).text_color(p.fg_muted).child(folder)))
             .child(div().flex_1().min_w(px(0.0)))
             .child(counts);
-        if flags.hovered {
+        // The "open file" button shows while the row is hovered; its box is
+        // always laid out, so the counts never shift under the pointer.
+        {
             if let Some(f) = self.on_open_file.clone() {
                 row = row.child(
-                    div().ml(px(4.0)).child(
+                    div().ml(px(4.0)).reveal_on_hover(false).child(
                         icon_button((self.id.clone(), "open"), IconName::File)
                             .ghost()
                             .accessibility_label(format!("Open {name}"))
@@ -339,9 +341,8 @@ impl RenderOnce for DiffBody {
                                     .aria_label(format!("Show {n} unchanged lines"))
                                     .font_family(scale::FONT_UI)
                                     .text_px(SMALL_TEXT)
-                                    .text_color(p.fg_muted)
-                                    .hover(|s| s.text_color(p.fg))
-                                    .child(icon(IconName::ChevronDown).size(px(11.0)).color(p.fg_muted))
+                                    .paint_states(StatePaint::new().tint(false).ink(p.fg_muted, p.fg), &p)
+                                    .child(icon(IconName::ChevronDown).size(px(11.0)))
                                     .child(format!("{n} unchanged line{}", if n == 1 { "" } else { "s" }))
                                     .when_some(on_gap, |d, f| d.on_click(move |_, w, cx| f(i, w, cx))),
                             );
@@ -366,9 +367,9 @@ pub fn gutter_width(widest: u32) -> f32 {
 /// folded shut.
 ///
 /// It is its own list entry, never one element with the row: put the row in
-/// the list with [`FluidList::item`](crate::interact::FluidList::item) and
+/// the list with [`RowList::item`](crate::interact::RowList::item) and
 /// this right after it with
-/// [`FluidList::item_toolbar`](crate::interact::FluidList::item_toolbar), so
+/// [`RowList::item_static`](crate::interact::RowList::item_static), so
 /// the pointer over the diff lights nothing. Owner 2026-10-21: as one item
 /// (the old `change_with_diff`) the hover pill covered the row and every
 /// hunk, and its tint washed out the hunk headers that divide them.
@@ -399,14 +400,13 @@ pub fn primary_action(id: impl Into<ElementId>, label: impl Into<SharedString>, 
         .flex_none()
         .items_center()
         .rounded(px(6.0))
-        .bg(p.accent)
-        .text_color(ink)
+        .paint_states(StatePaint::new().on(p.accent).ink(ink, ink).disabled(disabled || busy), &p)
         .font_family(scale::FONT_UI)
         .text_px(BODY_TEXT)
         .font_weight(FontWeight::SEMIBOLD)
         .whitespace_nowrap()
         .when(disabled || busy, |d| d.opacity(0.45))
-        .when(!disabled && !busy, |d| d.cursor_pointer().hover(move |s| s.bg(p.accent_strong)))
+        .when(!disabled && !busy, |d| d.cursor_pointer())
         .when(busy, |d| d.child(spinner((id.clone(), "spin")).size(px(12.0)).muted(cx)))
         .when_some(glyph.filter(|_| !busy), |d, g| d.child(icon(g).size(px(14.0)).color(ink)))
         .child(label)
@@ -430,9 +430,8 @@ pub fn text_action(id: impl Into<ElementId>, label: impl Into<SharedString>, gly
         .rounded(px(6.0))
         .font_family(scale::FONT_UI)
         .text_px(if height < 26.0 { SMALL_TEXT } else { BODY_TEXT })
-        .text_color(p.fg_muted)
         .whitespace_nowrap()
-        .hover(move |s| s.bg(p.hover_overlay()).text_color(p.fg))
+        .paint_states(StatePaint::new().ink(p.fg_muted, p.fg), &p)
         .when_some(glyph, |d, g| d.child(icon(g).size(px(12.0))))
         .child(label)
 }
@@ -832,10 +831,10 @@ mod tests {
     /// Owner 2026-10-21: the pointer anywhere over an open file's diff lit
     /// the whole file — row and every hunk — because the row and its diff
     /// were one list item. Composed as the docs say (row = item, diff =
-    /// toolbar), the row still lights and the diff lights nothing.
+    /// static), the row still lights and the diff lights nothing.
     mod hover {
         use super::super::{change_row, diff_body, diff_fold};
-        use crate::interact::{fluid_list, Axis};
+        use crate::interact::row_list;
         use aui_protocol::{ChangeKind, Diff, DiffKind, DiffLine, FileChange, Hunk};
         use gpui::{div, prelude::*, px, Context, Window};
         use std::cell::Cell;
@@ -853,10 +852,10 @@ mod tests {
                 let change = FileChange { path: "a.txt".into(), change: ChangeKind::Modified, added: 0, removed: 0 };
                 let fold = diff_fold("fold", true, move || diff_body("diff", diff).into_any_element(), window, cx).expect("an open diff shows");
                 let lit = self.lit.clone();
-                let list = fluid_list("list", Axis::Y)
+                let list = row_list("list")
                     .gap(px(0.0))
                     .item(0, change_row("row", change, true).width(px(380.0)))
-                    .item_toolbar(1, fold)
+                    .item_static(1, fold)
                     .on_highlight(move |index, _, _| lit.set(index));
                 div().size_full().child(list)
             }

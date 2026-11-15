@@ -10,17 +10,17 @@
 //! element, clicking pins a numbered note, the side panel collects them and
 //! one action sends the batch — with metadata and a screenshot — to the agent.
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::util::ScrollAxisLock as _;
 use std::rc::Rc;
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
-use aui_motion::{shimmer_text, tint_fade, tween, Tween};
+use aui_motion::{shimmer_text, tween, Tween};
 use aui_tokens::{light, scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::{div, linear_color_stop, linear_gradient, prelude::*, px, relative, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, icon_button, kbd, ButtonSize, ButtonVariant};
-use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.br{grid-template-rows:34px 38px 1fr}`: the nav band.
 const NAV_HEIGHT: f32 = 38.0;
@@ -303,19 +303,12 @@ impl RenderOnce for BrowserNav {
 }
 
 /// `.mode`: ink-filled while annotating, the secondary control look when off.
-fn annotate_toggle(id: impl Into<ElementId>, on: bool, compact: bool, handler: Option<BrowserHandler>, window: &mut Window, cx: &mut App) -> impl IntoElement {
+fn annotate_toggle(id: impl Into<ElementId>, on: bool, compact: bool, handler: Option<BrowserHandler>, _window: &mut Window, cx: &mut App) -> impl IntoElement {
     let p = cx.aui().colors;
     let id: ElementId = id.into();
-    let (state, flags) = interaction_flags(id.clone(), window, cx);
-    let (ground, edge, text) = match (on, flags.hovered) {
-        (true, false) => (p.ink, p.ink, p.bg),
-        (true, true) => (p.ink_2, p.ink_2, p.bg),
-        (false, false) => (p.surface_2, p.line_strong, p.ink),
-        (false, true) => (p.surface_3, p.ink_4, p.ink),
-    };
-    let ground = tween((id.clone(), "bg"), ground, Tween::FAST, window, cx);
-    let edge = tween((id.clone(), "border"), edge, Tween::FAST, window, cx);
-    let text = tween((id.clone(), "text"), text, Tween::FAST, window, cx);
+    // On: the ink fill; off: the secondary look. Hover and press are the
+    // one model's overlays over either.
+    let (ground, edge, text) = if on { (p.ink, p.ink, p.bg) } else { (p.surface_2, p.line_strong, p.ink) };
 
     let mut toggle = h_flex()
         .id(id)
@@ -326,13 +319,11 @@ fn annotate_toggle(id: impl Into<ElementId>, on: bool, compact: bool, handler: O
         .rounded(px(scale::R_SM))
         .border_1()
         .border_color(edge)
-        .bg(ground)
-        .text_color(text)
+        .paint_states(StatePaint::new().on(ground).ink(text, text), &p)
         .ui(scale::FS_12)
         .medium()
         .whitespace_nowrap()
         .cursor_pointer()
-        .track_interaction(&state)
         .role(gpui::Role::Button)
         .aria_label("Annotate")
         .child(icon(IconName::Edit).size(px(MODE_GLYPH)).color(text))
@@ -827,14 +818,11 @@ fn annotation_row(
     annotation: &Annotation,
     selected: bool,
     handler: Option<AnnotatorHandler>,
-    window: &mut Window,
+    _window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement {
     let p = cx.aui().colors;
     let id: ElementId = id.into();
-    let (state, flags) = interaction_flags(id.clone(), window, cx);
-    let ground = tint_fade((id.clone(), "bg"), selected || flags.hovered, p.surface_2, Tween::FAST, window, cx);
-
     let mut disc = div()
         .flex()
         .items_center()
@@ -862,9 +850,8 @@ fn annotation_row(
         .px(px(PANEL_PAD_X))
         .border_b_1()
         .border_color(p.line)
-        .bg(ground)
+        .paint_states(StatePaint::new().selected(selected), &p)
         .cursor_pointer()
-        .track_interaction(&state)
         .child(disc)
         .child(
             v_flex()

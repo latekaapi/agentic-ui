@@ -664,7 +664,7 @@ impl RenderOnce for AppShell {
             .pb(px(SHEET_INSET))
             .pl(px(SHEET_INSET))
             .pr(if right_mounted { px(0.0) } else { px(SHEET_INSET) })
-            .child(crate::interact::AmbientScope::filled(2, centre_sheet));
+            .child(div().w_full().h_full().child(centre_sheet));
 
         // The right sheet, 6 px beside the centre; its header row inside it.
         let right_column = div().w(right_w).h_full().flex_none().overflow_hidden().when(right_mounted, |d| {

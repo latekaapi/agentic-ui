@@ -16,7 +16,7 @@
 
 use std::rc::Rc;
 
-use aui::interact::{surface, FluidHandle, Shape};
+use aui::interact::{surface, Shape};
 use aui::nav::{sidebar_list_state, Grouping};
 use aui::screens::sidebar::{
     sample_model, screen_item_count, sidebar_screen, BrowseEditing, BrowseMenu, BrowseMenuTarget, BrowseNaming, EditingState, Mode, SidebarModel,
@@ -119,15 +119,14 @@ fn find_title(model: &SidebarModel, id: &str) -> Option<gpui::SharedString> {
 }
 
 thread_local! {
-    /// One list state and fluid handle per column id, kept across renders
-    /// exactly as a host keeps them: the highlight and selection geometry
-    /// is measured one frame and painted the next.
-    static COLUMN_STATE: std::cell::RefCell<std::collections::HashMap<&'static str, (gpui::ListState, FluidHandle)>> =
+    /// One list state per column id, kept across renders exactly as a host
+    /// keeps it.
+    static COLUMN_STATE: std::cell::RefCell<std::collections::HashMap<&'static str, gpui::ListState>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
-/// The sidebar at `width` × `height` with its caller-owned list state and
-/// fluid handle, on its own ground.
+/// The sidebar at `width` × `height` with its caller-owned list state, on
+/// its own ground.
 fn sidebar_column(id: &'static str, model: SidebarModel, width: f32, height: f32) -> AnyElement {
     sidebar_column_on(id, model, width, px(height), true)
 }
@@ -136,16 +135,11 @@ fn sidebar_column(id: &'static str, model: SidebarModel, width: f32, height: f32
 /// elevated surface the card draws).
 fn sidebar_column_on(id: &'static str, model: SidebarModel, width: f32, height: gpui::Pixels, ground: bool) -> AnyElement {
     let count = screen_item_count(&model);
-    let (state, fluid) = COLUMN_STATE.with(|cell| {
-        cell.borrow_mut()
-            .entry(id)
-            .or_insert_with(|| (sidebar_list_state(count), FluidHandle::new()))
-            .clone()
-    });
+    let state = COLUMN_STATE.with(|cell| cell.borrow_mut().entry(id).or_insert_with(|| sidebar_list_state(count)).clone());
     if state.item_count() != count {
         state.reset(count);
     }
-    let mut screen = sidebar_screen(id, model, state, fluid).width(px(width)).on_intent(|_, _, _| {});
+    let mut screen = sidebar_screen(id, model, state).width(px(width)).on_intent(|_, _, _| {});
     if !ground {
         screen = screen.transparent();
     }

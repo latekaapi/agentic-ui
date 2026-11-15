@@ -4,8 +4,9 @@
 //! the glyph 14 muted, the name in the sidebar rows' Body role (13 / 20; owner
 //! 2026-10-21: "make it same as the sidebar items", over the canvas's 14.3),
 //! faint when ignored, and the git letter at the right in mono 12.1, 14 wide.
-//! Hover 5 % and selected 9 % are Fluid Functionalism's fluid list (one
-//! highlight that glides); keyboard focus adds a 1 px grey ring at 45 %. A
+//! Hover and selected are the one model's overlays, painted per row by the
+//! [`RowList`](crate::interact::RowList); keyboard focus adds a 1 px grey
+//! ring at 45 %. A
 //! capped folder ends with one faint Caption line.
 //!
 //! The screen's own row (glyph, "Files", filter, ✕) is the pane's
@@ -22,7 +23,7 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, Density, TextRole};
 use gpui::{div, prelude::*, px, App, BoxShadow, ElementId, Hsla, IntoElement, ScrollHandle, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::interact::{fluid_list, Axis};
+use crate::interact::row_list;
 
 /// The tree's padding: 4 above, 6 at the sides, 12 below.
 const TREE_PAD_TOP: f32 = 4.0;
@@ -297,8 +298,8 @@ impl FileTree {
         self
     }
 
-    /// The row the keyboard is on: it wears the focus ring and the fluid
-    /// highlight while the pointer is still.
+    /// The row the keyboard is on: it wears the focus ring and the hover
+    /// look.
     pub fn focused(mut self, id: Option<SharedString>) -> Self {
         self.focused = id;
         self
@@ -351,7 +352,7 @@ impl RenderOnce for FileTree {
 
         let selected = self.nodes.iter().position(|n| n.selected);
         let focused = self.focused.as_ref().and_then(|f| row_index_for_id(&self.nodes, f));
-        let mut list = fluid_list((id.clone(), "fluid"), Axis::Y).gap(px(0.0)).selected(selected).highlighted(focused).label("File tree");
+        let mut list = row_list((id.clone(), "rows-list")).gap(px(0.0)).selected(selected).highlighted(focused).label("File tree");
         let actions: Rc<Vec<FileTreeAction>> = Rc::new(
             self.nodes
                 .iter()

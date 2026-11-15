@@ -4,10 +4,9 @@
 //! [`SidebarModel`] is plain data in, [`SidebarIntent`]s are intents out:
 //! the screen owns no entities and no session state beyond what the caller
 //! hands it every frame — the [`gpui::ListState`] it renders the
-//! virtualised session list through and the
-//! [`FluidHandle`](crate::interact::FluidHandle) that lets the one gliding
-//! highlight cover static chrome rows and virtual session rows alike. The
-//! session rows come from the shared [`Grouping`](crate::nav::Grouping)
+//! virtualised session list through. Every row, static chrome and virtual
+//! session alike, hovers plainly with the one model
+//! ([`crate::interact::paint`]). The session rows come from the shared [`Grouping`](crate::nav::Grouping)
 //! shapes, flattened with [`flatten_sidebar`](crate::nav::flatten_sidebar).
 
 mod menus;

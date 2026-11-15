@@ -31,6 +31,7 @@ pub mod motion;
 pub mod narrow_panes;
 pub mod panel_chrome;
 pub mod pickers;
+pub mod primitives;
 pub mod project_mark;
 pub mod providers;
 pub mod question_plan_todo;

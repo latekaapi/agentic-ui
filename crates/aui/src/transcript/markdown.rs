@@ -60,6 +60,7 @@ use super::selectable::{
     SelectionKey, SpanEvent, SpanHandler, TextSelection,
 };
 use super::ProseStyle;
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::util::push_usize;
 
 /// How many parsed sources the memo holds before evicting the least recently
@@ -1746,7 +1747,7 @@ fn render_block(
                     .child(head),
             );
             for (r, row) in rows.iter().enumerate() {
-                let mut line = h_flex().id(block_cell_id(id, index, Some(r), usize::MAX)).w_full().hover(|d| d.bg(palette.hover_overlay()));
+                let mut line = h_flex().id(block_cell_id(id, index, Some(r), usize::MAX)).w_full().paint_states(StatePaint::new().pressable(false), palette);
                 for (n, cell) in row.iter().enumerate() {
                     line = line.child(table_cell(
                         cell,

@@ -10,7 +10,6 @@ use gpui::{div, prelude::*, px, App, ElementId, ExternalPaths, IntoElement, Shar
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::kbd;
-use crate::util::{interaction_flags, TrackInteraction};
 
 /// The folder glyph: 20 px, ink-2.
 const GLYPH: f32 = 20.0;
@@ -98,10 +97,9 @@ impl FolderDropCard {
 }
 
 impl RenderOnce for FolderDropCard {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let (state, _) = interaction_flags(id.clone(), window, cx);
         let clickable = self.on_click.is_some();
         // The keycap sits at the right without moving the centred stack:
         // equal spacers on both sides keep the middle truly centred.
@@ -116,7 +114,6 @@ impl RenderOnce for FolderDropCard {
             .border_dashed()
             .border_color(if self.dragging { p.accent } else { p.line_strong })
             .bg(if self.dragging { p.accent_soft } else { p.surface_2 })
-            .track_interaction(&state)
             .when(clickable, |d| d.cursor_pointer())
             .child(div().flex_1())
             .child(

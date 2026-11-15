@@ -8,6 +8,7 @@ use aui_icons::{icon, provider_mark, IconName, Provider};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, Hsla, IntoElement, SharedString, Window};
 use gpui_kit::base::h_flex;
+use crate::interact::paint::{PaintStates, StatePaint};
 
 /// Gap 10, caption, 10 above and below.
 const GAP: f32 = 10.0;
@@ -114,10 +115,9 @@ impl RenderOnce for MarkerRow {
                         div()
                             .id(id)
                             .whitespace_nowrap()
-                            .text_color(p.ink_2)
                             .underline()
                             .cursor_pointer()
-                            .hover(|d| d.text_color(p.ink))
+                            .paint_states(StatePaint::new().tint(false).ink(p.ink_2, p.ink), &p)
                             .role(gpui::Role::Link)
                             .aria_label(t.clone())
                             .on_click(move |e, w, cx| on_click(e, w, cx))

@@ -1,19 +1,21 @@
-//! [`Interactive`]: the bounded-control wrapper that owns all state paint.
+//! [`Interactive`]: the bounded-control wrapper for things that take the
+//! keyboard. Its hover, press and selection are the one model
+//! ([`super::paint`]); what it adds is the focus-visible ring and the tab
+//! stop.
 
-use aui_motion::{tint_fade, SpringKind, Tween};
-use aui_tokens::{ActiveAui, Easing, Tier};
+use aui_tokens::ActiveAui;
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, MouseButton, RenderOnce, Role, SharedString, Window};
 
+use super::paint::{PaintStates, StatePaint};
 use super::Shape;
 use crate::data::record_ax_label;
-use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
+use crate::util::ClickHandler;
 
 /// Key fragment for the per-control focus handle (see [`Interactive`]).
-/// The gallery's states card uses it to focus the focus-visible tile.
 pub const INTERACT_FOCUS_TAG: &str = "aui-interact-focus";
 
-/// A snapshot of one interactive control's live flags, for callers that
-/// need them (a trailing icon that follows the hover, for example).
+/// A pinned interaction state: what [`Interactive::preview`] and
+/// [`StatePaint::preview`] paint instead of the live one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InteractState {
     /// The pointer is over the control.
@@ -24,23 +26,31 @@ pub struct InteractState {
     pub focused: bool,
 }
 
-/// Reads the live [`InteractState`] for `id`: the hover / press flags from
-/// [`crate::util::interaction`] plus whether the control's focus handle is
-/// focused. Never notifies; call it during render.
-pub fn interactive_state(id: impl Into<ElementId>, window: &mut Window, cx: &mut App) -> InteractState {
-    let id: ElementId = id.into();
-    let (_, flags) = interaction_flags(id.clone(), window, cx);
-    let focused = window
-        .use_keyed_state((id, INTERACT_FOCUS_TAG), cx, |_, cx| cx.focus_handle())
-        .read(cx)
-        .is_focused(window);
-    InteractState { hovered: flags.hovered, pressed: flags.pressed, focused }
+impl InteractState {
+    /// Nothing pinned: the rest look.
+    pub const REST: Self = Self { hovered: false, pressed: false, focused: false };
+    /// The pointer over the control.
+    pub const HOVER: Self = Self { hovered: true, pressed: false, focused: false };
+    /// The control held down.
+    pub const PRESSED: Self = Self { hovered: true, pressed: true, focused: false };
+    /// The control holding the keyboard (the focus-visible ring).
+    pub const FOCUSED: Self = Self { hovered: false, pressed: false, focused: true };
 }
 
-/// The press inset for a press phase in `0..=1`: at most 1 px per side,
-/// applied to the overlays only, never to the layout box.
-pub fn press_inset(phase: f32) -> gpui::Pixels {
-    px(1.0) * phase.clamp(0.0, 1.0)
+/// The focus-visible ring every control draws: 2 px of `accent-ring`, 2 px
+/// outside the control, as an outline overlay — never a spread shadow,
+/// which shows through a see-through fill. Add it as a child of a
+/// `relative()` control whose corner radius is `radius`.
+pub fn focus_ring(radius: gpui::Pixels, p: &aui_tokens::Palette) -> gpui::Div {
+    div()
+        .absolute()
+        .top(px(-2.0))
+        .left(px(-2.0))
+        .right(px(-2.0))
+        .bottom(px(-2.0))
+        .rounded(radius + px(2.0))
+        .border_2()
+        .border_color(p.accent_ring)
 }
 
 /// Maps the [`Interactive::role`] name to an accessibility role.
@@ -60,13 +70,12 @@ fn parse_role(name: &str) -> Role {
     }
 }
 
-/// A bounded control wrapper that owns ALL state paint: the hover overlay,
-/// the selected overlay, the pressed overlay plus the 1 px press inset, the
-/// focus-visible ring, and the disabled treatment.
+/// A bounded control wrapper: the one hover / press / selected paint
+/// ([`StatePaint`]), the focus-visible ring and tab stop, and the disabled
+/// treatment.
 ///
 /// It never sets a background colour beyond the overlays: the ground comes
-/// from the [`Surface`](super::Surface) beneath it. Build with
-/// [`interactive`].
+/// from whatever is beneath it. Build with [`interactive`].
 #[derive(IntoElement)]
 pub struct Interactive {
     id: ElementId,
@@ -112,16 +121,16 @@ impl Interactive {
         self
     }
 
-    /// Whether a press insets the control 1 px per side (default true).
-    /// A control that only navigates (a link-like row) can opt out.
+    /// Whether a press tints the control (default true). A control that
+    /// only navigates (a link-like row) can opt out.
     pub fn pressable(mut self, pressable: bool) -> Self {
         self.pressable = pressable;
         self
     }
 
     /// Whether the control is a tab stop that draws the focus-visible ring
-    /// (default false). Rows inside a [`FluidList`](super::FluidList) stay
-    /// non-focusable: the highlighted row is their focus indicator.
+    /// (default false). Rows in a list stay non-focusable: the highlighted
+    /// row is their focus indicator.
     pub fn focusable(mut self, focusable: bool) -> Self {
         self.focusable = focusable;
         self
@@ -148,7 +157,7 @@ impl Interactive {
     }
 
     /// Paints a fixed state instead of the live one — for gallery cards
-    /// and captures, where no pointer hovers and animations are frozen.
+    /// and captures, where no pointer hovers.
     /// The control still takes clicks; only the paint is pinned.
     pub fn preview(mut self, state: InteractState) -> Self {
         self.preview = Some(state);
@@ -169,12 +178,6 @@ impl RenderOnce for Interactive {
         let id = self.id.clone();
         let disabled = self.disabled;
 
-        let (state, live) = interaction_flags(id.clone(), window, cx);
-        let (hovered, pressed, focus_pinned) = match self.preview {
-            Some(fixed) => (fixed.hovered && !disabled, fixed.pressed && !disabled && self.pressable, fixed.focused),
-            None => (live.hovered && !disabled, live.pressed && !disabled && self.pressable, false),
-        };
-
         // One focus handle per control id; only focusable controls are tab
         // stops. The handle key matches `interactive_state`, so callers read
         // the same focus the ring draws from.
@@ -183,73 +186,34 @@ impl RenderOnce for Interactive {
             .read(cx)
             .clone()
             .tab_stop(self.focusable && !disabled);
+        let focus_pinned = self.preview.is_some_and(|s| s.focused);
         let show_ring = focus_pinned || (self.focusable && !disabled && focus.is_focused(window) && crate::keys::keyboard_nav(cx));
 
-        // Overlays fade on the fast tier; the press inset springs back on
-        // release. Weight never changes on hover.
-        let enter = Tween::new(Tier::Fast.enter(), Easing::STD);
-        let pinned = self.preview.is_some();
-        let (hover_tint, selected_tint, pressed_tint, press) = if pinned {
-            let on = |flag: bool, tint: gpui::Hsla| if flag { tint } else { tint.alpha(0.0) };
-            (
-                on(hovered, p.hover_overlay()),
-                on(self.selected && !disabled, p.selected_overlay()),
-                on(pressed, p.pressed_overlay()),
-                if pressed { 1.0 } else { 0.0 },
-            )
-        } else {
-            (
-                tint_fade((id.clone(), "aui-hover"), hovered, p.hover_overlay(), enter, window, cx),
-                tint_fade((id.clone(), "aui-selected"), self.selected && !disabled, p.selected_overlay(), enter, window, cx),
-                tint_fade((id.clone(), "aui-pressed"), pressed, p.pressed_overlay(), Tween::exit(Tier::Fast), window, cx),
-                aui_motion::spring_phase((id.clone(), "aui-press"), pressed, SpringKind::Fast, window, cx).clamp(0.0, 1.0),
-            )
-        };
-        // The press inset is paint-only: the overlays move 1 px inward
-        // (concentric radius) while the control's layout box stays exactly
-        // where it was, so a press never grows the control or shifts its
-        // neighbours. Padding here would do both.
-        let inset = press_inset(press);
-
+        // Hover, press and selection are the one model (`paint`): gpui's own
+        // refinements, no keyed state, no tween.
+        let paint = StatePaint::new()
+            .selected(self.selected)
+            .disabled(disabled)
+            .pressable(self.pressable)
+            .preview(self.preview);
         let radius = self.shape.radius();
-        let overlay = |tint: gpui::Hsla| div().absolute().inset(inset).rounded(px(radius) - inset).bg(tint);
-
-        let inner = div()
-            .relative()
-            .rounded(px(radius))
-            .child(overlay(hover_tint))
-            .child(overlay(selected_tint))
-            .child(overlay(pressed_tint))
-            .child(self.child);
 
         // The focus-visible ring: 2 px of accent-ring, 2 px outside the
         // control, only while the keyboard-nav flag is armed. An outline
         // overlay, never a shadow: a spread shadow would fill the control.
-        let ring = show_ring.then(|| {
-            div()
-                .absolute()
-                .top(px(-2.0))
-                .left(px(-2.0))
-                .right(px(-2.0))
-                .bottom(px(-2.0))
-                .rounded(px(radius + 2.0))
-                .border_2()
-                .border_color(p.accent_ring)
-        });
+        let ring = show_ring.then(|| focus_ring(px(radius), &p));
 
         let mut outer = div()
             .id(id)
             .relative()
             .rounded(px(radius))
+            .paint_states(paint, cx)
             .when(disabled, |d| d.text_color(p.fg_muted))
             .when(!disabled && self.on_click.is_some(), |d| d.cursor_pointer())
-            .child(inner)
+            .child(self.child)
             .children(ring);
         if !disabled {
             outer = outer.track_focus(&focus);
-            if !pinned {
-                outer = outer.track_interaction(&state);
-            }
             outer = outer.on_key_down(|_, window, cx| {
                 if !crate::keys::keyboard_nav(cx) {
                     crate::keys::set_keyboard_nav(true, cx);

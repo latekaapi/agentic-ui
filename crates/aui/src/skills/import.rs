@@ -3,17 +3,17 @@
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_motion::{tint_fade, EnterExit, Tween};
+use aui_motion::EnterExit;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::pill;
 use crate::data::PillVariant;
 use crate::overlay::card::{modal_card, modal_presence, modal_scrim};
-use crate::util::{interaction_flags, TrackInteraction};
 
-use super::controls::{checkbox, CheckboxIntent, CheckboxState};
+use crate::data::{checkbox, CheckboxIntent, CheckboxState};
 use super::row::SkillRowIntent;
 
 /// Whether an import candidate is new, replaces a personal skill, or is
@@ -504,11 +504,9 @@ impl MenuTwoLineRow {
 }
 
 impl RenderOnce for MenuTwoLineRow {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let (istate, flags) = interaction_flags(id.clone(), window, cx);
-        let ground = tint_fade((id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
 
         let mut sub = div().flex_none().w_full();
         if self.subtitle_mono {
@@ -528,9 +526,8 @@ impl RenderOnce for MenuTwoLineRow {
             .px(px(MENU_ITEM_PAD_X))
             .py(px(MENU_ITEM_PAD_Y))
             .rounded(px(scale::R_SM))
-            .bg(ground)
+            .paint_states(StatePaint::new(), &p)
             .cursor_pointer()
-            .track_interaction(&istate)
             .child(div().flex_none().mt(px(2.0)).child(icon(self.icon).size(px(MENU_ITEM_GLYPH)).color(p.ink_3)))
             .child(
                 v_flex()

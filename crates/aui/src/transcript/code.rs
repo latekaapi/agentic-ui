@@ -7,19 +7,20 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use aui_motion::{icon_morph, spring_phase, tween, IconMorph, SpringKind, Tween};
+use aui_motion::{icon_morph, IconMorph};
 use aui_protocol::{Diff, DiffKind};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::{div, prelude::*, px, relative, uniform_list, App, ClipboardItem, ElementId, Hsla, IntoElement, ListSizingBehavior, Pixels, ScrollStrategy, SharedString, StyledText, UniformListScrollHandle, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintHover, PaintStates, StatePaint};
 use crate::data::{button, pill, record_ax_label, PillVariant};
 use crate::icons::{icon, IconName};
 use crate::transcript::selectable::{
     intersect_range, selectable_text, SelectionHandler, SelectionKey, SpanEvent, SpanHandler, TextSelection,
 };
 use crate::transcript::syntax::syntax_runs_in;
-use crate::util::{indexed_child, interaction_flags, TrackInteraction};
+use crate::util::indexed_child;
 
 /// `.cb .hd{height:30px;gap:8px;padding:0 6px 0 12px;font:500 11.5px mono}`.
 const HEADER_H: f32 = 30.0;
@@ -27,9 +28,6 @@ const HEADER_H: f32 = 30.0;
 const CODE_HEADER_H: f32 = 32.0;
 /// A fenced block past this many lines folds (docs/41 §2.3).
 pub const CODE_FOLD_AT: usize = 12;
-/// Hover reveals: 80 ms in, 60 ms out, no translation (docs/41 §3).
-const HOVER_IN: Tween = Tween::new(std::time::Duration::from_millis(80), aui_tokens::Easing::OUT);
-const HOVER_OUT: Tween = Tween::new(std::time::Duration::from_millis(60), aui_tokens::Easing::OUT);
 const HEADER_GAP: f32 = 8.0;
 const HEADER_PAD_L: f32 = 12.0;
 const HEADER_PAD_R: f32 = 6.0;
@@ -367,8 +365,7 @@ fn copy_button(id: &ElementId, p: &Palette, code: SharedString, on_copy: Option<
         .cursor_pointer()
         .role(gpui::Role::Button)
         .aria_label("Copy code")
-        .text_color(p.ink_2)
-        .hover(|s| s.bg(p.surface_2))
+        .paint_states(StatePaint::new().ink(p.ink_2, p.ink), p)
         .on_click(move |_, w, cx| {
             emit_copy(&code, &on_copy, w, cx);
             state.update(cx, |c, cx| {
@@ -399,16 +396,14 @@ struct BlockHeaderArgs {
     /// Elements between the name and the flexible gap — the language tag on a
     /// code block, the +/- counts on a diff.
     after: Vec<gpui::AnyElement>,
-    /// The right-aligned action buttons, faded until the block is hovered.
+    /// The right-aligned action buttons, dimmed until the block (a
+    /// [`HOVER_GROUP`](crate::interact::HOVER_GROUP)) is hovered.
     actions: Vec<gpui::AnyElement>,
-    /// Whether the enclosing block is hovered; drives the action-row fade.
-    hovered: bool,
 }
 
 /// The shared 30 px header of code and diff blocks.
-fn block_header(p: &Palette, id: &ElementId, args: BlockHeaderArgs, window: &mut Window, cx: &mut App) -> impl IntoElement {
-    let BlockHeaderArgs { glyph, name, after, actions, hovered } = args;
-    let opacity = tween((id.clone(), "actions"), if hovered { 1.0f32 } else { ACTIONS_REST }, Tween::FAST, window, cx);
+fn block_header(p: &Palette, args: BlockHeaderArgs) -> impl IntoElement {
+    let BlockHeaderArgs { glyph, name, after, actions } = args;
     h_flex()
         .w_full()
         .h(px(HEADER_H))
@@ -427,7 +422,7 @@ fn block_header(p: &Palette, id: &ElementId, args: BlockHeaderArgs, window: &mut
         .child(div().min_w(px(0.0)).truncate().child(name))
         .children(after)
         .child(div().flex_1())
-        .child(h_flex().flex_none().gap(px(ACTIONS_GAP)).opacity(opacity).children(actions))
+        .child(h_flex().flex_none().gap(px(ACTIONS_GAP)).dim_until_hover(ACTIONS_REST).children(actions))
 }
 
 /// The per-line selection wiring a [`CodeBlock`] shares across its rows:
@@ -675,7 +670,6 @@ impl RenderOnce for CodeBlock {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
         // D4 (docs/41 §2.3): a 32 px header on Raised-lit — the file glyph,
         // `code <lang>` (or the file name) in mono muted — and one copy
         // button at the right that shows only while the block is hovered.
@@ -683,7 +677,6 @@ impl RenderOnce for CodeBlock {
             Some(language) if !language.is_empty() => format!("{} {}", self.path, language).into(),
             _ => self.path.clone(),
         };
-        let copy_opacity = tween((id.clone(), "copy-reveal"), if flags.hovered { 1.0f32 } else { 0.0 }, if flags.hovered { HOVER_IN } else { HOVER_OUT }, window, cx);
         let header = h_flex()
             .w_full()
             .h(px(CODE_HEADER_H))
@@ -698,7 +691,7 @@ impl RenderOnce for CodeBlock {
             .child(icon(IconName::File).size(px(HEADER_GLYPH)))
             .child(div().min_w(px(0.0)).truncate().child(label))
             .child(div().flex_1())
-            .child(div().flex_none().opacity(copy_opacity).child(copy_button(&id, &p, self.code.clone(), self.on_action.clone(), window, cx)));
+            .child(div().flex_none().reveal_on_hover(false).child(copy_button(&id, &p, self.code.clone(), self.on_action.clone(), window, cx)));
 
         // Past twelve lines a block folds: the first twelve, then a 24 px
         // "N more lines" row that expands it in place. The fold is the
@@ -768,7 +761,7 @@ impl RenderOnce for CodeBlock {
         let block = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.term_bg);
         let mut block = block
             .overflow_hidden()
-            .track_interaction(&state)
+            .hover_group()
             .child(header)
             .child(body);
         if self.fill {
@@ -792,9 +785,8 @@ impl RenderOnce for CodeBlock {
                     .border_t_1()
                     .border_color(p.line)
                     .ui(scale::FS_12)
-                    .text_color(p.ink_2)
+                    .paint_states(StatePaint::new().tint(false).ink(p.ink_2, p.ink), &p)
                     .cursor_pointer()
-                    .hover(|d| d.text_color(p.ink))
                     .role(gpui::Role::Button)
                     .aria_label(name)
                     .on_click(move |_, _, cx| state.update(cx, |u, cx| {
@@ -937,10 +929,9 @@ pub fn diff_note_inset(p: &Palette, id: ElementId, note: &DiffNote, insets: Note
 }
 
 impl RenderOnce for DiffBlock {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
         let emit = |action: DiffBlockAction| {
             let h = self.on_action.clone();
             move |_: &gpui::ClickEvent, w: &mut Window, cx: &mut App| {
@@ -962,22 +953,22 @@ impl RenderOnce for DiffBlock {
             text_button("open", "Open in Diff", false).on_click(emit(DiffBlockAction::OpenInDiff)).into_any_element(),
         ];
         let after: Vec<gpui::AnyElement> = vec![pill(format!("+{} −{}", self.diff.added, self.diff.removed)).variant(PillVariant::Success).height(COUNT_PILL_H).into_any_element()];
-        let header = block_header(&p, &id, BlockHeaderArgs { glyph: IconName::Git, name: self.diff.path.clone().into(), after, actions, hovered: flags.hovered }, window, cx);
+        let header = block_header(&p, BlockHeaderArgs { glyph: IconName::Git, name: self.diff.path.clone().into(), after, actions });
 
         let mut body = v_flex().w_full().mono(DIFF_TEXT).line_height(relative(DIFF_LH)).text_color(p.ink);
         for (h, hunk) in self.diff.hunks.iter().enumerate() {
             body = body.child(div().w_full().py(px(HUNK_PAD_Y)).px(px(HUNK_PAD_X)).bg(p.surface_2).ui(scale::FS_11).font_family(scale::FONT_MONO).text_color(p.ink_3).child(hunk.header.clone()));
             for (i, line) in hunk.lines.iter().enumerate() {
                 let line_id: ElementId = (id.clone(), SharedString::from(format!("h{h}-l{i}"))).into();
-                let (line_state, line_flags) = interaction_flags(line_id.clone(), window, cx);
                 let (bg, sign) = match line.kind {
                     DiffKind::Add => (Some(p.diff_add), "+"),
                     DiffKind::Del => (Some(p.diff_del), "-"),
                     DiffKind::Context => (None, " "),
                 };
-                let show_add = spring_phase((line_id.clone(), "add-note"), line_flags.hovered, SpringKind::Swap, window, cx).clamp(0.0, 1.0);
                 let target_line = line.new_no.or(line.old_no).unwrap_or(0);
-                let mut row = h_flex().id(line_id.clone()).relative().w_full().items_start().pr(px(LINE_PAD_R)).track_interaction(&line_state);
+                // Each line is its own hover group: the `+` shows on the
+                // line under the pointer, and a click there adds the note.
+                let mut row = h_flex().id(line_id.clone()).relative().w_full().items_start().pr(px(LINE_PAD_R)).hover_group();
                 if let Some(bg) = bg {
                     row = row.bg(bg);
                 }
@@ -993,19 +984,17 @@ impl RenderOnce for DiffBlock {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .opacity(show_add)
+                            .reveal_on_hover(false)
                             .cursor_pointer()
                             .child(icon(IconName::Plus).size(px(ADD_NOTE_GLYPH)).color(gpui::white())),
                     )
                     .child(div().flex_none().w(px(OLD_W)).pr(px(GUTTER_PAD)).flex().justify_end().text_color(if line.kind == DiffKind::Del { p.danger } else { p.ink_4 }).child(line.old_no.map(|n| n.to_string()).unwrap_or_default()))
                     .child(div().flex_none().w(px(NEW_W)).pr(px(GUTTER_PAD)).flex().justify_end().text_color(if line.kind == DiffKind::Add { p.success } else { p.ink_4 }).child(line.new_no.map(|n| n.to_string()).unwrap_or_default()))
                     .child(div().flex_1().min_w(px(0.0)).child(format!("{sign} {}", line.text)));
-                if line_flags.hovered {
-                    let add = emit(DiffBlockAction::AddNote(target_line));
-                    let note_label = format!("Add note on line {target_line}");
-                    record_ax_label(&note_label);
-                    row = row.role(gpui::Role::Button).aria_label(note_label).on_click(move |e, w, cx| add(e, w, cx));
-                }
+                let add = emit(DiffBlockAction::AddNote(target_line));
+                let note_label = format!("Add note on line {target_line}");
+                record_ax_label(&note_label);
+                row = row.role(gpui::Role::Button).aria_label(note_label).cursor_pointer().on_click(move |e, w, cx| add(e, w, cx));
                 body = body.child(row);
                 for (n, note) in self.notes.iter().enumerate() {
                     if Some(note.line) == line.new_no {
@@ -1017,7 +1006,7 @@ impl RenderOnce for DiffBlock {
 
         crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(scale::R_MD)), &p, p.surface_1)
             .overflow_hidden()
-            .track_interaction(&state)
+            .hover_group()
             .child(header)
             .child(body)
     }

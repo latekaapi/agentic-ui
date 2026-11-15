@@ -6,20 +6,18 @@
 //! [`aui_motion`] and emits intents out; the caller owns all state. Menus ride
 //! in [`crate::overlay::popover_layer`] at the point where they are anchored.
 //!
-//! Controls are only defined here where the library had none: the `switch`
-//! below wraps the same gpui-kit `Switch` the settings dialog's switch rows
-//! use, and [`segmented`](crate::workbench::segmented) is the diff review
-//! track (now with `←` / `→` and radio roles), re-exported so the page shares
-//! the one control. The tri-state [`checkbox`] is new: gpui-kit's box is
-//! boolean-only. The mode chip is the data [`crate::data::chip`] with the
-//! chip + menu pattern.
+//! The switch, the tri-state checkbox and the segmented control are the
+//! library's form controls ([`crate::data`]), re-exported here because the
+//! app imports them from this path. The mode chip is the data
+//! [`crate::data::chip`] with the chip + menu pattern.
 
 mod controls;
 mod import;
 mod row;
 mod sections;
 
-pub use controls::{checkbox, mode_chip, switch, Checkbox, CheckboxIntent, CheckboxState, Switch, SwitchIntent};
+pub use crate::data::{checkbox, segmented, switch, Checkbox, CheckboxIntent, CheckboxState, Segmented, Switch, SwitchIntent};
+pub use controls::mode_chip;
 pub use import::{
     added_tokens, default_primary_label, format_tokens, import_preview, menu_row_two_line, selected_rows, ImportPreview,
     ImportPreviewIntent, ImportRow, ImportStatus, MenuTwoLineRow,
@@ -29,4 +27,3 @@ pub use sections::{
     cost_meter, scope_section_header, segment_widths, skill_detail, CostMeter, CostSegment, DetailAction, DetailSection,
     ScopeSectionHeader, SkillDetail, SkillDetailIntent, SkillState, InkLevel,
 };
-pub use crate::workbench::{segmented, Segmented};

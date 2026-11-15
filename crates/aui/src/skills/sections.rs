@@ -8,7 +8,7 @@ use gpui::{div, prelude::*, px, relative, AnyElement, App, ElementId, IntoElemen
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::button;
-use crate::workbench::segmented;
+use crate::data::segmented;
 
 use super::row::SkillMode;
 

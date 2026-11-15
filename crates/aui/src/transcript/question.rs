@@ -8,18 +8,19 @@
 //! [`Answer`] it wants and, once the question is settled, renders
 //! [`answered_row`] in the card's place.
 
-use aui_motion::{spring_phase, tween, SpringKind, Tween};
+use aui_motion::{spring_phase, SpringKind};
 use aui_protocol::{Answer, QuestionOption, QuestionPreview};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
-use gpui::{div, prelude::*, px, AnyElement, App, ElementId, Hsla, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::record_ax_label;
 use crate::icons::{icon, IconName};
 use crate::transcript::controls::{control, control_with, key_hints, ControlKind};
 use crate::transcript::quiet_row::{quiet_status_row, status_check, status_cross, QUIET_ROW_BLEED};
 use crate::transcript::ProseStyle;
-use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
+use crate::util::ClickHandler;
 
 /// `.q .hd{padding:10px 12px;gap:10px}`.
 const HEAD_PAD_Y: f32 = 10.0;
@@ -38,8 +39,6 @@ const OPT_PAD_X: f32 = 10.0;
 const OPT_MARGIN_X: f32 = 8.0;
 const OPT_GAP: f32 = 10.0;
 const OPT_RADIUS: f32 = 6.0;
-/// FF's fluid hover glide on option rows.
-const ROW_GLIDE: Tween = Tween::new(std::time::Duration::from_millis(80), aui_tokens::Easing::OUT);
 /// `.opt .rb{width:16px;height:16px;border:1.5px;margin-top:1px}`.
 const MARK: f32 = 16.0;
 const MARK_BORDER: f32 = 1.5;
@@ -420,10 +419,7 @@ impl RenderOnce for QuestionCard {
         for (index, option) in self.options.iter().enumerate() {
             let on = self.selected.contains(&index);
             let row_id: ElementId = (id.clone(), SharedString::from(format!("opt-{index}"))).into();
-            let (state, flags) = interaction_flags(row_id.clone(), window, cx);
-            // Selected 9 %, hover 5 %, on FF's 80 ms glide.
-            let tint = if on { p.selected_overlay() } else if flags.hovered { p.hover_overlay() } else { p.hover_overlay().alpha(0.0) };
-            let bg: Hsla = tween((row_id.clone(), "bg"), tint, ROW_GLIDE, window, cx);
+            // Selected and hover are the one model's overlays.
             let mut row = h_flex()
                 .id(row_id.clone())
                 .w_full()
@@ -432,9 +428,8 @@ impl RenderOnce for QuestionCard {
                 .py(px(OPT_PAD_Y))
                 .px(px(OPT_PAD_X))
                 .rounded(px(OPT_RADIUS))
-                .bg(bg)
+                .paint_states(StatePaint::new().selected(on).pressable(false), &p)
                 .cursor_pointer()
-                .track_interaction(&state)
                 .child(option_mark((row_id.clone(), "mark").into(), on, self.multi, &p, window, cx))
                 .child(
                     v_flex()
@@ -471,9 +466,8 @@ impl RenderOnce for QuestionCard {
                 .items_center()
                 .gap(px(PREVIEW_GAP))
                 .ui(DESCRIPTION_TEXT)
-                .text_color(p.ink_2)
+                .paint_states(StatePaint::new().tint(false).ink(p.ink_2, p.ink), &p)
                 .cursor_pointer()
-                .hover(|d| d.text_color(p.ink))
                 .role(gpui::Role::Button)
                 .aria_label(preview_label)
                 .child(icon(if open { IconName::ChevronDown } else { IconName::Chevron }).size(px(PREVIEW_GLYPH)))

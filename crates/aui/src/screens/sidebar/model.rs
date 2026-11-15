@@ -486,8 +486,7 @@ pub enum ViewOption {
 }
 
 /// The whole sidebar as plain data. The host owns the matching
-/// [`gpui::ListState`] (see [`super::screen_item_count`]) and the
-/// [`FluidHandle`](crate::interact::FluidHandle), and hands all three to
+/// [`gpui::ListState`] (see [`super::screen_item_count`]) and hands both to
 /// [`super::sidebar_screen`] every frame.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SidebarModel {

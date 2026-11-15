@@ -8,14 +8,15 @@
 //! cannot toggle (a resolved approval) leads with its status glyph instead
 //! and never reacts to the pointer.
 
-use aui_motion::{collapse_fluid, collapse_fluid_opacity, tint_fade, tween, Tween};
-use aui_tokens::{scale, ActiveAui, AuiStyled, Easing};
+use aui_motion::{collapse_fluid, collapse_fluid_opacity};
+use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, radians, AnyElement, App, ElementId, Hsla, IntoElement, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::record_ax_label;
 use crate::icons::{icon, IconName};
-use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
+use crate::util::ClickHandler;
 
 /// Row height.
 pub const QUIET_ROW_H: f32 = 32.0;
@@ -29,8 +30,6 @@ const GAP: f32 = 8.0;
 const RADIUS: f32 = super::card::CARD_RADIUS;
 /// The leading chevron.
 const CHEVRON: f32 = 12.0;
-/// The hover overlay and text colour change: 80 ms.
-const HOVER: Tween = Tween::new(std::time::Duration::from_millis(80), Easing::OUT);
 
 /// What leads a quiet row.
 pub enum QuietLead {
@@ -106,10 +105,9 @@ impl RenderOnce for QuietRow {
         let id = self.id.clone();
         let row_id: ElementId = (id.clone(), "row").into();
         let toggles = self.on_toggle.is_some();
-        let (state, flags) = interaction_flags(row_id.clone(), window, cx);
-        let lit = toggles && flags.hovered;
-        let overlay = tint_fade((row_id.clone(), "bg"), lit, p.hover_overlay(), HOVER, window, cx);
-        let ink: Hsla = tween((row_id.clone(), "ink"), if lit { p.ink } else { p.ink_2 }, HOVER, window, cx);
+        // A toggling row hovers with the one model and lifts its ink; the
+        // chevron inherits that ink.
+        let paint = StatePaint::new().ink(p.ink_2, p.ink).disabled(!toggles).pressable(false);
 
         let fade = collapse_fluid_opacity((id.clone(), "body"), self.open, window, cx);
         let (reveal, progress) = match self.body {
@@ -131,7 +129,7 @@ impl RenderOnce for QuietRow {
                 .flex_none()
                 .flex()
                 .items_center()
-                .child(icon(IconName::Chev).size(px(CHEVRON)).color(ink).rotate(radians(progress * std::f32::consts::FRAC_PI_2)))
+                .child(icon(IconName::Chev).size(px(CHEVRON)).rotate(radians(progress * std::f32::consts::FRAC_PI_2)))
                 .into_any_element(),
             QuietLead::Glyph(glyph) => div().flex_none().flex().items_center().child(glyph).into_any_element(),
         };
@@ -143,9 +141,9 @@ impl RenderOnce for QuietRow {
             .gap(px(GAP))
             .items_center()
             .rounded(px(RADIUS))
-            .bg(overlay)
+            .text_color(p.ink_2)
+            .paint_states(paint, &p)
             .ui(scale::FS_13)
-            .text_color(ink)
             .whitespace_nowrap()
             .overflow_hidden()
             .child(lead)
@@ -155,7 +153,6 @@ impl RenderOnce for QuietRow {
             record_ax_label(label.as_ref());
             row = row
                 .cursor_pointer()
-                .track_interaction(&state)
                 .role(gpui::Role::Button)
                 .aria_label(label)
                 .on_click(move |e, w, cx| on_toggle(e, w, cx));

@@ -14,7 +14,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_motion::{presence, spring_phase, tint_fade, tween, EnterExit, PresenceStyle, SpringKind, Tween};
+use aui_motion::{presence, EnterExit, PresenceStyle};
 use aui_tokens::{scale, scaled, ActiveAui, AuiStyled, Palette};
 use gpui::{
     div, font, prelude::*, px, relative, AnyElement, App, ElementId, IntoElement, SharedString, StyledText, TextRun,
@@ -22,9 +22,9 @@ use gpui::{
 };
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{button, ButtonSize};
 use crate::transcript::ProseStyle;
-use crate::util::{interaction_flags, TrackInteraction};
 
 /// `.cite{min-width:16px;height:16px;padding:0 4px;border-radius:4px;font:600 10px/1 mono;margin:0 1px}`.
 const CITE_MIN_W: f32 = 16.0;
@@ -35,8 +35,6 @@ const CITE_MARGIN_X: f32 = 1.0;
 /// `.cite{vertical-align:2px}` — the marker box rides 2 px above the text
 /// baseline; the units align on their bottom edge, so this is a relative rise.
 const CITE_RAISE: f32 = 3.0;
-/// `.cite:hover{transform:translateY(-1px)}`.
-const CITE_LIFT: f32 = 1.0;
 
 /// `.a{margin-bottom:14px}` — the gap between the answer and the sources card.
 pub const ANSWER_MARGIN: f32 = 14.0;
@@ -131,31 +129,27 @@ impl Citation {
 }
 
 impl RenderOnce for Citation {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id: ElementId = ("aui-citation", self.index as usize).into();
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let lift = spring_phase((id.clone(), "lift"), flags.hovered, SpringKind::Press, window, cx) * CITE_LIFT;
-        let bg = tween((id.clone(), "bg"), if flags.hovered { p.accent } else { p.accent_soft }, Tween::FAST, window, cx);
-        let ink = if flags.hovered { gpui::white() } else { p.accent_ink };
+        // Hover is the one model over the accent-soft chip: no lift, no
+        // fill swap (docs/83 §9: no motion on hover).
         let mut marker = h_flex()
             .id(id)
             .flex_none()
             .relative()
-            .bottom(px(CITE_RAISE + lift))
+            .bottom(px(CITE_RAISE))
             .min_w(px(CITE_MIN_W))
             .h(px(CITE_H))
             .px(px(CITE_PAD_X))
             .mx(px(CITE_MARGIN_X))
             .justify_center()
             .rounded(px(scale::R_XS))
-            .bg(bg)
+            .paint_states(StatePaint::new().on(p.accent_soft).ink(p.accent_ink, p.accent_ink), &p)
             .mono(CITE_TEXT)
             .line_height(relative(1.0))
             .semibold()
-            .text_color(ink)
             .cursor_pointer()
-            .track_interaction(&state)
             .child(SharedString::from(self.index.to_string()));
         if let Some(h) = self.on_open.clone() {
             let index = self.index;
@@ -523,12 +517,10 @@ fn source_row(
     source: &Source,
     hover: Option<AnyElement>,
     on_open: Option<OpenHandler>,
-    window: &mut Window,
+    _window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement {
     let p = cx.aui().colors;
-    let (state, flags) = interaction_flags(id.clone(), window, cx);
-    let ground = tint_fade((id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
     let cited = source.index.is_some();
     let (num_bg, num_ink) = if cited { (p.accent_soft, p.accent_ink) } else { (p.surface_3, p.ink_3) };
     let title_ink = if cited { p.ink } else { p.ink_2 };
@@ -540,11 +532,10 @@ fn source_row(
         .gap(px(ROW_GAP))
         .py(px(ROW_PAD_Y))
         .px(px(ROW_PAD_X))
-        .bg(ground)
+        .paint_states(StatePaint::new(), &p)
         .ui(ROW_TEXT)
         .text_color(if cited { p.ink } else { p.ink_3 })
         .cursor_pointer()
-        .track_interaction(&state)
         .child(
             div()
                 .flex_none()

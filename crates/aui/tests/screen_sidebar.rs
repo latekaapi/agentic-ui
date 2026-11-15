@@ -13,7 +13,6 @@ use aui::nav::{flatten_sidebar, sidebar_list_state, DateGroup, Grouping, Session
 use aui::screens::sidebar::{
     list_row_height, sample_model, screen_item_count, sidebar_screen, EditingState, Mode, SidebarIntent, SidebarModel,
 };
-use aui::interact::FluidHandle;
 use aui_tokens::{AgentState, AuiTheme, Density, ThemeKind};
 use gpui::{div, point, prelude::*, px, IntoElement, Modifiers, TestAppContext, VisualTestContext, Window};
 
@@ -27,14 +26,13 @@ type Log = Rc<RefCell<Vec<SidebarIntent>>>;
 struct Host {
     model: SidebarModel,
     state: gpui::ListState,
-    fluid: FluidHandle,
     log: Log,
 }
 
 impl Host {
     fn new(model: SidebarModel, log: Log) -> Self {
         let state = sidebar_list_state(screen_item_count(&model));
-        Self { model, state, fluid: FluidHandle::new(), log }
+        Self { model, state, log }
     }
 }
 
@@ -42,7 +40,7 @@ impl gpui::Render for Host {
     fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
         let log = self.log.clone();
         div().w(px(260.0)).h(px(900.0)).child(
-            sidebar_screen("sb", self.model.clone(), self.state.clone(), self.fluid.clone())
+            sidebar_screen("sb", self.model.clone(), self.state.clone())
                 .on_intent(move |intent, _, _| log.borrow_mut().push(intent)),
         )
     }

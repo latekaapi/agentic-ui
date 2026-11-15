@@ -1,103 +1,21 @@
-//! D1: the interaction primitives' pure rules, labels, elevation and heights.
+//! The interaction primitives: the concentric rule, labels, row heights,
+//! and the plain list's activation and pointer report.
 //!
-//! - [`nearest`](aui::interact::nearest): inside wins, gaps / padding /
-//!   past-last still land, ties keep the first, empty is none;
 //! - [`nested_radius`](aui::interact::nested_radius): the concentric table;
-//! - every `interactive` and `row` carries its human label (same AX probe
-//!   the transcript rows use);
-//! - `Surface::elevated` composes through nesting (1 → 3 → 5, capped 8);
-//! - `Row` height equals `metrics.control` at both densities.
+//! - every `interactive`, `row`, `list_row` and the data primitives carry
+//!   their human labels (same AX probe the transcript rows use);
+//! - `Row` height equals `metrics.control` at both densities, `list_row`
+//!   is 32;
+//! - a [`RowList`](aui::interact::RowList) activates the clicked item and
+//!   reports the item under the pointer, never `None` between two items.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aui::data::{arm_ax_probe, take_ax_labels};
-use aui::interact::{ambient_surface, interactive, nearest, nested_radius, row, surface, Axis};
+use aui::data::{arm_ax_probe, banner, card, section, segmented, settings_row, switch, tabs, take_ax_labels};
+use aui::interact::{interactive, list_row, nested_radius, row, row_list, LIST_ROW_H};
 use aui_tokens::{AuiTheme, Density, ThemeKind};
-use gpui::{div, prelude::*, px, AnyElement, Bounds, IntoElement, Pixels, Point, TestAppContext, Window};
-
-/// Three stacked items: 300 × 36 at y 0, 44 and 88 (an 8 px gap).
-fn rows() -> Vec<Bounds<Pixels>> {
-    (0..3)
-        .map(|index| Bounds {
-            origin: Point { x: px(10.0), y: px(index as f32 * 44.0) },
-            size: gpui::Size { width: px(300.0), height: px(36.0) },
-        })
-        .collect()
-}
-
-fn at(x: f32, y: f32) -> Point<Pixels> {
-    Point { x: px(x), y: px(y) }
-}
-
-#[test]
-fn nearest_inside_wins() {
-    let items = rows();
-    assert_eq!(nearest(&items, at(20.0, 10.0), Axis::Y), Some(0));
-    assert_eq!(nearest(&items, at(200.0, 50.0), Axis::Y), Some(1));
-    assert_eq!(nearest(&items, at(20.0, 100.0), Axis::Y), Some(2));
-}
-
-#[test]
-fn nearest_gap_between_rows_lands_on_the_closer_centre() {
-    let items = rows();
-    // Gap 36..44; centres at 18 and 62: y=42 is closer to the second.
-    assert_eq!(nearest(&items, at(20.0, 42.0), Axis::Y), Some(1));
-}
-
-#[test]
-fn nearest_tie_keeps_the_first() {
-    let items = rows();
-    // y=40 is exactly between centres 18 and 62.
-    assert_eq!(nearest(&items, at(20.0, 40.0), Axis::Y), Some(0));
-}
-
-#[test]
-fn nearest_padding_above_the_first_still_lands() {
-    let items = rows();
-    assert_eq!(nearest(&items, at(20.0, -20.0), Axis::Y), Some(0));
-}
-
-#[test]
-fn nearest_past_the_last_still_lands() {
-    let items = rows();
-    assert_eq!(nearest(&items, at(20.0, 400.0), Axis::Y), Some(2));
-}
-
-#[test]
-fn nearest_empty_is_none() {
-    assert_eq!(nearest(&[], at(0.0, 0.0), Axis::Y), None);
-    assert_eq!(nearest(&[], at(0.0, 0.0), Axis::XY), None);
-}
-
-#[test]
-fn nearest_x_axis_uses_column_centres() {
-    let items: Vec<Bounds<Pixels>> = (0..3)
-        .map(|index| Bounds {
-            origin: Point { x: px(index as f32 * 108.0), y: px(0.0) },
-            size: gpui::Size { width: px(100.0), height: px(32.0) },
-        })
-        .collect();
-    // Gap 100..108; centres at 50 and 158: x=106 is closer to the second
-    // (x=104 would be an exact tie, which keeps the first).
-    assert_eq!(nearest(&items, at(106.0, 16.0), Axis::X), Some(1));
-    assert_eq!(nearest(&items, at(104.0, 16.0), Axis::X), Some(0));
-    // Past the end still lands.
-    assert_eq!(nearest(&items, at(900.0, 16.0), Axis::X), Some(2));
-}
-
-#[test]
-fn nearest_xy_uses_both_axes() {
-    let items: Vec<Bounds<Pixels>> = (0..3)
-        .map(|index| Bounds {
-            origin: Point { x: px(index as f32 * 108.0), y: px(0.0) },
-            size: gpui::Size { width: px(100.0), height: px(100.0) },
-        })
-        .collect();
-    // Below the gap between the first two cards, a little right of the
-    // midpoint: nearer the second centre (x=104 would tie).
-    assert_eq!(nearest(&items, at(106.0, 120.0), Axis::XY), Some(1));
-}
+use gpui::{div, prelude::*, px, AnyElement, IntoElement, TestAppContext, Window};
 
 #[test]
 fn nested_radius_follows_the_concentric_rule() {
@@ -144,61 +62,23 @@ fn interactive_and_row_carry_their_labels(cx: &mut TestAppContext) {
     assert!(labels.iter().all(|label| !label.is_empty()), "unlabelled control: {labels:?}");
 }
 
-/// Records the ambient surface step its level sees. Each probe owns one
-/// slot, so repeat renders overwrite the same value instead of appending.
-#[derive(IntoElement)]
-struct AmbientProbe {
-    seen: Rc<RefCell<Vec<Option<u8>>>>,
-    slot: usize,
-}
-
-impl gpui::RenderOnce for AmbientProbe {
-    fn render(self, window: &mut Window, cx: &mut gpui::App) -> impl IntoElement {
-        self.seen.borrow_mut()[self.slot] = Some(ambient_surface(window, cx));
+#[gpui::test]
+fn the_flat_primitives_carry_their_labels(cx: &mut TestAppContext) {
+    cx.update(|cx| aui::init(ThemeKind::Dark, cx));
+    let labels = drawn_labels(cx, |_, _| {
         div()
+            .child(list_row("p-row", "Auth refresh"))
+            .child(tabs("p-tabs", "Views", vec!["Changes".into(), "Files".into()], 0))
+            .child(card().title("Read file", None).section("body"))
+            .child(section("General").row(settings_row("Theme").control(switch("p-sw", true, false).accessibility_label("Dark theme"))))
+            .child(segmented("p-seg", vec!["Ask".into(), "Auto".into()], 1).accessibility_label("Approvals"))
+            .child(banner("p-banner", "Signed out").action("Sign in", |_, _| {}))
+            .into_any_element()
+    });
+    for want in ["Auth refresh", "Views", "Changes", "Files", "Sign in"] {
+        assert!(labels.contains(&want.to_string()), "{want} missing: {labels:?}");
     }
-}
-
-fn probed_levels(cx: &mut TestAppContext, depths: usize) -> Vec<u8> {
-    struct Host {
-        seen: Rc<RefCell<Vec<Option<u8>>>>,
-        depths: usize,
-    }
-    impl gpui::Render for Host {
-        fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
-            let seen = self.seen.clone();
-            // Slot 0 is the page probe; slot `level` sits inside the
-            // `level`-th elevated surface; the last slot is the innermost
-            // probe, one level deeper than the deepest surface.
-            let mut inner: AnyElement = AmbientProbe { seen: seen.clone(), slot: self.depths + 1 }.into_any_element();
-            for level in (1..=self.depths).rev() {
-                let probe = AmbientProbe { seen: seen.clone(), slot: level };
-                inner = surface(1, div().child(probe).child(inner)).elevated(2).into_any_element();
-            }
-            surface(1, div().child(AmbientProbe { seen: seen.clone(), slot: 0 }).child(inner)).into_any_element()
-        }
-    }
-    // One slot per level plus the innermost probe: page, depths levels.
-    let seen = Rc::new(RefCell::new(vec![None; depths + 2]));
-    let seen_out = seen.clone();
-    cx.add_window_view(|_, _| Host { seen, depths });
-    let slots = seen_out.borrow().clone();
-    slots.into_iter().map(|slot| slot.expect("every probe rendered")).collect()
-}
-
-#[gpui::test]
-fn surface_elevated_composes_through_nesting(cx: &mut TestAppContext) {
-    cx.update(|cx| aui::init(ThemeKind::Dark, cx));
-    // Page 1, then +2 per level; the last slot is the innermost probe,
-    // one level deeper than the deepest surface.
-    assert_eq!(probed_levels(cx, 2), vec![1, 3, 5, 5]);
-}
-
-#[gpui::test]
-fn surface_elevated_caps_at_step_8(cx: &mut TestAppContext) {
-    cx.update(|cx| aui::init(ThemeKind::Dark, cx));
-    // 1 → 3 → 5 → 7 → 8, then the innermost probe still reads 8.
-    assert_eq!(probed_levels(cx, 4), vec![1, 3, 5, 7, 8, 8]);
+    assert!(labels.iter().all(|label| !label.is_empty()), "unlabelled control: {labels:?}");
 }
 
 #[gpui::test]
@@ -235,11 +115,51 @@ fn row_title_reserves_the_semibold_width(cx: &mut TestAppContext) {
     });
 }
 
-#[test]
-fn press_inset_is_paint_only_and_capped_at_one_px() {
-    use aui::interact::press_inset;
-    assert_eq!(press_inset(0.0), px(0.0));
-    assert_eq!(press_inset(1.0), px(1.0));
-    assert_eq!(press_inset(1.4), px(1.0), "spring overshoot never insets past 1 px");
-    assert_eq!(press_inset(-0.2), px(0.0));
+#[gpui::test]
+fn list_row_is_32_at_both_densities(cx: &mut TestAppContext) {
+    cx.update(|cx| aui::init(ThemeKind::Dark, cx));
+    assert_eq!(cx.update(|cx| list_row("l", "One").height(cx)), px(LIST_ROW_H));
+    cx.update(|cx| AuiTheme::set_density(Density::Compact, None, cx));
+    assert_eq!(cx.update(|cx| list_row("l", "One").height(cx)), px(LIST_ROW_H));
+}
+
+/// Three 32 px items: the pointer moving down them reports each in turn and
+/// never `None` in between; leaving reports `None`; a click activates the
+/// item under it.
+#[gpui::test]
+fn row_list_reports_the_pointer_and_activates_the_click(cx: &mut TestAppContext) {
+    cx.update(|cx| aui::init(ThemeKind::Dark, cx));
+    struct Host {
+        reports: Rc<RefCell<Vec<Option<usize>>>>,
+        activated: Rc<RefCell<Vec<usize>>>,
+    }
+    impl gpui::Render for Host {
+        fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            let reports = self.reports.clone();
+            let activated = self.activated.clone();
+            let mut list = row_list("list")
+                .gap(px(0.0))
+                .on_highlight(move |index, _, _| reports.borrow_mut().push(index))
+                .on_activate(move |index, _, _| activated.borrow_mut().push(index));
+            for i in 0..3 {
+                list = list.item(i, row(("r", i), format!("Row {i}")));
+            }
+            div().w(px(300.0)).h(px(400.0)).child(list)
+        }
+    }
+    let reports = Rc::new(RefCell::new(Vec::new()));
+    let activated = Rc::new(RefCell::new(Vec::new()));
+    let (r, a) = (reports.clone(), activated.clone());
+    let (_view, vc) = cx.add_window_view(move |_, _| Host { reports: r, activated: a });
+    vc.run_until_parked();
+    for y in [10.0, 50.0, 80.0] {
+        vc.simulate_mouse_move(gpui::point(px(100.0), px(y)), None, Default::default());
+        vc.run_until_parked();
+    }
+    vc.simulate_mouse_move(gpui::point(px(100.0), px(300.0)), None, Default::default());
+    vc.run_until_parked();
+    assert_eq!(*reports.borrow(), vec![Some(0), Some(1), Some(2), None]);
+    vc.simulate_click(gpui::point(px(100.0), px(50.0)), Default::default());
+    vc.run_until_parked();
+    assert_eq!(*activated.borrow(), vec![1]);
 }

@@ -54,7 +54,7 @@ use gpui::{
 };
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::interact::{menu_surface, Shape};
+use crate::interact::{menu_panel, Shape, PANEL_PAD};
 use crate::nav::{RowStatus, RowStatusKind};
 use crate::overlay::{anchored_menu, MenuAlign, MenuSide};
 
@@ -550,12 +550,12 @@ impl RenderOnce for SessionDetail {
                     ),
             );
         }
-        // The v2 floating ground every menu wears (ambient + 2, ring, the
-        // floating shadow) on the container radius. The card never grows
+        // The one floating panel (docs/83 §7); its 4 px padding comes out of
+        // the card's own inset so the content sits where it did. The card never grows
         // past its cap — without clipping itself, so the shadow paints whole
         // and the meta rows below the clamped middle always stay visible.
         div().id(self.id).flex_none().w(px(SESSION_DETAIL_WIDTH)).debug_selector(|| "detail-card".into()).child(
-            menu_surface(div().w_full().max_h(px(SESSION_DETAIL_MAX_H)).p(px(scale::SP_4)).child(body)).shape(Shape::Container),
+            menu_panel(div().w_full().max_h(px(SESSION_DETAIL_MAX_H) - px(2.0 * PANEL_PAD)).p(px(scale::SP_4 - PANEL_PAD)).child(body), cx),
         )
     }
 }

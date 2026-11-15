@@ -2,15 +2,15 @@
 //! forward / reload cluster for the Browse sidebar header.
 
 use aui_icons::{icon, IconName};
-use aui_motion::{tint_fade, tween, Tween};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
+use crate::interact::paint::{PaintHover, PaintStates, StatePaint};
 use crate::browse::{face::task_face, Pin, TabRowData, TaskFace};
 use crate::data::{icon_button, record_ax_label, tag, ButtonSize};
 use crate::nav::chevron;
-use crate::util::{interaction_flags, ClickHandler, TrackInteraction};
+use crate::util::ClickHandler;
 
 /// 30 px rows with an 8 px ground inset, like the compact session rows.
 const ROW_H: f32 = 30.0;
@@ -55,19 +55,6 @@ fn letter_tile(letter: SharedString, p: &aui_tokens::Palette) -> impl IntoElemen
         .child(first)
 }
 
-/// Ground for a 30 px row: `surface-3` when active, `surface-2` on hover.
-fn row_bg(
-    id: &ElementId,
-    active: bool,
-    hovered: bool,
-    p: &aui_tokens::Palette,
-    window: &mut Window,
-    cx: &mut App,
-) -> gpui::Hsla {
-    let ground = if active { p.surface_3 } else { p.surface_2 };
-    tint_fade((id.clone(), "bg"), active || hovered, ground, Tween::FAST, window, cx)
-}
-
 /// The 4-up grid of 34 px pin tiles. Build with [`pin_grid`].
 #[derive(IntoElement)]
 pub struct PinGrid {
@@ -90,7 +77,7 @@ impl PinGrid {
 }
 
 impl RenderOnce for PinGrid {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let mut grid = v_flex().gap(px(PIN_GAP)).px(px(ROW_MARGIN_X));
@@ -98,10 +85,8 @@ impl RenderOnce for PinGrid {
             let mut line = h_flex().gap(px(PIN_GAP));
             for (i, pin) in pins.iter().enumerate() {
                 let tile_id: ElementId = (id.clone(), SharedString::from(format!("pin-{chunk}-{i}"))).into();
-                let (state, flags) = interaction_flags(tile_id.clone(), window, cx);
-                // Quiet at rest (border + letter only); the `surface-2`
-                // tint fades in on hover.
-                let bg = tint_fade((tile_id.clone(), "bg"), flags.hovered, p.surface_2, Tween::FAST, window, cx);
+                // Quiet at rest (border + letter only); hover is the one
+                // model's overlay.
                 let label: SharedString = format!("Pinned {}: {}", pin.position, pin.title).into();
                 record_ax_label(&label);
                 let key = pin.id.clone();
@@ -114,14 +99,13 @@ impl RenderOnce for PinGrid {
                     .rounded(px(scale::R_SM))
                     .border_1()
                     .border_color(p.line)
-                    .bg(bg)
+                    .paint_states(StatePaint::new(), &p)
                     .text_color(p.ink_2)
                     .ui(scale::FS_13)
                     .medium()
                     .cursor_pointer()
                     .role(gpui::Role::Button)
                     .aria_label(label)
-                    .track_interaction(&state)
                     .child(pin.letter.clone());
                 if let Some(on_select) = self.on_select.clone() {
                     tile = tile.on_click(move |_, w, cx| on_select(&key, w, cx));
@@ -166,11 +150,9 @@ impl TabRow {
 }
 
 impl RenderOnce for TabRow {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let bg = row_bg(&id, self.data.active, flags.hovered, &p, window, cx);
         let label: SharedString = if self.data.active {
             format!("Tab {}: {}, selected", self.data.position, self.data.title).into()
         } else {
@@ -187,23 +169,20 @@ impl RenderOnce for TabRow {
             .mr(px(ROW_MARGIN_X))
             .pr(px(ROW_PAD_RIGHT))
             .rounded(px(scale::R_SM))
-            .bg(bg)
+            .paint_states(StatePaint::new().selected(self.data.active), &p)
+            .hover_group()
             .ui(TITLE_TEXT)
             .text_color(if self.data.active { p.ink } else { p.ink_2 })
             .cursor_pointer()
             .role(gpui::Role::Button)
             .aria_label(label)
-            .track_interaction(&state)
             .child(letter_tile(self.data.letter.clone(), &p))
             .child(div().flex_1().min_w(px(0.0)).truncate().child(self.data.title.clone()));
         if let Some(port) = self.data.port {
             row = row.child(tag(SharedString::from(format!(":{port}"))));
         }
         // The `×` is always in the tree (so it keeps its role and name);
-        // only its opacity changes — 0 until hovered or active.
-        let show_close = flags.hovered || self.data.active;
-        let close_opacity =
-            tween((id.clone(), "close"), if show_close { 1.0f32 } else { 0.0 }, Tween::FAST, window, cx);
+        // only its opacity changes — 0 until the row is hovered or active.
         let title = self.data.title.clone();
         let close_label: SharedString =
             format!("Close tab {}: {}", self.data.position, self.data.title).into();
@@ -218,7 +197,7 @@ impl RenderOnce for TabRow {
                 on_close(&title, w, cx);
             });
         }
-        row = row.child(div().flex_none().opacity(close_opacity).child(close));
+        row = row.child(div().flex_none().reveal_on_hover(self.data.active).child(close));
         if let Some(on_select) = self.on_select {
             let title = self.data.title.clone();
             row = row.on_click(move |_, w, cx| on_select(&title, w, cx));
@@ -254,8 +233,6 @@ impl RenderOnce for FolderRow {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let (state, flags) = interaction_flags(id.clone(), window, cx);
-        let bg = row_bg(&id, false, flags.hovered, &p, window, cx);
         let label: SharedString = format!("Folder: {}", self.name).into();
         record_ax_label(&label);
         let mut row = h_flex()
@@ -268,14 +245,13 @@ impl RenderOnce for FolderRow {
             .mr(px(ROW_MARGIN_X))
             .pr(px(ROW_PAD_RIGHT))
             .rounded(px(scale::R_SM))
-            .bg(bg)
+            .paint_states(StatePaint::new(), &p)
             .ui(TITLE_TEXT)
             .medium()
             .text_color(p.ink)
             .cursor_pointer()
             .role(gpui::Role::Button)
             .aria_label(label)
-            .track_interaction(&state)
             .child(chevron((id.clone(), "chevron"), self.open, p.ink_3, window, cx))
             .child(icon(IconName::Folder).size(px(TILE)).color(p.ink_3))
             .child(div().flex_1().min_w(px(0.0)).truncate().child(self.name.clone()));
@@ -340,11 +316,9 @@ impl RenderOnce for TaskFolderRow {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        // Hover is tracked on the whole row (both buttons tint together);
-        // the toggle and the status word keep their own roles and clicks.
+        // Hover paints the whole row (both buttons tint together); the
+        // toggle and the status word keep their own roles and clicks.
         let row_id: ElementId = (id.clone(), "row").into();
-        let (state, flags) = interaction_flags(row_id.clone(), window, cx);
-        let bg = row_bg(&row_id, false, flags.hovered, &p, window, cx);
         let label: SharedString = format!("Task folder: {}, {}", self.name, self.status).into();
         record_ax_label(&label);
         // The status button's name is its visible text with the folder
@@ -404,8 +378,7 @@ impl RenderOnce for TaskFolderRow {
             .mr(px(ROW_MARGIN_X))
             .pr(px(ROW_PAD_RIGHT))
             .rounded(px(scale::R_SM))
-            .bg(bg)
-            .track_interaction(&state)
+            .paint_states(StatePaint::new(), &p)
             .child(toggle)
             .child(status.child(self.status))
     }

@@ -56,8 +56,8 @@ pub use aui_tokens as tokens;
 
 pub use browse::{Address, Pin, TabRowData, TaskFace};
 pub use interact::{
-    ambient_surface, fluid_list, interactive, interactive_state, menu_surface, nearest, nested_radius, row, surface, Axis,
-    FluidList, InteractState, Interactive, Row, Shape, Surface,
+    interactive, list_row, menu_panel, nested_radius, row, row_list, surface, InteractState, Interactive, Row, RowList, Shape,
+    StatePaint, Surface,
 };
 
 use gpui::App;

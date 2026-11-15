@@ -12,6 +12,7 @@ use aui_motion::{presence, EnterExit, PresenceStyle};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{prelude::*, px, App, ClickEvent, ElementId, IntoElement, Window};
 use gpui_kit::base::h_flex;
+use crate::interact::paint::{PaintStates, StatePaint};
 
 /// The bar's height.
 pub const QUOTE_BAR_H: f32 = 32.0;
@@ -43,7 +44,6 @@ pub fn quote_bar(id: impl Into<ElementId>, present: bool, on_quote: impl Fn(&Cli
         return None;
     }
     let p = cx.aui().colors;
-    let hover = p.hover_overlay();
     Some(
         h_flex()
             .id(id.clone())
@@ -71,7 +71,7 @@ pub fn quote_bar(id: impl Into<ElementId>, present: bool, on_quote: impl Fn(&Cli
                     .font_family(scale::FONT_UI)
                     .text_px(14.3)
                     .text_color(p.fg)
-                    .hover(move |s| s.bg(hover))
+                    .paint_states(StatePaint::new(), &p)
                     .child(icon(IconName::Quote).size(px(14.0)).color(p.fg_muted))
                     .child("Quote")
                     .on_click(on_quote),
