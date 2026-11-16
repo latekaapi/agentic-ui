@@ -41,7 +41,9 @@ pub struct SessionSummary {
     /// carries it on the trailing slot ("Needs approval" / "Failed") and the
     /// hover card on its reply line — it is never a row line of its own.
     pub status: Option<RowStatus>,
-    /// Unread: the 3 px accent bar at the left edge.
+    /// Unread: a turn finished that the person has not read. The sidebar
+    /// draws it as the `accent-ring` dot in the trailing slot when nothing
+    /// stronger stands there; the older `session_row` draws a 3 px bar.
     pub unread: bool,
     /// Pinned: date groupings lift the row into the leading `Pinned` group
     /// instead of its date bucket (card 21's `Pinned 3`).

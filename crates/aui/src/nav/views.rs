@@ -192,9 +192,14 @@ pub struct ProjectGroup {
     pub mark: Option<(SharedString, gpui::Hsla)>,
     /// The trailing mono text before the count (the branch).
     pub trailing: Option<SharedString>,
-    /// The rolled-up agent state: an accent bar at the row's left edge, in
-    /// the state colour.
+    /// The rolled-up agent state: the strongest state among the group's
+    /// sessions, which the caller ranks. The sidebar draws it in the
+    /// header's trailing slot while the group is closed (an open group's
+    /// rows each show their own).
     pub state: Option<aui_tokens::AgentState>,
+    /// The rolled-up unread: some session in the group finished unread and
+    /// nothing stronger is happening there ([`Self::state`] idle).
+    pub unread: bool,
     /// Draw the collapse chevron in the leading box (off: the row is a plain
     /// label whose first glyph starts at the leading centre).
     pub chevron: bool,
@@ -227,6 +232,7 @@ impl ProjectGroup {
             mark: None,
             trailing: None,
             state: None,
+            unread: false,
             chevron: false,
             current_bar: false,
             sessions: Vec::new(),
@@ -261,11 +267,15 @@ impl ProjectGroup {
         self
     }
 
-    /// Sets the rolled-up agent state: an accent bar at the row's left edge
-    /// in the state colour, breathing with the shared pulse while a session
-    /// runs.
+    /// Sets the rolled-up agent state (see [`Self::state`]).
     pub fn state(mut self, state: aui_tokens::AgentState) -> Self {
         self.state = Some(state);
+        self
+    }
+
+    /// Marks the rolled-up unread (see [`Self::unread`]).
+    pub fn unread(mut self, unread: bool) -> Self {
+        self.unread = unread;
         self
     }
 

@@ -591,19 +591,30 @@ impl Ctx {
                 .child(wrap)
                 .into_any_element();
         }
+        self.state_mark(format!("{id}"), session.state, session.unread, cx)
+    }
+
+    /// The 20 px state mark for a session row or a closed project header:
+    /// the spinner (running), the amber dot (needs you), the danger dot
+    /// (failed), the `accent-ring` dot (idle and unread) — named for
+    /// assistive tech — or an empty holder of the same size.
+    fn state_mark(&self, key: String, state: AgentState, unread: bool, cx: &mut App) -> AnyElement {
+        let p = cx.aui().colors;
+        let metrics = cx.aui().metrics;
+        let slot = metrics.control_xs;
         let dot = |colour: gpui::Hsla| Shape::Pill.rounded(div().size(px(scale::SP_2 + scale::SP_1)).bg(colour)).into_any_element();
-        let (mark, said): (Option<AnyElement>, &str) = match session.state {
-            AgentState::Running => (Some(spinner(self.child(format!("spin-{id}"))).size(metrics.icon - px(scale::SP_2)).muted(cx).into_any_element()), "Running"),
+        let (mark, said): (Option<AnyElement>, &str) = match state {
+            AgentState::Running => (Some(spinner(self.child(format!("spin-{key}"))).size(metrics.icon - px(scale::SP_2)).muted(cx).into_any_element()), "Running"),
             AgentState::Waiting => (Some(dot(p.warning)), "Needs you"),
             AgentState::Failed => (Some(dot(p.danger)), "Failed"),
-            AgentState::Idle | AgentState::Done if session.unread => (Some(dot(p.accent_ring)), "Unread"),
+            AgentState::Idle | AgentState::Done if unread => (Some(dot(p.accent_ring)), "Unread"),
             AgentState::Idle | AgentState::Done => (None, ""),
         };
         let holder = div().flex_none().size(slot).flex().items_center().justify_center();
         match mark {
             Some(mark) => {
                 record_ax_label(said);
-                holder.id(self.child(format!("state-{id}"))).role(gpui::Role::Status).aria_label(SharedString::from(said)).child(mark).into_any_element()
+                holder.id(self.child(format!("state-{key}"))).role(gpui::Role::Status).aria_label(SharedString::from(said)).child(mark).into_any_element()
             }
             None => holder.into_any_element(),
         }
@@ -820,6 +831,11 @@ impl Ctx {
                     .child(self.action(format!("{}-new", group.id), IconName::Plus, format!("New session in {}", group.name), SidebarIntent::GroupAction(group.id.clone(), GroupAction::New), cx))
                     .child(self.action(format!("{}-menu", group.id), IconName::Dots, format!("{} options", group.name), SidebarIntent::GroupAction(group.id.clone(), GroupAction::Menu), cx)),
             );
+        } else if !group.open && (group.state.is_some_and(|s| s != AgentState::Idle && s != AgentState::Done) || group.unread) {
+            // A closed group shows its strongest session state in the same
+            // 20 px slot, on the same x, as a session row's mark (task 3.2):
+            // what is inside can need you even when it is out of sight.
+            head = head.child(self.state_mark(format!("project-{}", group.id), group.state.unwrap_or(AgentState::Idle), group.unread, cx));
         }
         let label: SharedString = format!("Project {}", group.name).into();
         record_ax_label(&label);

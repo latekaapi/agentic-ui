@@ -716,7 +716,9 @@ pub fn sample_model() -> SidebarModel {
                 .preview("Three skeleton rows · looked at"),
         ])
         .trailing("design-v2");
-    let lakshya = ProjectGroup::new("lakshya", "lakshya", "2");
+    // Closed, with a session waiting inside: the header carries the
+    // strongest state of what it hides (task 3.2).
+    let lakshya = ProjectGroup::new("lakshya", "lakshya", "2").state(AgentState::Waiting);
     SidebarModel {
         mode: Mode::Sessions,
         search: None,

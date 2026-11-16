@@ -99,6 +99,26 @@ fn the_trailing_slot_names_each_state(cx: &mut TestAppContext) {
     assert_has(&labels, &["Running", "Needs you", "Unread", "Failed"]);
 }
 
+/// Task 3.2: a closed project header carries its strongest session state
+/// in the same slot a row uses — "Needs you" from a waiting session it
+/// hides, "Unread" from an unread one — and an open header carries none
+/// (its rows say it themselves).
+#[gpui::test]
+fn a_closed_project_header_names_its_strongest_state(cx: &mut TestAppContext) {
+    use aui::nav::ProjectGroup;
+    init(cx);
+    let waiting = ProjectGroup::new("p-wait", "acme-web", "3").state(AgentState::Waiting);
+    let unread = ProjectGroup::new("p-unread", "acme-internal", "2").state(AgentState::Idle).unread(true);
+    let open = ProjectGroup::new("p-open", "harness", "1")
+        .state(AgentState::Failed)
+        .open(vec![SessionSummary::new("s-1", "Fix the header", AgentState::Idle, "2m")]);
+    let mut model = sample_model();
+    model.grouping = Rc::new(Grouping::Project(vec![waiting, unread, open]));
+    let labels = labels_of(cx, model);
+    assert_has(&labels, &["Needs you", "Unread"]);
+    assert!(!has(&labels, "Failed"), "an open header leaves its state to its rows: {labels:?}");
+}
+
 #[gpui::test]
 fn browse_mode_labels_every_interactive_element(cx: &mut TestAppContext) {
     init(cx);
@@ -190,7 +210,12 @@ fn hovered_session_shows_its_row_menu_button(cx: &mut TestAppContext) {
     let labels = labels_of(cx, model);
     assert_has(&labels, &["Options for session Checklist run"]);
     assert!(!has(&labels, "Pin session Checklist run"), "{labels:?}");
-    assert!(!has(&labels, "Needs you"), "the menu replaces the state mark: {labels:?}");
+    // The hovered row's own mark is gone: the label after its open label
+    // is its menu, not "Needs you" (the closed lakshya header still says
+    // it, for the session it hides).
+    let at = labels.iter().position(|l| l == "Open session Checklist run").expect("the row");
+    assert_eq!(labels.get(at + 1).map(String::as_str), Some("Options for session Checklist run"), "{labels:?}");
+    assert_eq!(labels.iter().filter(|l| *l == "Needs you").count(), 1, "only the closed header's mark: {labels:?}");
 }
 
 #[gpui::test]
