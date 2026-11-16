@@ -1,5 +1,5 @@
 //! D6's Page screen (docs/43 §2.7; canvas v49 `D6Page`, `D6StatesPage`):
-//! the session's one page. Under the pane row a 36 px nav row (back, forward,
+//! the session's one page. Under the pane's tab row a 36 px nav row (back, forward,
 //! reload; the address on the Well; annotate, screenshot to the composer,
 //! open in Browse), the page below. While the agent acts, one pill floats 16
 //! above the page's foot; annotating outlines elements, pins numbered notes
@@ -17,12 +17,12 @@ use gpui_kit::base::{h_flex, v_flex};
 use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{icon_button, spinner};
 
-/// The Page's one bar (owner 2026-10-21, canvas board `D6OneBar`): the old
-/// 32 px pane row and 36 px nav row merged into one bar at the pane row's
-/// metrics — back, forward, reload, the address (with the Recent pages
-/// chevron), annotate, screenshot, open in Browse, a hairline, ✕. It is the
-/// right column's header (docs/83 §3), so it is the bar's 44 incl. its line.
-pub const PAGE_NAV_H: f32 = scale::BAR_DEFAULT;
+/// The Page's nav row (owner 2026-10-21, canvas board `D6OneBar`; docs/83
+/// §6): back, forward, reload, the address (with the Recent pages chevron),
+/// annotate, screenshot, open in Browse. It is the Page's sub-header under
+/// the pane's tab row (which carries ✕), so the sub-header's 36 incl. its
+/// line.
+pub const PAGE_NAV_H: f32 = scale::SUB_HEADER;
 /// Under this pane width back / forward leave the nav row.
 pub const PAGE_NAV_NARROW: f32 = 300.0;
 /// Muse blue: the annotation outline.
@@ -39,7 +39,7 @@ pub fn page_address_left(width: f32) -> f32 {
     }
 }
 
-/// The Recent pages menu's top: 2 px under the bar.
+/// The Recent pages menu's top: 2 px under the nav row.
 pub const RECENT_MENU_TOP: f32 = PAGE_NAV_H + 2.0;
 
 /// The Recent pages button at the address field's right end: 22 square,
@@ -160,10 +160,9 @@ fn dead_button(id: ElementId, glyph: IconName, label: &'static str, cx: &App) ->
         .child(icon(glyph).size(px(14.0)).color(p.ink_4))
 }
 
-/// The Page's one 32 px bar (padding 0 6, gap 2). `address` is the host's
-/// slot — [`page_address`] at rest, the editing input in an
-/// [`address_frame`]; `end` follows the actions after a 1 × 16 hairline
-/// (the pane's ✕).
+/// The Page's nav row, its [`PAGE_NAV_H`] sub-header (padding 0 6, gap 2).
+/// `address` is the host's slot — [`page_address`] at rest, the editing
+/// input in an [`address_frame`].
 #[allow(clippy::too_many_arguments)]
 pub fn page_nav_row(
     id: impl Into<ElementId>,
@@ -173,7 +172,6 @@ pub fn page_nav_row(
     annotating: bool,
     width: f32,
     loading: Option<f32>,
-    end: Option<AnyElement>,
     on_action: impl Fn(PageNavAction, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
@@ -185,7 +183,7 @@ pub fn page_nav_row(
         icon_button((id.clone(), key), glyph).ghost().accessibility_label(label).on_click(move |_, w, cx| on(action, w, cx))
     };
     let narrow = width > 0.0 && width < PAGE_NAV_NARROW;
-    let mut row = crate::workbench::pane_header(cx).id(id.clone()).relative().h(px(PAGE_NAV_H)).px(px(6.0)).gap(px(2.0));
+    let mut row = crate::workbench::pane_subheader(cx).id(id.clone()).relative().px(px(6.0)).gap(px(2.0));
     if !narrow {
         row = row
             .child(if can_back { button("back", IconName::ArrowLeft, "Back", PageNavAction::Back).into_any_element() } else { dead_button((id.clone(), "back").into(), IconName::ArrowLeft, "Back", cx).into_any_element() })
@@ -204,9 +202,6 @@ pub fn page_nav_row(
         })
         .child(button("shot", IconName::Camera, "Screenshot to the composer", PageNavAction::Screenshot))
         .child(button("browse", IconName::External, "Open in Browse", PageNavAction::OpenInBrowse));
-    if let Some(end) = end {
-        row = row.child(div().w(px(1.0)).h(px(16.0)).mx(px(4.0)).flex_none().bg(p.line)).child(end);
-    }
     if let Some(progress) = loading {
         // A 2 px muted bar grows under the address while the page loads.
         row = row.child(div().absolute().left(px(0.0)).bottom(px(0.0)).h(px(2.0)).w(relative(progress.clamp(0.0, 1.0))).bg(p.fg_muted));

@@ -3,14 +3,14 @@
 //! 2 + 16 × depth, gap 6: a 16 px chevron slot (folders: chevron 12 muted),
 //! the glyph 14 muted, the name in the sidebar rows' Body role (13 / 20; owner
 //! 2026-10-21: "make it same as the sidebar items", over the canvas's 14.3),
-//! faint when ignored, and the git letter at the right in mono 12.1, 14 wide.
-//! Hover and selected are the one model's overlays, painted per row by the
-//! [`RowList`](crate::interact::RowList); keyboard focus adds a 1 px grey
-//! ring at 45 %. A
-//! capped folder ends with one faint Caption line.
+//! faint when ignored, and the git letter at the right in `t-micro`, 14 wide
+//! (docs/83 §6: rows 28, `t-body`, folders and files in one muted glyph
+//! style). Hover and selected are the one model's overlays, painted per row
+//! by the [`RowList`](crate::interact::RowList); keyboard focus adds a 1 px
+//! `accent-ring` ring. A capped folder ends with one faint Caption line.
 //!
-//! The screen's own row (glyph, "Files", filter, ✕) is the pane's
-//! ([`super::pane_row`]); the tree has no header, footer or refresh button.
+//! The pane's tab row names the screen and Files' sub-header carries its
+//! filter (the host's); the tree has no header, footer or refresh button.
 //! It takes a flat, pre-expanded list of [`FileNode`]s (the caller owns the
 //! expansion state and the filtering) and reports intents through
 //! [`FileTreeAction`]; it never touches a filesystem.
@@ -30,7 +30,7 @@ const TREE_PAD_TOP: f32 = 4.0;
 const TREE_PAD_X: f32 = 6.0;
 const TREE_PAD_BOTTOM: f32 = 12.0;
 /// A row: 28 tall, gap 6, 8 before its right edge.
-const ROW_H: f32 = 28.0;
+const ROW_H: f32 = scale::TREE_ROW;
 const ROW_GAP: f32 = 6.0;
 const ROW_PAD_RIGHT: f32 = 8.0;
 /// Padding-left 2 + 16 per level.
@@ -41,11 +41,10 @@ const CHEVRON_SLOT: f32 = 16.0;
 const CHEVRON: f32 = 12.0;
 /// The glyph.
 const GLYPH: f32 = 14.0;
-/// The git letter: mono 12.1, 14 wide.
-const BADGE_TEXT: f32 = 12.1;
+/// The git letter's column: 14 wide.
 const BADGE_W: f32 = 14.0;
 
-/// The git status of a tree row, shown as a mono letter at the right.
+/// The git status of a tree row, shown as a `t-micro` letter at the right.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GitBadge {
     /// Modified — muted.
@@ -452,7 +451,7 @@ fn tree_row(id: impl Into<ElementId>, node: FileNode, ring: bool, window: &mut W
     }
     if ring {
         row = row.shadow(vec![BoxShadow {
-            color: gpui::Hsla::from(gpui::rgba(0x7F7F8C73)),
+            color: p.accent_ring,
             offset: gpui::point(px(0.0), px(0.0)),
             blur_radius: px(0.0),
             spread_radius: px(1.0),
@@ -474,8 +473,7 @@ fn tree_row(id: impl Into<ElementId>, node: FileNode, ring: bool, window: &mut W
                 .w(px(BADGE_W))
                 .flex_none()
                 .text_center()
-                .font_family(scale::FONT_MONO)
-                .text_px(BADGE_TEXT)
+                .text_role_in(TextRole::Micro, Density::Standard)
                 .text_color(badge.color(&p))
                 .child(badge.letter()),
         );

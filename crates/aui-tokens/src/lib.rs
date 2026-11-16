@@ -354,6 +354,8 @@ mod tests {
         assert_eq!((scale::ROW_GAP, scale::LIST_INSET, scale::R_8), (2.0, 8.0, 8.0));
         // docs/83 §2.5 / §5: the transcript column and its card heads (task 2.6).
         assert_eq!((scale::TRANSCRIPT_MAX, scale::TRANSCRIPT_INSET, scale::CARD_HEAD), (760.0, 32.0, 36.0));
+        // docs/83 §6: the right pane's sub-header and its two list rows (task 2.7).
+        assert_eq!((scale::SUB_HEADER, scale::TREE_ROW, scale::CHANGE_ROW), (36.0, 28.0, 32.0));
         // docs/83 §2.4: Markdown headings in the reading scale.
         assert_eq!((scale::T_H1_FS, scale::T_H1_LH, scale::T_H2_FS, scale::T_H2_LH, scale::T_H3_FS, scale::T_H3_LH), (22.0, 30.0, 19.0, 28.0, 17.0, 26.0));
     }

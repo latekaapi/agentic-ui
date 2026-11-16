@@ -1490,7 +1490,6 @@ pub struct WebviewPane {
     nav: bool,
     agent: SharedString,
     recent: Option<(bool, BarHandler)>,
-    close: Option<BarHandler>,
 }
 
 type BarHandler = Rc<dyn Fn(&mut Window, &mut App)>;
@@ -1498,7 +1497,7 @@ type BarHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 /// The pane for `state`: the nav row, the page with the annotator's overlays,
 /// and — only while annotate mode is on — the annotations panel.
 pub fn webview_pane(id: impl Into<ElementId>, state: &Entity<WebviewState>) -> WebviewPane {
-    WebviewPane { id: id.into(), state: state.clone(), on_intent: None, nav: true, agent: "the agent".into(), recent: None, close: None }
+    WebviewPane { id: id.into(), state: state.clone(), on_intent: None, nav: true, agent: "the agent".into(), recent: None }
 }
 
 impl WebviewPane {
@@ -1521,13 +1520,6 @@ impl WebviewPane {
     /// [`aui::workbench::RECENT_MENU_TOP`]).
     pub fn recent_pages(mut self, open: bool, toggle: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.recent = Some((open, Rc::new(toggle)));
-        self
-    }
-
-    /// The pane's ✕ at the bar's end, after a hairline: the host's pane row
-    /// is gone while a page shows (owner 2026-10-21, one bar per screen).
-    pub fn on_close(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.close = Some(Rc::new(f));
         self
     }
 
@@ -1618,14 +1610,6 @@ impl RenderOnce for WebviewPane {
                 annotate,
                 f32::from(view.page_size.width),
                 view.loading.then_some(0.6),
-                self.close.clone().map(|close| {
-                    aui::data::icon_button((id.clone(), "close"), aui_icons::IconName::X)
-                        .ghost()
-                        .icon_size(gpui::px(12.0))
-                        .accessibility_label("Close the pane")
-                        .on_click(move |_, w, cx| close(w, cx))
-                        .into_any_element()
-                }),
                 move |action, window, cx| {
                     use aui::workbench::PageNavAction as A;
                     let mapped = match action {

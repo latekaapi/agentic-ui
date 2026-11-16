@@ -8,7 +8,7 @@ use aui::interact::row_list;
 use aui::protocol::{ChangeKind, Diff, DiffKind, DiffLine, FileChange, Hunk};
 use aui::workbench::{
     base_and_head, base_picker, branch_label, change_row, changes_caption, diff_fold, commit_foot, commit_frame, commit_message_view,
-    diff_body, draft_checkbox, form_field, hook_failed_note, pane_row, pr_card, primary_action, pushed_row, skeleton_bar,
+    diff_body, draft_checkbox, form_field, hook_failed_note, pr_card, primary_action, pushed_row, skeleton_bar,
     state_block, text_action, well_input, PrState,
 };
 use aui_icons::IconName;
@@ -93,8 +93,7 @@ fn screen(label: &str, body: AnyElement, foot: Option<AnyElement>, row: AnyEleme
 }
 
 fn changes_row(id: &str, cx: &App) -> AnyElement {
-    let _ = cx;
-    pane_row(SharedString::from(id.to_string()), IconName::Git, "Changes").on_close(|_, _, _| {}).into_any_element()
+    super::d6_pane::tab_header(id, "Changes", None, cx).into_any_element()
 }
 
 fn commit_dirty(id: &str, focused: bool, busy: bool, cx: &App) -> AnyElement {
@@ -235,7 +234,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         "Create PR",
         form,
         Some(form_foot),
-        pushed_row("d6-pr-row", "Create pull request").back_label("Back to changes").width(px(W)).on_close(|_, _, _| {}).into_any_element(),
+        v_flex().child(super::d6_pane::tab_header("d6-pr-tabs", "Changes", None, cx)).child(pushed_row("d6-pr-row", "Create pull request").back_label("Back to changes").on_back(|_, _, _| {})).into_any_element(),
         H,
         cx,
     );

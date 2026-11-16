@@ -31,22 +31,21 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         "Full output",
         pushed_row_with("d6-out-row", output_title("cargo test --workspace", Some(101), Some("43.8 s".into()), None, cx))
             .back_label("Back")
-            .width(px(W))
             .action(copy())
-            .on_close(|_, _, _| {})
+            .on_back(|_, _, _| {})
             .into_any_element(),
         output_view("d6-out", lines.clone()).capped(Some(1204)).into_any_element(),
         cx,
     );
     let running = frame(
         "Still running",
-        pushed_row_with("d6-run-row", output_title("cargo test --workspace", None, None, Some(12), cx)).width(px(W)).action(copy()).into_any_element(),
+        pushed_row_with("d6-run-row", output_title("cargo test --workspace", None, None, Some(12), cx)).action(copy()).into_any_element(),
         output_view("d6-run", Arc::new(lines[..8].to_vec())).follow(true).into_any_element(),
         cx,
     );
     let fetching = frame(
         "Fetching",
-        pushed_row_with("d6-fetch-row", output_title("cargo build --workspace", None, None, None, cx)).width(px(W)).action(pane_action("d6-fetch-copy", IconName::Copy, "Copy the output").disabled(true)).into_any_element(),
+        pushed_row_with("d6-fetch-row", output_title("cargo build --workspace", None, None, None, cx)).action(pane_action("d6-fetch-copy", IconName::Copy, "Copy the output").disabled(true)).into_any_element(),
         output_fetching(cx).into_any_element(),
         cx,
     );
@@ -56,7 +55,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let a = actual.clone();
     let image = frame(
         "Image (click: fit ↔ 100 %)",
-        pushed_row("d6-img-row", "minimal.png").back_label("Back").width(px(W)).action(pane_action("d6-img-ext", IconName::External, "Open in default app")).into_any_element(),
+        pushed_row("d6-img-row", "minimal.png").back_label("Back").on_back(|_, _, _| {}).action(pane_action("d6-img-ext", IconName::External, "Open in default app")).into_any_element(),
         image_view("d6-img", path, "1440 × 900 · PNG · 312 KB", Some((1440.0, 900.0)), is_actual, window, cx)
             .on_click(move |_, _, cx| a.update(cx, |v, cx| {
                 *v = !*v;
@@ -67,7 +66,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     );
     let missing = frame(
         "Image not available",
-        pushed_row("d6-miss-row", "capture-peek.png").back_label("Back").width(px(W)).into_any_element(),
+        pushed_row("d6-miss-row", "capture-peek.png").back_label("Back").on_back(|_, _, _| {}).into_any_element(),
         image_missing("d6-miss", "capture-peek.png", cx).into_any_element(),
         cx,
     );

@@ -1,15 +1,18 @@
 //! D6 · Files and the file preview (docs/43 §2.4–2.5; canvas v49 `D6Files`,
 //! `D6Preview`, `D6StatesFiles`): the tree (rows 28, fluid hover, selected,
-//! the keyboard ring, ignored paths faint, git letters), the filter, a capped
-//! folder, and the preview's code view with a revealed band, the Markdown
+//! the keyboard ring, ignored paths faint, git letters) under the pane's tab
+//! row, the filter sub-header, a capped folder, and the preview (its file's
+//! tab, its path sub-header): the code view with a revealed band, the Markdown
 //! reading view, not shown, gone and loading.
 
 use std::sync::Arc;
 
 use aui::workbench::{
-    code_skeleton, code_view, file_tree, filter_field, markdown_view, pane_action, pane_row, pushed_row, secondary_action,
+    code_skeleton, code_view, file_tree, filter_bar, markdown_view, pane_action, pane_subheader, pushed_row, secondary_action,
     state_block, FileNode, FileTreeAction, GitBadge,
 };
+
+use super::d6_pane::tab_header;
 use aui_icons::{FileType, IconName};
 use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::*;
@@ -126,7 +129,12 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 cx.notify();
             })
         }),
-        pane_row("d6-files-row", IconName::Folder, "Files").action(pane_action("d6-filter", IconName::Search, "Filter files").toggled(false)).on_close(|_, _, _| {}),
+        v_flex().child(tab_header("d6-files-tabs", "Files", None, cx)).child(
+            pane_subheader(cx)
+                .px(px(6.0))
+                .child(div().flex_1().pl(px(4.0)).text_px(12.0).text_color(cx.aui().colors.fg_muted).child("baaz"))
+                .child(pane_action("d6-filter", IconName::Search, "Filter files").toggled(false)),
+        ),
         cx,
     );
 
@@ -141,8 +149,8 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     filtered[4] = FileNode::note("note", "Showing the first 300 of 1 204 in this folder. Filter to find the rest.", 0);
     let filter = screen(
         "Filter · capped folder line",
-        v_flex().size_full().child(filter_field("d6-filter-field", &query, Some("3 of 1,204".into()), window, cx)).child(file_tree("d6-tree-f", filtered)),
-        pane_row("d6-files-row-f", IconName::Folder, "Files").action(pane_action("d6-filter-on", IconName::Search, "Filter files").toggled(true)),
+        file_tree("d6-tree-f", filtered),
+        v_flex().child(tab_header("d6-files-tabs-f", "Files", None, cx)).child(filter_bar("d6-filter-field", &query, Some("3 of 1,204".into()), |_, _, _| {}, window, cx)),
         cx,
     );
 
@@ -150,17 +158,17 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let code = screen(
         "Preview · code, revealed",
         code_view("d6-code", lines).language("rust").band(6..9, 1),
-        pushed_row("d6-code-row", "right.rs").context("crates/baaz/src").back_label("Back to files").width(px(W)).action(pane_action(
+        v_flex().child(tab_header("d6-code-row-tabs", "Files", Some("right.rs"), cx)).child(pushed_row("d6-code-row", "crates/baaz/src/right.rs").action(pane_action(
             "d6-code-ext",
             IconName::External,
             "Open in default app",
-        )),
+        ))),
         cx,
     );
     let md = screen(
         "Preview · Markdown",
         div().id("d6-md-scroll").size_full().overflow_y_scroll().child(markdown_view("d6-md", MD, cx)),
-        pushed_row("d6-md-row", "CLAUDE.md").back_label("Back to files").width(px(W)).action(pane_action("d6-md-ext", IconName::External, "Open in default app")),
+        v_flex().child(tab_header("d6-md-row-tabs", "Files", Some("CLAUDE.md"), cx)).child(pushed_row("d6-md-row", "CLAUDE.md").action(pane_action("d6-md-ext", IconName::External, "Open in default app"))),
         cx,
     );
     let binary = screen(
@@ -168,7 +176,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         state_block("d6-bin", IconName::File, "app.db")
             .line("SQLite database · 4.2 MB. Baaz shows text, Markdown and images here.")
             .action(secondary_action("d6-bin-open", "Open in default app", Some(IconName::External), cx)),
-        pushed_row("d6-bin-row", "app.db").back_label("Back to files").width(px(W)),
+        v_flex().child(tab_header("d6-bin-row-tabs", "Files", Some("app.db"), cx)).child(pushed_row("d6-bin-row", "app.db")),
         cx,
     );
     let gone = screen(
@@ -178,19 +186,19 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .child(div().font_family(aui_tokens::scale::FONT_MONO).child("crates/baaz/src/panes/old.rs"))
                 .child("was moved or deleted since you opened it."),
         ),
-        pushed_row("d6-gone-row", "old.rs").back_label("Back to files").width(px(W)),
+        v_flex().child(tab_header("d6-gone-row-tabs", "Files", Some("old.rs"), cx)).child(pushed_row("d6-gone-row", "crates/baaz/src/panes/old.rs")),
         cx,
     );
     let loading = screen(
         "Preview · loading",
         code_skeleton(&[118.0, 92.0, 152.0, 132.0, 66.0, 112.0, 142.0, 74.0, 126.0, 100.0], cx),
-        pushed_row("d6-load-row", "main.rs").back_label("Back to files").width(px(W)),
+        v_flex().child(tab_header("d6-load-row-tabs", "Files", Some("main.rs"), cx)).child(pushed_row("d6-load-row", "crates/baaz/src/main.rs")),
         cx,
     );
     let empty = screen(
         "Files · no project",
         state_block("d6-noproj", IconName::Folder, "No project").line("Open or add a project to see its files."),
-        pane_row("d6-files-row-e", IconName::Folder, "Files"),
+        tab_header("d6-files-tabs-e", "Files", None, cx),
         cx,
     );
 

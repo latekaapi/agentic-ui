@@ -1,46 +1,53 @@
-//! The right pane's chrome (D6, docs/43 §2.2 and §2.11; canvas "Baaz v3" v49,
-//! boards `D6Header` and `D6States*`; flat since docs/83 §3).
+//! The right pane's chrome (D6, docs/43 §2.2 and §2.11; flat since docs/83
+//! §3 and §6).
 //!
-//! There is no tab bar: toggles in the transcript's title row choose the
-//! screen ([`pane_toggle`]). Each screen draws one row — the column's 44 px
-//! header ([`pane_header`]), ending in a 1 px `line-region` at the same y as
-//! the centre's — [`pane_row`]
-//! (glyph, name, the screen's own actions, ✕) or, for a view pushed on top of
-//! it, [`pushed_row`] (←, title, context, ≤ 2 actions, ✕). Empty, error and
-//! loading states share [`state_block`] and [`skeleton_bar`].
+//! The pane's own tab row ([`pane_tabs`]) sits in the right column's 44 px
+//! header (the shell draws the header and its 1 px `line-region`, at the same
+//! y as the centre's): one tab per view — `Changes`, `Files`, `Page`, and a
+//! file's name while one is open — the active one an `ov-selected` pill, then
+//! `＋` (the view menu), maximise and ✕. The centre header's view icons
+//! ([`pane_toggle`]) stay as shortcuts. Under the tab row a screen that has
+//! controls of its own draws a 36 px sub-header ([`pane_subheader`]); a view
+//! pushed on a screen draws [`pushed_row`] there (←, its title, ≤ 2 actions).
+//! Empty, error and loading states share [`state_block`] and
+//! [`skeleton_bar`].
+
+use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
-use gpui::{div, prelude::*, px, AnyElement, App, ClickEvent, ElementId, FontWeight, IntoElement, Pixels, SharedString, Window};
-use gpui_kit::base::{h_flex, v_flex};
+use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
+use gpui::{div, prelude::*, px, AnyElement, App, Bounds, ClickEvent, ElementId, FontWeight, IntoElement, Pixels, SharedString, Window};
+use gpui_kit::base::{h_flex, v_flex, ElementExt as _};
 
 use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{icon_button, Button};
 
-/// The right column's header (docs/83 §3): the bar's 44 px on the ground,
-/// its last pixel the 1 px `line-region` that every column's header ends in,
-/// so the centre's and the pane's lines share one y. Every screen row (the
-/// pane row, a pushed row, the filter bar, the Page's one bar) is built on it.
-pub fn pane_header(cx: &App) -> gpui::Div {
+/// A screen's sub-header under the tab row (docs/83 §6): 36 px on the
+/// ground with a 1 px `line` under it — a line *inside* the region, so not
+/// the header's `line-region`. The file preview's path, a pushed view's row,
+/// Files' filter and the Page's nav row are built on it.
+pub fn pane_subheader(cx: &App) -> gpui::Div {
     let p = cx.aui().colors;
-    h_flex().w_full().h(cx.aui().metrics.bar).flex_none().items_center().bg(p.surface_1).border_b_1().border_color(p.line_region)
+    h_flex().w_full().h(px(scale::SUB_HEADER)).flex_none().items_center().bg(p.surface_1).border_b_1().border_color(p.line)
 }
-/// The pane row: 12 in on the left (to the glyph), 6 on the right (to ✕).
-const ROW_PAD_LEFT: f32 = 12.0;
-const ROW_PAD_RIGHT: f32 = 6.0;
-/// Glyph to name in the pane row.
-const ROW_GAP: f32 = 8.0;
-/// Between the pushed row's controls (back, title, actions, ✕).
-const PUSHED_GAP: f32 = 2.0;
-/// Every glyph in the row.
+/// The tab row's inset from the column's edges, and between its controls.
+const TABS_PAD_X: f32 = 6.0;
+const TABS_GAP: f32 = 2.0;
+/// A tab: 28 tall (the dense control), label padded 10 a side.
+const TAB_PAD_X: f32 = 10.0;
+/// A closable tab's ✕: 16 square, glyph 10, 4 after the label.
+const TAB_CLOSE: f32 = 16.0;
+const TAB_CLOSE_GLYPH: f32 = 10.0;
+/// Every glyph in a row.
 const GLYPH: f32 = 14.0;
 /// ✕ draws its glyph at 12 in a 28 button.
 const CLOSE_GLYPH: f32 = 12.0;
-/// Name / title: 14.3 / 600; the pushed view's context 13.2 muted.
+/// The pushed row's padding and the gap between its controls.
+const PUSHED_PAD: f32 = 6.0;
+const PUSHED_GAP: f32 = 2.0;
+/// The state block's title and line.
 const NAME_TEXT: f32 = 14.3;
 const CONTEXT_TEXT: f32 = 13.2;
-/// The pushed row hides its context under this pane width.
-pub const CONTEXT_MIN_WIDTH: f32 = 360.0;
 
 /// One of the transcript row's pane toggles (Changes · Files · Page): a 28 px
 /// ghost icon button, glyph 14 muted, hover 5 % + foreground, **lit** (the
@@ -54,187 +61,216 @@ pub fn pane_action(id: impl Into<ElementId>, glyph: IconName, label: impl Into<S
     icon_button(id, glyph).ghost().accessibility_label(label)
 }
 
-type Handler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+type Handler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+type TabHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App) + 'static>;
+type BoundsHandler = Rc<dyn Fn(Bounds<Pixels>, &mut Window, &mut App) + 'static>;
 
-fn close_button(id: ElementId, on_close: Option<Handler>) -> Button {
-    let mut b = icon_button(id, IconName::X).ghost().icon_size(px(CLOSE_GLYPH)).accessibility_label("Close the pane");
-    if let Some(f) = on_close {
-        b = b.on_click(move |e, w, cx| f(e, w, cx));
+/// One tab of the pane's tab row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PaneTab {
+    /// Reported by [`PaneTabs::on_select`] and [`PaneTabs::on_close_tab`].
+    pub id: SharedString,
+    /// The visible label (`Changes`, `Files`, `Page`, a file's name).
+    pub label: SharedString,
+    /// The view the pane shows.
+    pub active: bool,
+    /// Carries its own ✕ (an open file's tab).
+    pub closable: bool,
+}
+
+impl PaneTab {
+    /// A tab that cannot be closed (the fixed views).
+    pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>, active: bool) -> Self {
+        Self { id: id.into(), label: label.into(), active, closable: false }
     }
-    b
+
+    /// Gives the tab its own ✕.
+    pub fn closable(mut self) -> Self {
+        self.closable = true;
+        self
+    }
 }
 
-/// The screen's row: glyph 14 muted, name 14.3 / 600, spacer, the screen's
-/// own actions, ✕. Opaque on the ground: a [`pane_header`].
+/// The pane's tab row (docs/83 §6), drawn inside the column's 44 px header:
+/// the tabs (`t-body`; the active one an `ov-selected` pill, radius 8, in
+/// `fg`; the rest `fg-muted`), `＋`, then at the right maximise and ✕. Each
+/// control is drawn only when the host wires it.
 #[derive(IntoElement)]
-pub struct PaneRow {
+pub struct PaneTabs {
     id: ElementId,
-    glyph: IconName,
-    name: SharedString,
-    actions: Vec<AnyElement>,
+    tabs: Vec<PaneTab>,
+    on_select: Option<TabHandler>,
+    on_close_tab: Option<TabHandler>,
+    add: Option<(bool, Handler)>,
+    add_bounds: Option<BoundsHandler>,
+    maximise: Option<(bool, Handler)>,
     on_close: Option<Handler>,
-    /// The name as a menu button (Page: "Recent pages"): open, and its click.
-    title_menu: Option<(bool, Handler)>,
 }
 
-/// The pane row for a screen.
-pub fn pane_row(id: impl Into<ElementId>, glyph: IconName, name: impl Into<SharedString>) -> PaneRow {
-    PaneRow { id: id.into(), glyph, name: name.into(), actions: Vec::new(), on_close: None, title_menu: None }
+/// The tab row over `tabs`.
+pub fn pane_tabs(id: impl Into<ElementId>, tabs: Vec<PaneTab>) -> PaneTabs {
+    PaneTabs { id: id.into(), tabs, on_select: None, on_close_tab: None, add: None, add_bounds: None, maximise: None, on_close: None }
 }
 
-impl PaneRow {
-    /// One of the screen's own actions (Files: filter), before ✕.
-    pub fn action(mut self, action: impl IntoElement) -> Self {
-        self.actions.push(action.into_any_element());
+impl PaneTabs {
+    /// A tab was clicked (its id).
+    pub fn on_select(mut self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self {
+        self.on_select = Some(Rc::new(f));
+        self
+    }
+
+    /// A closable tab's ✕ was clicked (its id).
+    pub fn on_close_tab(mut self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self {
+        self.on_close_tab = Some(Rc::new(f));
+        self
+    }
+
+    /// `＋`: opens the host's view menu; `open` holds it lit while the menu
+    /// is up.
+    pub fn on_add(mut self, open: bool, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.add = Some((open, Rc::new(f)));
+        self
+    }
+
+    /// Where `＋` was laid out this frame, in window coordinates: the seat
+    /// the host anchors its menu to.
+    pub fn on_add_bounds(mut self, f: impl Fn(Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self {
+        self.add_bounds = Some(Rc::new(f));
+        self
+    }
+
+    /// Maximise: `maximised` flips the glyph and the label to Restore.
+    pub fn on_maximise(mut self, maximised: bool, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.maximise = Some((maximised, Rc::new(f)));
         self
     }
 
     /// ✕: close the pane.
     pub fn on_close(mut self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.on_close = Some(Box::new(f));
-        self
-    }
-
-    /// The name becomes a menu button (D6 Page, owner 2026-10-18): the name
-    /// and a 12 px chevron, 28 tall, r 6, hover 5 %, lit 9 % while `open`.
-    pub fn title_menu(mut self, open: bool, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.title_menu = Some((open, Box::new(f)));
+        self.on_close = Some(Rc::new(f));
         self
     }
 }
 
-/// The pane row's name as a menu button ([`PaneRow::title_menu`]).
-fn title_menu_button(id: ElementId, name: SharedString, open: bool, on_click: Handler, cx: &App) -> gpui::Stateful<gpui::Div> {
-    let p = cx.aui().colors;
-    h_flex()
-        .id(id)
-        .flex_none()
-        .h(px(28.0))
-        .ml(px(-4.0))
-        .pl(px(4.0))
-        .pr(px(6.0))
-        .gap(px(4.0))
-        .items_center()
-        .rounded(px(6.0))
-        .paint_states(StatePaint::new().selected(open), &p)
-        .cursor_pointer()
-        .role(gpui::Role::Button)
-        .aria_label(SharedString::from("Recent pages"))
-        .aria_expanded(open)
-        .font_family(scale::FONT_UI)
-        .text_px(NAME_TEXT)
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(p.fg)
-        .whitespace_nowrap()
-        .child(name)
-        .child(icon(IconName::ChevronDown).size(px(12.0)).color(p.fg_muted))
-        .on_click(move |e, w, cx| on_click(e, w, cx))
-}
-
-impl RenderOnce for PaneRow {
+impl RenderOnce for PaneTabs {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        pane_header(cx)
-            .id(self.id.clone())
-            .pl(px(ROW_PAD_LEFT))
-            .pr(px(ROW_PAD_RIGHT))
-            .gap(px(ROW_GAP))
-            .child(icon(self.glyph).size(px(GLYPH)).color(p.fg_muted))
-            .child(match self.title_menu {
-                Some((open, on_click)) => h_flex()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .child(title_menu_button((self.id.clone(), "title").into(), self.name, open, on_click, cx))
-                    .into_any_element(),
-                None => div()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .font_family(scale::FONT_UI)
-                    .text_px(NAME_TEXT)
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(p.fg)
-                    .child(self.name)
-                    .into_any_element(),
-            })
-            .child(h_flex().flex_none().gap(px(PUSHED_GAP)).items_center().children(self.actions))
-            .child(close_button((self.id, "close").into(), self.on_close))
+        let id = self.id.clone();
+        let mut tabs = h_flex().id((id.clone(), "tabs")).flex_none().min_w(px(0.0)).gap(px(TABS_GAP)).items_center().role(gpui::Role::TabList).aria_label("Right pane views");
+        for tab in self.tabs {
+            let tab_id: ElementId = (id.clone(), SharedString::from(format!("tab-{}", tab.id))).into();
+            let mut el = h_flex()
+                .id(tab_id.clone())
+                .h(px(scale::CTL_COMPACT))
+                .flex_none()
+                .px(px(TAB_PAD_X))
+                .gap(px(4.0))
+                .items_center()
+                .rounded(px(scale::R_8))
+                .paint_states(StatePaint::new().selected(tab.active).ink(if tab.active { p.fg } else { p.fg_muted }, p.fg), &p)
+                .text_role(TextRole::Body)
+                .whitespace_nowrap()
+                .cursor_pointer()
+                .role(gpui::Role::Tab)
+                .aria_label(tab.label.clone())
+                .aria_selected(tab.active)
+                .child(tab.label.clone());
+            if let Some(f) = self.on_select.clone() {
+                let tab_key = tab.id.clone();
+                el = el.on_click(move |_, w, cx| f(&tab_key, w, cx));
+            }
+            if tab.closable {
+                el = el.pr(px(4.0));
+                let mut close = icon_button((tab_id, "close"), IconName::X)
+                    .ghost()
+                    .icon_size(px(TAB_CLOSE_GLYPH))
+                    .no_tooltip()
+                    .accessibility_label(SharedString::from(format!("Close {}", tab.label)));
+                if let Some(f) = self.on_close_tab.clone() {
+                    let tab_key = tab.id.clone();
+                    close = close.on_click(move |_, w, cx| {
+                        cx.stop_propagation();
+                        f(&tab_key, w, cx)
+                    });
+                }
+                el = el.child(div().size(px(TAB_CLOSE)).flex_none().flex().items_center().justify_center().child(close));
+            }
+            tabs = tabs.child(el);
+        }
+        let add = self.add.map(|(open, f)| {
+            let button = icon_button((id.clone(), "add"), IconName::Plus).ghost().menu_open(open).accessibility_label("Open a view").on_click(move |e, w, cx| f(e, w, cx));
+            match self.add_bounds {
+                Some(seat) => div().flex_none().child(button).on_prepaint(move |bounds, w, cx| seat(bounds, w, cx)).into_any_element(),
+                None => button.into_any_element(),
+            }
+        });
+        let maximise = self.maximise.map(|(maximised, f)| {
+            let (glyph, label) = if maximised { (IconName::Minimize, "Restore the pane") } else { (IconName::Maximize, "Maximise the pane") };
+            icon_button((id.clone(), "maximise"), glyph).ghost().icon_size(px(GLYPH)).accessibility_label(label).on_click(move |e, w, cx| f(e, w, cx))
+        });
+        let mut close = icon_button((id.clone(), "close"), IconName::X).ghost().icon_size(px(CLOSE_GLYPH)).accessibility_label("Close the pane");
+        if let Some(f) = self.on_close {
+            close = close.on_click(move |e, w, cx| f(e, w, cx));
+        }
+        h_flex()
+            .id(id)
+            .size_full()
+            .min_w(px(0.0))
+            .px(px(TABS_PAD_X))
+            .gap(px(TABS_GAP))
+            .items_center()
+            .overflow_hidden()
+            .child(tabs)
+            .children(add)
+            .child(div().flex_1().min_w(px(0.0)))
+            .children(maximise)
+            .child(close)
     }
 }
 
-/// The row of a view pushed on a screen (file preview, Create PR, full
-/// output, image): ← (label "Back to …"), title 14.3 / 600, context 13.2
-/// muted (hidden under [`CONTEXT_MIN_WIDTH`]), ≤ 2 actions, ✕.
+/// The sub-header of a view pushed on a screen (file preview, Create PR,
+/// full output, image): ← (label "Back to …") when the host wires it, the
+/// title (`t-caption`, `fg-muted`: a file's path), ≤ 2 actions at the right.
+/// ✕ lives in the tab row.
 #[derive(IntoElement)]
 pub struct PushedRow {
     id: ElementId,
     title: AnyElement,
-    context: Option<SharedString>,
     back_label: SharedString,
     actions: Vec<AnyElement>,
-    width: Option<Pixels>,
     on_back: Option<Handler>,
-    on_close: Option<Handler>,
 }
 
-/// A pushed view's row titled with plain text.
+/// A pushed view's sub-header titled with plain text.
 pub fn pushed_row(id: impl Into<ElementId>, title: impl Into<SharedString>) -> PushedRow {
     let title: SharedString = title.into();
-    pushed_row_with(id, div().font_weight(FontWeight::SEMIBOLD).child(title))
+    pushed_row_with(id, div().child(title))
 }
 
-/// A pushed view's row whose title is caller-built (the full output's
-/// command in mono with its exit code and time).
+/// A pushed view's sub-header whose title is caller-built (the full
+/// output's command in mono with its exit code and time).
 pub fn pushed_row_with(id: impl Into<ElementId>, title: impl IntoElement) -> PushedRow {
-    PushedRow {
-        id: id.into(),
-        title: title.into_any_element(),
-        context: None,
-        back_label: "Back".into(),
-        actions: Vec::new(),
-        width: None,
-        on_back: None,
-        on_close: None,
-    }
+    PushedRow { id: id.into(), title: title.into_any_element(), back_label: "Back".into(), actions: Vec::new(), on_back: None }
 }
 
 impl PushedRow {
-    /// The muted context after the title (a file's folder).
-    pub fn context(mut self, context: impl Into<SharedString>) -> Self {
-        self.context = Some(context.into());
-        self
-    }
-
     /// ←'s accessible name: "Back to files", "Back to changes".
     pub fn back_label(mut self, label: impl Into<SharedString>) -> Self {
         self.back_label = label.into();
         self
     }
 
-    /// One of at most two actions before ✕.
+    /// One of at most two actions at the right.
     pub fn action(mut self, action: impl IntoElement) -> Self {
         debug_assert!(self.actions.len() < 2, "a pushed view's row holds at most two actions");
         self.actions.push(action.into_any_element());
         self
     }
 
-    /// The pane's width, so the context can leave under 360.
-    pub fn width(mut self, width: Pixels) -> Self {
-        self.width = Some(width);
-        self
-    }
-
-    /// ←: pop the view.
+    /// ←: pop the view. Without it the row has no ← (the file preview: its
+    /// way back is the Files tab).
     pub fn on_back(mut self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.on_back = Some(Box::new(f));
-        self
-    }
-
-    /// ✕: close the pane.
-    pub fn on_close(mut self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.on_close = Some(Box::new(f));
+        self.on_back = Some(Rc::new(f));
         self
     }
 }
@@ -242,34 +278,25 @@ impl PushedRow {
 impl RenderOnce for PushedRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let show_context = self.width.is_none_or(|w| f32::from(w) >= CONTEXT_MIN_WIDTH);
-        let mut back = icon_button((self.id.clone(), "back"), IconName::ChevronLeft).ghost().accessibility_label(self.back_label);
-        if let Some(f) = self.on_back {
-            back = back.on_click(move |e, w, cx| f(e, w, cx));
-        }
-        let mut title = h_flex()
+        let back = self.on_back.map(|f| icon_button((self.id.clone(), "back"), IconName::ChevronLeft).ghost().accessibility_label(self.back_label).on_click(move |e, w, cx| f(e, w, cx)));
+        let has_back = back.is_some();
+        let title = div()
             .flex_1()
             .min_w(px(0.0))
             .overflow_hidden()
-            .pl(px(2.0))
-            .gap(px(8.0))
-            .items_baseline()
             .whitespace_nowrap()
-            .font_family(scale::FONT_UI)
-            .text_px(NAME_TEXT)
-            .text_color(p.fg)
-            .child(div().flex_none().max_w_full().overflow_hidden().text_ellipsis().child(self.title));
-        if let Some(context) = self.context.filter(|_| show_context) {
-            title = title.child(div().min_w(px(0.0)).overflow_hidden().text_ellipsis().text_px(CONTEXT_TEXT).text_color(p.fg_muted).child(context));
-        }
-        pane_header(cx)
-            .id(self.id.clone())
-            .px(px(ROW_PAD_RIGHT))
+            .text_ellipsis()
+            .when(!has_back, |d| d.pl(px(TAB_PAD_X - PUSHED_PAD)))
+            .text_role(TextRole::Caption)
+            .text_color(p.fg_muted)
+            .child(self.title);
+        pane_subheader(cx)
+            .id(self.id)
+            .px(px(PUSHED_PAD))
             .gap(px(PUSHED_GAP))
-            .child(back)
+            .children(back)
             .child(title)
             .children(self.actions)
-            .child(close_button((self.id, "close").into(), self.on_close))
     }
 }
 
@@ -417,9 +444,10 @@ pub fn strip_moving(position: f32, index: usize) -> bool {
 
 /// Changes · Files · Page as screens side by side on one strip, 6 apart; the
 /// pane is a window onto the one at `position` (from [`strip_position`]).
-/// Each screen is a sheet of its own (rounded, the sheet colour) and carries
-/// its own row; screens out of view are not built (pass `None`), so each one
-/// keeps its scroll and selection in the host's state, not in the element.
+/// Each screen sits square on the column's ground under the tab row (which
+/// does not move) and carries its own sub-header if it has one; screens out
+/// of view are not built (pass `None`), so each one keeps its scroll and
+/// selection in the host's state, not in the element.
 #[derive(IntoElement)]
 pub struct PaneStrip {
     id: ElementId,
@@ -568,44 +596,11 @@ pub fn field_border(focused: bool, cx: &App) -> gpui::Hsla {
     if focused { p.accent_ring } else { p.line_strong }
 }
 
-/// Files' filter (docs/43 §2.4): a 32 px Well field under the pane row (inset
-/// 6 above, 8 at the sides, 2 below), a [`field_border`] (focus colour while focused), the
-/// search glyph 14 muted, the query, and `3 of 1,204` in faint mono 12.1 at
-/// the right.
-pub fn filter_field(
-    id: impl Into<ElementId>,
-    state: &gpui::Entity<gpui_kit::base::input::InputState>,
-    count: Option<SharedString>,
-    window: &Window,
-    cx: &App,
-) -> gpui::Div {
-    let p = cx.aui().colors;
-    let id: ElementId = id.into();
-    let focused = gpui::Focusable::focus_handle(state.read(cx), cx).is_focused(window);
-    div().w_full().flex_none().pt(px(6.0)).px(px(8.0)).pb(px(2.0)).child(
-        h_flex()
-            .h(px(32.0))
-            .px(px(10.0))
-            .gap(px(8.0))
-            .items_center()
-            .rounded(px(6.0))
-            .bg(p.well)
-            .border_1()
-            .border_color(field_border(focused, cx))
-            .font_family(scale::FONT_UI)
-            .text_px(NAME_TEXT)
-            .text_color(p.fg)
-            .child(icon(IconName::Search).size(px(GLYPH)).color(p.fg_muted))
-            .child(crate::a11y_text::a11y_text_input(id, "Filter files", state, cx).flex_1().min_w(px(0.0)))
-            .when_some(count, |d, c| d.child(div().flex_none().font_family(scale::FONT_MONO).text_px(12.1).text_color(p.ink_4).child(c))),
-    )
-}
-
-/// Files' filter in the bar (owner 2026-10-21, canvas `D6OneBar`): while
-/// filtering, the pane row IS the field — the Well (28, r 6, a [`field_border`]; the
-/// focus colour while focused), search glyph 12, the query, the match count
-/// faint mono at the right — then a 1 × 16 hairline and ✕, which closes the
-/// filter (as Esc does); the next ✕ closes the pane.
+/// Files' filter (owner 2026-10-21, canvas `D6OneBar`; docs/83 §6): while
+/// filtering, Files' sub-header IS the field — the Well (28, r 6, a
+/// [`field_border`]; the focus colour while focused), search glyph 12, the
+/// query, the match count faint mono at the right — then a 1 × 16 hairline
+/// and ✕, which closes the filter (as Esc does).
 pub fn filter_bar(
     id: impl Into<ElementId>,
     state: &gpui::Entity<gpui_kit::base::input::InputState>,
@@ -617,7 +612,7 @@ pub fn filter_bar(
     let p = cx.aui().colors;
     let id: ElementId = id.into();
     let focused = gpui::Focusable::focus_handle(state.read(cx), cx).is_focused(window);
-    pane_header(cx)
+    pane_subheader(cx)
         .id(id.clone())
         .px(px(6.0))
         .gap(px(6.0))
@@ -632,7 +627,7 @@ pub fn filter_bar(
                 .rounded(px(6.0))
                 .bg(p.well)
                 .border_1()
-            .border_color(field_border(focused, cx))
+                .border_color(field_border(focused, cx))
                 .font_family(scale::FONT_UI)
                 .text_px(13.2)
                 .text_color(p.fg)

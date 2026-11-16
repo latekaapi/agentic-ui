@@ -16,6 +16,15 @@ use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{chip, context_meter, icon_button, ContextMeterState};
 use crate::util::named_child;
 
+/// The composer's box (docs/83 §5): `overlay` fill, a 1 px edge (the caller
+/// passes `line-strong` at rest, `accent-ring` while its field has focus),
+/// radius 10, full width — no glow, no shadow. The Changes commit box is
+/// the same box (docs/83 §6), so both draw through here.
+pub fn composer_box(edge: gpui::Hsla, cx: &App) -> gpui::Div {
+    let p = cx.aui().colors;
+    v_flex().w_full().bg(p.overlay).rounded(px(scale::SHAPE_CONTAINER)).border_1().border_color(edge)
+}
+
 /// `.cp{border-radius:14px}`.
 const CARD_RADIUS: f32 = 14.0;
 /// `.cp.focus{box-shadow:0 0 0 3px var(--accent-ring)}`.
@@ -939,15 +948,7 @@ impl RenderOnce for Composer {
             // `＋` and send sit centred on the first line and stay at the
             // bottom as the text grows.
             let control_inset = ((scale::T_READ_LH + 2.0 * KIT_EDITOR_PAD_Y - f32::from(control)) / 2.0).max(0.0);
-            let mut field = v_flex()
-                .id(id.clone())
-                .w_full()
-                .min_h(px(BOX_MIN_H))
-                .bg(p.overlay)
-                .rounded(px(scale::SHAPE_CONTAINER))
-                .border_1()
-                .border_color(edge)
-                .px(px(FIELD_PAD));
+            let mut field = composer_box(edge, cx).id(id.clone()).min_h(px(BOX_MIN_H)).px(px(FIELD_PAD));
             if !self.quotes.is_empty() {
                 let mut stack = v_flex().w_full().gap(px(8.0)).px(px(RAISED_TEXT_PAD_X)).pt(px(RAISED_TEXT_PAD_X));
                 for q in &self.quotes {

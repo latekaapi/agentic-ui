@@ -418,8 +418,9 @@ impl RenderOnce for TerminalDock {
             .gap(px(scale::SP_3))
             .pr(px(scale::SP_3))
             .bg(p.surface_1)
+            // A header's underline is a region line (docs/83 §2.1, rule 2).
             .border_b_1()
-            .border_color(p.line)
+            .border_color(p.line_region)
             .child(div().flex_1().min_w(px(0.0)).flex().child(self.header));
         if let Some(hint) = self.hint {
             header = header.child(div().flex_none().ui(scale::FS_12).text_color(p.fg_muted).whitespace_nowrap().child(hint));

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use aui_icons::{icon, IconName};
 use aui_motion::{collapse_fluid, collapse_fluid_opacity, open_close, SpringKind, COLLAPSE_EXIT};
 use aui_protocol::{ChangeKind, Diff, DiffKind, FileChange};
-use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::{div, prelude::*, px, radians, AnyElement, App, ClickEvent, ElementId, FontWeight, Hsla, IntoElement, Pixels, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -77,7 +77,7 @@ pub fn split_path(path: &str) -> (SharedString, SharedString) {
 pub const CHANGE_FOLDER_MIN_WIDTH: f32 = 340.0;
 
 /// One changed file (docs/43 §2.6): 32 tall, r 6, gap 8 — chevron 12 muted in
-/// a 16 slot 4 in, the status letter in mono 12.1, the name 14.3, the folder
+/// a 16 slot 4 in, the status letter `t-micro`, the name 14.3, the folder
 /// 13.2 muted (hidden under 340 wide), `+N −M` at the right; on hover one
 /// "open file" button after the counts. The whole row toggles its diff. The
 /// row paints no hover itself: the screen's [`RowList`](crate::interact::RowList)
@@ -143,7 +143,7 @@ impl RenderOnce for ChangeRow {
         let mut row = h_flex()
             .id(self.id.clone())
             .w_full()
-            .h(px(32.0))
+            .h(px(scale::CHANGE_ROW))
             .gap(px(8.0))
             .pr(px(8.0))
             .rounded(px(6.0))
@@ -167,7 +167,7 @@ impl RenderOnce for ChangeRow {
                     .justify_center()
                     .child(icon(IconName::Chev).size(px(12.0)).color(p.fg_muted).rotate(radians(turn * std::f32::consts::FRAC_PI_2))),
             )
-            .child(div().w(px(12.0)).flex_none().text_center().font_family(scale::FONT_MONO).text_px(MONO_SMALL).text_color(letter_color).child(letter))
+            .child(div().w(px(12.0)).flex_none().text_center().text_role(TextRole::Micro).text_color(letter_color).child(letter))
             .child(div().flex_none().child(name.clone()))
             .when(show_folder, |d| d.child(div().min_w(px(0.0)).overflow_hidden().text_ellipsis().text_px(SMALL_TEXT).text_color(p.fg_muted).child(folder)))
             .child(div().flex_1().min_w(px(0.0)))
@@ -469,18 +469,11 @@ pub fn ahead_behind(ahead: u32, behind: u32) -> Option<SharedString> {
     (!s.is_empty()).then(|| s.into())
 }
 
-/// The commit box's frame: Raised r 10 with a [`super::pane::field_border`],
-/// padding 8, gap 6.
+/// The commit box's frame: the composer's box (docs/83 §6, through
+/// [`crate::composer::composer_box`]: `overlay`, 1 px `line-strong`,
+/// `accent-ring` while focused, radius 10), padding 8, gap 6.
 pub fn commit_frame(focused: bool, cx: &App) -> gpui::Div {
-    let p = cx.aui().colors;
-    v_flex()
-        .w_full()
-        .p(px(8.0))
-        .gap(px(6.0))
-        .rounded(px(10.0))
-        .bg(p.surface_3)
-        .border_1()
-        .border_color(super::pane::field_border(focused, cx))
+    crate::composer::composer_box(super::pane::field_border(focused, cx), cx).p(px(8.0)).gap(px(6.0))
 }
 
 /// The message as drawn at rest: its first line 600, the rest muted, 14.3 /
@@ -638,25 +631,13 @@ pub fn pr_card(
         .child(meta)
 }
 
-/// The foot that holds the commit box: padding 8 on the pane's ground, the
-/// 24 px fade above it, pinned to the bottom of the screen.
+/// The foot that holds the commit box: padding 8 on the pane's solid
+/// ground, pinned to the bottom of the screen. No fade above it (docs/83 §1
+/// rule 1; the composer band lost its own in task 2.6): the ground is
+/// opaque from the box's padding down, so nothing shows through.
 pub fn commit_foot(child: impl IntoElement, cx: &App) -> gpui::Div {
     let ground = cx.aui().colors.surface_1;
-    div()
-        .absolute()
-        .left(px(0.0))
-        .right(px(0.0))
-        .bottom(px(0.0))
-        .child(
-            div()
-                .absolute()
-                .left(px(0.0))
-                .right(px(0.0))
-                .top(px(-24.0))
-                .h(px(24.0))
-                .bg(gpui::linear_gradient(180.0, gpui::linear_color_stop(ground.alpha(0.0), 0.0), gpui::linear_color_stop(ground, 1.0))),
-        )
-        .child(div().w_full().p(px(8.0)).bg(ground).child(child))
+    div().absolute().left(px(0.0)).right(px(0.0)).bottom(px(0.0)).child(div().w_full().p(px(8.0)).bg(ground).child(child))
 }
 
 // ─────────────────────────────────────────────────────────────── Create PR

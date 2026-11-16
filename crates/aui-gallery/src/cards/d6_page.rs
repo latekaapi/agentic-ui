@@ -5,9 +5,9 @@
 
 use aui::workbench::{
     address_field_frame, agent_pill, annotate_outline, annotate_pin, no_page_state, notes_panel, page_address, page_error_state, page_nav_row,
-    pane_row, recent_pages_menu, PageNote, RecentRow,
+    recent_pages_menu, PageNote, RecentRow,
 };
-use aui_icons::{IconName, Provider};
+use aui_icons::Provider;
 use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
@@ -52,7 +52,7 @@ fn screen(label: &str, w: f32, body: impl IntoElement, cx: &App) -> Div {
             .border_color(p.line)
             .flex()
             .flex_col()
-            .child(pane_row(SharedString::from(format!("{label}-row")), IconName::Globe, "Page").on_close(|_, _, _| {}))
+            .child(super::d6_pane::tab_header(&format!("{label}-tabs"), "Page", None, cx))
             .child(body),
     )
 }
@@ -81,7 +81,7 @@ fn screen_recent(label: &str, w: f32, body: impl IntoElement, cx: &App) -> Div {
             .border_color(p.line)
             .flex()
             .flex_col()
-            .child(pane_row(SharedString::from(format!("{label}-row")), IconName::Globe, "Page").title_menu(true, |_, _, _| {}).on_close(|_, _, _| {}))
+            .child(super::d6_pane::tab_header(&format!("{label}-tabs"), "Page", None, cx))
             .child(body)
             .child(div().absolute().left(px(6.0)).top(px(34.0)).child(menu)),
     )
@@ -91,7 +91,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let _ = window;
     let url = "http://localhost:3000/pricing";
     let nav = |id: &str, w: f32, annot: bool, loading: Option<f32>, cx: &App| {
-        page_nav_row(SharedString::from(id.to_string()), page_address(SharedString::from(format!("{id}-addr")), url, cx).into_any_element(), true, false, annot, w, loading, None, |_, _, _| {}, cx)
+        page_nav_row(SharedString::from(id.to_string()), page_address(SharedString::from(format!("{id}-addr")), url, cx).into_any_element(), true, false, annot, w, loading, |_, _, _| {}, cx)
     };
 
     let with_pill = v_flex()
