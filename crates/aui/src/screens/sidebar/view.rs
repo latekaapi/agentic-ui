@@ -1105,10 +1105,16 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
         for item in &model.nav {
             // No trailing count unless non-zero (docs/83 §4).
             let trailing = item.count.filter(|count| *count > 0).map(|count| ctx.trailing(count.to_string(), cx));
-            let lit = ctx.lit(&format!("nav-{}", item.id));
-            let row = ctx.row(Some(ctx.lead_icon_lit(item.icon, lit, cx)), item.label.clone(), trailing, false, cx);
-            record_ax_label(&item.label);
-            list = list.item(next, row.id(ctx.child(format!("nav-{}", item.id))).role(gpui::Role::Button).aria_label(item.label.clone()));
+            let lit = ctx.lit(&format!("nav-{}", item.id)) || item.active;
+            let mut row = ctx.row(Some(ctx.lead_icon_lit(item.icon, lit, cx)), item.label.clone(), trailing, false, cx);
+            // A filter that is on holds the selection's fill (docs/83 §4:
+            // selection is the fill, radius 8).
+            if item.active {
+                row = row.rounded(px(scale::R_8)).bg(cx.aui().colors.selected_overlay());
+            }
+            let spoken: SharedString = if item.active { format!("{}, on", item.label).into() } else { item.label.clone() };
+            record_ax_label(&spoken);
+            list = list.item(next, row.id(ctx.child(format!("nav-{}", item.id))).role(gpui::Role::Button).aria_label(spoken));
             targets.borrow_mut().insert(next, Target::Intent(SidebarIntent::Nav(item.id.clone())));
             next += 1;
         }

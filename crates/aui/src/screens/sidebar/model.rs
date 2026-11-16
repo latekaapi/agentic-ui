@@ -54,6 +54,9 @@ pub struct NavItem {
     /// The trailing count, if the row carries one; zero draws nothing
     /// (docs/83 §4: no trailing counts unless non-zero).
     pub count: Option<u32>,
+    /// The row is a filter that is on (Baaz's "Needs you"): it holds the
+    /// selected fill, and its spoken name says so.
+    pub active: bool,
 }
 
 /// One meter line inside a provider's usage card.
@@ -723,7 +726,7 @@ pub fn sample_model() -> SidebarModel {
         mode: Mode::Sessions,
         search: None,
         nav: vec![
-            NavItem { id: "skills".into(), label: "Skills".into(), icon: IconName::Book, count: Some(23) },
+            NavItem { id: "skills".into(), label: "Skills".into(), icon: IconName::Book, count: Some(23), active: false },
         ],
         pinned,
         pinned_open: true,

@@ -119,6 +119,21 @@ fn a_closed_project_header_names_its_strongest_state(cx: &mut TestAppContext) {
     assert!(!has(&labels, "Failed"), "an open header leaves its state to its rows: {labels:?}");
 }
 
+/// Task 3.4: a nav row that is an active filter says so to assistive
+/// tech; an inactive one reads its plain label.
+#[gpui::test]
+fn an_active_filter_row_says_it_is_on(cx: &mut TestAppContext) {
+    use aui::screens::sidebar::NavItem;
+    init(cx);
+    let mut model = sample_model();
+    model.nav.insert(0, NavItem { id: "needs-you".into(), label: "Needs you".into(), icon: aui_icons::IconName::Bell, count: Some(2), active: true });
+    let labels = labels_of(cx, model.clone());
+    assert_has(&labels, &["Needs you, on"]);
+    model.nav[0].active = false;
+    let labels = labels_of(cx, model);
+    assert_has(&labels, &["Needs you"]);
+}
+
 #[gpui::test]
 fn browse_mode_labels_every_interactive_element(cx: &mut TestAppContext) {
     init(cx);
