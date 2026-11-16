@@ -231,9 +231,10 @@ impl Dialog {
         self
     }
 
-    /// A host element in place of the kind tile at the head (an app's
-    /// mascot for a critical error): it sits on the title row, centred, the
-    /// title to its right.
+    /// A host element in place of the kind tile (an app's mascot for a
+    /// critical error). It is too tall for the 44 px header, so it leads
+    /// the body instead: on the body's first line, the text one gap to its
+    /// right, and the header keeps the title alone.
     pub fn leading(mut self, element: impl IntoElement) -> Self {
         self.leading = Some(element.into_any_element());
         self

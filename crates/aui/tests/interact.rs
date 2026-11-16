@@ -169,3 +169,190 @@ fn row_list_reports_the_pointer_and_activates_the_click(cx: &mut TestAppContext)
     vc.run_until_parked();
     assert_eq!(*activated.borrow(), vec![1]);
 }
+
+/// A [`dismiss_layer`](aui::interact::dismiss_layer) over a clickable
+/// control: the press alone does nothing, the release calls `on_dismiss`
+/// once, and the control under the layer never hears the click.
+#[gpui::test]
+fn dismiss_layer_dismisses_on_the_release_and_swallows_the_click(cx: &mut TestAppContext) {
+    use aui::interact::dismiss_layer;
+    cx.update(|cx| aui::init(ThemeKind::Dark, cx));
+    struct Host {
+        dismissed: Rc<RefCell<usize>>,
+        under: Rc<RefCell<usize>>,
+    }
+    impl gpui::Render for Host {
+        fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            let dismissed = self.dismissed.clone();
+            let under = self.under.clone();
+            div()
+                .relative()
+                .w(px(400.0))
+                .h(px(400.0))
+                .child(div().id("under").size_full().on_click(move |_, _, _| *under.borrow_mut() += 1))
+                .child(dismiss_layer("layer", "Close the menu", move |_, _| *dismissed.borrow_mut() += 1))
+        }
+    }
+    let dismissed = Rc::new(RefCell::new(0));
+    let under = Rc::new(RefCell::new(0));
+    let (d, u) = (dismissed.clone(), under.clone());
+    let (_view, vc) = cx.add_window_view(move |_, _| Host { dismissed: d, under: u });
+    vc.run_until_parked();
+    let at = gpui::point(px(200.0), px(200.0));
+    vc.simulate_mouse_down(at, gpui::MouseButton::Left, Default::default());
+    vc.run_until_parked();
+    assert_eq!(*dismissed.borrow(), 0, "the press alone must not dismiss");
+    vc.simulate_mouse_up(at, gpui::MouseButton::Left, Default::default());
+    vc.run_until_parked();
+    assert_eq!(*dismissed.borrow(), 1, "the release dismisses once");
+    assert_eq!(*under.borrow(), 0, "the layer swallows the click");
+}
+
+/// `Row::on_press` runs on the button going down, before the release
+/// reaches `on_click`; both run once for one click.
+#[gpui::test]
+fn row_on_press_fires_on_the_press_before_the_click(cx: &mut TestAppContext) {
+    cx.update(|cx| aui::init(ThemeKind::Dark, cx));
+    struct Host {
+        log: Rc<RefCell<Vec<&'static str>>>,
+    }
+    impl gpui::Render for Host {
+        fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            let (pressed, clicked) = (self.log.clone(), self.log.clone());
+            div().w(px(300.0)).child(
+                row("back", "Back")
+                    .on_click(move |_, _, _| clicked.borrow_mut().push("click"))
+                    .on_press(move |_, _, _| pressed.borrow_mut().push("press")),
+            )
+        }
+    }
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let l = log.clone();
+    let (_view, vc) = cx.add_window_view(move |_, _| Host { log: l });
+    vc.run_until_parked();
+    let at = gpui::point(px(100.0), px(10.0));
+    vc.simulate_mouse_down(at, gpui::MouseButton::Left, Default::default());
+    vc.run_until_parked();
+    assert_eq!(*log.borrow(), vec!["press"], "on_press runs on the press, the click has not landed");
+    vc.simulate_mouse_up(at, gpui::MouseButton::Left, Default::default());
+    vc.run_until_parked();
+    assert_eq!(*log.borrow(), vec!["press", "click"]);
+}
+
+/// `RowList::on_press` reports the pressed item's index on the press, ahead
+/// of `on_activate` on the release.
+#[gpui::test]
+fn row_list_on_press_reports_the_index_on_the_press(cx: &mut TestAppContext) {
+    cx.update(|cx| aui::init(ThemeKind::Dark, cx));
+    struct Host {
+        log: Rc<RefCell<Vec<(&'static str, usize)>>>,
+    }
+    impl gpui::Render for Host {
+        fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            let (pressed, activated) = (self.log.clone(), self.log.clone());
+            let mut list = row_list("suggestions")
+                .gap(px(0.0))
+                .on_press(move |index, _, _| pressed.borrow_mut().push(("press", index)))
+                .on_activate(move |index, _, _| activated.borrow_mut().push(("activate", index)));
+            for i in 0..3 {
+                list = list.item(i, row(("s", i), format!("Suggestion {i}")));
+            }
+            div().w(px(300.0)).h(px(400.0)).child(list)
+        }
+    }
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let l = log.clone();
+    let (_view, vc) = cx.add_window_view(move |_, _| Host { log: l });
+    vc.run_until_parked();
+    // Rows are 32 tall with no gap: y 80 is the third item.
+    let at = gpui::point(px(100.0), px(80.0));
+    vc.simulate_mouse_down(at, gpui::MouseButton::Left, Default::default());
+    vc.run_until_parked();
+    assert_eq!(*log.borrow(), vec![("press", 2)]);
+    vc.simulate_mouse_up(at, gpui::MouseButton::Left, Default::default());
+    vc.run_until_parked();
+    assert_eq!(*log.borrow(), vec![("press", 2), ("activate", 2)]);
+}
+
+type Slot = Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>;
+
+/// A box of `size` that records where it was laid out.
+fn probe(slot: &Slot, size: f32) -> impl IntoElement {
+    let slot = slot.clone();
+    gpui::canvas(move |bounds, _, _| slot.set(Some(bounds)), |_, _, _, _| {}).size(px(size))
+}
+
+/// `Button::leading` draws the caller's element before the label in place
+/// of the glyph: it sits inside the button's left edge, and a button with
+/// both a glyph and a leading element is exactly as wide as one with the
+/// leading element alone.
+#[gpui::test]
+fn button_leading_takes_the_glyph_slot_before_the_label(cx: &mut TestAppContext) {
+    use aui::data::button;
+    use aui_icons::IconName;
+    cx.update(|cx| aui::init(ThemeKind::Dark, cx));
+    let slots: [Slot; 4] = Default::default();
+    let s = slots.clone();
+    let (_view, vc) = cx.add_window_view(move |_, _| {
+        struct Host {
+            s: [Slot; 4],
+        }
+        impl gpui::Render for Host {
+            fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+                let s = &self.s;
+                gpui_kit::base::v_flex()
+                    .items_start()
+                    .child(gpui_kit::base::h_flex().child(button("a", "Opus").leading(probe(&s[0], 16.0))).child(probe(&s[1], 1.0)))
+                    .child(
+                        gpui_kit::base::h_flex()
+                            .child(button("b", "Opus").icon(IconName::Folder).leading(probe(&s[2], 16.0)))
+                            .child(probe(&s[3], 1.0)),
+                    )
+            }
+        }
+        Host { s }
+    });
+    vc.run_until_parked();
+    let get = |i: usize| slots[i].get().unwrap_or_else(|| panic!("probe {i} was not drawn"));
+    let (lead, end) = (get(0), get(1));
+    assert!(lead.origin.x > px(0.0), "the leading element sits inside the button's padding: {lead:?}");
+    assert!(lead.right() < end.origin.x - px(16.0), "the label follows the leading element: {lead:?} {end:?}");
+    assert_eq!(get(2).origin.x, lead.origin.x, "same slot with a glyph set");
+    assert_eq!(get(3).origin.x, end.origin.x, "the leading element replaces the glyph, it does not add to it");
+}
+
+/// `Button::decorative`: no handler, nothing in the accessibility tree —
+/// the live copy beside it names itself and takes the click.
+#[gpui::test]
+fn decorative_button_takes_no_click_and_has_no_name(cx: &mut TestAppContext) {
+    use aui::data::button;
+    cx.update(|cx| aui::init(ThemeKind::Dark, cx));
+    let clicks = Rc::new(RefCell::new(Vec::new()));
+    let c = clicks.clone();
+    struct Host {
+        clicks: Rc<RefCell<Vec<&'static str>>>,
+    }
+    impl gpui::Render for Host {
+        fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            let (still, live) = (self.clicks.clone(), self.clicks.clone());
+            gpui_kit::base::v_flex()
+                .items_start()
+                .child(button("still", "Record").decorative(true).on_click(move |_, _, _| still.borrow_mut().push("still")))
+                .child(button("live", "Stop").on_click(move |_, _, _| live.borrow_mut().push("live")))
+        }
+    }
+    arm_ax_probe(true);
+    take_ax_labels();
+    let (_view, vc) = cx.add_window_view(move |_, _| Host { clicks: c });
+    vc.run_until_parked();
+    let labels = take_ax_labels();
+    arm_ax_probe(false);
+    assert!(labels.contains(&"Stop".to_string()), "the live button names itself: {labels:?}");
+    assert!(!labels.contains(&"Record".to_string()), "the decorative copy stays out of the AX tree: {labels:?}");
+    // Buttons are 32 tall: y 10 is the decorative one, y 42 the live one.
+    vc.simulate_click(gpui::point(px(10.0), px(10.0)), Default::default());
+    vc.run_until_parked();
+    vc.simulate_click(gpui::point(px(10.0), px(42.0)), Default::default());
+    vc.run_until_parked();
+    assert_eq!(*clicks.borrow(), vec!["live"]);
+}

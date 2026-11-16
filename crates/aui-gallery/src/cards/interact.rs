@@ -1,7 +1,7 @@
 //! Interact cards: the interaction primitives — states, rows and surfaces.
 
 use aui::data::kbd;
-use aui::interact::{interactive, menu_panel, nested_radius, row, surface, Shape};
+use aui::interact::{dismiss_layer, interactive, list_row, menu_panel, nested_radius, row, row_list, surface, Shape};
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, IntoElement, SharedString, Window};
@@ -152,4 +152,75 @@ pub fn build_surfaces(_window: &mut Window, cx: &mut App) -> AnyElement {
                 .child(v_flex().items_start().gap(cx.aui().metrics.gap).child(pair(false, cx)).child(caption("inner repeats the outer", cx))),
         ))
         .into_any_element()
+}
+
+/// `interact/press-and-dismiss`: the press-time handlers and the outside
+/// click. A Back row and a suggestion list that act on the press
+/// (`Row::on_press`, `RowList::on_press`) beside a float over its
+/// [`dismiss_layer`], which here paints the scrim over the rows under it.
+pub fn build_press_dismiss(_window: &mut Window, cx: &mut App) -> AnyElement {
+    let metrics = cx.aui().metrics;
+    let lead = |glyph: IconName, cx: &App| icon(glyph).size(cx.aui().metrics.icon).color(cx.aui().colors.fg_muted);
+    // A Back row that closes its page on the press, keeping the click for
+    // the keyboard and assistive press.
+    let back = list_row("press-back", "Back to Settings")
+        .leading(lead(IconName::ArrowLeft, cx))
+        .on_click(|_, _, _| {})
+        .on_press(|_, _, _| {});
+    // An address field's suggestions: the press acts before a blur drops them.
+    let mut suggestions = row_list("press-suggestions")
+        .label("Suggestions")
+        .highlighted(Some(1))
+        .on_press(|_, _, _| {})
+        .on_activate(|_, _, _| {});
+    for (i, (glyph, text)) in [(IconName::Globe, "docs.rs/gpui"), (IconName::Search, "gpui canvas prepaint"), (IconName::Globe, "zed.dev/blog")]
+        .into_iter()
+        .enumerate()
+    {
+        suggestions = suggestions.item(i, list_row(("press-suggestion", i), text).leading(lead(glyph, cx)));
+    }
+    let pressed = v_flex()
+        .flex_1()
+        .min_w(px(0.0))
+        .gap(metrics.inset)
+        .child(section("Row · on_press", cx, v_flex().w_full().child(back)))
+        .child(section("RowList · on_press", cx, suggestions));
+
+    // What the layer covers: a few rows that must not react.
+    let under = v_flex()
+        .w_full()
+        .p(metrics.gap)
+        .child(row("dismiss-under-a", "Checkout flow").leading(lead(IconName::Folder, cx)))
+        .child(row("dismiss-under-b", "Auth refresh").leading(lead(IconName::Git, cx)))
+        .child(row("dismiss-under-c", "Observability").leading(lead(IconName::Inbox, cx)));
+    let float = div().w(px(200.0)).child(menu_panel(
+        v_flex()
+            .child(list_row("dismiss-menu-rename", "Rename").leading(lead(IconName::Edit, cx)))
+            .child(list_row("dismiss-menu-pin", "Pin").leading(lead(IconName::Pin, cx))),
+        cx,
+    ));
+    let layered = div()
+        .relative()
+        .w_full()
+        .h(px(200.0))
+        .rounded(px(scale::SHAPE_CONTAINER))
+        .overflow_hidden()
+        .bg(cx.aui().colors.surface(1))
+        .child(under)
+        .child(
+            dismiss_layer("dismiss-layer", "Close the menu", |_, _| {})
+                .bg(aui::overlay::scrim())
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(float),
+        );
+    let dismiss = v_flex()
+        .flex_1()
+        .min_w(px(0.0))
+        .gap(metrics.gap)
+        .child(caption("dismiss_layer · scrim and float", cx))
+        .child(layered)
+        .child(caption("A click outside the float dismisses it on the release; nothing under the layer reacts.", cx));
+    h_flex().w_full().items_start().gap(metrics.inset).child(pressed).child(dismiss).into_any_element()
 }

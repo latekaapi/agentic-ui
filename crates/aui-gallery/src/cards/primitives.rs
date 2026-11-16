@@ -4,7 +4,7 @@
 
 use aui::data::{banner, button, card, checkbox, field, icon_button, section, segmented, settings_row, switch, tabs, CheckboxState};
 use aui::interact::{dropdown, list_row, DropdownEntry, DropdownItem, InteractState, PaintStates, StatePaint, R_ITEM};
-use aui_icons::{icon, IconName};
+use aui_icons::{icon, provider_mark, IconName, Provider};
 use aui_tokens::{ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -255,4 +255,65 @@ pub fn build_switch_checkbox(_window: &mut Window, cx: &mut App) -> AnyElement {
         .child(tile("focused", checkbox("cb-focus", CheckboxState::Off, false).accessibility_label("Focused").preview(InteractState::FOCUSED), cx))
         .child(tile("disabled", checkbox("cb-dis", CheckboxState::On, true).accessibility_label("Disabled"), cx));
     v_flex().w_full().gap(px(20.0)).child(sw).child(cb).into_any_element()
+}
+
+/// `primitives/button-leading`: a caller-built element in the glyph slot
+/// (`Button::leading`) and the decorative copy (`Button::decorative`).
+pub fn build_button_leading(_window: &mut Window, cx: &mut App) -> AnyElement {
+    let metrics = cx.aui().metrics;
+    let glyph = px(aui_tokens::scale::ICON_DEFAULT);
+    let line = |name: &'static str, el: AnyElement, note: &'static str, cx: &App| {
+        h_flex()
+            .w_full()
+            .gap(metrics.inset)
+            .items_center()
+            .child(div().w(px(120.0)).flex_none().child(caption(name, cx)))
+            .child(div().w(px(220.0)).flex_none().child(el))
+            .child(div().flex_1().min_w(px(0.0)).child(caption(note, cx)))
+    };
+    let leading = v_flex()
+        .w_full()
+        .gap(metrics.gap)
+        .child(div().role_in(TextRole::Body, cx).text_color(cx.aui().colors.fg).child("Button · leading"))
+        .child(line(
+            "provider mark",
+            button("bl-mark", "Default model").leading(provider_mark(Provider::Claude).size(glyph)).trailing(icon(IconName::ChevronDown).size(glyph)).ghost().into_any_element(),
+            "A model picker: the mark in the glyph slot.",
+            cx,
+        ))
+        .child(line(
+            "glyph element",
+            button("bl-back", "Back").leading(icon(IconName::ArrowLeft).size(glyph)).ghost().into_any_element(),
+            "The element inherits the button's ink.",
+            cx,
+        ))
+        .child(line(
+            "hover",
+            button("bl-back-hover", "Back").leading(icon(IconName::ArrowLeft).size(glyph)).ghost().preview(InteractState::HOVER).into_any_element(),
+            "It lifts with the hover like a glyph.",
+            cx,
+        ));
+    let decorative = v_flex()
+        .w_full()
+        .gap(metrics.gap)
+        .child(div().role_in(TextRole::Body, cx).text_color(cx.aui().colors.fg).child("Button · decorative"))
+        .child(line(
+            "live",
+            button("bd-live", "Record").icon(IconName::Camera).on_click(|_, _, _| {}).into_any_element(),
+            "Focusable, clickable, named in the AX tree.",
+            cx,
+        ))
+        .child(line(
+            "decorative",
+            button("bd-still", "Record").icon(IconName::Camera).decorative(true).into_any_element(),
+            "The same box and paint: no focus, handler, tooltip or AX node.",
+            cx,
+        ))
+        .child(line(
+            "decorative, hover pinned",
+            button("bd-still-hover", "Record").icon(IconName::Camera).decorative(true).preview(InteractState::HOVER).into_any_element(),
+            "Always drawn at rest: a pinned state is ignored.",
+            cx,
+        ));
+    v_flex().w_full().gap(metrics.inset).child(leading).child(decorative).into_any_element()
 }
