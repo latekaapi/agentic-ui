@@ -126,13 +126,23 @@ fn main() {
 
     gpui_kit::application().with_assets(aui::assets::AuiAssets).run(move |cx| {
         aui::init(theme, cx);
+        // A capture is a still: every loop (spinners, status pulses, the
+        // text shimmer) holds its resting phase and every spring lands at
+        // once. Since the capture draws frames through its delay (see
+        // `shot.rs`), loops would otherwise be caught at whatever phase the
+        // clock reached, which differs run to run (Gate 2, 16 Nov).
+        if bare_mode && idle_ms.is_none() {
+            cx.set_reduce_motion(true);
+        }
 
         let window_size = match (bare_mode, entry) {
             (true, Some(e)) => size(px(args.width.unwrap_or(e.width)), px(e.height)),
             _ => size(px(1280.0), px(820.0)),
         };
-        // Parity renders sit at the display's top-left corner, away from the
-        // pointer, so no hover state leaks into the capture.
+        // Parity renders sit at the display's top-left corner. That is not
+        // away from the pointer by itself: a pointer resting over the corner
+        // hovers whatever card sits under it, so `gallery-baseline.py` waits
+        // until the pointer is clear of the render area.
         let bounds = if bare_mode {
             Bounds::new(point(px(0.0), px(0.0)), window_size)
         } else {

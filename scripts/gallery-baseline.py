@@ -33,8 +33,11 @@ A window per render opens at the display's top-left corner and takes no focus;
 by default the script waits until the machine has been idle for 60 s (macOS
 `HIDIdleTime`) so it never interrupts someone typing, and it keeps waiting
 while they work. `--no-idle-wait` skips that (CI, or a machine nobody uses).
-Keep the pointer away from the top-left corner while it runs: a hovered card
-would be baselined hovered.
+It also waits while the pointer rests over the render area (x < 1480 pt from
+the display's left edge): a hovered card would be baselined hovered. Captures
+are stills: the gallery's `--screenshot` sets reduced motion (loops at rest,
+springs landed) and draws frames through the delay, so asynchronous content
+lands wherever the pointer is.
 
 Exit 0 clean, 1 differences or unsettled entries, 2 a render failed or a
 baseline is missing (that is not a pass).
@@ -68,12 +71,51 @@ def idle_seconds():
     return None
 
 
+# Render windows open at the display's top-left corner and are at most this
+# wide; a pointer resting inside that band hovers the card under it.
+RENDER_AREA_W = 1480
+
+
+def pointer_x():
+    """The pointer's x in display points (macOS), or None."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        import ctypes, ctypes.util
+        cg = ctypes.CDLL(ctypes.util.find_library("CoreGraphics"))
+
+        class Point(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
+
+        cg.CGEventCreate.restype = ctypes.c_void_p
+        cg.CGEventGetLocation.restype = Point
+        cg.CGEventGetLocation.argtypes = [ctypes.c_void_p]
+        cg.CFRelease.argtypes = [ctypes.c_void_p]
+        event = cg.CGEventCreate(None)
+        x = cg.CGEventGetLocation(event).x
+        cg.CFRelease(event)
+        return x
+    except (OSError, AttributeError):
+        return None
+
+
 def wait_idle(need, max_wait):
+    """Wait until nobody has touched the machine for `need` s and the pointer
+    is clear of the render area (a resting pointer there hovers a card)."""
     start = time.time()
     while True:
         idle = idle_seconds()
-        if idle is None or idle >= need:
+        x = pointer_x()
+        pointer_clear = x is None or x >= RENDER_AREA_W
+        if (idle is None or idle >= need) and pointer_clear:
             return True
+        if (idle is None or idle >= need) and not pointer_clear:
+            if time.time() - start > max_wait:
+                return False
+            print(f"  waiting: the pointer is over the render area (x {x:.0f} < {RENDER_AREA_W}); "
+                  "move it to the right edge of the screen", flush=True)
+            time.sleep(5)
+            continue
         if time.time() - start > max_wait:
             return False
         print(f"  waiting: the machine has been idle {idle} s, need {need} s", flush=True)
