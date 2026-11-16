@@ -524,7 +524,7 @@ impl RenderOnce for HandoffCard {
             body = body.child(pack_line(tokens));
         }
 
-        let mut card = crate::util::raised_block(v_flex()
+        let mut card = crate::util::flat_block(v_flex()
             .id(id.clone())
             .w_full()
             .rounded(px(scale::R_LG)), &p, p.surface_2)

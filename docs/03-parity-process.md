@@ -141,7 +141,7 @@ documented in `crates/aui-gallery/src/cards/views.rs`.
 | 03 Space/radius/elevation | aui-tokens | foundations/space | 0b8a535 · 0.6 % |
 | 04 Motion | aui-motion | foundations/motion (playground) | 0b8a535 · 1.2 % (frames) |
 | 05 Icons and marks | aui-icons | foundations/icons | 0b8a535 · 1.7 % (ts/tsx text) |
-| 10 App shell | shell::AppShell, HeaderCells, DockedComposer (note via transcript::diff_note_inset) | shell/app-shell | dc89a4a · 1.0 % |
+| 10 App shell | shell::AppShell, HeaderCells (DockedComposer deleted in task 2.6; note via transcript::diff_note_inset) | shell/app-shell | dc89a4a · 1.0 % |
 | 11 Panel chrome | shell::PanelHeader, TabStrip, DropZones | shell/panel-chrome | dc89a4a · 0.7 % (ghost rotation) |
 | 12 Command palette | overlay::CommandPalette | shell/command-palette | a70ab8a · 0.4 % |
 | 13 Toasts and banners | feedback::ToastStack, Banner | shell/toasts | a70ab8a · 1.1 % |

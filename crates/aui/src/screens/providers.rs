@@ -35,7 +35,7 @@
 use std::rc::Rc;
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
-use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -1236,33 +1236,36 @@ impl SignedOutBanner {
 impl RenderOnce for SignedOutBanner {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
+        // docs/83 §5: the action is a text button at the right.
         let mut btn = button((self.id.clone(), "action"), self.action.clone())
             .size(ButtonSize::Row)
-            .primary()
+            .ghost()
             .accessibility_label(format!("{} — {}", self.text, self.action));
         if let Some(handler) = self.on_action {
             btn = btn.on_click(move |_, w, cx| handler(w, cx));
         }
-        h_flex()
-            .id(self.id)
-            .w_full()
-            .items_center()
-            .gap(px(10.0))
-            .pl(px(12.0))
-            .pr(px(8.0))
-            .py(px(8.0))
-            .rounded(px(BOX_R))
-            .bg(p.surface_3)
-            .border_1()
-            .border_color(p.line)
+        // docs/83 §5: a banner above the composer — `surface-2`, radius 10,
+        // no border, 36 px, `t-body`; the warning dot says why it is there.
+        crate::util::flat_block(
+            h_flex()
+                .id(self.id)
+                .w_full()
+                .min_h(px(scale::CARD_HEAD))
+                .items_center()
+                .gap(px(10.0))
+                .pl(px(12.0))
+                .pr(px(4.0))
+                .rounded(px(scale::SHAPE_CONTAINER)),
+            &p,
+            p.surface_2,
+        )
             .role(gpui::Role::Status)
             .child(div().flex_none().size(px(DOT)).rounded_full().bg(p.warning))
             .child(
                 div()
                     .flex_1()
                     .min_w(px(0.0))
-                    .text_px(CAPTION_TEXT)
-                    .line_height(px(CAPTION_LH))
+                    .text_role(TextRole::Body)
                     .text_color(p.ink)
                     .child(self.text),
             )

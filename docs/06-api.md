@@ -911,8 +911,6 @@ App shell: the three-column layout with one 44 px header cell per column, contin
   - `pub fn clamp_right_width(width: f32) -> f32`
 - **fn** `clamp_sidebar_width` — Clamps a drag width into the resizable range. The shell clamps its own target the same way, but call this on every drag move before notifying so the stored width never leaves the range.
   - `pub fn clamp_sidebar_width(width: f32) -> f32`
-- **fn** `docked_composer` — A composer for `provider` / `model`.
-  - `pub fn docked_composer(id: impl Into<ElementId>, provider: Provider, model: impl Into<SharedString>) -> DockedComposer`
 - **fn** `drag_capture_overlay` — A transparent layer over the window that forwards every move and the release to the drag intents. [...]
   - `pub fn drag_capture_overlay(id: impl Into<ElementId>) -> DragCaptureOverlay`
 - **fn** `drag_region` — Wraps a header row so press-drag moves the window and double-click zooms.
@@ -965,14 +963,6 @@ App shell: the three-column layout with one 44 px header cell per column, contin
   - `pub fn on_toggle_right(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self` — Right-pane toggle click.
   - `pub fn provider(self, provider: Provider) -> Self` — The 16 px provider mark before the title.
   - `pub fn trailing(self, el: impl IntoElement) -> Self` — A status pill after the branch (`waiting`).
-- **struct** `DockedComposer` — The docked composer. Build with `docked_composer`.
-  - `pub fn can_send(self, can_send: bool) -> Self` — Whether the send button is live (surface-3 / ink-4 when the draft is empty).
-  - `pub fn context_percent(self, percent: u8) -> Self` — Shows `context N%` after the chips.
-  - `pub fn mode(self, mode: impl Into<SharedString>) -> Self` — The mode chip label.
-  - `pub fn on_intent(self, f: impl Fn(DockedComposerIntent, &mut Window, &mut App) + 'static) -> Self` — Intent handler.
-  - `pub fn pad_x(self, pad: f32) -> Self` — Overrides the horizontal padding.
-  - `pub fn placeholder(self, text: impl Into<SharedString>) -> Self` — The placeholder text.
-  - `pub fn streaming(self, streaming: bool) -> Self` — A turn is running: the send button morphs to stop.
 - **struct** `DragCaptureOverlay` — The full-window capture layer for an in-flight resize drag. Build with `drag_capture_overlay`.
   - `pub fn on_drag(self, f: impl Fn(f32, &mut Window, &mut App) + 'static) -> Self` — A move anywhere in the window; same update as the handle’s `on_drag`.
   - `pub fn on_drag_end(self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self` — The button was released; same teardown as the handle’s `on_drag_end`.
@@ -1021,8 +1011,6 @@ App shell: the three-column layout with one 44 px header cell per column, contin
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — Called with the tab id when a tab is clicked.
   - `pub fn trailing(self, el: impl IntoElement) -> Self` — A control at the far right of the band (split, overflow).
 
-- **enum** `DockedComposerIntent` — What the composer toolbar asks for.
-  - variants: `Send`, `Stop`, `Plus`, `Model`, `Mode`
 - **enum** `DropZone` — Where a dragged tab would land.
   - variants: `Left`, `Right`, `Top`, `Bottom`, `Centre`
 

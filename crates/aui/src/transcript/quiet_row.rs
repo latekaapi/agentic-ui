@@ -1,15 +1,16 @@
 //! The quiet row (D4, docs/41 §2.4): a transcript line that only reports —
 //! "Worked for…", "Thought for…", a resolved approval or answer, a loaded
-//! skill, the live activity line. It carries no surface: 32 px, padded 8 at
-//! the sides and bleeding 8 px outside the measure so its text sits on the
-//! measure's edge, radius 6, gap 8, body text muted. A row that toggles
-//! wears a 12 px chevron on the **left** and, on hover, the 5 % overlay with
-//! its text in the foreground; the whole row is the toggle. A row that
-//! cannot toggle (a resolved approval) leads with its status glyph instead
-//! and never reacts to the pointer.
+//! skill, the live activity line. It carries no surface (docs/83 §5): 32 px,
+//! padded 8 at the sides and bleeding 8 px outside the measure so its text
+//! sits on the measure's edge, gap 8, `t-body` muted. A row that toggles
+//! wears a 12 px chevron **after** its label (the reference's shape) and,
+//! on hover, lifts its text to the foreground — no background at rest or on
+//! hover; the whole row is the toggle. A row that cannot toggle (a resolved
+//! approval) leads with its status glyph instead and never reacts to the
+//! pointer.
 
 use aui_motion::{collapse_fluid, collapse_fluid_opacity};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, radians, AnyElement, App, ElementId, Hsla, IntoElement, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -24,16 +25,13 @@ pub const QUIET_ROW_H: f32 = 32.0;
 pub const QUIET_ROW_BLEED: f32 = 8.0;
 /// Gap between the row's parts.
 const GAP: f32 = 8.0;
-/// Radius of the hover overlay: the cards' own 8, so a lit row and the card
-/// under it share one corner (owner 2026-10-15: "the border radius on the
-/// pill … is not consistent").
-const RADIUS: f32 = super::card::CARD_RADIUS;
-/// The leading chevron.
+/// The chevron after a toggling row's label.
 const CHEVRON: f32 = 12.0;
 
 /// What leads a quiet row.
 pub enum QuietLead {
-    /// A toggling row: the chevron, turned a quarter while open.
+    /// A toggling row: the chevron after the parts, turned a quarter while
+    /// open.
     Chevron,
     /// A row that reports a state: its glyph (a check, a spinner).
     Glyph(AnyElement),
@@ -51,8 +49,8 @@ pub struct QuietRow {
     on_toggle: Option<ClickHandler>,
 }
 
-/// A quiet row that toggles: chevron first, then the parts added with
-/// [`QuietRow::part`]. `open` turns the chevron and shows the body.
+/// A quiet row that toggles: the parts added with [`QuietRow::part`], then
+/// the chevron. `open` turns the chevron and shows the body.
 pub fn quiet_row(id: impl Into<ElementId>, open: bool) -> QuietRow {
     QuietRow { id: id.into(), lead: QuietLead::Chevron, open, parts: Vec::new(), body: None, label: None, on_toggle: None }
 }
@@ -105,9 +103,9 @@ impl RenderOnce for QuietRow {
         let id = self.id.clone();
         let row_id: ElementId = (id.clone(), "row").into();
         let toggles = self.on_toggle.is_some();
-        // A toggling row hovers with the one model and lifts its ink; the
-        // chevron inherits that ink.
-        let paint = StatePaint::new().ink(p.fg_muted, p.ink).disabled(!toggles).pressable(false);
+        // A toggling row lifts its ink on hover and draws no fill (docs/83
+        // §5: "no background"); the chevron inherits that ink.
+        let paint = StatePaint::new().tint(false).ink(p.fg_muted, p.ink).disabled(!toggles).pressable(false);
 
         let fade = collapse_fluid_opacity((id.clone(), "body"), self.open, window, cx);
         let (reveal, progress) = match self.body {
@@ -124,14 +122,18 @@ impl RenderOnce for QuietRow {
             }
         };
 
-        let lead = match self.lead {
-            QuietLead::Chevron => div()
-                .flex_none()
-                .flex()
-                .items_center()
-                .child(icon(IconName::Chev).size(px(CHEVRON)).rotate(radians(progress * std::f32::consts::FRAC_PI_2)))
-                .into_any_element(),
-            QuietLead::Glyph(glyph) => div().flex_none().flex().items_center().child(glyph).into_any_element(),
+        let (lead, trail) = match self.lead {
+            QuietLead::Chevron => (
+                None,
+                Some(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .child(icon(IconName::Chev).size(px(CHEVRON)).rotate(radians(progress * std::f32::consts::FRAC_PI_2))),
+                ),
+            ),
+            QuietLead::Glyph(glyph) => (Some(div().flex_none().flex().items_center().child(glyph)), None),
         };
         let mut row = h_flex()
             .id(row_id)
@@ -140,14 +142,14 @@ impl RenderOnce for QuietRow {
             .px(px(QUIET_ROW_BLEED))
             .gap(px(GAP))
             .items_center()
-            .rounded(px(RADIUS))
             .text_color(p.fg_muted)
             .paint_states(paint, &p)
-            .ui(scale::FS_13)
+            .text_role(TextRole::Body)
             .whitespace_nowrap()
             .overflow_hidden()
-            .child(lead)
-            .children(self.parts);
+            .children(lead)
+            .children(self.parts)
+            .children(trail);
         if let Some(on_toggle) = self.on_toggle {
             let label = self.label.unwrap_or_else(|| if self.open { "Collapse section".into() } else { "Expand section".into() });
             record_ax_label(label.as_ref());

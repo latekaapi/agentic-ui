@@ -110,6 +110,17 @@ pub(crate) fn raised_block<E: gpui::Styled>(el: E, p: &aui_tokens::Palette, fill
     el.border_1().border_color(p.line).bg(fill)
 }
 
+/// A block *in the transcript* — a tool, question or approval card, a code
+/// block, a table: a flat `fill` with no border and no shadow (docs/83 §5).
+/// In dark the fill is the object (`surface-2` on the `surface-1` ground).
+/// The light ground is white and §2.2's `surface-2` is `#FAFAFA`, a step
+/// the eye does not read, so light keeps the 1 px `line` hairline
+/// (docs/83 §9, task 2.6). A card that needs the person adds its own
+/// [`crate::transcript::attention_edge`] border on top of this.
+pub(crate) fn flat_block<E: gpui::Styled>(el: E, p: &aui_tokens::Palette, fill: gpui::Hsla) -> E {
+    if p.is_dark() { el.bg(fill) } else { el.border_1().border_color(p.line).bg(fill) }
+}
+
 /// The lit band of a raised block (a code block's header, a table's head):
 /// v3's **Raised, lit** in dark; `light` in light.
 pub(crate) fn raised_lit(p: &aui_tokens::Palette, light: gpui::Hsla) -> gpui::Hsla {

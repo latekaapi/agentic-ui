@@ -371,7 +371,8 @@ impl RenderOnce for QuestionCard {
             .child(div().ui(TITLE_TEXT).semibold().text_color(p.ink).child(self.prompt.clone()))
             .when(!self.subtitle.is_empty(), |d| d.child(div().ui(SUB_TEXT).text_color(p.fg_muted).child(self.subtitle.clone())));
 
-        let mut card = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
+        let mut card = crate::util::flat_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
+            .border_1()
             .border_color(crate::transcript::card::attention_edge(p.warning))
             .overflow_hidden();
         match &self.wizard {

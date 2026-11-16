@@ -1,6 +1,6 @@
-//! The fenced code block (D4, docs/41 §2.3: Raised, a 32 px Raised-lit
-//! header with copy on hover, numbered lines, folding past twelve lines in
-//! place) and — card 37 — the unified diff block with the per-line note
+//! The fenced code block (docs/83 §5: a `surface-3` body with no border, a
+//! 32 px `surface-4` header with copy on hover, radius 10; numbered lines,
+//! folding past twelve lines in place, docs/41 §2.3) and — card 37 — the unified diff block with the per-line note
 //! affordance and the note editor.
 
 
@@ -24,8 +24,8 @@ use crate::util::indexed_child;
 
 /// `.cb .hd{height:30px;gap:8px;padding:0 6px 0 12px;font:500 11.5px mono}`.
 const HEADER_H: f32 = 30.0;
-/// The fenced code block's header (D4).
-const CODE_HEADER_H: f32 = 32.0;
+/// The fenced code block's header (docs/83 §5): 32.
+const CODE_HEADER_H: f32 = scale::H_LG;
 /// A fenced block past this many lines folds (docs/41 §2.3).
 pub const CODE_FOLD_AT: usize = 12;
 const HEADER_GAP: f32 = 8.0;
@@ -670,9 +670,10 @@ impl RenderOnce for CodeBlock {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        // D4 (docs/41 §2.3): a 32 px header on Raised-lit — the file glyph,
-        // `code <lang>` (or the file name) in mono muted — and one copy
-        // button at the right that shows only while the block is hovered.
+        // docs/83 §5: a 32 px header in `surface-4` over the `surface-3`
+        // body, no rule between them — the file glyph, `code <lang>` (or the
+        // file name) in `t-micro` muted — and one copy button at the right
+        // that shows only while the block is hovered.
         let label: SharedString = match &self.language {
             Some(language) if !language.is_empty() => format!("{} {}", self.path, language).into(),
             _ => self.path.clone(),
@@ -684,11 +685,9 @@ impl RenderOnce for CodeBlock {
             .gap(px(HEADER_GAP))
             .pl(px(HEADER_PAD_L))
             .pr(px(HEADER_PAD_R))
-            .bg(crate::util::raised_lit(&p, p.surface_2))
-            .border_b_1()
-            .border_color(p.line)
-            .mono(HEADER_TEXT)
-            .line_height(relative(1.0))
+            .bg(p.surface_4)
+            .text_role(TextRole::Micro)
+            .font_weight(gpui::FontWeight::NORMAL)
             .text_color(p.fg_muted)
             .child(icon(IconName::File).size(px(HEADER_GLYPH)))
             .child(div().min_w(px(0.0)).truncate().child(label))
@@ -760,7 +759,7 @@ impl RenderOnce for CodeBlock {
             body.into_any_element()
         };
 
-        let block = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_3);
+        let block = crate::util::flat_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_3);
         let mut block = block
             .overflow_hidden()
             .hover_group()
@@ -1006,7 +1005,7 @@ impl RenderOnce for DiffBlock {
             }
         }
 
-        crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(scale::R_MD)), &p, p.surface_2)
+        crate::util::flat_block(v_flex().id(id.clone()).w_full().rounded(px(scale::R_MD)), &p, p.surface_2)
             .overflow_hidden()
             .hover_group()
             .child(header)

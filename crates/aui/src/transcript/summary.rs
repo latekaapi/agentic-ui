@@ -152,7 +152,7 @@ impl RenderOnce for SummaryCard {
             );
         }
 
-        let mut card = crate::util::raised_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
+        let mut card = crate::util::flat_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
             .overflow_hidden()
             .child(head)
             .when(!self.files.is_empty(), |d| d.child(files))

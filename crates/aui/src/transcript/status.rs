@@ -128,10 +128,10 @@ impl RenderOnce for ErrorCard {
             );
         }
         let ringed = self.on_retry.is_some();
-        let mut row = crate::util::raised_block(h_flex().id(id.clone()).w_full().items_center().gap(px(ERR_COL_GAP)).rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
+        let mut row = crate::util::flat_block(h_flex().id(id.clone()).w_full().items_center().gap(px(ERR_COL_GAP)).rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
             .py(px(ERR_PAD_Y))
             .px(px(ERR_PAD_X))
-            .when(ringed, |d| d.border_color(crate::transcript::card::attention_edge(p.danger)))
+            .when(ringed, |d| d.border_1().border_color(crate::transcript::card::attention_edge(p.danger)))
             .child(icon(IconName::X).size(px(ERR_GLYPH)).color(p.danger).lit(true))
             .child(lines);
         if let Some(on_retry) = self.on_retry {

@@ -1,7 +1,6 @@
 //! Composer: the auto-growing input with context chips, the `+` menu, provider /
 //! model / mode / effort chips, the send ↔ stop morph, queued messages and suggestion
-//! chips (cards 40–42, spec §4). The docked variant used by the shell lives in
-//! [`crate::shell::DockedComposer`] until the two are merged.
+//! chips (cards 40–42, spec §4).
 
 // The module is named after the card it implements; the re-export below flattens it away.
 #[allow(clippy::module_inception)]

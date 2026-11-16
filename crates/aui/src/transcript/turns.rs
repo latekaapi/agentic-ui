@@ -1,7 +1,7 @@
-//! The turns (D4, docs/41 §2.2): the person's bubble — Raised, radius 12,
+//! The turns (D4, docs/41 §2.2): the person's bubble — `surface-3`, radius 10, no border,
 //! with what they sent above it (64 px picture tiles, 30 px file chips), a
 //! quotation at its top, or a Browse annotation batch in its place — and the
-//! assistant's answer, prose on the sheet at the full measure. Neither shows
+//! assistant's answer, prose on the ground at the full measure. Neither shows
 //! anything at rest: hovering a turn reveals its own controls (edit · copy
 //! · age under the bubble; one copy and the footer under the answer) in a
 //! rail whose height is always reserved, so nothing shifts.
@@ -28,17 +28,17 @@ use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{icon_button, icon_content_button, ButtonSize};
 
-/// The bubble's column: at most 78 % of the measure, right-aligned.
-const USER_MAX: f32 = 0.78;
+/// The bubble's column: at most 80 % of the measure, right-aligned
+/// (docs/83 §5).
+const USER_MAX: f32 = 0.80;
 /// Sent attachments sit 4 above the bubble, 6 apart.
 const ATTACH_ABOVE: f32 = 4.0;
 const ATTACH_GAP: f32 = 6.0;
-/// Light keeps FF's tailed bubble until light is designed.
-const BUBBLE_RADIUS: f32 = 14.0;
-/// D4: Raised, radius 12, padding 9 / 13.
-const BUBBLE_RADIUS_V3: f32 = 12.0;
-const BUBBLE_PAD_Y: f32 = 9.0;
-const BUBBLE_PAD_X: f32 = 13.0;
+/// docs/83 §5: `surface-3`, no border, radius 10, padding 10 × 16, `t-read`
+/// — in both themes.
+const BUBBLE_RADIUS: f32 = scale::SHAPE_CONTAINER;
+const BUBBLE_PAD_Y: f32 = 10.0;
+const BUBBLE_PAD_X: f32 = scale::SP_5;
 const BUBBLE_TEXT: f32 = BODY_TEXT;
 /// The rail under a bubble: 24 px, always reserved; edit · copy as 28 px
 /// icon buttons (glyph 12) then the age, 6 apart.
@@ -63,12 +63,10 @@ const QUOTE_PAD_L: f32 = 12.0;
 /// The annotation batch: a 120 px screenshot strip with 18 px numbered pins.
 const SHOT_H: f32 = 120.0;
 const PIN: f32 = 18.0;
-/// The assistant answer: body at line 23 on 14.3 (1.6), paragraphs 12 apart
-/// (the owner's one rhythm for every answer, 2026-10-14).
-/// Body text, at the design size (the app's 1.1 text scale makes it 16 px):
-/// the owner's reading scale, 16 / 26 (2026-10-14).
-const BODY_TEXT: f32 = 16.0 / 1.1;
-const BODY_LH: f32 = 26.0 / 16.0;
+/// The assistant answer and the bubble: `t-read`, 16 / 26 (docs/83 §2.4,
+/// the owner's reading scale of 2026-10-14), paragraphs 16 apart.
+const BODY_TEXT: f32 = scale::T_READ_FS;
+const BODY_LH: f32 = scale::T_READ_LH / scale::T_READ_FS;
 const PARAGRAPH_GAP: f32 = 16.0;
 /// Under an answer, on hover: one copy button 8 below, the footer 10 below it.
 const COPY_TOP: f32 = 8.0;
@@ -241,7 +239,7 @@ impl UserTurn {
 
     /// The column's cap as a fraction of the transcript width, for a
     /// consumer whose column is narrower than the chat measure. Values
-    /// outside `(0, 1]` (and NaN) fall back to the 78 % default.
+    /// outside `(0, 1]` (and NaN) fall back to the 80 % default.
     pub fn max_width_fraction(mut self, fraction: f32) -> Self {
         self.max_width = if fraction.is_finite() && fraction > 0.0 && fraction <= 1.0 { fraction } else { USER_MAX };
         self
@@ -680,10 +678,10 @@ impl RenderOnce for UserTurn {
             .overflow_hidden()
             .py(px(BUBBLE_PAD_Y))
             .px(px(BUBBLE_PAD_X))
-            .when(p.is_dark(), |d| d.rounded(px(BUBBLE_RADIUS_V3)))
-            .when(!p.is_dark(), |d| d.rounded(px(BUBBLE_RADIUS)).rounded_br(px(scale::R_XS)))
+            .rounded(px(BUBBLE_RADIUS))
             .bg(p.surface_3)
             .ui(BUBBLE_TEXT)
+            .line_height(relative(BODY_LH))
             .text_color(p.ink);
         for (index, quote) in quotes {
             bubble = bubble.child(quote_block(&p, (id.clone(), SharedString::from(format!("quote-{index}"))).into(), &quote.name, quote_code(quote), quote.quote_of.clone(), self.on_quote.clone()));
@@ -693,7 +691,7 @@ impl RenderOnce for UserTurn {
             bubble = bubble.w_full().child(annotation_body(&p, &id, batch, 600.0));
         } else {
             bubble = bubble.child({
-                let mut body = markdown((id.clone(), "text"), self.markdown.clone(), prose_style(&p, BUBBLE_TEXT, scale::LH_UI, p.line, p.accent_ink));
+                let mut body = markdown((id.clone(), "text"), self.markdown.clone(), prose_style(&p, BUBBLE_TEXT, BODY_LH, p.surface_4, p.accent_ink));
                 // A user message is complete by definition: a settled
                 // whole-JSON message draws its `json` code block.
                 body = body.settled(true);
@@ -1033,7 +1031,7 @@ impl RenderOnce for AssistantTurn {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let style = prose_style(&p, BODY_TEXT, BODY_LH, p.line, p.ink);
+        let style = prose_style(&p, BODY_TEXT, BODY_LH, p.surface_4, p.ink);
         // gpui text hosts no inline elements, so the caret is an absolutely
         // positioned sibling of the prose: last frame's prose bounds give the
         // wrap width, the last paragraph is re-shaped with the same runs the
@@ -1164,7 +1162,7 @@ mod tests {
     #[test]
     fn user_width_defaults_to_the_chat_cap() {
         assert_eq!(user_turn("t", "hi").max_width, USER_MAX);
-        assert_eq!(USER_MAX, 0.78);
+        assert_eq!(USER_MAX, 0.80);
     }
 
     #[test]

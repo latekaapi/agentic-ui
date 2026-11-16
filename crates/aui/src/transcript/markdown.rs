@@ -115,13 +115,19 @@ const QUOTE_PAD_Y: f32 = 2.0;
 const IMAGE_MAX_H: f32 = 480.0;
 const IMAGE_CAPTION_PAD_Y: f32 = 8.0;
 const IMAGE_CAPTION_PAD_X: f32 = 12.0;
-/// Heading sizes walk down the token ramp so H1 stays under dialog-title
-/// scale; H5/H6 stay at body size and read as headings through weight alone.
-/// At the 16 / 26 reading scale (owner 2026-10-14) they render h1 24,
-/// h2 20, h3 17, and h4–h6 at body size, 16.
-const HEADING_SIZES: [f32; 6] = [24.0 / 1.1, 20.0 / 1.1, 17.0 / 1.1, 16.0 / 1.1, 16.0 / 1.1, 16.0 / 1.1];
-/// Heading line heights: h2 28 on 20, h3 24 on 17, the rest the body's 26 on 16.
-const HEADING_LH: [f32; 6] = [1.3, 28.0 / 20.0, 24.0 / 17.0, 26.0 / 16.0, 26.0 / 16.0, 26.0 / 16.0];
+/// Heading sizes in the reading scale (docs/83 §2.4): h1 22 / 30, h2 19 /
+/// 28, h3 17 / 26, all 600; h4–h6 stay at the body's 16 / 26 and read as
+/// headings through weight alone.
+const HEADING_SIZES: [f32; 6] = [scale::T_H1_FS, scale::T_H2_FS, scale::T_H3_FS, scale::T_READ_FS, scale::T_READ_FS, scale::T_READ_FS];
+/// Heading line heights, as ratios of their sizes.
+const HEADING_LH: [f32; 6] = [
+    scale::T_H1_LH / scale::T_H1_FS,
+    scale::T_H2_LH / scale::T_H2_FS,
+    scale::T_H3_LH / scale::T_H3_FS,
+    scale::T_READ_LH / scale::T_READ_FS,
+    scale::T_READ_LH / scale::T_READ_FS,
+    scale::T_READ_LH / scale::T_READ_FS,
+];
 /// Extensions that make a `slash/path` token a workspace-path link.
 const PATH_EXTENSIONS: &[&str] = &[
     "rs", "md", "toml", "json", "jsonl", "txt", "py", "ts", "tsx", "js", "css", "html", "htm", "yaml",
@@ -1766,7 +1772,7 @@ fn render_block(
             }
             // The table scrolls inside its own frame instead of squeezing
             // columns or spilling past the turn.
-            crate::util::raised_block(div().w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), palette, palette.surface_2)
+            crate::util::flat_block(div().w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), palette, palette.surface_2)
                 .overflow_hidden()
                 .child(div().id(block_id(id, index, "scroll")).w_full().overflow_x_scroll().child(grid))
                 .into_any_element()
@@ -1824,13 +1830,13 @@ pub fn resolve_image(url: &str, root: Option<&str>) -> Option<gpui::ImageSource>
 /// the alt text, the path in faint mono — never a broken image.
 fn image_block(id: ElementId, alt: &str, url: &str, root: Option<&str>, palette: &aui_tokens::Palette) -> gpui::AnyElement {
     let frame = || {
-        crate::util::raised_block(v_flex().w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), palette, palette.surface_2).overflow_hidden()
+        crate::util::flat_block(v_flex().w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), palette, palette.surface_2).overflow_hidden()
     };
     let missing = {
         let (alt, url) = (alt.to_owned(), url.to_owned());
         let p = *palette;
         move || -> gpui::AnyElement {
-            crate::util::raised_block(h_flex().w_full().items_start().gap(px(CELL_PAD_X)).rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
+            crate::util::flat_block(h_flex().w_full().items_start().gap(px(CELL_PAD_X)).rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
                 .px(px(IMAGE_CAPTION_PAD_X + 2.0))
                 .py(px(IMAGE_CAPTION_PAD_X))
                 .child(div().pt(px(2.0)).child(icon(IconName::File).size(px(IMAGE_GLYPH)).color(p.fg_muted)))

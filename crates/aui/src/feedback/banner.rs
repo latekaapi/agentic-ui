@@ -1,27 +1,27 @@
 //! Card 13: inline banners.
 //!
 //! A banner is one line of the transcript or the pane: an icon on the left,
-//! the message, one xs button on the right. Per the design rules only the
+//! the message, one xs button on the right. docs/83 §5: 36 px, `t-body`,
+//! radius 10, no border; info and success sit on `surface-2`, and only the
 //! states that need the person are tinted — waiting (warning-soft) and error
-//! (danger-soft); info and success stay on the plain surface with the
-//! hairline border.
+//! (danger-soft).
 
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette};
+use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette, TextRole};
 use gpui::{div, prelude::*, px, App, ElementId, FontWeight, HighlightStyle, Hsla, IntoElement, SharedString, StyledText, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, status_dot, ButtonSize, Button};
 
-/// `.ban{gap:10px;padding:8px 10px 8px 12px;border-radius:var(--r-md);font-size:12.5px}`.
+/// `.ban{gap:10px;padding:8px 10px 8px 12px}`: with `t-body`'s 20 px line
+/// the one-line banner is 36 (docs/83 §5).
 const BANNER_GAP: f32 = 10.0;
 const BANNER_PAD_Y: f32 = 8.0;
 const BANNER_PAD_LEFT: f32 = 12.0;
 const BANNER_PAD_RIGHT: f32 = 10.0;
-const BANNER_RADIUS: f32 = scale::R_MD;
-const BANNER_TEXT: f32 = 12.5;
+const BANNER_RADIUS: f32 = scale::SHAPE_CONTAINER;
 /// `.ban .ic{width:14px;height:14px;flex:none}`.
 const BANNER_GLYPH: f32 = 14.0;
 /// The connection banner's dot: `.dot.done.ic{width:7px;height:7px;margin:0 3px}`.
@@ -47,12 +47,13 @@ pub enum BannerKind {
 }
 
 impl BannerKind {
-    /// `(ground, border)` for the row.
-    fn surface(self, p: &Palette) -> (Hsla, Hsla) {
+    /// The row's ground: a status tint where the person is needed, else
+    /// `surface-2`.
+    fn ground(self, p: &Palette) -> Hsla {
         match self {
-            BannerKind::Waiting => (p.warning_soft, p.warning_soft),
-            BannerKind::Error => (p.danger_soft, p.danger_soft),
-            BannerKind::Info | BannerKind::Success => (p.surface_1, p.line),
+            BannerKind::Waiting => p.warning_soft,
+            BannerKind::Error => p.danger_soft,
+            BannerKind::Info | BannerKind::Success => p.surface_2,
         }
     }
 
@@ -208,7 +209,7 @@ fn action_button(id: ElementId, label: SharedString, style: BannerActionStyle) -
 impl RenderOnce for Banner {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let (ground, border) = self.kind.surface(&p);
+        let ground = self.kind.ground(&p);
         let id = self.id.clone();
 
         let leading = match self.kind.glyph(&p) {
@@ -246,12 +247,15 @@ impl RenderOnce for Banner {
             .pl(px(BANNER_PAD_LEFT))
             .pr(px(BANNER_PAD_RIGHT))
             .rounded(px(BANNER_RADIUS))
-            .border_1()
-            .border_color(border)
-            .bg(ground)
-            .ui(BANNER_TEXT)
+            .text_role(TextRole::Body)
             .text_color(p.ink)
             .child(row);
+        // The plain ground is a flat block (a hairline only in light, where
+        // `surface-2` on white does not read); a tint reads by itself.
+        let frame = match self.kind {
+            BannerKind::Info | BannerKind::Success => crate::util::flat_block(frame, &p, ground),
+            BannerKind::Waiting | BannerKind::Error => frame.bg(ground),
+        };
         match self.body {
             // The body starts where the message does: past the glyph and
             // the gap, so the grown banner reads as one column.

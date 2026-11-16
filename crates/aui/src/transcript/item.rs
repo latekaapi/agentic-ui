@@ -248,7 +248,7 @@ impl RenderOnce for GoalCard {
                     .child(div().flex_1().min_w(px(0.0)).text_color(p.ink).child(value)),
             );
         }
-        crate::util::raised_block(v_flex().id(id).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2).overflow_hidden().child(header).child(body)
+        crate::util::flat_block(v_flex().id(id).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2).overflow_hidden().child(header).child(body)
     }
 }
 

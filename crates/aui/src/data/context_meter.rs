@@ -1,6 +1,7 @@
-//! `.ctx`: the context-window meter that sits in the composer toolbar — a
-//! stroked ring, the percentage, and a hover breakdown with a **Compact**
-//! action.
+//! `.ctx`: the context-window meter that sits in the composer's quiet row —
+//! the usage ring alone, and a hover breakdown that carries the number (the
+//! percentage, or the token count with no window) and a **Compact** action
+//! (docs/83 §5: "the token count moves into the usage ring's popover").
 //!
 //! MSP reports context as `(windowTokens, usedTokens, pressure)` and omits
 //! `windowTokens` entirely when the basis has no limit, so the meter has to
@@ -19,6 +20,7 @@ use gpui::{canvas, div, prelude::*, px, App, ElementId, IntoElement, PathBuilder
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, ButtonSize};
+use crate::interact::paint::{PaintStates, StatePaint};
 use crate::overlay::popover_layer;
 use crate::util::interaction_flags;
 
@@ -31,13 +33,13 @@ const RING_STROKE: f32 = 2.0;
 /// is a sampled polyline; 48 segments is under a third of a pixel of chord
 /// error at 14 px.
 const RING_SEGMENTS: usize = 48;
-/// `.ctx{gap:6px}`.
+/// `.ctx{gap:6px}`: the ring to the inline Compact while blocked.
 const GAP: f32 = 6.0;
-/// The percentage: mono 11, medium.
-const LABEL: f32 = scale::FS_11;
+/// The ring's hover pill: the quiet row's 8 px sides.
+const PILL_PAD_X: f32 = 8.0;
 
-/// `.ctx .pop{bottom:26px;width:240px;padding:10px}`.
-const POP_BOTTOM: f32 = 26.0;
+/// `.ctx .pop{width:240px;padding:10px}`, its bottom 4 above the ring's pill.
+const POP_GAP: f32 = 4.0;
 const POP_W: f32 = 240.0;
 const POP_PAD: f32 = 10.0;
 /// `@keyframes in{from{opacity:0;transform:translateY(4px)}}`.
@@ -142,18 +144,21 @@ impl RenderOnce for ContextMeter {
         let open = self.open.unwrap_or(flags.hovered);
         let blocked = self.state.pressure == ContextPressure::Blocked;
 
+        // The ring alone in the row, on the quiet row's hover pill; the
+        // number is the popover's (and the ring's accessible value).
+        let control = cx.aui().metrics.control_md;
         let mut row = h_flex()
             .id(id.clone())
             .relative()
             .flex_none()
+            .h(control)
+            .px(px(PILL_PAD_X))
             .gap(px(GAP))
-            .text_role(TextRole::MonoSmall)
-            .text_px(LABEL)
-            .font_weight(gpui::FontWeight::MEDIUM)
-            .text_color(ink)
-            .whitespace_nowrap()
-            .child(ring(self.state.fraction(), p.surface_3, ink))
-            .child(self.state.label());
+            .rounded(px(scale::R_8))
+            .paint_states(StatePaint::new().pressable(false), &p)
+            .role(gpui::Role::Meter)
+            .aria_label(SharedString::from(format!("Context used: {}", self.state.label())))
+            .child(ring(self.state.fraction(), p.surface_6, ink));
 
         // The pointer opens the breakdown; the caller can pin it open instead.
         if self.open.is_none() {
@@ -254,8 +259,8 @@ fn breakdown(
         // The card is anchored to the meter's top edge, so the enter's 4 px
         // rise is a smaller `bottom`, never a `top` as well: setting both would
         // stretch the box between them instead of moving it.
-        .bottom(px(POP_BOTTOM) - style.offset_y)
-        .left(px(0.0))
+        .bottom(cx.aui().metrics.control_md + px(POP_GAP) - style.offset_y)
+        .right(px(0.0))
         .w(px(POP_W))
         .p(px(POP_PAD))
         .rounded(px(scale::R_LG))
@@ -265,11 +270,13 @@ fn breakdown(
         .shadow(p.floating_shadow())
         .opacity(style.opacity)
         .child(
-            div()
+            h_flex()
+                .w_full()
                 .pb(px(POP_HEAD_GAP))
-                .text_role(TextRole::Caps)
+                .text_role(TextRole::Caption)
                 .text_color(p.fg_muted)
-                .child(SharedString::from("Context window")),
+                .child(div().flex_1().child(SharedString::from("Context window")))
+                .child(div().flex_none().text_color(pressure_color(p, state.pressure)).child(state.label())),
         );
 
     let window_label = match state.window_tokens {

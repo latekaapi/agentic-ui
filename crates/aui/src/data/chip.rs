@@ -2,7 +2,7 @@
 //! scope chips in panes, knowledge sources in the assistant sidebar).
 
 use aui_icons::{icon, IconName};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 
 use crate::interact::paint::{PaintStates, StatePaint};
@@ -19,7 +19,7 @@ const COMPOSER_PAD_RIGHT: f32 = 10.0;
 const GAP: f32 = 5.0;
 /// The chevron inside a chip: `width:10px;height:10px`.
 const CHEVRON: f32 = 10.0;
-/// v3 text control: 8 px sides, 6 px icon-to-label, a 12 px chevron.
+/// The quiet-row text control: 8 px sides, 6 px icon-to-label, a 12 px chevron.
 const TEXT_CONTROL_PAD: f32 = 8.0;
 const TEXT_CONTROL_GAP: f32 = 6.0;
 const TEXT_CONTROL_CHEVRON: f32 = 12.0;
@@ -84,10 +84,10 @@ impl Chip {
         self
     }
 
-    /// v3's composer control (canvas "Baaz v3", Composer A): text with an
+    /// The composer's quiet-row control (docs/83 §5): text with an
     /// optional leading mark and a chevron — no border, no fill; 28 tall,
-    /// radius 6, 8 px sides, body 13 at 400, muted at rest and lit (ink, a
-    /// 5 % hover tint) on hover or when [`Chip::active`].
+    /// 8 px sides, `t-caption` at 400, muted at rest and lit (ink on the
+    /// `ov-hover` pill, radius 8) on hover or when [`Chip::active`].
     pub fn text_control(mut self) -> Self {
         self.text_control = true;
         self
@@ -135,10 +135,9 @@ impl RenderOnce for Chip {
                 .h(cx.aui().metrics.control_md)
                 .px(px(TEXT_CONTROL_PAD))
                 .gap(px(TEXT_CONTROL_GAP))
-                .rounded(px(scale::R_MD))
+                .rounded(px(scale::R_8))
                 .paint_states(StatePaint::new().ink(rest_ink, p.ink).pressable(false), &p)
-                .font_family(scale::FONT_UI)
-                .text_px(scale::FS_13)
+                .text_role(TextRole::Caption)
                 .line_height(gpui::relative(1.0))
                 .whitespace_nowrap()
                 .cursor_pointer()

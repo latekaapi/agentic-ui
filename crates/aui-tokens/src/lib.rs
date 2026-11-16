@@ -352,6 +352,10 @@ mod tests {
         assert_eq!((scale::T_READ_FS, scale::T_READ_LH), (16.0, 26.0));
         assert_eq!((scale::T_READ_MONO_FS, scale::T_READ_MONO_LH), (13.5, 22.0));
         assert_eq!((scale::ROW_GAP, scale::LIST_INSET, scale::R_8), (2.0, 8.0, 8.0));
+        // docs/83 §2.5 / §5: the transcript column and its card heads (task 2.6).
+        assert_eq!((scale::TRANSCRIPT_MAX, scale::TRANSCRIPT_INSET, scale::CARD_HEAD), (760.0, 32.0, 36.0));
+        // docs/83 §2.4: Markdown headings in the reading scale.
+        assert_eq!((scale::T_H1_FS, scale::T_H1_LH, scale::T_H2_FS, scale::T_H2_LH, scale::T_H3_FS, scale::T_H3_LH), (22.0, 30.0, 19.0, 28.0, 17.0, 26.0));
     }
 
     #[test]

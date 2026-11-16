@@ -428,7 +428,8 @@ impl RenderOnce for ApprovalCard {
                     .when(!subtitle.is_empty(), |d| d.child(div().w_full().ui(scale::FS_12).text_color(p.fg_muted).child(subtitle))),
             );
 
-        let mut card = crate::util::raised_block(v_flex().relative().top(style.offset_y).opacity(style.opacity).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
+        let mut card = crate::util::flat_block(v_flex().relative().top(style.offset_y).opacity(style.opacity).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
+            .border_1()
             .border_color(crate::transcript::card::attention_edge(p.warning))
             .overflow_hidden()
             .child(header);
