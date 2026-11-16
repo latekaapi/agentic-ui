@@ -1,7 +1,11 @@
-//! `.btn`: secondary (a see-through tint) by default; primary (accent), ghost
-//! (quiet icon/text), outline and danger (outlined) variants; md 28 / sm 24 /
-//! xs 20 heights; square icon buttons. Hover and press are the one model
-//! ([`crate::interact::paint`]): overlays over the resting fill, no tween.
+//! The button (docs/83 §7): secondary (`surface-4`, no border) by default;
+//! primary (the `accent` fill with `bg`-coloured text — one primary colour
+//! everywhere), ghost (text only, `ov-hover` on hover) and danger (the
+//! secondary with `danger` text). A labelled md button is 32 tall (token
+//! `btn-h`), a square icon button and the row action 28 (`btn-h-dense`, the
+//! dense toolbars), sm 24 and xs 20; radius 8, `t-body` at weight 500.
+//! Hover and press are the one model ([`crate::interact::paint`]):
+//! overlays over the resting fill, no tween.
 //!
 //! Buttons are tab stops and activate on `enter` / `space` while focused (gpui
 //! turns an activation keystroke on a focused element into a `ClickEvent`, so
@@ -20,7 +24,7 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, Hsla, IntoElement, MouseButton, Pixels, SharedString, Window};
 
 use crate::interact::paint::{PaintStates, StatePaint};
-use crate::interact::InteractState;
+use crate::interact::{InteractState, R_ITEM};
 use crate::util::ClickHandler;
 
 use std::cell::RefCell;
@@ -59,26 +63,25 @@ pub fn record_ax_label(label: &str) {
     }
 }
 
-/// `.btn` variants.
+/// The button variants (docs/83 §7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonVariant {
-    /// FF secondary: a see-through tint (white 25 % / black 8 %), no border (the default).
+    /// `surface-4`, no border (the default).
     #[default]
     Secondary,
-    /// FF primary: the foreground fill with background-coloured text.
+    /// The `accent` fill with `bg`-coloured text.
     Primary,
-    /// FF ghost: transparent, muted text that turns foreground on hover.
+    /// Text only: muted, the foreground and `ov-hover` on hover.
     Ghost,
-    /// FF tertiary: transparent with the 1 px border ring.
-    Outline,
-    /// A tertiary button in the danger colour (FF has no destructive variant).
+    /// Destructive: the secondary fill with `danger` text.
     Danger,
 }
 
-/// `.btn` heights: md 28 (padding 11, 13 px), sm 24 (9, 12 px), xs 20 (7, 11 px).
+/// The heights: md 32 labelled / 28 square (padding 12, `t-body`), sm 24
+/// (9, 12 px), xs 20 (7, 11 px), row 28 (9, 12 px).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonSize {
-    /// 28 px.
+    /// 32 px labelled (`btn-h`), 28 px square (`btn-h-dense`).
     #[default]
     Md,
     /// 24 px.
@@ -92,10 +95,13 @@ pub enum ButtonSize {
 }
 
 impl ButtonSize {
-    fn height(self, cx: &App) -> Pixels {
+    /// A labelled md button is 32 tall; a square one, like every icon button
+    /// in a toolbar or header, keeps the dense 28.
+    fn height(self, square: bool, cx: &App) -> Pixels {
         let m = &cx.aui().metrics;
         match self {
-            ButtonSize::Md | ButtonSize::Row => m.control_md,
+            ButtonSize::Md if !square => px(scale::BTN_H),
+            ButtonSize::Md | ButtonSize::Row => px(scale::BTN_H_DENSE),
             ButtonSize::Sm => m.control_sm,
             ButtonSize::Xs => m.control_xs,
         }
@@ -103,7 +109,7 @@ impl ButtonSize {
 
     fn padding(self) -> f32 {
         match self {
-            ButtonSize::Md => 11.0,
+            ButtonSize::Md => scale::CTL_PX_DEFAULT,
             ButtonSize::Sm | ButtonSize::Row => 9.0,
             ButtonSize::Xs => 7.0,
         }
@@ -111,7 +117,7 @@ impl ButtonSize {
 
     fn font_size(self) -> f32 {
         match self {
-            ButtonSize::Md => scale::FS_13,
+            ButtonSize::Md => scale::T_BODY_FS,
             ButtonSize::Sm | ButtonSize::Row => scale::FS_12,
             ButtonSize::Xs => scale::FS_11,
         }
@@ -217,12 +223,7 @@ impl Button {
         self.variant(ButtonVariant::Ghost)
     }
 
-    /// Outlined, no fill.
-    pub fn outline(self) -> Self {
-        self.variant(ButtonVariant::Outline)
-    }
-
-    /// Outlined in danger.
+    /// Destructive: the secondary fill with danger text.
     pub fn danger(self) -> Self {
         self.variant(ButtonVariant::Danger)
     }
@@ -273,7 +274,7 @@ impl Button {
         self
     }
 
-    /// Non-interactive at 45 % opacity.
+    /// Non-interactive at 50 % opacity.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
@@ -344,13 +345,11 @@ impl Button {
     }
 }
 
-/// The resting colours of a variant (Fluid Functionalism's `button.tsx`:
-/// primary / secondary / tertiary / ghost; Danger is ours). Hover and press
-/// are not part of the look: they are the one model's overlays over the
-/// resting fill ([`StatePaint`]).
+/// The resting colours of a variant (docs/83 §7). No variant has a border.
+/// Hover and press are not part of the look: they are the one model's
+/// overlays over the resting fill ([`StatePaint`]).
 struct Look {
     bg: Hsla,
-    border: Hsla,
     text: Hsla,
     text_hover: Hsla,
 }
@@ -358,18 +357,14 @@ struct Look {
 impl Look {
     fn of(variant: ButtonVariant, p: &Palette) -> Self {
         let transparent = gpui::transparent_black();
-        // FF --tint: see-through, so the button takes on the surface beneath it.
-        let tint = if p.is_dark() { gpui::white().alpha(0.25) } else { gpui::black().alpha(0.08) };
         match variant {
-            ButtonVariant::Secondary => Look { bg: tint, border: transparent, text: p.fg, text_hover: p.fg },
-            // The foreground fill, background text.
-            ButtonVariant::Primary => Look { bg: p.accent, border: transparent, text: p.bg, text_hover: p.bg },
+            ButtonVariant::Secondary => Look { bg: p.surface_4, text: p.fg, text_hover: p.fg },
+            // The accent fill, ground-coloured text.
+            ButtonVariant::Primary => Look { bg: p.accent, text: p.bg, text_hover: p.bg },
             // Muted text that lights on hover.
-            ButtonVariant::Ghost => Look { bg: transparent, border: transparent, text: p.fg_muted, text_hover: p.fg },
-            // Transparent with the 1 px ring.
-            ButtonVariant::Outline => Look { bg: transparent, border: p.line, text: p.fg, text_hover: p.fg },
-            // A tertiary button in the danger colour.
-            ButtonVariant::Danger => Look { bg: transparent, border: p.line, text: p.danger, text_hover: p.danger },
+            ButtonVariant::Ghost => Look { bg: transparent, text: p.fg_muted, text_hover: p.fg },
+            // The secondary fill with danger text.
+            ButtonVariant::Danger => Look { bg: p.surface_4, text: p.danger, text_hover: p.danger },
         }
     }
 }
@@ -378,7 +373,7 @@ impl RenderOnce for Button {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let look = Look::of(self.variant, &p);
-        let height = self.size.height(cx);
+        let height = self.size.height(self.square, cx);
         let id = self.id.clone();
 
         // One focus handle per button id; disabled buttons are not tab stops.
@@ -417,12 +412,11 @@ impl RenderOnce for Button {
             .justify_center()
             .gap(px(CONTENT_GAP))
             .px(pad)
-            .rounded(px(scale::SHAPE_ITEM))
-            .border_1()
-            .border_color(look.border)
+            .rounded(px(R_ITEM))
             .paint_states(paint, cx)
             .font_family(scale::FONT_UI)
             .text_px(self.size.font_size())
+            .font_weight(gpui::FontWeight::MEDIUM)
             .line_height(gpui::relative(1.0))
             .whitespace_nowrap()
             .when(self.disabled, |d| d.opacity(DISABLED_OPACITY))
@@ -430,7 +424,7 @@ impl RenderOnce for Button {
         // The one focus-visible ring (an outline, not a shadow: a spread
         // shadow shows through the see-through fills).
         if ring {
-            outer = outer.relative().child(crate::interact::focus_ring(px(scale::SHAPE_ITEM), &p));
+            outer = outer.relative().child(crate::interact::focus_ring(px(R_ITEM), &p));
         }
         // The glyph inherits the button's ink, so it lifts with the hover.
         if let Some(content) = self.icon_content {

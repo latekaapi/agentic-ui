@@ -34,17 +34,21 @@ fn white() -> Hsla {
     gpui::white()
 }
 
+/// The switch's off track (docs/83 §7, §9): `surface-6` in dark,
+/// `line-strong` in light.
+fn switch_off(p: &Palette) -> Hsla {
+    if p.is_dark() { p.surface_6 } else { p.line_strong }
+}
+
 fn transparent() -> Hsla {
     gpui::transparent_black()
 }
 
 /// gpui-kit colour roles for one palette.
-fn colors(p: &Palette, kind: ThemeKind) -> Map<String, Value> {
-    let scrim = if kind.is_dark() {
-        gpui::black().alpha(0.45)
-    } else {
-        gpui::black().alpha(0.25)
-    };
+fn colors(p: &Palette) -> Map<String, Value> {
+    // The kit's modal overlay is the one scrim: black at 50 % in both
+    // themes (docs/83 §7, token `scrim`).
+    let scrim = gpui::black().alpha(crate::scale::SCRIM);
     let pairs: Vec<(&str, Hsla)> = vec![
         ("background", p.bg),
         ("foreground", p.ink),
@@ -156,10 +160,11 @@ fn colors(p: &Palette, kind: ThemeKind) -> Map<String, Value> {
         ("progress.bar.background", p.fg_muted),
         ("slider.background", p.ink),
         ("slider.thumb.background", p.surface_1),
-        // Switch: the off track is `line-strong` (#404040 dark / #D4D4D4
-        // light; docs/83 §9), the thumb white in both themes, on = the focus
-        // blue (set per call).
-        ("switch.background", p.line_strong),
+        // Switch: the off track is `surface-6` in dark (#3A3A3A, docs/83
+        // §7) and `line-strong` in light (#D4D4D4: light `surface-6` #E8E8E8
+        // would leave the white thumb on a near-white track; docs/83 §9),
+        // the thumb white in both themes, on = the focus blue (set per call).
+        ("switch.background", switch_off(p)),
         ("switch.thumb.background", white()),
         ("skeleton.background", p.surface_3),
         ("scrollbar.background", transparent()),
@@ -260,7 +265,7 @@ fn theme(kind: ThemeKind) -> Value {
         "radius": scale::R_SM as u32,
         "radius.lg": scale::R_LG as u32,
         "shadow": true,
-        "colors": Value::Object(colors(&p, kind)),
+        "colors": Value::Object(colors(&p)),
         "highlight": highlight(&p),
     })
 }
@@ -316,7 +321,7 @@ mod tests {
     fn primary_text_contrasts_with_its_fill_in_both_themes() {
         for kind in [ThemeKind::Light, ThemeKind::Dark] {
             let p = Palette::for_kind(kind);
-            let c = colors(&p, kind);
+            let c = colors(&p);
             for (fill, text) in [("primary.background", "primary.foreground"), ("button.primary.background", "button.primary.foreground"), ("sidebar.primary.background", "sidebar.primary.foreground")] {
                 let l = |key: &str| {
                     let v = c[key].as_str().unwrap();
@@ -326,8 +331,10 @@ mod tests {
                 };
                 assert!((l(fill) - l(text)).abs() > 0.6, "{kind:?}: {text} does not contrast with {fill}");
             }
-            // The switch's off track is a token, not gpui-kit's #525252.
-            assert_eq!(c["switch.background"].as_str().unwrap(), hex(p.line_strong));
+            // The switch's off track is a token, not gpui-kit's #525252:
+            // `surface-6` in dark, `line-strong` in light.
+            let off = if p.is_dark() { p.surface_6 } else { p.line_strong };
+            assert_eq!(c["switch.background"].as_str().unwrap(), hex(off));
         }
     }
 }

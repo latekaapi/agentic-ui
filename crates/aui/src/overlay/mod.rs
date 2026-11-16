@@ -8,23 +8,18 @@ mod dialog;
 mod settings;
 
 pub use command_palette::*;
-pub use card::modal_panel;
+pub use card::{modal_footer, modal_header, modal_panel, MODAL_PAD};
 pub use dialog::{dialog, Dialog, DialogKind};
 pub use settings::{SettingsRow, SettingsSection, ShortcutEdit};
 
 use aui_tokens::scale;
 use gpui::{point, prelude::ParentElement, px, size, Anchor, Bounds, IntoElement, Pixels, Size};
 
-/// How far an overlay dims the window behind it.
-///
-/// `.scrim{background:linear-gradient(180deg,rgba(0,0,0,.25),rgba(0,0,0,.45))}`
-/// — [`palette_scrim`] runs the gradient between the two stops; the modal
-/// [`Dialog`] covers the whole window, where the heavier bottom stop turns a
-/// light theme into a grey slab, so it uses the flat top stop. Both live here
-/// rather than as a literal in each file.
-pub(crate) const SCRIM_TINT_TOP: f32 = 0.25;
-/// The bottom stop of the scrim gradient, and the modal scrim's flat tint.
-pub(crate) const SCRIM_TINT_BOTTOM: f32 = 0.45;
+/// The one scrim under every modal — dialogs, sheets, the palette, the Peek
+/// (docs/83 §7): black at 50 % (token `scrim`), flat over the whole window.
+pub fn scrim() -> gpui::Hsla {
+    gpui::black().opacity(scale::SCRIM)
+}
 
 /// The priority every popover in the library paints at. Deferred draws are
 /// painted in priority order, so a menu opened from inside another popover can

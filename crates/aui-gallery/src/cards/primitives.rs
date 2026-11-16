@@ -63,11 +63,10 @@ pub fn build_hover_model(_window: &mut Window, cx: &mut App) -> AnyElement {
 /// `primitives/button`: every variant in every state.
 pub fn build_buttons(_window: &mut Window, cx: &mut App) -> AnyElement {
     type Style = fn(aui::data::Button) -> aui::data::Button;
-    let variants: [(&str, Style); 5] = [
+    let variants: [(&str, Style); 4] = [
         ("Secondary", |b| b),
         ("Primary", |b| b.primary()),
         ("Ghost", |b| b.ghost()),
-        ("Outline", |b| b.outline()),
         ("Danger", |b| b.danger()),
     ];
     let states: [(&str, Option<InteractState>, bool); 5] = [

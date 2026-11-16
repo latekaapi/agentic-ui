@@ -26,9 +26,10 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                 .text_role(TextRole::UiSmall)
                 .text_color(cx.aui().colors.fg_muted)
                 .child(
-                    "Accent is iris (blue-violet) and is the only decorative hue. Status colours carry meaning only: \
-                     success, warning, danger, info. Agent states map onto them: running = accent, needs-you = warning, \
-                     done = success, failed = danger. Neutrals are tinted toward the accent so greys read as chosen.",
+                    "The accent is ink on the ground (the one primary fill); accent-ring is the one blue, for focus, \
+                     toggles, links and selection. Status colours carry meaning only: success, warning, danger, info. \
+                     Agent states map onto them: running = accent, needs-you = warning, done = success, failed = danger. \
+                     Neutrals are plain greys with no tint.",
                 ),
         )
         .into_any_element()

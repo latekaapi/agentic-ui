@@ -14,9 +14,9 @@ use gpui_kit::base::input::{InputBaseState, InputModeKind};
 
 use crate::interact::R_ITEM;
 
-/// The field's minimum height (docs/83 §7: 32). A multi-line field grows.
-/// No token yet; task 2.3 moves it into the metrics.
-pub const FIELD_H: f32 = 32.0;
+/// The field's minimum height (docs/83 §7: 32, token `field-h`). A
+/// multi-line field grows.
+pub const FIELD_H: f32 = aui_tokens::scale::FIELD_H;
 /// The text's inset from the edge.
 const FIELD_PAD_X: f32 = 8.0;
 const FIELD_PAD_Y: f32 = 4.0;

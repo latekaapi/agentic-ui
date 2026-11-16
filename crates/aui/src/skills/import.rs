@@ -195,8 +195,8 @@ const IMPORT_GAP: f32 = 12.0;
 const IMPORT_PAD_Y: f32 = 10.0;
 const IMPORT_PAD_X: f32 = 12.0;
 const IMPORT_TOK_W: f32 = 48.0;
-/// Title 17.6 / 600, subtitle 14.3 fg-muted, row name 14.3 / 500.
-const TITLE_TEXT: f32 = 17.6;
+/// Subtitle 14.3 fg-muted, row name 14.3 / 500 (the title is the modal
+/// header's).
 const SUBTITLE_TEXT: f32 = 14.3;
 const ROW_NAME: f32 = 14.3;
 const ROW_DESC: f32 = 13.2;
@@ -345,22 +345,13 @@ impl RenderOnce for ImportPreview {
         }
 
         let mut card = v_flex().flex_none().w(px(PREVIEW_W));
-        card = card.child(
-            v_flex().flex_none().w_full().px(px(24.0)).pt(px(20.0)).pb(px(12.0)).gap(px(4.0)).child(
-                div()
-                    .flex_none()
-                    .ui(TITLE_TEXT)
-                    .line_height(relative(1.0))
-                    .semibold()
-                    .text_color(p.ink)
-                    .child(self.title.clone()),
-            ),
-        );
+        card = card.child(crate::overlay::modal_header(self.title.clone(), None, None, cx));
         if let Some(subtitle) = self.subtitle {
             card = card.child(
                 div()
                     .flex_none()
                     .w_full()
+                    .pt(px(12.0))
                     .px(px(24.0))
                     .ui(SUBTITLE_TEXT)
                     .line_height(relative(scale::LH_UI))

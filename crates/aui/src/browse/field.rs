@@ -24,7 +24,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Density, TextRole};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, ScrollHandle, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::base::input::TextareaState;
@@ -32,6 +32,7 @@ use gpui_kit::base::input::TextareaState;
 use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{kbd, record_ax_label};
 use crate::keys::MENU_CONTEXT;
+use crate::interact::R_ITEM;
 use crate::util::indexed_child;
 
 // ---------------------------------------------------------------- the model
@@ -531,9 +532,10 @@ fn command_row(command: &FieldCommand) -> FieldRow {
 
 // -------------------------------------------------------------- the element
 
-/// `.field{width:640px;border-radius:var(--r-xl)}` on the overlay ground with
-/// a 1 px `line-strong` border and the float shadow.
-const FIELD_W: f32 = 640.0;
+/// The Field is the command palette's panel (docs/83 §7): 640 wide (token
+/// `palette-w`), the Dialog level (`surface-2`), a 1 px `line-strong`
+/// border, the dialog radius and the dialog shadow.
+const FIELD_W: f32 = scale::PALETTE_W;
 /// `.q{gap:10px;padding:0 14px;height:46px;font-size:14px}` with a 16 px
 /// search icon, like the command palette's query row.
 const Q_H: f32 = 46.0;
@@ -544,26 +546,24 @@ const Q_ICON: f32 = 16.0;
 /// The caret after the query: a 1 px bar at the text height.
 const CARET_W: f32 = 1.0;
 const CARET_H: f32 = 18.0;
-/// How tall the grouped list may grow before it scrolls: twelve 34 px rows
-/// plus three captions (8 px top, an 11 px caps line at 1.5 line-height,
-/// 6 px bottom) plus the 4 px body bottom fit inside with room to spare:
-/// 408 + 91.5 + 4 = 503.5 against the 512 cap.
+/// How tall the grouped list may grow before it scrolls: eleven 36 px rows
+/// plus three group labels (8 px top, a 16 px caption line, 6 px bottom)
+/// plus the 4 px body bottom fit inside: 396 + 90 + 4 = 490 against the
+/// 512 cap.
 const BODY_MAX_H: f32 = 512.0;
-/// `.sec{padding:8px 6px 4px}` and `.sec .caps{padding:0 10px 6px}`, like the
-/// command palette's sections.
+/// A group's padding and its label's (sentence case, `t-caption`
+/// `fg-muted`), like the command palette's sections.
 const SEC_PAD_TOP: f32 = 8.0;
 const SEC_PAD_X: f32 = 6.0;
 const SEC_PAD_BOTTOM: f32 = 4.0;
 const CAPS_PAD_X: f32 = 10.0;
 const CAPS_PAD_BOTTOM: f32 = 6.0;
-/// `.it{gap:10px;height:34px;padding:0 10px;border-radius:var(--r-sm);
-/// font-size:13px}` with a 14 px leading glyph, like the palette's rows.
-const ITEM_H: f32 = 34.0;
+/// A row: 36 tall (token `palette-row`), padded 10, `t-body`, the item
+/// radius, with a 14 px leading glyph, like the palette's rows.
+const ITEM_H: f32 = scale::PALETTE_ROW;
 const ITEM_GAP: f32 = 10.0;
 const ITEM_PAD_X: f32 = 10.0;
 const ITEM_ICON: f32 = 14.0;
-/// `.it .detail{font-size:11px}` — the faint tab host or history URL.
-const DETAIL_TEXT: f32 = scale::FS_11;
 /// `.ft{gap:14px;height:32px;padding:0 14px;font-size:11px}`.
 const FT_H: f32 = 32.0;
 const FT_GAP: f32 = 14.0;
@@ -710,11 +710,11 @@ impl Field {
 fn group_caption(kind: &FieldRowKind) -> Option<&'static str> {
     match kind {
         FieldRowKind::Open { .. } | FieldRowKind::Clipboard { .. } | FieldRowKind::Ask | FieldRowKind::Search | FieldRowKind::Task => None,
-        FieldRowKind::Tab { .. } => Some("TABS"),
-        FieldRowKind::Bookmark { .. } => Some("BOOKMARKS"),
-        FieldRowKind::Folder { .. } => Some("FOLDERS"),
-        FieldRowKind::History { .. } => Some("HISTORY"),
-        FieldRowKind::Command { .. } => Some("COMMANDS"),
+        FieldRowKind::Tab { .. } => Some("Tabs"),
+        FieldRowKind::Bookmark { .. } => Some("Bookmarks"),
+        FieldRowKind::Folder { .. } => Some("Folders"),
+        FieldRowKind::History { .. } => Some("History"),
+        FieldRowKind::Command { .. } => Some("Commands"),
     }
 }
 
@@ -798,11 +798,11 @@ impl RenderOnce for Field {
             .relative()
             .w(px(FIELD_W))
             .max_w(gpui::relative(1.0))
-            .rounded(px(scale::R_XL))
-            .bg(p.overlay)
+            .rounded(px(scale::SHAPE_DIALOG))
+            .bg(p.surface(aui_tokens::Palette::DIALOG_LEVEL))
             .border_1()
             .border_color(p.line_strong)
-            .shadow(p.floating_shadow())
+            .shadow(p.dialog_shadow())
             .overflow_hidden()
             .text_color(p.ink)
             .occlude()
@@ -869,8 +869,7 @@ impl RenderOnce for Field {
                             .pt(px(SEC_PAD_TOP))
                             .px(px(CAPS_PAD_X))
                             .pb(px(CAPS_PAD_BOTTOM))
-                            .text_role(TextRole::Caps)
-                            .line_height(gpui::relative(scale::LH_UI))
+                            .text_role_in(TextRole::Caption, Density::Standard)
                             .text_color(p.fg_muted)
                             .child(caption),
                     );
@@ -1015,7 +1014,7 @@ fn query_text(
 }
 
 /// One row: the glyph, the title, the faint detail, the right-hand hint. The
-/// selected row wears `surface-3`; every row is a button labelled
+/// selected row is lit by the one hover model; every row is a button labelled
 /// `<title>, <hint>`.
 #[allow(clippy::too_many_arguments)]
 fn field_row(
@@ -1041,19 +1040,29 @@ fn field_row(
         .h(px(ITEM_H))
         .gap(px(ITEM_GAP))
         .px(px(ITEM_PAD_X))
-        .rounded(px(scale::R_SM))
+        .rounded(px(R_ITEM))
         .paint_states(StatePaint::new().pointer(false).highlighted(on).ink(p.fg_muted, p.ink), p)
-        .ui(scale::FS_13)
+        .text_role_in(TextRole::Body, Density::Standard)
         .child(icon(row_icon(&row.kind)).size(px(ITEM_ICON)).color(glyph_color))
         .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().child(row.title.clone()));
     if let Some(detail) = &row.detail {
-        el = el.child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().mono(DETAIL_TEXT).text_color(p.fg_muted).child(detail.clone()));
+        // The description: `t-caption` `fg-muted` in the UI face, never mono
+        // (docs/83 §7).
+        el = el.child(
+            div()
+                .flex_shrink(1.0)
+                .min_w(px(0.0))
+                .truncate()
+                .text_role_in(TextRole::Caption, Density::Standard)
+                .text_color(p.fg_muted)
+                .child(detail.clone()),
+        );
     }
     // A history row's hint is a relative word, a bookmark's its folder, a
     // folder's its count: plain faint text at the right edge. Every other
     // hint is a keycap.
     if matches!(row.kind, FieldRowKind::History { .. } | FieldRowKind::Bookmark { .. } | FieldRowKind::Folder { .. }) {
-        el = el.child(div().flex_none().ml_auto().ui(DETAIL_TEXT).text_color(p.fg_muted).child(row.hint.clone()));
+        el = el.child(div().flex_none().ml_auto().text_role_in(TextRole::Caption, Density::Standard).text_color(p.fg_muted).child(row.hint.clone()));
     } else {
         el = el.child(div().flex_none().ml_auto().child(kbd(row.hint.clone())));
     }
@@ -1181,8 +1190,8 @@ mod tests {
                 hint: SharedString::from("↩"),
             },
         ];
-        // Children: 3 agent rows, TABS caption, tab, HISTORY caption, history,
-        // COMMANDS caption, command.
+        // Children: 3 agent rows, the Tabs label, tab, the History label,
+        // history, the Commands label, command.
         assert_eq!(field_selected_child_index(&rows, 3), Some(4));
         assert_eq!(field_selected_child_index(&rows, 4), Some(6));
         assert_eq!(field_selected_child_index(&rows, 5), Some(8));

@@ -1,28 +1,24 @@
-//! The tooltip: Fluid Functionalism's (`registry/base/tooltip.tsx`).
+//! The tooltip: a small floating surface (docs/83 §7) — the `overlay` fill,
+//! a 1 px `line-strong` edge, radius 6 (token `r-6`) and the one float
+//! shadow — with the caption role in the foreground, 8 px across and 4 px
+//! down. It fades in over the fast tier (80 ms) after a 200 ms hover delay.
 //!
-//! An inverted chip — the foreground as its fill, the background as its
-//! text — at the caption role (12/16), 8 px across and 4 px down, on the
-//! item radius, with no shadow. It fades in over the fast tier (80 ms)
-//! after FF's 200 ms hover delay.
-//!
-//! Adaptations: gpui seats a tooltip beside the pointer, not 8 px off the
-//! trigger's side, and has no slide-in offset; the fade is kept. gpui flips
-//! a tooltip only at the window's edge, so a tooltip next to a native page
-//! (which draws above everything gpui paints) was cut by the page; a tip
-//! built with [`tip_within`] opens to the pointer's left instead when it
-//! would cross its right limit.
+//! gpui seats a tooltip beside the pointer, not off the trigger's side, and
+//! has no slide-in offset; the fade is kept. gpui flips a tooltip only at
+//! the window's edge, so a tooltip next to a native page (which draws above
+//! everything gpui paints) was cut by the page; a tip built with
+//! [`tip_within`] opens to the pointer's left instead when it would cross
+//! its right limit.
 
 use std::time::{Duration, Instant};
 
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, AnyView, App, Context, IntoElement, SharedString, Window};
 
-use crate::interact::Shape;
-
-/// FF's hover delay before a tooltip shows (`tooltip.tsx`: `delay 200`).
+/// The hover delay before a tooltip shows (200 ms).
 pub const TIP_DELAY: Duration = Duration::from_millis(200);
 
-/// FF's fast tier: the tooltip's fade-in.
+/// The fast tier: the tooltip's fade-in.
 const TIP_FADE: Duration = Duration::from_millis(80);
 
 /// One tooltip's view: its text and when it appeared (for the fade).
@@ -34,9 +30,9 @@ pub struct Tip {
 }
 
 /// A caption-role chip's width for `text`, estimated: Inter at 12 px runs
-/// about 6.6 px a character, plus the chip's 8 px each side.
+/// about 6.6 px a character, plus the chip's 8 px each side and its edge.
 fn estimated_width(text: &str) -> f32 {
-    text.chars().count() as f32 * 6.6 + scale::SP_3 * 2.0
+    text.chars().count() as f32 * 6.6 + scale::SP_3 * 2.0 + 2.0
 }
 
 impl gpui::Render for Tip {
@@ -47,17 +43,19 @@ impl gpui::Render for Tip {
         if opacity < 1.0 {
             aui_motion::request_frame(window);
         }
-        let chip = Shape::Item.rounded(
-            div()
-                .px(px(scale::SP_3))
-                .py(px(scale::SP_2))
-                .bg(p.fg)
-                .text_color(p.bg)
-                .role_in(TextRole::Caption, cx)
-                .whitespace_nowrap()
-                .opacity(opacity)
-                .child(self.text.clone()),
-        );
+        let chip = div()
+            .px(px(scale::SP_3))
+            .py(px(scale::SP_2))
+            .rounded(px(scale::R_6))
+            .bg(p.overlay)
+            .border_1()
+            .border_color(p.line_strong)
+            .shadow(p.floating_shadow())
+            .text_color(p.fg)
+            .role_in(TextRole::Caption, cx)
+            .whitespace_nowrap()
+            .opacity(opacity)
+            .child(self.text.clone());
         let crosses = self.right.is_some_and(|right| window.mouse_position().x + px(1.0) + px(estimated_width(&self.text)) > right);
         if crosses {
             // A zero-size anchor at the pointer with the chip hung off its

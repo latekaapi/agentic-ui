@@ -7,8 +7,10 @@
 //! [`sheet_frame`] is the frame alone (header, body, actions) so other
 //! sign-ins share it: the Muse sign-in sheet is the same frame at 460 wide
 //! ([`Login::sheet`](super::Login::sheet)); [`dialog_sheet`] is the frame
-//! with no provider mark, for an app's own sheets (an import). [`sheet_scrim`] is the 45 % black
-//! layer the sheet sits on over whatever screen asked.
+//! with no provider mark, for an app's own sheets (an import). [`sheet_scrim`] is the one scrim
+//! (black 50 %) the sheet sits on over whatever screen asked. The frame is the
+//! dialog's (docs/83 §7): `surface-2`, 1 px `line-strong`, radius 12, the
+//! dialog shadow, the 44 px header over its `line-region`.
 //!
 //! Stateless: the host owns the terminal session, the watch that moves the
 //! status line, and the open flag. Close, ✕ and Done all report through
@@ -30,14 +32,10 @@ use crate::data::{button, icon_button, spinner, ButtonSize};
 pub const SETUP_W: f32 = 560.0;
 /// The narrower sign-in sheet (Muse).
 pub const SIGN_IN_W: f32 = 460.0;
-/// The sheet's radius.
-const SHEET_R: f32 = 12.0;
-/// The header: 44 tall, padded 0 8 0 16, gap 10, a 20 px mark.
-const HEAD_H: f32 = 44.0;
-const HEAD_GAP: f32 = 10.0;
+/// The header is the modal header ([`crate::overlay::modal_header`]: 44
+/// with its `line-region`, the title in `t-title`); the provider mark in it
+/// is 20 px.
 const HEAD_MARK: f32 = 20.0;
-/// Title 14.3 semibold.
-const TITLE_TEXT: f32 = scale::FS_13;
 /// Status, footnote: 13.2/18.
 const CAPTION_TEXT: f32 = scale::FS_12;
 const CAPTION_LH: f32 = 18.0;
@@ -48,8 +46,6 @@ const PAD_X: f32 = SHEET_PAD_X;
 /// The terminal well: 150 tall, radius 8, 10 below the status line.
 const TERM_H: f32 = 150.0;
 const TERM_R: f32 = 8.0;
-/// The scrim's black at 45 %.
-const SCRIM_ALPHA: f32 = 0.45;
 
 /// The status line at the top of the setup sheet.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,7 +60,8 @@ pub enum SetupStatus {
 
 type CloseHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 
-/// The 45 % black layer over the whole window, the sheet centred on it.
+/// The one scrim ([`crate::overlay::scrim`], black 50 %) over the whole
+/// window, the sheet centred on it.
 /// A click on the scrim itself does nothing unless `on_dismiss` is given.
 pub fn sheet_scrim(id: impl Into<ElementId>, sheet: impl IntoElement, on_dismiss: Option<CloseHandler>) -> AnyElement {
     let mut scrim = div()
@@ -74,7 +71,7 @@ pub fn sheet_scrim(id: impl Into<ElementId>, sheet: impl IntoElement, on_dismiss
         .flex()
         .items_center()
         .justify_center()
-        .bg(gpui::black().alpha(SCRIM_ALPHA))
+        .bg(crate::overlay::scrim())
         // The scrim swallows the pointer so nothing under it reacts.
         .occlude();
     if let Some(dismiss) = on_dismiss {
@@ -159,37 +156,17 @@ impl RenderOnce for SheetFrame {
         if let Some(handler) = self.on_close.clone() {
             close = close.on_click(move |_, w, cx| handler(w, cx));
         }
-        let head = h_flex()
-            .w_full()
-            .h(px(HEAD_H))
-            .flex_none()
-            .items_center()
-            .gap(px(HEAD_GAP))
-            .pl(px(PAD_X))
-            .pr(px(8.0))
-            .border_b_1()
-            .border_color(p.line)
-            .children(self.provider.map(|mark| provider_mark(mark).size(px(HEAD_MARK))))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .truncate()
-                    .text_px(TITLE_TEXT)
-                    .semibold()
-                    .text_color(p.ink)
-                    .child(self.title.clone()),
-            )
-            .child(close);
+        let mark = self.provider.map(|mark| provider_mark(mark).size(px(HEAD_MARK)).into_any_element());
+        let head = crate::overlay::modal_header(self.title.clone(), mark, Some(close.into_any_element()), cx);
         let mut sheet = v_flex()
             .id(self.id)
             .w(px(self.width))
             .max_w_full()
-            .rounded(px(SHEET_R))
+            .rounded(px(scale::SHAPE_DIALOG))
             .bg(p.surface_2)
             .border_1()
             .border_color(p.line_strong)
-            .shadow(p.floating_shadow())
+            .shadow(p.dialog_shadow())
             .overflow_hidden()
             .text_color(p.ink)
             .role(gpui::Role::Dialog)

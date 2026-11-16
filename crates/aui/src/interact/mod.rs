@@ -51,12 +51,13 @@ pub const ROW_PAD_X: f32 = 10.0;
 /// The item radius (`r-md` / `shape-item` flat: 8): rows, buttons, inputs,
 /// tabs, segmented.
 pub const R_ITEM: f32 = 8.0;
-/// A menu row's height (docs/83 §7: 28).
-pub const MENU_ROW_H: f32 = 28.0;
-/// A menu row's radius (docs/83 §7: 6).
-pub const R_MENU_ROW: f32 = 6.0;
-/// A menu separator's inset from the panel's sides (docs/83 §7: 8).
-pub const MENU_SEPARATOR_INSET: f32 = 8.0;
+/// A menu row's height (docs/83 §7: 28, token `menu-row`).
+pub const MENU_ROW_H: f32 = scale::MENU_ROW;
+/// A menu row's radius (docs/83 §7: 6, token `r-6`).
+pub const R_MENU_ROW: f32 = scale::R_6;
+/// A menu separator's inset from the panel's sides (docs/83 §7: 8, token
+/// `menu-sep-inset`).
+pub const MENU_SEPARATOR_INSET: f32 = scale::MENU_SEP_INSET;
 
 use aui_tokens::scale;
 use gpui::px;

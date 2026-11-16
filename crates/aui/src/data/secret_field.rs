@@ -26,24 +26,18 @@ use std::rc::Rc;
 use aui_icons::IconName;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, Entity, IntoElement, SharedString, Window};
-use gpui_kit::base::{
-    h_flex,
-    input::{Input, InputState},
-};
+use gpui_kit::base::input::{Input, InputState};
 
 use crate::data::icon_button;
 
-/// The secret control box: `h 34`, the same 6 px radius as a control.
-const SECRET_H: f32 = 34.0;
+/// The secret control box is the one input frame ([`crate::data::field`]:
+/// `surface-4`, 1 px `line-strong` that turns `accent-ring` with focus,
+/// radius 8, 32 tall — docs/83 §7), padded 10 on the left.
 const SECRET_PAD_LEFT: f32 = 10.0;
 const SECRET_PAD_RIGHT: f32 = scale::SP_2;
 const SECRET_GAP: f32 = scale::SP_3;
 /// The secret text: the 12 px mono role, like the login screen's URL row.
 const SECRET_TEXT: f32 = scale::FS_12;
-/// `.btn:focus-visible{box-shadow:0 0 0 3px var(--accent-ring)}`: no offset,
-/// no blur, a 3 px spread in `accent-ring`. The ring lives on the box, never
-/// on the input inside it.
-const FOCUS_RING: f32 = 3.0;
 /// Disabled controls (`opacity:.45` on the forward arrow in the shell header).
 const DISABLED_OPACITY: f32 = 0.45;
 
@@ -128,30 +122,17 @@ impl RenderOnce for SecretField {
             eye = eye.on_click(move |_, w, cx| handler(w, cx));
         }
 
-        let mut box_ = h_flex()
+        // The focus treatment is the frame's edge alone: no glow.
+        let mut box_ = crate::data::field((self.id.clone(), "frame"), focused, cx)
             .w_full()
-            .items_center()
-            .h(px(SECRET_H))
+            .py(px(0.0))
             .gap(px(SECRET_GAP))
             .pl(px(SECRET_PAD_LEFT))
             .pr(px(SECRET_PAD_RIGHT))
-            .rounded(px(scale::R_SM))
-            .border_1()
-            .border_color(if focused { p.accent } else { p.line })
-            .bg(p.surface_2)
             .mono(SECRET_TEXT)
             .text_color(p.ink)
             .child(div().flex_1().min_w(px(0.0)).child(Input::new(&self.state)))
             .child(eye);
-        if focused {
-            box_ = box_.shadow(vec![gpui::BoxShadow {
-                color: p.accent_ring,
-                offset: gpui::point(px(0.0), px(0.0)),
-                blur_radius: px(0.0),
-                spread_radius: px(FOCUS_RING),
-                inset: false,
-            }]);
-        }
         if self.disabled {
             box_ = box_.opacity(DISABLED_OPACITY);
         }

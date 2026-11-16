@@ -265,7 +265,7 @@ impl RenderOnce for Toast {
             .opacity(self.close_opacity)
             .child(icon(IconName::X).size(px(CLOSE_GLYPH)).color(p.ink_4));
         if let Some(h) = self.on_close.clone() {
-            close = close.cursor_pointer().on_click(move |_, w, cx| h(w, cx));
+            close = close.cursor_pointer().role(gpui::Role::Button).aria_label("Dismiss").on_click(move |_, w, cx| h(w, cx));
         }
 
         let mut card = div()

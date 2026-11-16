@@ -23,7 +23,7 @@ use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::status_dot;
 use crate::interact::paint::{PaintStates, StatePaint};
-use crate::interact::{menu_panel, R_MENU_ROW};
+use crate::interact::{menu_panel, MENU_ROW_H, R_MENU_ROW};
 use crate::util::interaction_flags;
 
 /// `.pop{margin-bottom:8px}` — the gap to the composer the popover sits above.
@@ -38,10 +38,9 @@ const MENU_MAX_H: f32 = 560.0;
 
 /// The `/` menu's command column: 120 px of mono.
 const COMMAND_W: f32 = 120.0;
-/// Rows padded 0 / 10, gap 10; section headers 24 tall.
+/// Rows padded 0 / 10, gap 10, [`MENU_ROW_H`] tall.
 const ROW_PAD_X: f32 = 10.0;
 const ROW_GAP: f32 = 10.0;
-const SECTION_H: f32 = 24.0;
 const COMMAND_TEXT: f32 = scale::FS_12;
 /// The `font:` shorthand of `.it .c` resets the line height to `normal`.
 const COMMAND_LH: f32 = 1.5;
@@ -201,7 +200,7 @@ impl RenderOnce for CommandMenu {
 
         let mut index = 0usize;
         for (s, section) in self.sections.into_iter().enumerate() {
-            pop = pop.child(section_label(section.title, &p));
+            pop = pop.child(section_label(section.title, cx));
             for item in section.items {
                 let key: ElementId = (id.clone(), SharedString::from(format!("command-{s}-{index}"))).into();
                 pop = pop.child(command_row(key, &p, item, &self.query, index, index == active, &self.on_select, &self.on_hover, window, cx));
@@ -373,7 +372,7 @@ impl RenderOnce for MentionPicker {
 
         let mut index = 0usize;
         for (s, section) in self.sections.into_iter().enumerate() {
-            pop = pop.child(section_label(section.title, &p));
+            pop = pop.child(section_label(section.title, cx));
             for item in section.items {
                 let key: ElementId = (id.clone(), SharedString::from(format!("mention-{s}-{index}"))).into();
                 pop = pop.child(mention_row(key, &p, item, &self.query, index, index == active, &self.on_select, &self.on_hover, window, cx));
@@ -570,12 +569,11 @@ fn menu_row(
     // The one lit row (the pointer's or the keys', [`active_row`]) paints
     // the hover look through the one model; the pointer's own refinement
     // is off so a resting pointer never lights a second row.
-    let metrics = cx.aui().metrics;
     let mut row = h_flex()
         .id(id)
         .flex_none()
         .w_full()
-        .h(metrics.control)
+        .h(px(MENU_ROW_H))
         .gap(px(ROW_GAP))
         .px(px(ROW_PAD_X))
         .rounded(px(R_MENU_ROW))
@@ -660,7 +658,7 @@ fn command_row(
         .child(div().flex_1().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).text_color(if on { p.fg } else { p.fg_muted }).child(item.description));
 
     if let Some(key) = item.key {
-        row = row.child(div().flex_none().mono(DETAIL_MONO_TEXT).text_color(p.ink_4).child(key));
+        row = row.child(div().flex_none().role_in(TextRole::Micro, cx).text_color(p.ink_4).child(key));
     }
     if let Some(source) = item.source_tag {
         row = row.child(div().flex_none().ui(DETAIL_TEXT).text_color(p.ink_4).child(source));
@@ -726,7 +724,7 @@ fn mention_row(
     });
 
     if let Some(key) = item.key {
-        row = row.child(div().flex_none().mono(DETAIL_MONO_TEXT).text_color(p.ink_4).child(key));
+        row = row.child(div().flex_none().role_in(TextRole::Micro, cx).text_color(p.ink_4).child(key));
     }
     if let Some(handler) = on_select.clone() {
         let item_id = item.id.clone();
@@ -761,9 +759,9 @@ fn footer(p: &Palette, enter: &'static str) -> impl IntoElement {
         .child("esc close")
 }
 
-/// A section's caption header: 24 px, muted, padded 0 / 10 / 4.
-fn section_label(title: SharedString, p: &Palette) -> impl IntoElement {
-    div().h(px(SECTION_H)).px(px(ROW_PAD_X)).pb(px(4.0)).flex().items_end().ui(scale::FS_12).text_color(p.fg_muted).child(title)
+/// A section's group label: the menus' one label ([`crate::interact::dropdown_label`]).
+fn section_label(title: SharedString, cx: &App) -> impl IntoElement {
+    crate::interact::dropdown_label(title, cx)
 }
 
 #[cfg(test)]

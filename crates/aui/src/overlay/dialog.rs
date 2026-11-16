@@ -41,28 +41,24 @@ use aui_icons::{icon, IconName};
 use aui_motion::EnterExit;
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::{div, prelude::*, px, relative, AnyElement, App, ElementId, Hsla, IntoElement, SharedString, Window};
-use gpui_kit::base::h_flex;
+use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, ButtonSize};
 
-use super::card::{modal_card, modal_presence, modal_scrim, rest_timing, ModalIntent};
+use super::card::{modal_card, modal_footer, modal_header, modal_presence, modal_scrim, rest_timing, ModalIntent, MODAL_PAD};
+use crate::interact::R_ITEM;
 
 /// The default card width, the same measure as the sign-in card.
 const DIALOG_W: f32 = 420.0;
-/// `.dlg{padding:16px;gap:12px;border-radius:var(--r-lg)}`.
-const CARD_PAD: f32 = scale::SP_5;
+/// The gap between the body's blocks (and the leading element).
 const CARD_GAP: f32 = scale::SP_4;
 /// The kind tile, the same 26 px square the approval card leads with.
 const TILE: f32 = 26.0;
 const TILE_RADIUS: f32 = 7.0;
 const TILE_GLYPH: f32 = 14.0;
-/// The gap between the tile and the title.
-const HEAD_GAP: f32 = scale::SP_3;
 /// The mono detail line.
 const DETAIL_PAD_Y: f32 = scale::SP_3;
 const DETAIL_PAD_X: f32 = scale::SP_4;
-/// The action row.
-const ACTION_GAP: f32 = scale::SP_3;
 
 /// What a dialog is about. The kind picks the tile's glyph and its tint;
 /// nothing else in the card is coloured.
@@ -258,66 +254,65 @@ impl RenderOnce for Dialog {
         let style = modal_presence(&id, self.present, self.timing, window, cx);
         let (tile_bg, tile_ink, glyph) = self.kind.tile(&p);
 
-        let mut card = modal_card(&p, self.width, &style)
-            .gap(px(CARD_GAP))
-            .p(px(CARD_PAD))
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap(px(HEAD_GAP))
-                    .child(match self.leading {
-                        Some(leading) => div().flex_none().child(leading),
-                        None => div()
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .size(px(TILE))
-                            .rounded(px(TILE_RADIUS))
-                            .bg(tile_bg)
-                            .child(icon(glyph).size(px(TILE_GLYPH)).color(tile_ink)),
-                    })
-                    .child(div().flex_1().min_w(px(0.0)).text_role(TextRole::Title).text_color(p.ink).child(self.title.clone())),
-            );
+        // The header (44 + its `line-region`): the kind tile and the title.
+        // A caller's leading element (the error mascot, 56 pt) is too tall
+        // for the header, so it leads the body instead and the header keeps
+        // the title alone.
+        let tile = div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(px(TILE))
+            .rounded(px(TILE_RADIUS))
+            .bg(tile_bg)
+            .child(icon(glyph).size(px(TILE_GLYPH)).color(tile_ink))
+            .into_any_element();
+        let (head_lead, body_lead) = match self.leading {
+            Some(leading) => (None, Some(leading)),
+            None => (Some(tile), None),
+        };
+        let mut card = modal_card(&p, self.width, &style).child(modal_header(self.title.clone(), head_lead, None, cx));
 
+        let mut text = v_flex().flex_1().min_w(px(0.0)).gap(px(CARD_GAP));
         if let Some(rich) = self.rich.clone() {
-            card = card.child(rich(&p));
+            text = text.child(rich(&p));
         } else if let Some(body) = self.body.clone() {
-            card = card.child(
-                div()
-                    .w_full()
-                    .ui(scale::FS_12)
-                    .line_height(relative(scale::LH_UI))
-                    .text_color(p.fg_muted)
-                    .child(body),
-            );
+            text = text.child(div().w_full().role_in(TextRole::Body, cx).text_color(p.fg_muted).child(body));
         }
         if let Some(detail) = self.detail.clone() {
-            card = card.child(
+            // A nested block: a fill one step up, no edge (docs/83 §1 rule 3).
+            text = text.child(
                 div()
                     .w_full()
                     .py(px(DETAIL_PAD_Y))
                     .px(px(DETAIL_PAD_X))
-                    .rounded(px(scale::R_SM))
-                    .border_1()
-                    .border_color(p.line)
-                    .bg(p.surface_2)
+                    .rounded(px(R_ITEM))
+                    .bg(p.surface_3)
                     .mono(scale::FS_11)
                     .line_height(relative(scale::LH_MONO))
                     .text_color(p.fg_muted)
                     .child(detail),
             );
         }
+        card = card.child(
+            h_flex()
+                .w_full()
+                .items_start()
+                .gap(px(CARD_GAP))
+                .p(px(MODAL_PAD))
+                .children(body_lead.map(|lead| div().flex_none().child(lead)))
+                .child(text),
+        );
 
-        // The one action row: spacer, secondary, primary at the far right.
-        let mut actions = h_flex().w_full().items_center().gap(px(ACTION_GAP)).child(div().flex_1().min_w(px(0.0)));
+        // The footer: secondary, then primary at the far right.
+        let mut actions: Vec<AnyElement> = Vec::new();
         if let Some(label) = self.secondary.clone() {
             let mut b = button((id.clone(), "secondary"), label).size(ButtonSize::Md);
             if let Some(handler) = self.on_secondary.clone() {
                 b = b.on_click(move |_, w, cx| handler(w, cx));
             }
-            actions = actions.child(b);
+            actions.push(b.into_any_element());
         }
         {
             let mut b = button((id.clone(), "primary"), self.primary.clone()).size(ButtonSize::Md);
@@ -325,9 +320,9 @@ impl RenderOnce for Dialog {
             if let Some(handler) = self.on_primary.clone() {
                 b = b.on_click(move |_, w, cx| handler(w, cx));
             }
-            actions = actions.child(b);
+            actions.push(b.into_any_element());
         }
-        card = card.child(actions);
+        card = card.child(modal_footer(None, actions));
 
         modal_scrim(id, style.opacity, self.on_dismiss.clone(), card)
     }

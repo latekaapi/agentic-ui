@@ -212,7 +212,7 @@ pub fn handoff_confirm_destination(to: WireProvider, to_model: &str) -> SharedSt
 /// item, the label in ink, the muted detail after it.
 fn carried_list(p: &Palette, carried: &[HandoffItem]) -> AnyElement {
     let mut list =
-        v_flex().w_full().gap(px(2.0)).child(div().text_role(TextRole::Caps).text_color(p.fg_muted).child("Carried"));
+        v_flex().w_full().gap(px(2.0)).child(div().text_role(TextRole::Caption).text_color(p.fg_muted).child("Carried"));
     if carried.is_empty() {
         list = list.child(div().ui(ITEM_TEXT).text_color(p.fg_muted).child("Nothing carried over."));
     }
@@ -235,7 +235,7 @@ fn carried_list(p: &Palette, carried: &[HandoffItem]) -> AnyElement {
 /// rows in fg-muted, never hidden behind a fold.
 fn lost_list(p: &Palette, lost: &[HandoffItem]) -> AnyElement {
     let mut list =
-        v_flex().w_full().gap(px(2.0)).child(div().text_role(TextRole::Caps).text_color(p.fg_muted).child("Not carried"));
+        v_flex().w_full().gap(px(2.0)).child(div().text_role(TextRole::Caption).text_color(p.fg_muted).child("Not carried"));
     if lost.is_empty() {
         list = list.child(div().ui(ITEM_TEXT).text_color(p.fg_muted).child("Nothing left behind."));
     }

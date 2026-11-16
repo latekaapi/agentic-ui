@@ -2,9 +2,9 @@
 //!
 //! The palette is a stateless list: the caller owns the query string, the
 //! sections and which row is selected, and receives intents (select, hover,
-//! dismiss) back. It knows nothing about how it is anchored — [`palette_scrim`]
-//! draws the dimmed ground the design card puts behind it, and the app is free
-//! to place the palette itself.
+//! dismiss) back. It knows nothing about how it is anchored: the host lays
+//! it on [`super::scrim`], centred, its top at [`palette_top`] of the window
+//! (docs/83 §7).
 
 use std::cell::RefCell;
 use std::ops::Range;
@@ -12,9 +12,9 @@ use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{presence, EnterExit, PresenceStyle};
-use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette, TextRole};
+use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Density, Palette, TextRole};
 use gpui::{
-    black, div, linear_color_stop, linear_gradient, prelude::*, px, App, ElementId, FontWeight, HighlightStyle, Hsla, IntoElement, ScrollHandle,
+    div, prelude::*, px, App, ElementId, FontWeight, HighlightStyle, Hsla, IntoElement, ScrollHandle,
     SharedString, StyledText, Window,
 };
 use gpui_kit::base::{h_flex, v_flex};
@@ -22,19 +22,13 @@ use gpui_kit::base::{h_flex, v_flex};
 use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{kbd, pill, status_dot, PillVariant};
 use crate::nav::project_mark;
+use crate::interact::R_ITEM;
 use crate::util::{interaction_flags, Interaction};
 
-/// `.scrim{height:470px;border-radius:var(--r-lg);padding-top:56px}`.
-const SCRIM_H: f32 = 470.0;
-const SCRIM_PAD_TOP: f32 = 56.0;
-/// `.scrim{background:linear-gradient(180deg,…),var(--bg)}` — the two stops
-/// live in the module so the modal [`crate::overlay::Dialog`] shares them.
-use super::{SCRIM_TINT_BOTTOM, SCRIM_TINT_TOP};
-const SCRIM_ANGLE: f32 = 180.0;
-
-/// `.pal{width:560px;border-radius:var(--r-xl)}` on the Dialog level (`surface-2`) with the
-/// dialog shadow (one deep drop) and a 1 px `line-strong` border.
-const PAL_W: f32 = 560.0;
+/// The palette and the Browse Field are one floating panel (docs/83 §7):
+/// 640 wide (token `palette-w`) on the Dialog level (`surface-2`) with the
+/// dialog shadow, a 1 px `line-strong` border and the dialog radius.
+const PAL_W: f32 = scale::PALETTE_W;
 /// `@keyframes in{from{opacity:0;transform:translateY(-6px) scale(.985)}}` —
 /// the palette drops in from 6 px above at 98.5 % of its width.
 const PAL_DROP: f32 = 6.0;
@@ -51,16 +45,17 @@ const Q_PAD_X: f32 = 14.0;
 const Q_TEXT: f32 = scale::FS_14;
 const Q_ICON: f32 = 16.0;
 
-/// `.sec{padding:8px 6px 4px}` and `.sec .caps{padding:0 10px 6px}`.
+/// A section's padding, and its group label's (sentence case, `t-caption`
+/// `fg-muted`, docs/83 §2.4).
 const SEC_PAD_TOP: f32 = 8.0;
 const SEC_PAD_X: f32 = 6.0;
 const SEC_PAD_BOTTOM: f32 = 4.0;
 const CAPS_PAD_X: f32 = 10.0;
 const CAPS_PAD_BOTTOM: f32 = 6.0;
 
-/// `.it{gap:10px;height:34px;padding:0 10px;border-radius:var(--r-sm);
-/// font-size:13px}` with a 14 px (`.i`) leading glyph.
-const ITEM_H: f32 = 34.0;
+/// A row: 36 tall (token `palette-row`), padded 10, `t-body`, the item
+/// radius, with a 14 px leading glyph.
+const ITEM_H: f32 = scale::PALETTE_ROW;
 const ITEM_GAP: f32 = 10.0;
 const ITEM_PAD_X: f32 = 10.0;
 const ITEM_ICON: f32 = 14.0;
@@ -68,8 +63,6 @@ const ITEM_ICON: f32 = 14.0;
 const HINT_GAP: f32 = 4.0;
 /// A project mark in the leading slot: 14 px, as menu rows draw it.
 const MARK: f32 = 14.0;
-/// `.it .subtle.mono{font-size:11px}` — the worktree's repo.
-const CONTEXT_TEXT: f32 = scale::FS_11;
 /// `.it .pill{height:16px}` — the "needs you" badge is the short pill.
 const BADGE_H: f32 = 16.0;
 
@@ -81,6 +74,19 @@ const FT_TEXT: f32 = scale::FS_11;
 /// The single space between a footer keycap and its word (`<span class="kbd">↩
 /// </span> open`), which flex cannot express as a text node here.
 const FT_KEY_GAP: f32 = 4.0;
+
+/// The top of the palette (and the Browse Field) in a window `height` tall:
+/// 18 % of the height (token `palette-top`, docs/83 §7).
+pub fn palette_top(height: gpui::Pixels) -> gpui::Pixels {
+    height * scale::PALETTE_TOP
+}
+
+/// The palette's width in a window `width` wide: [`scale::PALETTE_W`], or
+/// the window less a 16 px margin each side when it is narrower — never
+/// the full width.
+pub fn palette_width(width: gpui::Pixels) -> gpui::Pixels {
+    px(PAL_W).min(width - px(scale::SP_5 * 2.0))
+}
 
 type SelectHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 type HoverHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
@@ -114,7 +120,8 @@ pub struct PaletteItem {
     pub label: SharedString,
     /// Byte ranges of `label` that matched the query; drawn accent-ink 600.
     pub matched: Vec<Range<usize>>,
-    /// Muted mono context after the label (a worktree's repo).
+    /// The muted description after the label (a command's summary, a
+    /// worktree's repo): `t-caption` in the UI face.
     pub context: Option<SharedString>,
     /// A status pill after the label ("needs you").
     pub badge: Option<SharedString>,
@@ -142,7 +149,7 @@ impl PaletteItem {
         }
     }
 
-    /// Adds the muted mono context after the label.
+    /// Adds the muted description after the label.
     pub fn context(mut self, context: impl Into<SharedString>) -> Self {
         self.context = Some(context.into());
         self
@@ -166,7 +173,7 @@ impl PaletteItem {
 /// A section may carry a `lead` element — rendered inside the palette under
 /// the section title and before the rows — as well as zero or more rows.
 pub struct PaletteSection {
-    /// The caps header.
+    /// The group label, drawn as given (sentence case).
     pub title: SharedString,
     /// The rows, in order.
     pub items: Vec<PaletteItem>,
@@ -207,7 +214,7 @@ pub struct CommandPalette {
     on_dismiss: Option<DismissHandler>,
 }
 
-/// The 560 px palette. `selected` indexes the rows of all sections in order,
+/// The 640 px palette. `selected` indexes the rows of all sections in order,
 /// as the arrow keys walk them.
 pub fn command_palette(id: impl Into<ElementId>, query: impl Into<SharedString>, sections: Vec<PaletteSection>, selected: usize) -> CommandPalette {
     CommandPalette {
@@ -286,7 +293,7 @@ struct PaletteScroll {
 }
 
 /// The direct-child index of the `selected`th row inside the scrolling body:
-/// every section draws its caps title, its optional lead and then its rows
+/// every section draws its group label, its optional lead and then its rows
 /// as direct children, so the child index leads the row index by the titles
 /// and leads before it. Sections with no rows still draw their title (and
 /// lead); `None` when `selected` is past the last row.
@@ -294,7 +301,7 @@ fn selected_child_index(counts: &[usize], leads: &[bool], selected: usize) -> Op
     let mut child = 0usize;
     let mut remaining = selected;
     for (i, count) in counts.iter().enumerate() {
-        // The caps title every section draws, even an empty one.
+        // The group label every section draws, even an empty one.
         child += 1;
         if leads.get(i).copied().unwrap_or(false) {
             child += 1;
@@ -339,7 +346,7 @@ impl RenderOnce for CommandPalette {
             .top(-style.offset_y)
             .opacity(style.opacity)
             .w(px(PAL_W * style.scale))
-            .rounded(px(scale::R_XL))
+            .rounded(px(scale::SHAPE_DIALOG))
             .bg(p.surface(aui_tokens::Palette::DIALOG_LEVEL))
             .border_1()
             .border_color(p.line_strong)
@@ -356,7 +363,7 @@ impl RenderOnce for CommandPalette {
             .on_scroll(|_, _, cx| cx.stop_propagation())
             .child(query_row(&id, &p, &self.query, &self.placeholder, self.query_slot, self.on_dismiss.clone()));
         // The list scrolls inside a bounded body; the query row and the
-        // footer stay put. Every section draws its caps title, its optional
+        // footer stay put. Every section draws its group label, its optional
         // lead and then its rows as direct children of the body, so the
         // scroll handle can address the selected row (see
         // [`selected_child_index`]); the paddings match the old per-section
@@ -429,10 +436,9 @@ impl RenderOnce for CommandPalette {
                     .pt(px(SEC_PAD_TOP))
                     .px(px(CAPS_PAD_X))
                     .pb(px(CAPS_PAD_BOTTOM))
-                    .text_role(TextRole::Caps)
-                    .line_height(gpui::relative(scale::LH_UI))
+                    .role_in(TextRole::Caption, cx)
                     .text_color(p.fg_muted)
-                    .child(section.title.to_uppercase()),
+                    .child(section.title.clone()),
             );
             // The lead is not a row: it draws under the title with the
             // rows' horizontal padding and a `SP_2` gap below it, creates
@@ -538,9 +544,9 @@ fn palette_row(
         .h(px(ITEM_H))
         .gap(px(ITEM_GAP))
         .px(px(ITEM_PAD_X))
-        .rounded(px(scale::R_SM))
+        .rounded(px(R_ITEM))
         .paint_states(StatePaint::new().pointer(false).highlighted(on).ink(p.fg_muted, p.ink), p)
-        .ui(scale::FS_13)
+        .text_role_in(TextRole::Body, Density::Standard)
         .cursor_pointer();
     // The old per-section block ended in bottom padding; the flattened body
     // moves it onto the section's last row, so sections keep their spacing.
@@ -580,7 +586,17 @@ fn palette_row(
     if let Some(context) = item.context {
         // The context yields after the label: a long snippet truncates
         // inside the row instead of running past the card's right edge.
-        row = row.child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().mono(CONTEXT_TEXT).text_color(p.fg_muted).child(context));
+        // The description: `t-caption` `fg-muted` in the UI face, never mono
+        // (docs/83 §7).
+        row = row.child(
+            div()
+                .flex_shrink(1.0)
+                .min_w(px(0.0))
+                .truncate()
+                .text_role_in(TextRole::Caption, Density::Standard)
+                .text_color(p.fg_muted)
+                .child(context),
+        );
     }
     if let Some(badge) = item.badge {
         row = row.child(pill(badge).variant(PillVariant::Warning).height(BADGE_H));
@@ -633,44 +649,6 @@ fn footer_hint(key: &'static str, word: &'static str) -> impl IntoElement {
     h_flex().flex_none().gap(px(FT_KEY_GAP)).child(kbd(key)).child(word)
 }
 
-/// The dimmed ground the palette floats on. Build with [`palette_scrim`].
-#[derive(IntoElement)]
-pub struct PaletteScrim {
-    child: gpui::AnyElement,
-}
-
-/// `.scrim`: 470 px tall, a black .25 → .45 gradient over the window ground,
-/// with `child` centred 56 px below the top edge.
-pub fn palette_scrim(child: impl IntoElement) -> PaletteScrim {
-    PaletteScrim { child: child.into_any_element() }
-}
-
-impl RenderOnce for PaletteScrim {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let p = cx.aui().colors;
-        div()
-            .relative()
-            .w_full()
-            .h(px(SCRIM_H))
-            .rounded(px(scale::R_LG))
-            .border_1()
-            .border_color(p.line)
-            .bg(p.bg)
-            .overflow_hidden()
-            .child(
-                div().absolute().inset_0().bg(linear_gradient(
-                    SCRIM_ANGLE,
-                    linear_color_stop(black().opacity(SCRIM_TINT_TOP), 0.0),
-                    linear_color_stop(black().opacity(SCRIM_TINT_BOTTOM), 1.0),
-                )),
-            )
-            // The scrim is a flex row with the default `align-items:stretch`,
-            // so the palette fills the height left below the 56 px padding
-            // (412 px) rather than shrinking to its rows.
-            .child(h_flex().relative().w_full().h_full().items_stretch().justify_center().pt(px(SCRIM_PAD_TOP)).child(self.child))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -683,6 +661,14 @@ mod tests {
         let items = (0..n).map(|i| row(&format!("{title}-{i}"))).collect();
         let section = PaletteSection::new(title, items);
         if lead { section.lead(div().child("a lead")) } else { section }
+    }
+
+    /// docs/83 §7: 640 wide, never the full window, its top at 18 %.
+    #[test]
+    fn the_palette_is_640_wide_with_its_top_at_18_percent() {
+        assert_eq!(palette_top(px(900.0)), px(162.0));
+        assert_eq!(palette_width(px(1440.0)), px(640.0));
+        assert_eq!(palette_width(px(600.0)), px(568.0), "a narrow window keeps a 16 px margin a side");
     }
 
     #[test]

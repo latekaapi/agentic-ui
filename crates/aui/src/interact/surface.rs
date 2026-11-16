@@ -10,8 +10,9 @@ use gpui::{div, prelude::*, px, AnyElement, App, Div, ElementId, IntoElement, Pi
 
 use super::Shape;
 
-/// The floating panel's padding around its rows (docs/83 §7: 4 px).
-pub const PANEL_PAD: f32 = 4.0;
+/// The floating panel's padding around its rows (docs/83 §7: 4 px, token
+/// `menu-pad`).
+pub const PANEL_PAD: f32 = aui_tokens::scale::MENU_PAD;
 
 /// A surface step painted flat: `colors.surface(step)`, no shadow and no
 /// edge (docs/83 §1 rule 3: nothing nested casts a shadow). Build with

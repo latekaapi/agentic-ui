@@ -18,7 +18,8 @@
 //!   after an arrow press — never two.
 //! - **Separators:** 1 px `line-strong`, inset [`MENU_SEPARATOR_INSET`] (8)
 //!   from the panel's sides, 4 px above and below. **Group labels:**
-//!   Caption, muted, 28 tall.
+//!   Caption, muted, sentence case, [`MENU_ROW_H`] tall. **Shortcut hints:**
+//!   Micro in `ink-4`, right-aligned.
 //! - **Motion:** enter = opacity 0 → 1 and a 4 px slide toward the trigger
 //!   over spring.fast's 80 ms; exit = back over spring.fast.exit's 60 ms
 //!   ([`EnterExit::POPUP`]): the menu appearing, not its hover.
@@ -142,7 +143,8 @@ impl DropdownItem {
         self.trailing(DropdownTrailing::Value(value.into()))
     }
 
-    /// A toggle that is on: foreground, semibold, FF's check mark.
+    /// A toggle that is on: foreground ink and the check mark at the right, at
+    /// regular weight (docs/83 §1 rule 6: no bold in chrome).
     pub fn checked(mut self, on: bool) -> Self {
         self.checked = on;
         self
@@ -375,11 +377,11 @@ pub fn dropdown_separator(cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// FF's group label: Caption, muted, 28 tall.
+/// A group label: Caption, muted, sentence case, [`MENU_ROW_H`] tall.
 pub fn dropdown_label(text: impl Into<SharedString>, cx: &App) -> AnyElement {
     let metrics = cx.aui().metrics;
     div()
-        .h(metrics.control_md)
+        .h(px(MENU_ROW_H))
         .px(metrics.item_px)
         .flex()
         .items_center()
@@ -397,7 +399,7 @@ pub fn dropdown_height(rows: usize, separators: usize, labels: usize, cx: &App) 
     // The panel's padding and its 1 px edge, above and below.
     let inset = px(2.0 * PANEL_PAD + 2.0);
     let separator = px(1.0) + metrics.item_px; // 1 px + 4 above + 4 below
-    px(MENU_ROW_H) * rows as f32 + separator * separators as f32 + metrics.control_md * labels as f32 + inset
+    px(MENU_ROW_H) * (rows + labels) as f32 + separator * separators as f32 + inset
 }
 
 /// One row's body: icon slot, label (+ detail), trailing.
@@ -431,7 +433,6 @@ fn row_body(item: DropdownItem, lit: bool, row_px: Option<Pixels>, cx: &App) -> 
         .when(!item.wrap, |d| d.truncate())
         .text_role_in(TextRole::Body, Density::Standard)
         .text_color(fg)
-        .when(item.checked, |d| d.semibold())
         .child(item.label);
     let text = match item.detail {
         Some(detail) => v_flex()
@@ -453,7 +454,8 @@ fn row_body(item: DropdownItem, lit: bool, row_px: Option<Pixels>, cx: &App) -> 
     body = match item.trailing {
         DropdownTrailing::None => body,
         DropdownTrailing::Value(text) => body.child(div().flex_none().role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(text)),
-        DropdownTrailing::Keys(keys) => body.child(div().flex_none().role_in(TextRole::Micro, cx).text_color(p.fg_muted).child(keys)),
+        // Shortcut hints: `t-micro` in `ink-4`, right-aligned (docs/83 §7).
+        DropdownTrailing::Keys(keys) => body.child(div().flex_none().role_in(TextRole::Micro, cx).text_color(p.ink_4).child(keys)),
         // The library has no right chevron glyph: the menus' "›" (Caption).
         DropdownTrailing::Submenu(value) => {
             let text: SharedString = if value.is_empty() { "›".into() } else { format!("{value} ›").into() };

@@ -4,7 +4,7 @@
 //! 760×520.
 
 use aui::nav::folder_drop_card;
-use aui::overlay::{command_palette, palette_scrim, PaletteIcon, PaletteItem, PaletteSection};
+use aui::overlay::{command_palette, scrim, PaletteIcon, PaletteItem, PaletteSection};
 use aui_icons::IconName;
 use aui_tokens::{ActiveAui, AgentState};
 use gpui::*;
@@ -15,6 +15,20 @@ const QUERY: &str = "wor";
 const PLACEHOLDER: &str = "Search actions, worktrees, files…";
 /// The row the card shows highlighted (`.it.on`): the first worktree.
 const SELECTED: usize = 0;
+
+/// The card's ground: the window ground under the one scrim (docs/83 §7),
+/// 470 tall, the palette centred 56 below its top.
+fn card_scrim(child: impl IntoElement, cx: &App) -> Div {
+    let p = cx.aui().colors;
+    div()
+        .relative()
+        .w_full()
+        .h(px(470.0))
+        .bg(p.bg)
+        .overflow_hidden()
+        .child(div().absolute().inset_0().bg(scrim()))
+        .child(div().relative().flex().w_full().h_full().justify_center().pt(px(56.0)).child(child))
+}
 
 /// The sections of the card, in order.
 fn sections(p: &aui_tokens::Palette) -> Vec<PaletteSection> {
@@ -87,7 +101,7 @@ pub fn build_scrolled(_window: &mut Window, cx: &mut App) -> AnyElement {
         .lead(folder_drop_card("card12-long-folder-drop")),
         PaletteSection::new("Actions", actions),
     ];
-    palette_scrim(
+    card_scrim(
         command_palette("card12-palette-long", QUERY, sections, 13)
             .placeholder(PLACEHOLDER)
             // The card is a static composition, not a palette the person just
@@ -95,6 +109,7 @@ pub fn build_scrolled(_window: &mut Window, cx: &mut App) -> AnyElement {
             .at_rest()
             .on_select(move |_, _, _| {})
             .on_dismiss(move |_, _| {}),
+        cx,
     )
     .into_any_element()
 }
@@ -108,7 +123,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let on_hover = selected_state.clone();
     let p = cx.aui().colors;
 
-    palette_scrim(
+    card_scrim(
         command_palette("card12-palette", QUERY, sections(&p), selected)
             .placeholder(PLACEHOLDER)
             // The card is a static composition, not a palette the person just
@@ -124,6 +139,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             })
             .on_select(move |_, _, _| {})
             .on_dismiss(move |_, _| {}),
+        cx,
     )
     .into_any_element()
 }
