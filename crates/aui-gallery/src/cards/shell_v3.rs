@@ -15,6 +15,7 @@
 //! (start closed and peeking is not scriptable — hover the edge).
 
 use std::cell::RefCell;
+use aui_tokens::TextRole;
 use std::collections::HashMap;
 
 use aui::composer::{composer, composer_state_rows};
@@ -153,7 +154,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     } else {
         sessions_centre(s.open, &composer_state)
     };
-    let title_row = div().truncate().text_px(scale::FS_13).semibold().text_color(p.fg).child(TITLE);
+    let title_row = div().truncate().role_size(TextRole::Body).semibold().text_color(p.fg).child(TITLE);
 
     let shell = app_shell("v3-shell")
         .traffic_lights(true)

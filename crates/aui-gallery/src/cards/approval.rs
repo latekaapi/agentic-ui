@@ -8,6 +8,7 @@
 //! badges, and the three resolutions nobody was asked for.
 
 use aui::protocol::{sample, Block};
+use aui_tokens::TextRole;
 use aui::transcript::{approval_card, ApprovalCard};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::*;
@@ -20,8 +21,8 @@ fn section(label: &'static str, p: &Palette) -> impl IntoElement {
     div()
         .w_full()
         .mt(px(scale::SP_3))
-        .text_role(aui_tokens::TextRole::Caps)
-        .line_height(relative(scale::LH_UI))
+        .text_role(aui_tokens::TextRole::Caption)
+
         .text_color(p.fg_muted)
         .child(label)
 }
@@ -118,7 +119,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .child(
                     muse_card("card35-feedback", &muse[0])
                         .feedback_open(Some("deny".into()))
-                        .feedback_slot(Textarea::new(&feedback).text_size(aui_tokens::scaled(scale::FS_12)))
+                        .feedback_slot(Textarea::new(&feedback).role_size(TextRole::Caption))
                         .on_choose(|_, _, _, _| {})
                         .on_feedback_toggle(|_, _, _| {}),
                 )
@@ -135,7 +136,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .mt(px(scale::SP_4) - px(BLOCK_GAP))
                 .max_w(px(NOTE_MEASURE))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child("Pending is the only marked state: a plain 1 px border in the warning colour, nothing else. Buttons enter staggered by 40 ms on ease-out, primary on the right, keys on the left. The remembered rule is spelled out on the Always button so the person knows exactly what they are granting. Once resolved the card goes quiet and single-line."),
         )

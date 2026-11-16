@@ -4,7 +4,7 @@
 
 use aui_icons::{icon, IconName, Provider};
 use aui_motion::{spring_phase, SpringKind};
-use aui_tokens::{scale, scaled, ActiveAui, AuiStyled, TextRole};
+use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{
     div, font, prelude::*, px, radians, AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
     Hsla, Pixels, SharedString, Style, TextRun, Window,
@@ -122,7 +122,7 @@ impl RenderOnce for NavItem {
             .pr(px(NAV_PAD_RIGHT))
             .rounded(px(scale::R_SM))
             .paint_states(StatePaint::new().ink(p.fg_muted, p.ink), &p)
-            .ui(scale::FS_13)
+            .ui(TextRole::Body)
             .medium()
             .cursor_pointer()
             .child(div().flex_none().w(px(LEADING_BOX)).flex().items_center().justify_center().child(icon(self.icon).color(p.fg_muted)))
@@ -130,7 +130,7 @@ impl RenderOnce for NavItem {
         if let Some(count) = self.count {
             row = row.child(div().flex_1()).child(
                 div()
-                    .text_role(TextRole::MonoSmall)
+                    .mono(TextRole::Caption)
                     .font_weight(gpui::FontWeight::MEDIUM)
                     .text_color(if self.count_warning { p.warning } else { p.fg_muted })
                     .child(count),
@@ -143,7 +143,7 @@ impl RenderOnce for NavItem {
     }
 }
 
-/// The caps group row (`Workspaces`, `Projects`, `Recent`) with the view
+/// The group label row (`Workspaces`, `Projects`, `Recent`) with the view
 /// options (sliders) and `+` actions. Build with [`group_row`].
 #[derive(IntoElement)]
 pub struct GroupRow {
@@ -154,7 +154,7 @@ pub struct GroupRow {
     on_add: Option<ClickHandler>,
 }
 
-/// A caps group row.
+/// A group label row (Caption, `fg-muted`, sentence case).
 pub fn group_row(id: impl Into<ElementId>, label: impl Into<SharedString>) -> GroupRow {
     GroupRow { id: id.into(), label: label.into(), margin_top: scale::SP_3, on_view_options: None, on_add: None }
 }
@@ -192,7 +192,7 @@ impl RenderOnce for GroupRow {
             .gap(px(GROUP_GAP))
             .pl(px(NAV_LABEL_X))
             .pr(px(GROUP_PAD_RIGHT))
-            .child(div().text_role(TextRole::Caps).text_color(p.fg_muted).child(self.label.to_uppercase()))
+            .child(div().text_role(TextRole::Caption).text_color(p.fg_muted).child(self.label.clone()))
             .child(div().flex_1());
         if let Some(h) = self.on_view_options {
             row = row.child(
@@ -274,7 +274,7 @@ impl RenderOnce for GroupHeader {
             .px(px(GROUP_PAD_RIGHT))
             .cursor_pointer()
             .child(chevron((id, "chevron"), self.open, p.fg_muted, window, cx))
-            .child(div().ui(scale::FS_12).semibold().text_color(p.ink).whitespace_nowrap().child(self.label));
+            .child(div().ui(TextRole::Caption).semibold().text_color(p.ink).whitespace_nowrap().child(self.label));
         if let Some(count) = self.count {
             row = row.child(tag(count));
         }
@@ -417,7 +417,7 @@ fn plan_natural_width(text: &SharedString, window: &mut Window, cx: &mut App) ->
         underline: None,
         strikethrough: None,
     };
-    window.text_system().layout_line(text, scaled(scale::FS_11).to_pixels(window.rem_size()), &[run], None).width
+    window.text_system().layout_line(text, TextRole::Micro.size(), &[run], None).width
 }
 
 impl IntoElement for PlanDrop {
@@ -509,7 +509,7 @@ impl RenderOnce for SidebarFooter {
             let mut plan_row = h_flex()
                 .items_center()
                 .gap(px(FOOTER_GAP))
-                .child(div().min_w(px(0.0)).truncate().ui(scale::FS_11).text_color(ink).child(label.clone()));
+                .child(div().min_w(px(0.0)).truncate().ui(TextRole::Micro).text_color(ink).child(label.clone()));
             if let Some(trailing) = self.plan_trailing {
                 plan_row = plan_row.child(div().flex_none().child(trailing));
             }
@@ -526,7 +526,7 @@ impl RenderOnce for SidebarFooter {
             let mut meter_row = h_flex().w_full().items_center().gap(px(FOOTER_GAP));
             if let Some(detail) = self.detail {
                 meter_row = meter_row.child(
-                    div().flex_1().min_w(px(0.0)).truncate().ui(scale::FS_11).text_color(p.ink_4).child(detail),
+                    div().flex_1().min_w(px(0.0)).truncate().ui(TextRole::Micro).text_color(p.ink_4).child(detail),
                 );
             } else {
                 meter_row = meter_row.child(div().flex_1());
@@ -545,7 +545,7 @@ impl RenderOnce for SidebarFooter {
             .py(px(self.pad_y))
             .px(px(FOOTER_PAD_X))
             .gap(px(FOOTER_GAP))
-            .ui(scale::FS_12)
+            .ui(TextRole::Caption)
             .text_color(p.fg_muted)
             .child(avatar(self.initial))
             .child(stack);
@@ -625,7 +625,7 @@ impl RenderOnce for SidebarSearch {
             .border_1()
             .border_color(p.line)
             .bg(p.surface_2)
-            .ui(scale::FS_12)
+            .ui(TextRole::Caption)
             .text_color(p.fg_muted)
             .child(div().flex_none().child(icon(IconName::Search).size(px(SEARCH_GLYPH)).color(p.ink_4)))
             .child(div().flex_1().min_w(px(0.0)).overflow_hidden().child(self.field));

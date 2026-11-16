@@ -44,19 +44,14 @@ use crate::composer::{provider_display_name, provider_menu, PickerRow};
 use crate::data::{button, spinner, ButtonSize};
 
 // The board's measures (harness `docs/34-refs/v3-redo/canvas/gen_d5p.py`,
-// the `p5*` CSS). Text sizes are design pixels: the app's 1.1 scale turns
-// 13 into 14.3, 12 into 13.2, 18 into 19.8. Line heights are the board's
-// absolute pixels.
+// the `p5*` CSS). Text sizes are text roles (docs/83 §2.4); line heights
+// are the roles' whole pixels.
 
 /// The connect column.
 const CONNECT_W: f32 = 440.0;
 /// The column's gap between masthead, rows and footer.
 const COLUMN_GAP: f32 = 8.0;
-/// Caption 13.2/18: status lines, footers, details.
-const CAPTION_TEXT: f32 = scale::FS_12;
 const CAPTION_LH: f32 = 18.0;
-/// Mono 12.65: paths and codes.
-const MONO_TEXT: f32 = 11.5;
 /// The rows container and the card: radius 10.
 const PANEL_R: f32 = 10.0;
 /// The gap between a connect row's mark, text and action; its y padding
@@ -95,8 +90,6 @@ const WARN_AT: f32 = 0.8;
 /// The usage card's own measures (unchanged by D5).
 const USAGE_PAD: f32 = scale::SP_4;
 const USAGE_GAP: f32 = scale::SP_2;
-const NAME_TEXT: f32 = scale::FS_13;
-const DETAIL_TEXT: f32 = scale::FS_11;
 const BAR_H: f32 = 4.0;
 const BAR_R: f32 = 2.0;
 
@@ -248,7 +241,7 @@ fn status_line(id: ElementId, line: &StatusLine, p: &Palette) -> AnyElement {
                 .flex_1()
                 .min_w(px(0.0))
                 .truncate()
-                .text_px(CAPTION_TEXT)
+                .role_size(TextRole::Caption)
                 .line_height(px(CAPTION_LH))
                 .text_color(p.fg_muted)
                 .child(line.text.clone()),
@@ -415,7 +408,7 @@ fn connected_mark(p: &Palette) -> AnyElement {
         .flex_none()
         .items_center()
         .gap(px(4.0))
-        .text_px(CAPTION_TEXT)
+        .role_size(TextRole::Caption)
         .line_height(px(CAPTION_LH))
         .text_color(p.success)
         .child(icon(IconName::Check).size(px(13.0)).color(p.success))
@@ -448,14 +441,14 @@ fn assist_line(
         .flex_wrap()
         .items_center()
         .gap(px(4.0))
-        .text_px(CAPTION_TEXT)
+        .role_size(TextRole::Caption)
         .line_height(px(CAPTION_LH))
         .text_color(p.fg_muted);
     for run in runs {
         line = match run {
             AssistRun::Text(text) => line.child(div().child(text.clone())),
             AssistRun::Code(code) => line.child(
-                div().font_family(scale::FONT_MONO).text_px(MONO_TEXT).text_color(p.ink).child(code.clone()),
+                div().font_family(scale::FONT_MONO).role_size(TextRole::Micro).text_color(p.ink).child(code.clone()),
             ),
             AssistRun::Link(key, label) => {
                 let handler = on_link.clone();
@@ -692,7 +685,7 @@ fn footer(
         Some(picker) => default_picker(id, picker, p, on_intent.clone()),
         None => div()
             .max_w(px(NOTHING_W))
-            .text_px(CAPTION_TEXT)
+            .role_size(TextRole::Caption)
             .line_height(px(NOTHING_LH))
             .text_color(p.fg_muted)
             .child(nothing_ready)
@@ -800,7 +793,7 @@ fn default_picker(id: &ElementId, picker: DefaultPicker, p: &Palette, on_intent:
         .items_center()
         .gap(px(6.0))
         .whitespace_nowrap()
-        .text_px(CAPTION_TEXT)
+        .role_size(TextRole::Caption)
         .line_height(px(CAPTION_LH))
         .text_color(p.fg_muted)
         .child("New sessions start in")
@@ -1057,7 +1050,7 @@ fn details_block(
         .items_center()
         .gap(px(6.0))
         .cursor_pointer()
-        .text_px(CAPTION_TEXT)
+        .role_size(TextRole::Caption)
         .line_height(px(CAPTION_LH))
         .paint_states(StatePaint::new().tint(false).ink(p.fg_muted, p.ink), p)
         .role(gpui::Role::Button)
@@ -1089,7 +1082,7 @@ fn details_block(
             .truncate()
             .text_color(p.ink);
         let value = if row.mono {
-            value.font_family(scale::FONT_MONO).text_px(MONO_TEXT)
+            value.font_family(scale::FONT_MONO).role_size(TextRole::Micro)
         } else {
             value
         };
@@ -1097,7 +1090,7 @@ fn details_block(
             h_flex()
                 .w_full()
                 .gap(px(KV_GAP_X))
-                .text_px(CAPTION_TEXT)
+                .role_size(TextRole::Caption)
                 .line_height(px(CAPTION_LH))
                 .child(div().flex_none().w(px(KEY_W)).text_color(p.ink_4).child(row.key.clone()))
                 .child(value.child(row.value.clone())),
@@ -1151,7 +1144,7 @@ fn notice_text(runs: &[AssistRun], p: &Palette) -> AnyElement {
         }
     }
     div()
-        .text_px(CAPTION_TEXT)
+        .role_size(TextRole::Caption)
         .line_height(px(CAPTION_LH))
         .text_color(p.fg_muted)
         .child(gpui::StyledText::new(text).with_highlights(highlights))
@@ -1344,8 +1337,7 @@ impl RenderOnce for UsageCard {
             provider_mark(self.provider).size(px(16.0)),
         ).child(
             div()
-                .text_px(NAME_TEXT)
-                .line_height(gpui::relative(scale::LH_UI))
+                .role_size(TextRole::Body)
                 .text_color(p.ink)
                 .medium()
                 .child(name),
@@ -1353,8 +1345,7 @@ impl RenderOnce for UsageCard {
         if let Some(plan) = self.plan {
             head = head.child(
                 div()
-                    .text_px(DETAIL_TEXT)
-                    .line_height(gpui::relative(scale::LH_UI))
+                    .role_size(TextRole::Micro)
                     .text_color(p.fg_muted)
                     .child(plan),
             );
@@ -1375,8 +1366,7 @@ impl RenderOnce for UsageCard {
         if self.windows.is_empty() {
             card = card.child(
                 div()
-                    .text_px(DETAIL_TEXT)
-                    .line_height(gpui::relative(scale::LH_UI))
+                    .role_size(TextRole::Micro)
                     .text_color(p.fg_muted)
                     .child("Not reported yet"),
             );
@@ -1388,15 +1378,13 @@ impl RenderOnce for UsageCard {
                 v_flex().gap(px(2.0)).w_full().child(
                     h_flex().w_full().items_baseline().justify_between().gap(px(USAGE_GAP)).child(
                         div()
-                            .text_px(DETAIL_TEXT)
-                            .line_height(gpui::relative(scale::LH_UI))
+                            .role_size(TextRole::Micro)
                             .text_color(p.fg_muted)
                             .child(window.label.clone()),
                     ).child(
                         div()
                             .font_family(scale::FONT_MONO)
-                            .text_px(DETAIL_TEXT)
-                            .line_height(gpui::relative(scale::LH_UI))
+                            .role_size(TextRole::Micro)
                             .text_color(bar_ink)
                             .child(format!("{}%", (used * 100.0).round())),
                     ),
@@ -1416,8 +1404,7 @@ impl RenderOnce for UsageCard {
                         ),
                 ).child(
                     div()
-                        .text_px(DETAIL_TEXT)
-                        .line_height(gpui::relative(scale::LH_UI))
+                        .role_size(TextRole::Micro)
                         .text_color(p.fg_muted)
                         .child(format!("resets in {}", window.resets_at_text)),
                 ),
@@ -1426,8 +1413,7 @@ impl RenderOnce for UsageCard {
         if let Some(as_of) = self.as_of {
             card = card.child(
                 div()
-                    .text_px(DETAIL_TEXT)
-                    .line_height(gpui::relative(scale::LH_UI))
+                    .role_size(TextRole::Micro)
                     .text_color(p.fg_muted)
                     .child(format!("as of {as_of}")),
             );

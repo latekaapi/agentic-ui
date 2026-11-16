@@ -34,7 +34,6 @@ const ROW_GAP: f32 = 8.0;
 const ROW_PAD_RIGHT: f32 = 8.0;
 const PROJECT_INDENT: f32 = 22.0;
 const SESSION_INDENT: f32 = 40.0;
-const ROW_TEXT: f32 = 12.5;
 /// `.sess::before{left:29px;top:0;bottom:0;width:1px}` — the hairline rail
 /// that runs behind a project's sessions.
 const RAIL_LEFT: f32 = 29.0;
@@ -202,7 +201,7 @@ impl RenderOnce for ProjectRow {
             .pr(px(ROW_PAD_RIGHT))
             .rounded(px(scale::R_SM))
             .paint_states(StatePaint::new(), &p)
-            .ui(ROW_TEXT)
+            .ui(TextRole::Caption)
             .medium()
             .text_color(p.fg_muted)
             .cursor_pointer()
@@ -212,7 +211,7 @@ impl RenderOnce for ProjectRow {
             .child(
                 div()
                     .flex_none()
-                    .text_role(TextRole::MonoSmall)
+                    .mono(TextRole::Caption)
                     .font_weight(gpui::FontWeight::MEDIUM)
                     .text_color(p.fg_muted)
                     .child(SharedString::from(self.count.to_string())),
@@ -270,7 +269,7 @@ impl RenderOnce for RoleSessionRow {
             .pr(px(ROW_PAD_RIGHT))
             .rounded(px(scale::R_SM))
             .paint_states(StatePaint::new().selected(self.active).ink(rest_text, p.ink), &p)
-            .ui(ROW_TEXT)
+            .ui(TextRole::Caption)
             .cursor_pointer()
             .child(div().absolute().left(px(RAIL_LEFT)).top_0().bottom_0().w(px(RAIL_W)).bg(p.line))
             .child(icon(s.kind.icon()).color(p.fg_muted))
@@ -279,7 +278,7 @@ impl RenderOnce for RoleSessionRow {
             .child(
                 div()
                     .flex_none()
-                    .text_role(TextRole::MonoSmall)
+                    .mono(TextRole::Caption)
                     .font_weight(gpui::FontWeight::MEDIUM)
                     .text_color(p.fg_muted)
                     .child(s.elapsed.clone()),
@@ -420,7 +419,7 @@ impl RoleSection {
     }
 }
 
-/// The `.gh` group label: caps label, hairline rule, mono count.
+/// The `.gh` group label: sentence-case Caption label, hairline rule, mono count.
 fn group_label(label: &'static str, count: usize, cx: &App) -> impl IntoElement {
     let p = cx.aui().colors;
     h_flex()
@@ -430,7 +429,7 @@ fn group_label(label: &'static str, count: usize, cx: &App) -> impl IntoElement 
         .gap(px(GROUP_GAP))
         .pl(px(GROUP_PAD_LEFT))
         .pr(px(GROUP_PAD_RIGHT))
-        .child(div().flex_none().text_role(TextRole::Caps).text_color(p.fg_muted).child(label.to_uppercase()))
+        .child(div().flex_none().text_role(TextRole::Caption).text_color(p.fg_muted).child(label))
         .child(div().flex_1().h(px(RULE_H)).bg(p.line))
         .child(tag(count.to_string()))
 }
@@ -450,7 +449,7 @@ impl RenderOnce for RoleSection {
             .gap(px(ROLE_GAP))
             .pl(px(ROLE_PAD_LEFT))
             .pr(px(ROLE_PAD_RIGHT))
-            .ui(scale::FS_13)
+            .ui(TextRole::Body)
             .semibold()
             .text_color(if open { p.ink } else { p.fg_muted })
             .cursor_pointer()

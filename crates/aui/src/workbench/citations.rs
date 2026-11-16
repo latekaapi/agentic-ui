@@ -11,11 +11,12 @@
 //! points land where the CSS puts them.
 
 use std::ops::Range;
+use aui_tokens::TextRole;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{presence, EnterExit, PresenceStyle};
-use aui_tokens::{scale, scaled, ActiveAui, AuiStyled, Palette};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{
     div, font, prelude::*, px, relative, AnyElement, App, ElementId, IntoElement, SharedString, StyledText, TextRun,
     Window,
@@ -30,7 +31,6 @@ use crate::transcript::ProseStyle;
 const CITE_MIN_W: f32 = 16.0;
 const CITE_H: f32 = 16.0;
 const CITE_PAD_X: f32 = 4.0;
-const CITE_TEXT: f32 = 10.0;
 const CITE_MARGIN_X: f32 = 1.0;
 /// `.cite{vertical-align:2px}` — the marker box rides 2 px above the text
 /// baseline; the units align on their bottom edge, so this is a relative rise.
@@ -43,27 +43,20 @@ pub const ANSWER_MARGIN: f32 = 14.0;
 const HEAD_H: f32 = 34.0;
 const HEAD_PAD_X: f32 = 12.0;
 const HEAD_GAP: f32 = 8.0;
-const HEAD_TEXT: f32 = 12.5;
-/// `.tier{padding:6px 12px 4px;font-size:11px;font-weight:600;text-transform:uppercase}`.
+/// `.tier{padding:6px 12px 4px}`: a sentence-case Caption label.
 const TIER_PAD_TOP: f32 = 6.0;
 const TIER_PAD_X: f32 = 12.0;
 const TIER_PAD_BOTTOM: f32 = 4.0;
-const TIER_TEXT: f32 = 11.0;
 /// `.s{gap:10px;padding:6px 12px;font-size:12.5px}`.
 const ROW_GAP: f32 = 10.0;
 const ROW_PAD_Y: f32 = 6.0;
 const ROW_PAD_X: f32 = 12.0;
-const ROW_TEXT: f32 = 12.5;
 /// `.s .n{width:18px;height:18px;border-radius:4px;font:600 10px/18px mono}`.
 const NUM_SIZE: f32 = 18.0;
-const NUM_TEXT: f32 = 10.0;
-/// `.s span{font-size:11.5px}`. The span is inline, so its line box is as tall
-/// as the row's own strut (12.5 × 1.5), not as its smaller text.
-const META_TEXT: f32 = 11.5;
-const META_LINE: f32 = ROW_TEXT * scale::LH_UI;
+/// The meta span is Micro but inline, so its line box is as tall as the
+/// row's own Caption line, not as its smaller text.
 /// `.s .conf{gap:5px;font:500 10.5px mono}` with a `36 × 4` track, radius 2.
 const CONF_GAP: f32 = 5.0;
-const CONF_TEXT: f32 = 10.5;
 const CONF_BAR_W: f32 = 36.0;
 const CONF_BAR_H: f32 = 4.0;
 const CONF_BAR_RADIUS: f32 = 2.0;
@@ -76,7 +69,6 @@ const HOVER_RIGHT: f32 = 24.0;
 const HOVER_TOP: f32 = -8.0;
 const HOVER_PAD_Y: f32 = 10.0;
 const HOVER_PAD_X: f32 = 12.0;
-const HOVER_TEXT: f32 = 12.0;
 /// `@keyframes in{from{transform:translateY(4px)}}`.
 const HOVER_RISE: f32 = 4.0;
 /// `.hover .q{border-left:2px solid var(--accent);padding-left:8px;margin:6px 0 8px;line-height:1.5}`.
@@ -86,12 +78,6 @@ const QUOTE_MARGIN_TOP: f32 = 6.0;
 const QUOTE_MARGIN_BOTTOM: f32 = 8.0;
 /// `.hover .row{gap:6px}`.
 const ACTIONS_GAP: f32 = 6.0;
-
-/// The em-relative base the type scale is expressed against, so a design px
-/// size can be turned into the window's real pixels for text measurement.
-fn real_px(size: f32, window: &Window) -> gpui::Pixels {
-    scaled(size).to_pixels(window.rem_size())
-}
 
 // ---------------------------------------------------------------------------
 // Citation marker
@@ -146,7 +132,7 @@ impl RenderOnce for Citation {
             .justify_center()
             .rounded(px(scale::R_XS))
             .paint_states(StatePaint::new().on(p.accent_soft).ink(p.accent_ink, p.accent_ink), &p)
-            .mono(CITE_TEXT)
+            .mono(TextRole::Micro)
             .line_height(relative(1.0))
             .semibold()
             .cursor_pointer()
@@ -244,7 +230,7 @@ fn measure(text: &str, style: ProseStyle, window: &Window) -> gpui::Pixels {
         underline: None,
         strikethrough: None,
     };
-    window.text_system().layout_line(text, real_px(style.size, window), &[run], None).width
+    window.text_system().layout_line(text, style.role.size(), &[run], None).width
 }
 
 /// The font's space advance at the answer's size, in real pixels.
@@ -291,15 +277,14 @@ impl RenderOnce for CitedAnswer {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let style = self.style;
         let p = cx.aui().colors;
-        let text_scale = cx.aui().text_scale;
         let caret = self.streaming.then(|| {
             let visible = crate::transcript::caret_visible((self.id.clone(), "caret"), window, cx);
-            let line_height = px(style.size * style.line_height * text_scale);
-            let height = px(crate::transcript::CARET_H * text_scale);
-            h_flex().flex_none().h(line_height).ml(px(crate::transcript::CARET_MARGIN_LEFT * text_scale)).child(
+            let line_height = style.role.line_height();
+            let height = px(crate::transcript::CARET_H);
+            h_flex().flex_none().h(line_height).ml(px(crate::transcript::CARET_MARGIN_LEFT)).child(
                 div()
-                    .mt(crate::transcript::caret_top_in_line(line_height, height, text_scale))
-                    .w(px(crate::transcript::CARET_W * text_scale))
+                    .mt(crate::transcript::caret_top_in_line(line_height, height))
+                    .w(px(crate::transcript::CARET_W))
                     .h(height)
                     .bg(p.accent)
                     .opacity(if visible { 1.0 } else { 0.0 }),
@@ -314,8 +299,7 @@ impl RenderOnce for CitedAnswer {
             .flex_wrap()
             .w_full()
             .gap_x(space)
-            .ui(style.size)
-            .line_height(relative(style.line_height))
+            .ui(style.role)
             .text_color(style.ink);
         for unit in units(&self.text) {
             let mut group = h_flex().flex_none().items_end();
@@ -367,7 +351,7 @@ impl Source {
     }
 }
 
-/// A retrieval tier (`.tier`): the caps label, an optional name after the
+/// A retrieval tier (`.tier`): the label, an optional name after the
 /// separator, and the sources found in it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceTier {
@@ -465,7 +449,7 @@ fn header_counts(cited: Option<usize>, retrieved: Option<usize>) -> Option<Share
     }
 }
 
-/// `.tier`: the caps label with the optional name after a separator.
+/// `.tier`: the label with the optional name after a separator.
 fn tier_label(p: &Palette, tier: &SourceTier) -> impl IntoElement {
     let text = match &tier.name {
         Some(name) => format!("{} · {}", tier.label, name),
@@ -476,11 +460,9 @@ fn tier_label(p: &Palette, tier: &SourceTier) -> impl IntoElement {
         .pt(px(TIER_PAD_TOP))
         .pb(px(TIER_PAD_BOTTOM))
         .px(px(TIER_PAD_X))
-        .ui(TIER_TEXT)
-        .line_height(relative(scale::LH_UI))
-        .semibold()
+        .text_role(TextRole::Caption)
         .text_color(p.fg_muted)
-        .child(SharedString::from(text.to_uppercase()))
+        .child(SharedString::from(text))
 }
 
 /// `.s .conf`: the 36 × 4 track with a success fill and the mono value.
@@ -492,10 +474,9 @@ fn confidence(p: &Palette, value: f32) -> impl IntoElement {
         .flex_none()
         .ml_auto()
         .gap(px(CONF_GAP))
-        .mono(CONF_TEXT)
+        .mono(TextRole::Micro)
         // The inline-flex `.conf` is as tall as its own line box, and the row
         // aligns it to the top, so the bar rides on the title's line.
-        .line_height(relative(scale::LH_UI))
         .medium()
         .text_color(p.fg_muted)
         .child(
@@ -533,7 +514,7 @@ fn source_row(
         .py(px(ROW_PAD_Y))
         .px(px(ROW_PAD_X))
         .paint_states(StatePaint::new(), &p)
-        .ui(ROW_TEXT)
+        .ui(TextRole::Caption)
         .text_color(if cited { p.ink } else { p.fg_muted })
         .cursor_pointer()
         .child(
@@ -543,7 +524,7 @@ fn source_row(
                 .h(px(NUM_SIZE))
                 .rounded(px(scale::R_XS))
                 .bg(num_bg)
-                .mono(NUM_TEXT)
+                .mono(TextRole::Micro)
                 .line_height(px(NUM_SIZE))
                 .semibold()
                 .text_color(num_ink)
@@ -561,8 +542,8 @@ fn source_row(
                 .child(
                     div()
                         .w_full()
-                        .ui(META_TEXT)
-                        .line_height(relative(META_LINE / META_TEXT))
+                        .ui(TextRole::Micro)
+                        .line_height(TextRole::Caption.line_height())
                         .text_color(p.fg_muted)
                         .child(source.meta.clone()),
                 ),
@@ -631,7 +612,7 @@ fn header(
         .flex_none()
         .gap(px(HEAD_GAP))
         .px(px(HEAD_PAD_X))
-        .ui(HEAD_TEXT)
+        .ui(TextRole::Caption)
         .semibold()
         .text_color(p.ink)
         .child(icon(IconName::Book).size(px(HEAD_ICON)).color(p.ink))
@@ -773,7 +754,7 @@ impl RenderOnce for SourceHoverCard {
             .border_1()
             .border_color(p.line_strong)
             .shadow(p.floating_shadow())
-            .ui(HOVER_TEXT)
+            .ui(TextRole::Caption)
             .text_color(p.ink)
             .child(div().w_full().semibold().child(self.title.clone()))
             .child(
@@ -784,8 +765,7 @@ impl RenderOnce for SourceHoverCard {
                     .pl(px(QUOTE_PAD_LEFT))
                     .border_l(px(QUOTE_RAIL))
                     .border_color(p.accent)
-                    .ui(HOVER_TEXT)
-                    .line_height(relative(scale::LH_UI))
+                    .ui(TextRole::Caption)
                     .text_color(p.fg_muted)
                     .child(StyledText::new(self.quote.clone()).with_runs(quote_runs(&self.quote, &self.highlight, &p))),
             )

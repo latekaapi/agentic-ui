@@ -2,6 +2,7 @@
 //! failed. Reproduces `design/src/cards/transcript/33-activity-group.html` at 760×560.
 
 use aui::protocol::{ActivityState, Step, StepState};
+use aui_tokens::TextRole;
 use aui::transcript::activity_group;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
@@ -63,7 +64,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .mt(px(scale::SP_4) - px(BLOCK_GAP))
                 .max_w(px(NOTE_MEASURE))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child("The header shows a shimmering status while working and a plain count when done; the row of step glyphs is the whole run at a glance. Expanded, each step is one line with verb, mono target and a right-aligned result. Steps pulse in accent while running and never show raw output here, that lives in the tool card."),
         )

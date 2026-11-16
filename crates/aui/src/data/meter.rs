@@ -35,7 +35,7 @@ impl RenderOnce for UsageMeter {
             .flex()
             .items_center()
             .gap(px(GAP))
-            .text_role(TextRole::MonoSmall)
+            .mono(TextRole::Caption)
             .font_weight(gpui::FontWeight::MEDIUM)
             .text_color(p.fg_muted)
             .child(provider_mark(self.provider).size(px(MARK)))

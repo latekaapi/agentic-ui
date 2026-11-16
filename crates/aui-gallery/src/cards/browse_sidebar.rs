@@ -1,6 +1,7 @@
 //! P1 · Browse sidebar. The whole sidebar composed with sample data at
 //! 248 px, plus the five task-folder rows stacked on their own card.
 
+use aui_tokens::TextRole;
 use aui::browse::{
     address_line, browse_footer, browse_nav_cluster, folder_row, pin_grid, tab_row, task_folder_row, Address, Pin,
     TabRowData, TaskFace, BROWSE_SIDEBAR_WIDTH,
@@ -73,7 +74,7 @@ fn new_tab_row(p: Palette) -> impl IntoElement {
         .pr(px(8.0))
         .mx(px(8.0))
         .rounded(px(scale::R_SM))
-        .ui(scale::FS_13)
+        .ui(TextRole::Body)
         .text_color(p.fg_muted)
         .cursor_pointer()
         .role(gpui::Role::Button)

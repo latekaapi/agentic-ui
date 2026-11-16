@@ -19,8 +19,10 @@ use crate::data::record_ax_label;
 use crate::icons::{icon, IconName};
 use crate::util::ClickHandler;
 
-/// Row height.
-pub const QUIET_ROW_H: f32 = 32.0;
+/// Row height: the shared row (`Metrics::control`, 32 / compact 28).
+pub fn quiet_row_h() -> gpui::Pixels {
+    aui_tokens::Metrics::active().control
+}
 /// Side padding, and how far the row bleeds past the measure on each side.
 pub const QUIET_ROW_BLEED: f32 = 8.0;
 /// Gap between the row's parts.
@@ -137,7 +139,7 @@ impl RenderOnce for QuietRow {
         };
         let mut row = h_flex()
             .id(row_id)
-            .h(px(QUIET_ROW_H))
+            .h(quiet_row_h())
             .mx(px(-QUIET_ROW_BLEED))
             .px(px(QUIET_ROW_BLEED))
             .gap(px(GAP))
@@ -207,6 +209,5 @@ mod tests {
         // The text must land on the measure's edge: the bleed and the
         // padding are the same number.
         assert_eq!(QUIET_ROW_BLEED, 8.0);
-        assert_eq!(QUIET_ROW_H, 32.0);
     }
 }

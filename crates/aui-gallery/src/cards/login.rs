@@ -4,9 +4,10 @@
 //! one band per state beside the legend.
 
 use aui::data::secret_field;
+use aui_tokens::TextRole;
 use aui::screens::{login, LoginMethod, LoginState};
 use aui_icons::Provider;
-use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
+use aui_tokens::{ActiveAui, AuiStyled, Palette};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::base::input::InputState;
@@ -105,7 +106,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .max_w(px(LEGEND_MEASURE))
                 .pt(px(LEGEND_TOP))
                 .gap(px(LEGEND_GAP))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child(lead_paragraph(p, "Choose.", " A Meta account draws on the Muse subscription; an API key bills usage to the key. The primary starts the device flow."))
                 .child(lead_paragraph(p, "Device.", " The copyable URL row, the code, the waiting row while the app polls, and the expiry counting down on its own full-width line above the action row. Cancel backs out to the choice."))

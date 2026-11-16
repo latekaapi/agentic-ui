@@ -4,6 +4,7 @@
 //! view (fitted, not available). Click the image to toggle fit ↔ 100 %.
 
 use std::sync::Arc;
+use aui_tokens::TextRole;
 
 use aui::workbench::{image_missing, image_view, output_fetching, output_title, output_view, pane_action, pushed_row, pushed_row_with};
 use aui_icons::IconName;
@@ -18,7 +19,7 @@ const OUTPUT: &str = "$ cargo test --workspace\n   Compiling baaz v0.1.0 (crates
 
 fn frame(label: &str, row: AnyElement, body: AnyElement, cx: &App) -> Div {
     let p = cx.aui().colors;
-    v_flex().gap(px(6.0)).child(div().text_px(12.0).text_color(p.fg_muted).child(label.to_string())).child(
+    v_flex().gap(px(6.0)).child(div().role_size(TextRole::Caption).text_color(p.fg_muted).child(label.to_string())).child(
         div().w(px(W)).h(px(H)).rounded(px(8.0)).overflow_hidden().bg(p.surface_2).border_1().border_color(p.line).flex().flex_col().child(row).child(div().flex_1().min_h(px(0.0)).child(body)),
     )
 }

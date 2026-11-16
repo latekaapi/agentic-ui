@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{icon_morph, looping, spring_phase, CheckDraw, Easing, IconMorph, Loop, SpringKind, Tier};
-use aui_tokens::{scale, ActiveAui, AuiStyled, Density, Palette, TextRole};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -28,7 +28,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .mt(px(14.0))
                 .mb(px(8.0))
-                .text_role_in(TextRole::Caption, Density::Standard)
+                .text_role(TextRole::Caption)
                 .medium()
                 .text_color(p.fg_muted)
                 .child("Deprecated v1 springs — use the tiers above"),
@@ -59,7 +59,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .mt(px(12.0))
                 .max_w(px(632.0))
-                .text_role_in(TextRole::Caption, Density::Standard)
+                .text_role(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child("Rules: animate transform and opacity, never layout when a fade will do; every animation has a readable resting state; motion explains change and is never ambient."),
         )
@@ -127,8 +127,8 @@ fn tile(p: &Palette, title: &'static str, meta: String, stage: AnyElement) -> im
         .child(
             div()
                 .mb(px(2.0))
-                .text_role_in(TextRole::Title, Density::Standard)
-                .text_px(scale::FS_12)
+                .text_role(TextRole::Title)
+                .role_size(TextRole::Caption)
                 .line_height(relative(1.2))
                 .text_color(p.ink)
                 .child(title),
@@ -137,7 +137,7 @@ fn tile(p: &Palette, title: &'static str, meta: String, stage: AnyElement) -> im
             div()
                 .mb(px(10.0))
                 .font_family(scale::FONT_MONO)
-                .text_px(scale::FS_11)
+                .role_size(TextRole::Micro)
                 .line_height(relative(1.3))
                 .text_color(p.fg_muted)
                 .child(meta),
@@ -146,7 +146,7 @@ fn tile(p: &Palette, title: &'static str, meta: String, stage: AnyElement) -> im
 }
 
 fn caption(p: &Palette, text: &'static str) -> impl IntoElement {
-    div().text_role_in(TextRole::Caption, Density::Standard).text_color(p.fg_muted).child(text)
+    div().text_role(TextRole::Caption).text_color(p.fg_muted).child(text)
 }
 
 fn ball(p: &Palette, size: Pixels) -> Div {
@@ -292,8 +292,8 @@ fn check_shake_stage(p: &Palette, window: &mut Window, cx: &mut App) -> AnyEleme
                 .border_color(p.danger_soft)
                 .flex()
                 .items_center()
-                .text_role_in(TextRole::Body, Density::Standard)
-                .text_px(scale::FS_12)
+                .text_role(TextRole::Body)
+                .role_size(TextRole::Caption)
                 .line_height(relative(1.0))
                 .medium()
                 .text_color(p.danger)
@@ -316,7 +316,7 @@ fn durations_row(p: &Palette) -> impl IntoElement {
         .mt(px(14.0))
         .gap(px(18.0))
         .font_family(scale::FONT_MONO)
-        .text_px(scale::FS_11)
+        .role_size(TextRole::Micro)
         .line_height(relative(1.4))
         .text_color(p.fg_muted);
     for (bold, rest) in items {

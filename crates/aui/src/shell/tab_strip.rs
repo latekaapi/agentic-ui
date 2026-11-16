@@ -4,10 +4,11 @@
 //! fg-muted dot.
 
 use std::{cell::RefCell, rc::Rc};
+use aui_tokens::TextRole;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{spring_px, SpringKind};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, Bounds, ElementId, IntoElement, Pixels, SharedString, Window};
 use gpui_kit::base::{h_flex, ElementExt};
 
@@ -33,10 +34,9 @@ const CLOSE_RADIUS: f32 = 3.0;
 const CLOSE_ICON: f32 = 10.0;
 /// `.dirty{width:6px;height:6px}`.
 const DIRTY_SIZE: f32 = 6.0;
-/// The badge pill inside a tab: `height:14px;padding:0 5px;font-size:9px`.
+/// The badge pill inside a tab: `height:14px;padding:0 5px`, Micro text.
 const BADGE_H: f32 = 14.0;
 const BADGE_PAD: f32 = 5.0;
-const BADGE_TEXT: f32 = 9.0;
 
 /// One tab.
 #[derive(Debug, Clone, PartialEq)]
@@ -316,7 +316,7 @@ impl RenderOnce for TabStrip {
                 .px(px(tab_pad))
                 .paint_states(StatePaint::new().tint(false).ink(if active { p.ink } else { p.fg_muted }, p.ink), &p)
                 .hover_group()
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .whitespace_nowrap()
                 .cursor_pointer()
                 .role(gpui::Role::Tab)
@@ -340,7 +340,7 @@ impl RenderOnce for TabStrip {
             }
             el = el.child(tab.label.clone());
             if let Some(badge) = &tab.badge {
-                el = el.child(crate::data::pill(badge.clone()).height(BADGE_H).font_size(BADGE_TEXT).padding_x(BADGE_PAD));
+                el = el.child(crate::data::pill(badge.clone()).height(BADGE_H).padding_x(BADGE_PAD));
             }
             if tab.dirty {
                 el = el.child(div().flex_none().size(px(DIRTY_SIZE)).rounded_full().bg(p.fg_muted));

@@ -13,8 +13,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use aui::data::{arm_ax_probe, banner, card, section, segmented, settings_row, switch, tabs, take_ax_labels};
-use aui::interact::{interactive, list_row, nested_radius, row, row_list, LIST_ROW_H};
-use aui_tokens::{AuiTheme, Density, ThemeKind};
+use aui::interact::{interactive, list_row, nested_radius, row, row_list};
+use aui_tokens::{ActiveAui, AuiTheme, Density, ThemeKind};
 use gpui::{div, prelude::*, px, AnyElement, IntoElement, TestAppContext, Window};
 
 #[test]
@@ -85,9 +85,15 @@ fn the_flat_primitives_carry_their_labels(cx: &mut TestAppContext) {
 fn row_height_matches_the_ladder_at_both_densities(cx: &mut TestAppContext) {
     cx.update(|cx| aui::init(ThemeKind::Dark, cx));
     let (one, two) = cx.update(|cx| (row("h-1", "One line").height(cx), row("h-2", "Two lines").two_line("Byline").height(cx)));
-    assert_eq!(one, px(36.0), "standard one-line row");
-    assert_eq!(two, px(52.0), "standard two-line row");
+    assert_eq!(one, px(32.0), "comfortable one-line row");
+    assert_eq!(two, px(52.0), "comfortable two-line row");
+    // The type follows the same switch, and the kit's rem with it.
+    let body = |cx: &mut TestAppContext| cx.update(|cx| aui_tokens::TextRole::Body.spec_in(cx.aui().density, cx.aui().text_size).size);
+    assert_eq!(body(cx), 14.0);
+    assert_eq!(cx.update(|cx| gpui_kit::component::ActiveTheme::theme(cx).font_size), px(14.0));
     cx.update(|cx| AuiTheme::set_density(Density::Compact, None, cx));
+    assert_eq!(body(cx), 13.0);
+    assert_eq!(cx.update(|cx| gpui_kit::component::ActiveTheme::theme(cx).font_size), px(13.0));
     let (one, two) = cx.update(|cx| (row("h-1", "One line").height(cx), row("h-2", "Two lines").two_line("Byline").height(cx)));
     assert_eq!(one, px(28.0), "compact one-line row");
     assert_eq!(two, px(44.0), "compact two-line row");
@@ -116,11 +122,11 @@ fn row_title_reserves_the_semibold_width(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn list_row_is_32_at_both_densities(cx: &mut TestAppContext) {
+fn list_row_is_32_and_28_compact(cx: &mut TestAppContext) {
     cx.update(|cx| aui::init(ThemeKind::Dark, cx));
-    assert_eq!(cx.update(|cx| list_row("l", "One").height(cx)), px(LIST_ROW_H));
+    assert_eq!(cx.update(|cx| list_row("l", "One").height(cx)), px(32.0));
     cx.update(|cx| AuiTheme::set_density(Density::Compact, None, cx));
-    assert_eq!(cx.update(|cx| list_row("l", "One").height(cx)), px(LIST_ROW_H));
+    assert_eq!(cx.update(|cx| list_row("l", "One").height(cx)), px(28.0));
 }
 
 /// Three 32 px items: the pointer moving down them reports each in turn and

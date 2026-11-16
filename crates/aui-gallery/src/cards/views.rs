@@ -3,6 +3,7 @@
 //! Reproduces `design/src/cards/sidebar/23-sidebar-views.html` at 1180×680.
 
 use aui::keys::{Cancel, Confirm, SelectNext, SelectPrev, MENU_CONTEXT};
+use aui_tokens::TextRole;
 use aui::nav::{
     nav_item, session_detail, sidebar_search, sidebar_view, view_menu, view_submenu, view_submenu_rows, SESSION_DETAIL_WIDTH,
     DateGroup, Grouping, MenuRow, ProjectGroup, RowAction, RowStatusKind, SessionSummary, StatusGroup,
@@ -220,7 +221,7 @@ fn sized_column(p: &Palette, title: &'static str, body: AnyElement, overlay: Opt
     v_flex()
         .flex_none()
         .w(px(width))
-        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child(title))
+        .child(div().mb(px(TITLE_GAP)).ui(TextRole::Caption).text_color(p.fg_muted).child(title))
         .child(panel)
 }
 
@@ -284,7 +285,7 @@ fn detail_cell(p: &Palette, caption: &'static str, card: AnyElement) -> Div {
     v_flex()
         .flex_none()
         .w(px(SESSION_DETAIL_WIDTH))
-        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child(caption))
+        .child(div().mb(px(TITLE_GAP)).ui(TextRole::Caption).text_color(p.fg_muted).child(caption))
         .child(card)
 }
 
@@ -360,7 +361,7 @@ fn detail_demo(p: &Palette) -> Div {
     v_flex()
         .w_full()
         .flex_none()
-        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child("Hover detail · four states"))
+        .child(div().mb(px(TITLE_GAP)).ui(TextRole::Caption).text_color(p.fg_muted).child("Hover detail · four states"))
         .child(rows)
 }
 
@@ -604,7 +605,7 @@ const CAPTIONS: [&str; COLUMNS] = ["Workspaces", "Projects", "Recent"];
 /// A stand-in for the field a caller would put in the search slot: the row
 /// owns the frame, the caller owns the text and the caret.
 fn search_field(p: &Palette) -> impl IntoElement {
-    div().ui(scale::FS_12).text_color(p.fg_muted).child("checkout")
+    div().ui(TextRole::Caption).text_color(p.fg_muted).child("checkout")
 }
 
 /// The same, for a row being renamed in place: the dense 22 px wrapper at
@@ -620,7 +621,7 @@ fn rename_field(p: &Palette) -> impl IntoElement {
         .border_1()
         .border_color(p.accent)
         .bg(p.surface_1)
-        .ui(12.5)
+        .ui(TextRole::Caption)
         .text_color(p.ink)
         .child(div().flex_1().min_w(px(0.0)).truncate().child("Checkout flow"))
 }
@@ -770,7 +771,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let menus = v_flex()
         .flex_1()
         .min_w(px(0.0))
-        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child("View options · from the sliders icon"))
+        .child(div().mb(px(TITLE_GAP)).ui(TextRole::Caption).text_color(p.fg_muted).child("View options · from the sliders icon"))
         .child(view_menu("view-menu", menu_rows()).at_rest())
         .child(
             div().ml(px(SUB_LEFT)).mt(px(SUB_TOP)).child(
@@ -783,10 +784,10 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 .at_rest(),
             ),
         )
-        .child(div().mt(px(NOTE_TOP)).ui(scale::FS_12).text_color(p.fg_muted).child("Colour · the project submenu"))
+        .child(div().mt(px(NOTE_TOP)).ui(TextRole::Caption).text_color(p.fg_muted).child("Colour · the project submenu"))
         .child(view_submenu_rows("view-colour", colour_rows(&p)).at_rest())
         .child(
-            div().mt(px(NOTE_TOP)).ui(scale::FS_12).text_color(p.fg_muted).child(
+            div().mt(px(NOTE_TOP)).ui(TextRole::Caption).text_color(p.fg_muted).child(
                 "One row anatomy serves every view: status dot, name, elapsed time, and a second line \
                  that always keeps its height — empty space, legacy meta tags, a muted placeholder, a \
                  one-line preview, or the two-part byline. Grouping changes the headers, not the rows. \

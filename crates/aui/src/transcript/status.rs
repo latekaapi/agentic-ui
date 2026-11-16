@@ -2,9 +2,10 @@
 //! jump-to-latest pill (D4, docs/41 §2.6, §2.8).
 
 use std::time::Duration;
+use aui_tokens::TextRole;
 
 use aui_motion::{looping, presence, shimmer_text, EnterExit, Loop, PresenceStyle};
-use aui_tokens::{scale, scaled, ActiveAui, AuiStyled};
+use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -18,7 +19,6 @@ use crate::util::ClickHandler;
 const ERR_PAD_Y: f32 = 10.0;
 const ERR_PAD_X: f32 = 12.0;
 const ERR_COL_GAP: f32 = 10.0;
-const ERR_TEXT: f32 = 12.5;
 const ERR_GLYPH: f32 = 16.0;
 
 /// `.status{gap:8px;height:28px;font-size:12px}`; its spinner is 11 px.
@@ -39,7 +39,6 @@ const NEED_GAP: f32 = 10.0;
 const NEED_PAD_Y: f32 = 8.0;
 const NEED_PAD_LEFT: f32 = 12.0;
 const NEED_PAD_RIGHT: f32 = 10.0;
-const NEED_TEXT: f32 = 12.5;
 const NEED_GLYPH: f32 = 14.0;
 const NEED_RISE: f32 = 6.0;
 
@@ -51,7 +50,6 @@ const JUMP_PAD_RIGHT: f32 = 12.0;
 const JUMP_GLYPH: f32 = 12.0;
 const BADGE_PAD_Y: f32 = 2.0;
 const BADGE_PAD_X: f32 = 6.0;
-const BADGE_TEXT: f32 = 10.5;
 
 /// A failure the person may want to retry. Build with [`error_card`].
 #[derive(IntoElement)]
@@ -104,13 +102,13 @@ impl RenderOnce for ErrorCard {
         let id = self.id.clone();
         // Raised, radius 8; the danger ring only while a retry is on offer —
         // a failure in the past needs nothing from the person.
-        let mut lines = v_flex().flex_1().min_w(px(0.0)).ui(scale::FS_12).text_color(p.fg_muted);
-        lines = lines.child(div().w_full().ui(ERR_TEXT).semibold().text_color(p.ink).child(self.title.clone()));
+        let mut lines = v_flex().flex_1().min_w(px(0.0)).ui(TextRole::Caption).text_color(p.fg_muted);
+        lines = lines.child(div().w_full().ui(TextRole::Caption).semibold().text_color(p.ink).child(self.title.clone()));
         for line in self.detail.lines().filter(|l| !l.trim().is_empty()) {
             lines = lines.child(div().w_full().child(line.to_owned()));
         }
         if let Some(code) = self.code.clone() {
-            lines = lines.child(div().w_full().mono(scale::FS_12).child(code));
+            lines = lines.child(div().w_full().mono(TextRole::Caption).child(code));
         }
         if let Some((label, on_click)) = self.link {
             record_ax_label(&label);
@@ -208,18 +206,18 @@ impl RenderOnce for StatusRow {
         let id = self.id.clone();
         // 28 px, caption muted: the spinner, the label, ` · ` + the key cap
         // and its words, then the trailing notes faint (docs/41 §2.8).
-        let mut row = h_flex().id(id.clone()).flex_none().h(px(STATUS_H)).gap(px(STATUS_GAP)).ui(scale::FS_12).text_color(p.fg_muted).whitespace_nowrap();
+        let mut row = h_flex().id(id.clone()).flex_none().h(px(STATUS_H)).gap(px(STATUS_GAP)).ui(TextRole::Caption).text_color(p.fg_muted).whitespace_nowrap();
         match self.lead {
             StatusLead::None => {}
             StatusLead::Spinner => row = row.child(spinner((id.clone(), "spinner")).size(px(STATUS_SPINNER)).fluid(cx)),
             StatusLead::Braille => {
                 let phase = looping((id.clone(), "braille"), Loop::linear(BRAILLE_PERIOD).resting(BRAILLE_RESTING).stepped(BRAILLE_FRAMES.len() as u32), window, cx);
                 let frame = BRAILLE_FRAMES[((phase * BRAILLE_FRAMES.len() as f32) as usize).min(BRAILLE_FRAMES.len() - 1)];
-                row = row.child(div().flex_none().mono(scale::FS_12).text_color(p.fg_muted).child(frame));
+                row = row.child(div().flex_none().mono(TextRole::Caption).text_color(p.fg_muted).child(frame));
             }
         }
         row = if self.shimmer {
-            row.child(shimmer_text((id.clone(), "label"), self.label.clone(), cx).duration(SHIMMER).text_size(scaled(scale::FS_12)))
+            row.child(shimmer_text((id.clone(), "label"), self.label.clone(), cx).duration(SHIMMER).role_size(TextRole::Caption))
         } else {
             row.child(div().flex_none().child(self.label.clone()))
         };
@@ -230,7 +228,7 @@ impl RenderOnce for StatusRow {
             row = row.child(div().flex_none().text_color(p.ink_4).child(note));
         }
         if let Some(elapsed) = self.elapsed {
-            row = row.child(div().flex_none().mono(scale::FS_12).text_color(p.ink_4).child(elapsed));
+            row = row.child(div().flex_none().mono(TextRole::Caption).text_color(p.ink_4).child(elapsed));
         }
         row
     }
@@ -238,7 +236,7 @@ impl RenderOnce for StatusRow {
 
 /// `esc` in the `.key` cap: faint mono on white 7 %, radius 4, 1 / 6.
 fn key_cap(p: &aui_tokens::Palette, key: SharedString) -> impl IntoElement {
-    div().flex_none().px(px(6.0)).py(px(1.0)).rounded(px(4.0)).bg(p.line).mono(scale::FS_11).text_color(p.ink_4).child(key)
+    div().flex_none().px(px(6.0)).py(px(1.0)).rounded(px(4.0)).bg(p.line).mono(TextRole::Micro).text_color(p.ink_4).child(key)
 }
 
 /// The live row a scheduled retry draws while the provider waits out its
@@ -271,12 +269,12 @@ impl RenderOnce for RetryRow {
             .flex_none()
             .h(px(STATUS_H))
             .gap(px(STATUS_GAP))
-            .ui(scale::FS_12)
+            .ui(TextRole::Caption)
             .text_color(p.fg_muted)
             .whitespace_nowrap()
             .child(spinner((self.id.clone(), "spinner")).size(px(STATUS_SPINNER)).fluid(cx))
             .child(div().flex_none().child(format!("Attempt {}/{}", self.attempt, self.max)))
-            .child(div().flex_none().mono(scale::FS_12).child(format!("retrying in {seconds} s")));
+            .child(div().flex_none().mono(TextRole::Caption).child(format!("retrying in {seconds} s")));
         if !self.reason.is_empty() {
             row = row.child(div().flex_none().text_color(p.ink_4).child(format!("· {}", self.reason)));
         }
@@ -347,7 +345,7 @@ impl RenderOnce for NeedsYouBanner {
             .bg(crate::util::raised_lit(&p, p.surface_2))
             .border_1()
             .border_color(p.line)
-            .ui(NEED_TEXT)
+            .ui(TextRole::Caption)
             .text_color(p.ink)
             .child(icon(IconName::Alert).size(px(NEED_GLYPH)).color(p.warning))
             .child(
@@ -418,7 +416,7 @@ impl RenderOnce for JumpPill {
             .border_1()
             .border_color(p.line_strong)
             .shadow(p.floating_shadow())
-            .ui(scale::FS_12)
+            .ui(TextRole::Caption)
             .text_color(p.ink)
             .whitespace_nowrap()
             .child(icon(IconName::ArrowDown).size(px(JUMP_GLYPH)))
@@ -432,7 +430,7 @@ impl RenderOnce for JumpPill {
                     .rounded_full()
                     .bg(p.selected_overlay())
                     .font_family(scale::FONT_MONO)
-                    .text_px(BADGE_TEXT)
+                    .role_size(TextRole::Micro)
                     .line_height(gpui::relative(1.0))
                     .child(count.to_string()),
             );

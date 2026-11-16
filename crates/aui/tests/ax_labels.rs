@@ -68,8 +68,7 @@ fn block_element(block: &Block, n: usize) -> AnyElement {
                 ink: gpui::white(),
                 code_ink: gpui::white(),
                 code_bg: gpui::transparent_black(),
-                size: scale::FS_13,
-                line_height: scale::LH_BODY,
+                role: aui_tokens::TextRole::Read,
                 paragraph_gap: scale::SP_2,
             },
         )

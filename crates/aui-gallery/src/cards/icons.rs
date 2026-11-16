@@ -19,8 +19,6 @@ const GLYPH_ROW_GAP: f32 = 10.0;
 const GLYPH_COL_GAP: f32 = 6.0;
 /// `.ig div{gap:5px}` between a glyph and its caption.
 const GLYPH_LABEL_GAP: f32 = 5.0;
-/// `.ig div{font:10px/1 var(--font-mono)}`.
-const GLYPH_LABEL_SIZE: f32 = 10.0;
 /// Captions are set solid (`/1`).
 const LH_FLAT: f32 = 1.0;
 /// `.ig svg{width:16px;height:16px}` — the glyph grid uses the header size.
@@ -44,8 +42,6 @@ const SPINNER_RING: f32 = 1.5;
 const SPINNER_CAP: f32 = 2.05;
 /// `.dot{width:7px;height:7px}`.
 const DOT_SIZE: f32 = 7.0;
-/// `.caps` inherits the body line height (1.5) in this card.
-const CAPS_LH: f32 = scale::LH_UI;
 
 /// Builds the card content.
 pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
@@ -67,10 +63,10 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
 fn section_label(p: Palette, label: &'static str) -> impl IntoElement {
     div()
         .mb(px(SECTION_LABEL_GAP))
-        .text_role(TextRole::Caps)
-        .line_height(relative(CAPS_LH))
+        .text_role(TextRole::Caption)
+
         .text_color(p.fg_muted)
-        .child(label.to_uppercase())
+        .child(label)
 }
 
 /// `.ig`: the glyph set on a twelve-column grid.
@@ -117,7 +113,7 @@ fn glyph_grid(p: Palette) -> impl IntoElement {
                 .child(
                     div()
                         .font_family(scale::FONT_MONO)
-                        .text_px(GLYPH_LABEL_SIZE)
+                        .role_size(TextRole::Micro)
                         .line_height(relative(LH_FLAT))
                         // The caption is a flex item in the CSS, so a long
                         // word overflows its cell instead of wrapping.
@@ -234,7 +230,7 @@ fn marks_row(p: Palette) -> Div {
         .items_center()
         .mb(px(SECTION_GAP))
         .gap(px(MARKS_GAP))
-        .ui(scale::FS_12)
+        .ui(TextRole::Caption)
         .text_color(p.fg_muted)
 }
 

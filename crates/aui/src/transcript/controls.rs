@@ -4,7 +4,8 @@
 //! fill, frame-coloured text, 600). And the faint mono key hints that open a
 //! card's footer.
 
-use aui_tokens::{scale, AuiStyled, Palette};
+use aui_tokens::{AuiStyled, Palette};
+use aui_tokens::TextRole;
 use gpui::{div, prelude::*, px, ElementId, SharedString};
 use gpui_kit::base::h_flex;
 
@@ -47,7 +48,7 @@ pub fn control_with(id: impl Into<ElementId>, glyph: Option<IconName>, label: im
         .items_center()
         .justify_center()
         .rounded(px(CONTROL_RADIUS))
-        .ui(scale::FS_13)
+        .ui(TextRole::Body)
         .whitespace_nowrap()
         .cursor_pointer()
         .role(gpui::Role::Button)
@@ -68,5 +69,5 @@ pub fn control_with(id: impl Into<ElementId>, glyph: Option<IconName>, label: im
 
 /// `⏎ allow · ⎋ deny`: a footer's key hints in faint mono.
 pub fn key_hints(text: impl Into<SharedString>, p: &Palette) -> gpui::Div {
-    div().flex_none().mono(scale::FS_11).text_color(p.ink_4).whitespace_nowrap().child(text.into())
+    div().flex_none().mono(TextRole::Micro).text_color(p.ink_4).whitespace_nowrap().child(text.into())
 }

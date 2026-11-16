@@ -47,7 +47,7 @@
 use std::time::Duration;
 
 use aui_icons::{icon, IconName};
-use aui_tokens::{durations, scale, ActiveAui, AuiStyled, Density, TextRole};
+use aui_tokens::{durations, scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{
     div, point, prelude::*, px, Anchor, App, Bounds, ElementId, FontWeight, HighlightStyle, IntoElement,
     Pixels, Point, SharedString, Size, StyledText, Window,
@@ -360,7 +360,7 @@ impl RenderOnce for SessionDetail {
                 div()
                     .flex_1()
                     .min_w(px(0.0))
-                    .text_role_in(TextRole::Body, Density::Standard).semibold()
+                    .text_role(TextRole::Body).semibold()
                     .line_clamp(SESSION_DETAIL_TITLE_LINES)
                     .text_color(p.ink)
                     .debug_selector(|| "detail-title".into())
@@ -542,7 +542,7 @@ impl RenderOnce for SessionDetail {
                     .w_full()
                     .items_center()
                     .gap(px(scale::SP_2))
-                    .text_role_in(TextRole::Mono, Density::Compact)
+                    .mono(TextRole::Caption)
                     .text_color(p.fg_muted)
                     .child(icon(IconName::Folder))
                     .child(

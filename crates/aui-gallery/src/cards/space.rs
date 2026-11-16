@@ -2,7 +2,7 @@
 //! foundations: one control height shared by controls and rows, a single
 //! shape with its concentric rule, and the eight-step surface ladder.
 
-use aui_tokens::{scale, ActiveAui, AuiStyled, Density, Palette, TextRole};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -12,8 +12,6 @@ const SECTION_LABEL_GAP: f32 = 10.0;
 const SECTION_GAP: f32 = 22.0;
 /// Gap between tiles in a row.
 const SWATCH_GAP: f32 = 14.0;
-/// Captions under tiles: mono 10 / 1.
-const CAPTION_SIZE: f32 = 10.0;
 /// Caption line height.
 const LH_FLAT: f32 = 1.0;
 /// `.rad div{width:56px;height:40px}`.
@@ -46,7 +44,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .mt(px(scale::SP_4))
                 .max_w(px(NOTE_MEASURE))
-                .text_role_in(TextRole::Caption, Density::Standard)
+                .text_role(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child(
                     "One control height (36, compact 28) shared by controls and rows. \
@@ -61,21 +59,22 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
 fn section_label(p: Palette, label: &'static str) -> impl IntoElement {
     div()
         .mb(px(SECTION_LABEL_GAP))
-        .text_role_in(TextRole::Caption, Density::Standard)
+        .text_role(TextRole::Caption)
         .medium()
         .text_color(p.fg_muted)
         .child(label)
 }
 
-/// The v2 size ladder: control, row-2, bar and icon at both densities, each
+/// The size ladder: control, row-2, bar and icon at both densities (bar and
+/// icon do not change with density), each
 /// as a labelled box drawn at its true height.
 fn size_ladder(p: Palette) -> impl IntoElement {
     let mut row = h_flex().w_full().items_end().mb(px(SECTION_GAP)).gap(px(SWATCH_GAP));
     for (name, std, compact) in [
         ("control", scale::CTL_DEFAULT, scale::CTL_COMPACT),
         ("row-2", scale::ROW_2_DEFAULT, scale::ROW_2_COMPACT),
-        ("bar", scale::BAR_DEFAULT, scale::BAR_COMPACT),
-        ("icon", scale::ICON_DEFAULT, scale::ICON_COMPACT),
+        ("bar", scale::BAR_DEFAULT, scale::BAR_DEFAULT),
+        ("icon", scale::ICON_DEFAULT, scale::ICON_DEFAULT),
     ] {
         row = row.child(
             h_flex()
@@ -105,7 +104,7 @@ fn ladder_box(p: Palette, height: f32, label: String) -> impl IntoElement {
         .child(
             div()
                 .font_family(scale::FONT_MONO)
-                .text_px(CAPTION_SIZE)
+                .role_size(TextRole::Micro)
                 .line_height(relative(LH_FLAT))
                 .medium()
                 .text_color(p.fg_muted)
@@ -171,7 +170,7 @@ fn shape_demo(p: Palette) -> impl IntoElement {
 fn shape_caption(p: Palette, label: &'static str) -> impl IntoElement {
     div()
         .font_family(scale::FONT_MONO)
-        .text_px(CAPTION_SIZE)
+        .role_size(TextRole::Micro)
         .line_height(relative(LH_FLAT))
         .medium()
         .text_color(p.fg_muted)
@@ -197,7 +196,7 @@ fn surface_ladder(p: Palette) -> impl IntoElement {
         .items_center()
         .px(px(8.0))
         .font_family(scale::FONT_MONO)
-        .text_px(CAPTION_SIZE)
+        .role_size(TextRole::Micro)
         .line_height(relative(LH_FLAT))
         .medium()
         .text_color(p.fg_muted)
@@ -219,7 +218,7 @@ fn surface_ladder(p: Palette) -> impl IntoElement {
                     .child(
                         div()
                             .font_family(scale::FONT_MONO)
-                            .text_px(CAPTION_SIZE)
+                            .role_size(TextRole::Micro)
                             .line_height(relative(LH_FLAT))
                             .medium()
                             .text_color(p.fg_muted)
@@ -257,7 +256,7 @@ fn radius_row(p: Palette) -> impl IntoElement {
                 .items_center()
                 .justify_center()
                 .font_family(scale::FONT_MONO)
-                .text_px(CAPTION_SIZE)
+                .role_size(TextRole::Micro)
                 .line_height(relative(LH_FLAT))
                 .medium()
                 .text_color(p.fg_muted)
@@ -292,12 +291,10 @@ fn elevation_tile(p: Palette, label: &'static str) -> Div {
         .items_center()
         .justify_center()
         .font_family(scale::FONT_MONO)
-        .text_px(ELEVATION_LABEL_SIZE)
+        .role_size(TextRole::Micro)
         .line_height(relative(LH_FLAT))
         .medium()
         .text_color(p.fg_muted)
         .child(div().max_w(px(ELEVATION_TILE.0)).child(label))
 }
 
-/// `.el div` label size.
-const ELEVATION_LABEL_SIZE: f32 = 11.0;

@@ -22,6 +22,7 @@
 //! ```
 
 use std::rc::Rc;
+use aui_tokens::TextRole;
 
 use aui_icons::IconName;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
@@ -36,8 +37,6 @@ use crate::data::icon_button;
 const SECRET_PAD_LEFT: f32 = 10.0;
 const SECRET_PAD_RIGHT: f32 = scale::SP_2;
 const SECRET_GAP: f32 = scale::SP_3;
-/// The secret text: the 12 px mono role, like the login screen's URL row.
-const SECRET_TEXT: f32 = scale::FS_12;
 /// Disabled controls (`opacity:.45` on the forward arrow in the shell header).
 const DISABLED_OPACITY: f32 = 0.45;
 
@@ -129,7 +128,7 @@ impl RenderOnce for SecretField {
             .gap(px(SECRET_GAP))
             .pl(px(SECRET_PAD_LEFT))
             .pr(px(SECRET_PAD_RIGHT))
-            .mono(SECRET_TEXT)
+            .mono(TextRole::Caption)
             .text_color(p.ink)
             .child(div().flex_1().min_w(px(0.0)).child(Input::new(&self.state)))
             .child(eye);

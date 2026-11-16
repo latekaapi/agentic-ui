@@ -5,6 +5,7 @@
 //! arrow. Links are underlined in the foreground.
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
+use aui_tokens::TextRole;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, Hsla, IntoElement, SharedString, Window};
 use gpui_kit::base::h_flex;
@@ -12,7 +13,6 @@ use crate::interact::paint::{PaintStates, StatePaint};
 
 /// Gap 10, caption, 10 above and below.
 const GAP: f32 = 10.0;
-const TEXT: f32 = 12.0;
 const MARGIN_Y: f32 = 10.0;
 /// The leading glyph.
 const GLYPH: f32 = 12.0;
@@ -87,7 +87,7 @@ impl RenderOnce for MarkerRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let rule = || div().flex_1().min_w(px(16.0)).h(px(1.0)).bg(p.line);
-        let mut row = h_flex().id(self.id.clone()).w_full().my(px(MARGIN_Y)).items_center().gap(px(GAP)).ui(TEXT).text_color(p.fg_muted).whitespace_nowrap().child(rule());
+        let mut row = h_flex().id(self.id.clone()).w_full().my(px(MARGIN_Y)).items_center().gap(px(GAP)).ui(TextRole::Caption).text_color(p.fg_muted).whitespace_nowrap().child(rule());
         if let Some((name, color)) = self.glyph {
             row = row.child(icon(name).size(px(GLYPH)).color(color.unwrap_or(p.fg_muted)));
         }

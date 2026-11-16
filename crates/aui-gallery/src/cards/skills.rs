@@ -1,6 +1,7 @@
 //! Skills page. The list with its meter, filter and section rows beside the
 //! detail pane; the Add skill menu; the import preview dialog.
 
+use aui_tokens::TextRole;
 use aui::skills::{
     cost_meter, import_preview, menu_row_two_line, scope_section_header, segmented, skill_detail, skill_row,
     switch, ChipTone, CostSegment, DetailAction, ImportRow, ImportStatus, InkLevel, SkillChip, SkillMode,
@@ -54,7 +55,7 @@ pub fn build_page(_window: &mut Window, cx: &mut App) -> AnyElement {
             .w_full()
             .gap(px(2.0))
             .px(px(12.0))
-            .child(div().flex_none().ui(13.2).text_color(p.fg_muted).child(METER_KICKER))
+            .child(div().flex_none().ui(TextRole::Body).text_color(p.fg_muted).child(METER_KICKER))
             .child(cost_meter(
                 "6.9k",
                 "tokens of context · 13 of 17 on",
@@ -79,7 +80,7 @@ pub fn build_page(_window: &mut Window, cx: &mut App) -> AnyElement {
                 0,
             ))
             .child(div().flex_1())
-            .child(div().flex_none().ui(13.2).text_color(p.fg_muted).child("Hide off"))
+            .child(div().flex_none().ui(TextRole::Body).text_color(p.fg_muted).child("Hide off"))
             .child(switch("hide-off", false, false).accessibility_label("Hide off")),
     );
 
@@ -172,7 +173,7 @@ pub fn build_page(_window: &mut Window, cx: &mut App) -> AnyElement {
             .flex_none()
             .px(px(12.0))
             .py(px(8.0))
-            .ui(13.2)
+            .ui(TextRole::Body)
             .text_color(p.fg_muted)
             .child("Show 10 more"),
     );
@@ -189,7 +190,7 @@ pub fn build_page(_window: &mut Window, cx: &mut App) -> AnyElement {
             .section(
                 "What the model sees",
                 div()
-                    .ui(14.3)
+                    .ui(TextRole::Body)
                     .line_height(relative(1.6))
                     .text_color(p.fg_muted)
                     .child("Draft release notes from the PRs merged since the last tag, in the team's changelog format. Use when the user asks for release notes, a changelog entry or what shipped."),
@@ -198,7 +199,7 @@ pub fn build_page(_window: &mut Window, cx: &mut App) -> AnyElement {
                 "SKILL.md",
                 v_flex()
                     .gap(px(8.0))
-                    .ui(14.3)
+                    .ui(TextRole::Body)
                     .line_height(relative(1.65))
                     .text_color(p.fg_muted)
                     .child(div().child("1. List merged PRs since the last tag."))
@@ -209,7 +210,7 @@ pub fn build_page(_window: &mut Window, cx: &mut App) -> AnyElement {
                 "Files",
                 v_flex()
                     .gap(px(6.0))
-                    .mono(13.2)
+                    .mono(TextRole::Mono)
                     .text_color(p.fg_muted)
                     .child(div().child("SKILL.md"))
                     .child(div().child("scripts/merged_prs.sh"))

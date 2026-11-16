@@ -8,6 +8,7 @@
 //! the session dot share one x, and every label starts at one x.
 
 use aui::nav::{nav_item, sidebar_view, ActivityKind, Grouping, ProjectGroup, SessionSummary, LEADING_BOX, NAV_GUTTER, NAV_LABEL_X};
+use aui_tokens::TextRole;
 use aui_icons::IconName;
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled};
 use gpui::*;
@@ -42,7 +43,7 @@ fn panel(id: &'static str, width: f32, cx: &mut App) -> impl IntoElement {
     v_flex()
         .flex_none()
         .w(px(width))
-        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child(format!("{width:.0} px")))
+        .child(div().mb(px(TITLE_GAP)).ui(TextRole::Caption).text_color(p.fg_muted).child(format!("{width:.0} px")))
         .child(
             v_flex()
                 .relative()
@@ -92,7 +93,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         .child(
             div()
                 .mt(px(NOTE_TOP))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child("Rulers at the leading centre (18 px) and NAV_LABEL_X (32 px): the nav icon, the chevron and the dot share one x; every label starts at one x."),
         )

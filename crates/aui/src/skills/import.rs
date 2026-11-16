@@ -1,6 +1,7 @@
 //! The import preview dialog and the two-line add-skill menu row.
 
 use std::rc::Rc;
+use aui_tokens::TextRole;
 
 use aui_icons::{icon, IconName};
 use aui_motion::EnterExit;
@@ -195,12 +196,6 @@ const IMPORT_GAP: f32 = 12.0;
 const IMPORT_PAD_Y: f32 = 10.0;
 const IMPORT_PAD_X: f32 = 12.0;
 const IMPORT_TOK_W: f32 = 48.0;
-/// Subtitle 14.3 fg-muted, row name 14.3 / 500 (the title is the modal
-/// header's).
-const SUBTITLE_TEXT: f32 = 14.3;
-const ROW_NAME: f32 = 14.3;
-const ROW_DESC: f32 = 13.2;
-const ROW_TOK: f32 = 12.1;
 /// Installed rows sit below full ink, like dimmed skill rows.
 const INSTALLED_OPACITY: f32 = 0.5;
 
@@ -304,7 +299,7 @@ impl RenderOnce for ImportPreview {
                         .child(
                             div()
                                 .flex_none()
-                                .ui(ROW_NAME)
+                                .ui(TextRole::Body)
                                 .line_height(relative(1.0))
                                 .medium()
                                 .text_color(p.ink)
@@ -315,8 +310,7 @@ impl RenderOnce for ImportPreview {
                                 .flex_none()
                                 .w_full()
                                 .truncate()
-                                .ui(ROW_DESC)
-                                .line_height(relative(scale::LH_UI))
+                                .ui(TextRole::Body)
                                 .text_color(p.fg_muted)
                                 .child(row_model.description.clone()),
                         ),
@@ -332,7 +326,7 @@ impl RenderOnce for ImportPreview {
                     .w(px(IMPORT_TOK_W))
                     .flex()
                     .justify_end()
-                    .mono(ROW_TOK)
+                    .mono(TextRole::Caption)
                     .line_height(relative(1.0))
                     .medium()
                     .text_color(p.ink_4)
@@ -353,8 +347,7 @@ impl RenderOnce for ImportPreview {
                     .w_full()
                     .pt(px(12.0))
                     .px(px(24.0))
-                    .ui(SUBTITLE_TEXT)
-                    .line_height(relative(scale::LH_UI))
+                    .ui(TextRole::Body)
                     .text_color(p.fg_muted)
                     .child(subtitle),
             );
@@ -369,8 +362,7 @@ impl RenderOnce for ImportPreview {
                     .px(px(12.0))
                     .py(px(10.0))
                     .rounded(px(scale::R_SM)), &p, p.surface_2)
-                    .ui(SUBTITLE_TEXT)
-                    .line_height(relative(scale::LH_UI))
+                    .ui(TextRole::Body)
                     .text_color(p.fg_muted)
                     .child(summary),
             );
@@ -388,7 +380,7 @@ impl RenderOnce for ImportPreview {
             .border_t_1()
             .border_color(p.line);
         if let Some(hint) = self.hint {
-            foot = foot.child(div().flex_none().ui(ROW_TOK).text_color(p.fg_muted).child(hint));
+            foot = foot.child(div().flex_none().ui(TextRole::Caption).text_color(p.fg_muted).child(hint));
         }
         foot = foot.child(div().flex_1());
         let mut cancel = crate::data::button((id.clone(), "cancel"), self.cancel_label.clone());
@@ -458,9 +450,6 @@ const MENU_ITEM_GAP: f32 = 10.0;
 const MENU_ITEM_PAD_Y: f32 = 8.0;
 const MENU_ITEM_PAD_X: f32 = 10.0;
 const MENU_ITEM_GLYPH: f32 = 16.0;
-const MENU_ITEM_TITLE: f32 = 14.3;
-const MENU_ITEM_SUB: f32 = 12.1;
-const MENU_ITEM_TRAIL: f32 = 12.1;
 
 impl MenuTwoLineRow {
     /// The identity handed back by `on_activate` (by default the title).
@@ -501,9 +490,9 @@ impl RenderOnce for MenuTwoLineRow {
 
         let mut sub = div().flex_none().w_full();
         if self.subtitle_mono {
-            sub = sub.mono(MENU_ITEM_SUB).text_color(p.fg_muted).child(self.subtitle.clone());
+            sub = sub.mono(TextRole::Caption).text_color(p.fg_muted).child(self.subtitle.clone());
         } else {
-            sub = sub.ui(MENU_ITEM_SUB).line_height(relative(1.0)).text_color(p.fg_muted).child(self.subtitle.clone());
+            sub = sub.ui(TextRole::Caption).line_height(relative(1.0)).text_color(p.fg_muted).child(self.subtitle.clone());
         }
         let aria = self
             .accessibility_label
@@ -527,7 +516,7 @@ impl RenderOnce for MenuTwoLineRow {
                     .child(
                         div()
                             .flex_none()
-                            .ui(MENU_ITEM_TITLE)
+                            .ui(TextRole::Body)
                             .line_height(relative(1.0))
                             .text_color(p.ink)
                             .child(self.title.clone()),
@@ -537,7 +526,7 @@ impl RenderOnce for MenuTwoLineRow {
             .role(gpui::Role::MenuItem)
             .aria_label(aria);
         if let Some(trailing) = self.trailing {
-            row = row.child(div().flex_none().mt(px(2.0)).ui(MENU_ITEM_TRAIL).text_color(p.fg_muted).child(trailing));
+            row = row.child(div().flex_none().mt(px(2.0)).ui(TextRole::Caption).text_color(p.fg_muted).child(trailing));
         }
         if let Some(handler) = self.on_activate {
             let key = self.key.unwrap_or_else(|| self.title.clone());

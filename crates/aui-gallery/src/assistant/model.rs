@@ -12,8 +12,6 @@ use gpui::SharedString;
 
 use super::view::AssistantScreen;
 
-/// The assistant body text: 13.5 / 1.65.
-pub const BODY_TEXT: f32 = 13.5;
 
 /// One block in the transcript, with the element id it renders under.
 #[derive(Debug, Clone)]

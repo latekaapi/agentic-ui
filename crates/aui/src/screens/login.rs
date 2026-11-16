@@ -19,7 +19,7 @@ use std::time::Duration;
 use aui_icons::{provider_mark, IconName, Provider};
 use aui_motion::{presence, EnterExit, PresenceStyle};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
-use gpui::{div, prelude::*, px, relative, AnyElement, App, ElementId, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, glyph_ok, icon_button, spinner, Button, ButtonSize};
@@ -31,29 +31,20 @@ const CARD_PAD: f32 = scale::SP_6;
 const CARD_GAP: f32 = scale::SP_5;
 /// The product mark above the headline.
 const MARK: f32 = 32.0;
-/// The headline, one step above the title role's 13 px.
-const HEADLINE: f32 = scale::FS_18;
 /// The gap between the mark, the headline and the subtitle.
 const MASTHEAD_GAP: f32 = scale::SP_3;
 /// The copyable URL row: `h 34`, the same 6 px radius as a control.
 const URL_H: f32 = 34.0;
 const URL_PAD_X: f32 = 10.0;
 const URL_GAP: f32 = scale::SP_3;
-/// The device code. gpui has no letter-spacing, so the code carries its weight
-/// by size alone: the top of the type scale, centred, in the mono face.
-const CODE_SIZE: f32 = scale::FS_24;
 const CODE_PAD_Y: f32 = scale::SP_4;
 /// The spinner row and the resolved rows (success, error).
 const STATUS_GAP: f32 = scale::SP_3;
-const STATUS_TEXT: f32 = scale::FS_12;
 /// The error message box.
 const ERROR_PAD_Y: f32 = scale::SP_3;
 const ERROR_PAD_X: f32 = scale::SP_4;
 /// The action row: hint on the left, spacer, secondary, primary at the right.
 const ACTION_GAP: f32 = scale::SP_3;
-const HINT_TEXT: f32 = scale::FS_11;
-/// The API-key field label, one step below the hint: 11 px in fg-muted.
-const FIELD_LABEL_TEXT: f32 = scale::FS_11;
 /// `@keyframes in{from{transform:translateY(8px)}}` — the card rises into place.
 const CARD_RISE: f32 = 8.0;
 
@@ -271,7 +262,7 @@ fn action_row(p: &Palette, hint: Option<SharedString>, buttons: Vec<gpui::AnyEle
                 .flex_1()
                 .min_w(px(0.0))
                 .truncate()
-                .ui(HINT_TEXT)
+                .ui(TextRole::Micro)
                 .text_color(p.fg_muted)
                 .child(hint.unwrap_or_default()),
         )
@@ -314,7 +305,7 @@ fn status_row(id: ElementId, p: &Palette, text: impl Into<SharedString>) -> impl
         .w_full()
         .items_center()
         .gap(px(STATUS_GAP))
-        .ui(STATUS_TEXT)
+        .ui(TextRole::Caption)
         .text_color(p.fg_muted)
         .child(spinner(id))
         .child(div().flex_1().min_w(px(0.0)).child(text.into()))
@@ -362,7 +353,7 @@ impl RenderOnce for Login {
         if !buttons.is_empty() {
             card = card.child(action_row(&p, None, buttons));
         }
-        div().size_full().flex().items_center().justify_center().bg(p.bg).text_role(TextRole::Ui).child(card).into_any_element()
+        div().size_full().flex().items_center().justify_center().bg(p.bg).text_role(TextRole::Body).child(card).into_any_element()
     }
 }
 
@@ -394,7 +385,7 @@ fn state_content(
                 blocks.push(
                     div()
                         .w_full()
-                        .text_px(scale::FS_13)
+                        .role_size(TextRole::Body)
                         .line_height(px(21.0))
                         .text_color(p.ink)
                         .child(gpui::StyledText::new(text.clone()).with_highlights(vec![(first.len()..text.len(), muted)]))
@@ -404,8 +395,7 @@ fn state_content(
                 blocks.push(
                     div()
                         .w_full()
-                        .ui(STATUS_TEXT)
-                        .line_height(relative(scale::LH_UI))
+                        .ui(TextRole::Caption)
                         .text_center()
                         .text_color(p.fg_muted)
                         .child("A Meta account draws on your Muse subscription. An API key bills usage to that key.")
@@ -426,18 +416,18 @@ fn state_content(
                 blocks.push(status_row((id.clone(), "waiting").into(), p, "Waiting for you to finish in the browser…").into_any_element());
             }
             let hint: SharedString = expires.unwrap_or_else(|| "Approve the request in your browser, then come back here.".into());
-            blocks.push(div().w_full().ui(STATUS_TEXT).text_color(p.fg_muted).child(hint).into_any_element());
+            blocks.push(div().w_full().ui(TextRole::Caption).text_color(p.fg_muted).child(hint).into_any_element());
             buttons.push(act("cancel", "Cancel", LoginIntent::Cancel, false));
             buttons.push(act("copy-code", "Copy code", LoginIntent::CopyCode, false));
             buttons.push(act("open", "Open in browser", LoginIntent::OpenBrowser, true));
         }
         LoginState::ApiKey { can_submit, error } => {
-            blocks.push(div().w_full().ui(FIELD_LABEL_TEXT).text_color(p.fg_muted).child("Meta API key").into_any_element());
+            blocks.push(div().w_full().ui(TextRole::Micro).text_color(p.fg_muted).child("Meta API key").into_any_element());
             blocks.push(api_key_slot(api_key_field));
             blocks.push(
                 div()
                     .w_full()
-                    .ui(HINT_TEXT)
+                    .ui(TextRole::Micro)
                     .text_color(p.fg_muted)
                     .child("Saved by the muse CLI to ~/.config/muse/auth.json. Never logged.")
                     .into_any_element(),
@@ -457,7 +447,7 @@ fn state_content(
                     .w_full()
                     .items_center()
                     .gap(px(STATUS_GAP))
-                    .ui(STATUS_TEXT)
+                    .ui(TextRole::Caption)
                     .text_color(p.success)
                     .child(glyph_ok())
                     .child(div().flex_1().min_w(px(0.0)).child("Signed in."))
@@ -483,7 +473,7 @@ fn masthead(p: &Palette, provider: Provider, headline: SharedString, subtitle: O
         .child(
             div()
                 .text_role(TextRole::Title)
-                .text_px(HEADLINE)
+                .role_size(TextRole::Title)
                 .text_color(p.ink)
                 .child(headline),
         );
@@ -491,8 +481,7 @@ fn masthead(p: &Palette, provider: Provider, headline: SharedString, subtitle: O
         column = column.child(
             div()
                 .w_full()
-                .ui(STATUS_TEXT)
-                .line_height(relative(scale::LH_UI))
+                .ui(TextRole::Caption)
                 .text_center()
                 .text_color(p.fg_muted)
                 .child(subtitle),
@@ -520,7 +509,7 @@ fn url_row(id: &ElementId, p: &Palette, url: SharedString, on_intent: Option<Int
         .border_1()
         .border_color(p.line)
         .bg(p.surface_2)
-        .mono(STATUS_TEXT)
+        .mono(TextRole::Caption)
         .text_color(p.fg_muted)
         .child(div().flex_1().min_w(px(0.0)).truncate().child(url))
         .child(open)
@@ -532,9 +521,8 @@ fn code_line(p: &Palette, code: SharedString) -> impl IntoElement {
     div()
         .w_full()
         .py(px(CODE_PAD_Y))
-        .mono(CODE_SIZE)
+        .mono(TextRole::H1)
         .semibold()
-        .line_height(relative(scale::LH_TIGHT))
         .text_center()
         .text_color(p.ink)
         .child(code)
@@ -550,8 +538,7 @@ fn error_box(p: &Palette, message: SharedString) -> impl IntoElement {
         .rounded(px(scale::R_SM))
         .border_1()
         .border_color(p.attention_border(p.danger))
-        .ui(STATUS_TEXT)
-        .line_height(relative(scale::LH_UI))
+        .ui(TextRole::Caption)
         .text_color(p.danger)
         .child(message)
 }

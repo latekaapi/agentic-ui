@@ -37,13 +37,16 @@ const FOLD_AFTER: usize = 8;
 const LIVE_TAIL: usize = 2;
 /// The interrupt character `run`'s counterpart writes.
 const CTRL_C: &[u8] = b"\x03";
-/// Both panes draw their terminal text at 12 px mono — `.scroll` on card 50
-/// (`crates/aui/src/workbench/terminal.rs`) and `.tui` on the TUI pane
-/// (`crates/aui/src/workbench/tui.rs`).
-const TERM_TEXT: f32 = 12.0;
-/// `.tui{font:12px/1.5 mono}` — the TUI pane's line height.
+/// Both panes draw their terminal text in mono at `TextRole::Caption` —
+/// `.scroll` on card 50 (`crates/aui/src/workbench/terminal.rs`) and `.tui`
+/// on the TUI pane (`crates/aui/src/workbench/tui.rs`) — so the cell grid is
+/// measured at that size.
+fn term_text() -> f32 {
+    aui_tokens::TextRole::Caption.spec().size
+}
+/// `.tui{font:…/1.5 mono}` — the TUI pane's line height.
 const TUI_LH: f32 = 1.5;
-/// `.scroll{font:12px/1.55 mono}` — the block terminal's line height.
+/// `.scroll{font:…/1.55 mono}` — the block terminal's line height.
 const BLOCK_LH: f32 = 1.55;
 /// `.tui{padding:10px 12px}`: the horizontal inset a TUI row loses.
 const TUI_INSET_X: f32 = 12.0 * 2.0;
@@ -342,13 +345,13 @@ impl TerminalState {
 
 /// The pane's box in character cells, given the padding its text sits inside
 /// and the line height it is drawn at. The cell width is the mono font's
-/// advance for `0` at 12 px, measured through the window's own text system so
+/// advance for `0` at [`term_text`], measured through the window's own text system so
 /// it matches what will actually be painted.
 fn cells_for(bounds: Bounds<Pixels>, inset_x: f32, inset_y: f32, line_height: f32, window: &Window) -> (u16, u16) {
     let text = window.text_system();
     let font_id = text.resolve_font(&gpui::font(aui_tokens::scale::FONT_MONO));
-    let advance = text.ch_advance(font_id, px(TERM_TEXT)).map(f32::from).unwrap_or(0.0);
-    let row_h = TERM_TEXT * line_height;
+    let advance = text.ch_advance(font_id, px(term_text())).map(f32::from).unwrap_or(0.0);
+    let row_h = term_text() * line_height;
     if advance <= 0.0 || row_h <= 0.0 {
         return (MIN_COLS, MIN_ROWS);
     }
@@ -447,7 +450,7 @@ impl RenderOnce for BlockTerminalView {
         // which is exactly the position to test against.
         let scroll = self.state.update(cx, |state, _| {
             if std::mem::take(&mut state.follow) {
-                let at_end = (-state.scroll.offset().y) >= state.scroll.max_offset().y - px(TERM_TEXT * BLOCK_LH);
+                let at_end = (-state.scroll.offset().y) >= state.scroll.max_offset().y - px(term_text() * BLOCK_LH);
                 if at_end {
                     state.scroll.scroll_to_bottom();
                 }
@@ -529,7 +532,7 @@ impl RenderOnce for TuiView {
 ///
 /// This draws the `alacritty_terminal` screen — real ANSI colour, the cursor
 /// inverted in place — rather than [`tui_pane`]'s line-by-line ANSI path, and
-/// it carries the same padding, 12 px/1.5 mono type, docked input box, footer
+/// it carries the same padding, Caption/1.5 mono type, docked input box, footer
 /// and hint keys so the two panes are indistinguishable at rest.
 ///
 /// Keys are the host's business: write bytes to the session with
@@ -612,7 +615,7 @@ impl RenderOnce for TuiGridView {
             .w_full()
             .py(px(TUI_PAD_Y))
             .px(px(TUI_PAD_X))
-            .mono(TERM_TEXT)
+            .mono(aui_tokens::TextRole::Caption)
             .line_height(relative(TUI_LH))
             .text_color(p.term_fg);
         for row in &grid.rows {

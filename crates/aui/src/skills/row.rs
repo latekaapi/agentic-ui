@@ -253,7 +253,7 @@ impl RenderOnce for SkillRow {
                     .w(px(TOK_W))
                     .flex()
                     .justify_end()
-                    .text_role(TextRole::MonoSmall)
+                    .mono(TextRole::Caption)
                     .text_color(p.ink_4)
                     .child(model.tokens.clone()),
             );

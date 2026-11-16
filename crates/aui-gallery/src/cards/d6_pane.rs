@@ -5,6 +5,7 @@
 //! closes. Beside it: an open file's tab and sub-header and the shared state
 //! blocks.
 
+use aui_tokens::TextRole;
 use aui::workbench::{
     pane_action, pane_strip, pane_subheader, pane_tabs, pane_toggle, pushed_row, secondary_action, skeleton_rows, state_block, strip_position,
     strip_visible, PaneTab,
@@ -73,7 +74,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .bg(p.surface_2)
         .border_1()
         .border_color(p.line)
-        .child(div().flex_1().text_px(13.0).font_weight(FontWeight::SEMIBOLD).text_color(p.fg).child("Merge the Diff and Git kinds into one Changes view."))
+        .child(div().flex_1().role_size(TextRole::Body).font_weight(FontWeight::SEMIBOLD).text_color(p.fg).child("Merge the Diff and Git kinds into one Changes view."))
         .child(toggles)
         .child(pane_action("d6-terminal", IconName::Terminal, "Terminal"))
         .child(div().mx(px(4.0)).w(px(1.0)).h(px(16.0)).bg(p.line))
@@ -88,7 +89,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 let row = (i == 1).then(|| {
                     pane_subheader(cx)
                         .px(px(6.0))
-                        .child(div().flex_1().pl(px(4.0)).text_px(12.0).text_color(p.fg_muted).child("baaz"))
+                        .child(div().flex_1().pl(px(4.0)).role_size(TextRole::Caption).text_color(p.fg_muted).child("baaz"))
                         .child(pane_action("d6-filter", IconName::Search, "Filter files"))
                 });
                 let body: AnyElement = match i {
@@ -142,7 +143,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let pane_el = if pane.open {
         strip.into_any_element()
     } else {
-        div().w(px(PANE_W)).h(px(320.0)).flex().items_center().justify_center().text_color(p.fg_muted).text_px(13.2).child("Pane closed").into_any_element()
+        div().w(px(PANE_W)).h(px(320.0)).flex().items_center().justify_center().text_color(p.fg_muted).role_size(TextRole::Body).child("Pane closed").into_any_element()
     };
 
     // The pushed view's row and the shared states, at rest.

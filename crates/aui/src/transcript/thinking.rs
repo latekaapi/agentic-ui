@@ -4,8 +4,9 @@
 //! measure, capped with a 34 px top fade while it streams.
 
 use aui_motion::shimmer_text;
+use aui_tokens::TextRole;
 use aui_protocol::ThinkingState;
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::{div, linear_color_stop, linear_gradient, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::v_flex;
 
@@ -23,8 +24,6 @@ const VIEWPORT_MAX: f32 = 96.0;
 const TRACE_INDENT: f32 = 32.0;
 const TRACE_INDENT_RIGHT: f32 = 12.0;
 const VP_PAD_BOTTOM: f32 = 8.0;
-/// Caption.
-const TRACE_TEXT: f32 = 12.0;
 const TRACE_LH: f32 = 1.55;
 /// `.th .vp::before{height:34px}` — the fade at the top of the capped viewport.
 const FADE_H: f32 = 34.0;
@@ -82,7 +81,7 @@ impl RenderOnce for ThinkingBlock {
         if thinking {
             row = row
                 .part(div().flex_none().child(shimmer_text((id.clone(), "label"), "Thinking", cx).duration(SHIMMER)))
-                .part(div().flex_none().mono(scale::FS_12).text_color(p.ink_4).child(self.elapsed.clone()));
+                .part(div().flex_none().mono(TextRole::Caption).text_color(p.ink_4).child(self.elapsed.clone()));
         } else {
             row = row.part(div().flex_none().child(format!("Thought for {}", self.elapsed)));
             if let Some(summary) = &self.summary {
@@ -90,7 +89,7 @@ impl RenderOnce for ThinkingBlock {
             }
         }
 
-        let mut paragraphs = v_flex().w_full().ui(TRACE_TEXT).line_height(relative(TRACE_LH)).text_color(p.fg_muted);
+        let mut paragraphs = v_flex().w_full().ui(TextRole::Caption).line_height(relative(TRACE_LH)).text_color(p.fg_muted);
         let parts: Vec<&str> = self.text.split("\n\n").filter(|s| !s.trim().is_empty()).collect();
         let count = parts.len();
         for (i, para) in parts.into_iter().enumerate() {

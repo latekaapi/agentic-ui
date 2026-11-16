@@ -16,11 +16,10 @@ const HEADER_H: f32 = 32.0;
 const HEADER_GLYPH: f32 = 14.0;
 /// `.todo .bar{height:3px}`; the fill's width travels on the layout spring.
 const BAR_H: f32 = 3.0;
-/// `.ti{height:30px;padding:0 12px;gap:10px;font-size:12.5px}`.
-const ROW_H: f32 = 30.0;
+/// `.ti{padding:0 12px;gap:10px}`, the shared row height
+/// (`Metrics::control`), Caption text.
 const ROW_PAD_X: f32 = 12.0;
 const ROW_GAP: f32 = 10.0;
-const ROW_TEXT: f32 = 12.5;
 /// Rows 30 px, 0 / 12, gap 10; the mark 15 px with a 1.5 ring.
 const MARK: f32 = 15.0;
 const MARK_BORDER: f32 = 1.5;
@@ -120,7 +119,7 @@ impl RenderOnce for TodoList {
             .header_height(px(HEADER_H))
             .header(icon(IconName::List).size(px(HEADER_GLYPH)).color(p.fg_muted))
             .header(div().semibold().child(self.title.clone()))
-            .header(div().mono(aui_tokens::scale::FS_11).text_color(p.ink_4).child(format!("{done} / {total}")))
+            .header(div().mono(TextRole::Micro).text_color(p.ink_4).child(format!("{done} / {total}")))
             .header(div().flex_1());
 
         // The 3 px bar under the header: a 7 % track, the muted fill.
@@ -146,13 +145,13 @@ impl RenderOnce for TodoList {
                 h_flex()
                     .w_full()
                     .items_center()
-                    .h(px(ROW_H))
+                    .h(aui_tokens::Metrics::active().control)
                     .flex_none()
                     .gap(px(ROW_GAP))
                     .px(px(ROW_PAD_X))
                     .border_t_1()
                     .border_color(p.line)
-                    .ui(ROW_TEXT)
+                    .ui(TextRole::Caption)
                     .child(todo_mark((id.clone(), SharedString::from(format!("mark-{index}"))).into(), item.state, &p, window, cx))
                     .child(
                         div()
@@ -175,7 +174,7 @@ impl RenderOnce for TodoList {
                             underline: None,
                             strikethrough: (item.state == TodoState::Done).then_some(StrikethroughStyle { thickness: px(STRIKE_THICKNESS), color: Some(p.ink_4) }),
                         };
-                        div().flex_none().text_role(TextRole::MonoSmall).child(StyledText::new(elapsed).with_runs(vec![run]))
+                        div().flex_none().mono(TextRole::Caption).child(StyledText::new(elapsed).with_runs(vec![run]))
                     })),
             );
         }

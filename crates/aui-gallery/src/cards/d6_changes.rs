@@ -3,6 +3,7 @@
 //! fold its diff open on D4's motion, click "24 unchanged lines" to expand it.
 
 use std::sync::Arc;
+use aui_tokens::TextRole;
 
 use aui::interact::row_list;
 use aui::protocol::{ChangeKind, Diff, DiffKind, DiffLine, FileChange, Hunk};
@@ -74,7 +75,7 @@ struct Live {
 
 fn screen(label: &str, body: AnyElement, foot: Option<AnyElement>, row: AnyElement, h: f32, cx: &App) -> Div {
     let p = cx.aui().colors;
-    v_flex().gap(px(6.0)).child(div().text_px(12.0).text_color(p.fg_muted).child(label.to_string())).child(
+    v_flex().gap(px(6.0)).child(div().role_size(TextRole::Caption).text_color(p.fg_muted).child(label.to_string())).child(
         div()
             .relative()
             .w(px(W))

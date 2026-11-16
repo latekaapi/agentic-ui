@@ -5,8 +5,9 @@
 //! and the drop overlay over a sheet.
 
 use aui::composer::{composer, composer_state_rows, drop_overlay, queue_strip, ComposerChip, ComposerChipKind, ComposerChipState, QueueStripRow};
+use aui_tokens::TextRole;
 use aui_icons::Provider;
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::input::TextareaState;
 use gpui_kit::base::v_flex;
@@ -53,7 +54,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let running = field("card42-running", "", window, cx);
 
     let raised = |id: &'static str, state: &Entity<TextareaState>| composer(id, state, Provider::Muse, "Muse Spark 1.3").docked(true).raised(true).mode("Auto").effort("Default");
-    let label = |text: &'static str| div().ui(scale::FS_12).text_color(p.fg_muted).child(text);
+    let label = |text: &'static str| div().ui(TextRole::Caption).text_color(p.fg_muted).child(text);
     v_flex()
         .w_full()
         .gap(px(GAP))
@@ -94,7 +95,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(
             div()
                 .max_w(px(NOTE_MEASURE))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child("The composer's states on the approved card. Chips sit above the field, 6 apart, inset 8: Raised-lit, radius 6, 32 tall; an image leads with its thumbnail, a file with its glyph and type · size, a quote with its first words. Uploading dims the thumbnail and sweeps a 2 px line along the chip's bottom; failed turns the name danger with the reason as its meta. Send is round 28: Floating with a muted arrow while empty, the foreground fill once there is something to send, the same fill with a 10 px square while a turn runs."),
         )

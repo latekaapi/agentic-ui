@@ -22,6 +22,7 @@
 //! hex value and no hand-picked duration anywhere below.
 
 use std::time::Duration;
+use aui_tokens::TextRole;
 
 use aui::composer::{composer, composer_state, ComposerIntent};
 use aui::data::{ContextMeterState, ContextPressure};
@@ -53,8 +54,6 @@ const CANNED_REPLY: &str = "I read the two files you pointed at and rewrote the 
 const WORD_TIME: Duration = Duration::from_millis(45);
 /// How long the fake backend "thinks" before the first token.
 const THINK_TIME: Duration = Duration::from_millis(320);
-/// Body type for assistant prose: 13.5 px on the 1.65 body leading.
-const BODY_TEXT: f32 = 13.5;
 /// The transcript's own padding, the one place this example sets geometry.
 const TRANSCRIPT_PAD: f32 = scale::SP_7;
 
@@ -267,7 +266,7 @@ impl MinimalApp {
         let reveal = stream_reveal(id.clone(), index, settled, window, cx);
         let body: AnyElement = match block {
             Block::Text { text, streaming } => {
-                let style = ProseStyle { ink: p.ink, code_ink: p.accent_ink, code_bg: p.accent_soft, size: BODY_TEXT, line_height: scale::LH_BODY, paragraph_gap: scale::SP_4 };
+                let style = ProseStyle { ink: p.ink, code_ink: p.accent_ink, code_bg: p.accent_soft, role: aui_tokens::TextRole::Read, paragraph_gap: scale::SP_4 };
                 div().w_full().child(cited_answer(id.clone(), text.clone(), style).streaming(*streaming)).into_any_element()
             }
             Block::Approval { tool, command, reason, cwd, state, rule, .. } => {
@@ -319,7 +318,7 @@ impl MinimalApp {
 
     fn render_right(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let (p, note) = (cx.aui().colors, "Put the document, terminal or browser pane here. \u{2318}\\ closes it.");
-        v_flex().size_full().p(px(scale::SP_6)).gap(px(scale::SP_3)).child(div().text_role(aui_tokens::TextRole::Title).text_color(p.ink).child("Right pane")).child(div().ui(scale::FS_12).text_color(p.fg_muted).child(note))
+        v_flex().size_full().p(px(scale::SP_6)).gap(px(scale::SP_3)).child(div().text_role(aui_tokens::TextRole::Title).text_color(p.ink).child("Right pane")).child(div().ui(TextRole::Caption).text_color(p.fg_muted).child(note))
     }
 }
 

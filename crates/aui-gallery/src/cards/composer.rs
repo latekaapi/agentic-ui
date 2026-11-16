@@ -4,7 +4,7 @@
 
 use aui::composer::{composer, composer_state, composer_state_rows, plus_menu, queue_row, suggestion_chips, ComposerChip, ComposerChipKind, ComposerIntent, ComposerMeta, PlusMenuItem};
 use aui_icons::{IconName, Provider};
-use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
+use aui_tokens::{ActiveAui, AuiStyled, TextRole};
 use gpui::*;
 use gpui_kit::base::v_flex;
 
@@ -103,14 +103,14 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                 }),
         )
         .child(suggestion_chips("card40-suggestions", vec!["Run the e2e suite".into(), "Open the diff for review".into(), "Draft a commit message".into()]).at_rest())
-        .child(div().mt(px(CAPS_TOP)).text_role(TextRole::Caps).line_height(relative(scale::LH_UI)).text_color(p.fg_muted).child("DOCKED · SPANS THE PANE AT THE BOTTOM"))
+        .child(div().mt(px(CAPS_TOP)).text_role(TextRole::Caption).text_color(p.fg_muted).child("Docked · spans the pane at the bottom"))
         .child(
             div().mx(px(DOCKED_BLEED)).child(composer("card40-docked", &docked_text, Provider::Codex, "gpt-5.5 medium").mode("Auto").docked(true).can_send(false)),
         )
         .child(
             div()
                 .max_w(px(NOTE_MEASURE))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child("In the shell the composer is docked: full pane width, a top hairline, no card. The floating card above is the focused state with the accent ring. Context chips sit above the text; the toolbar holds the plus menu (rotates 45° and morphs the popover from its corner), model, mode and effort chips, then the send button which morphs to stop while a turn runs (click it). Queued messages stack above with a dashed border. Suggestions rise in with a 60 ms stagger."),
         )

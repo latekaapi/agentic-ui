@@ -37,8 +37,6 @@ const CHIPS_PAD_X: f32 = 12.0;
 const TEXT_PAD_TOP: f32 = 12.0;
 const TEXT_PAD_X: f32 = 14.0;
 const TEXT_PAD_BOTTOM: f32 = 6.0;
-const TEXT_SIZE: f32 = 14.0;
-const TEXT_LH: f32 = 1.55;
 const TEXT_MIN_H: f32 = 44.0;
 /// `.cp .bar{gap:6px;padding:6px 10px 10px}`.
 const BAR_GAP: f32 = 6.0;
@@ -84,10 +82,10 @@ const CONTEXT_MARGIN: f32 = 6.0;
 /// one line of text in the kit's editor (26 + 8 + 8) and the 1 px edges.
 const RAISED_GAP: f32 = 4.0;
 const RAISED_TEXT_PAD_X: f32 = 8.0;
-const RAISED_TEXT_LH: f32 = scale::T_READ_LH;
 const RAISED_TEXT_MIN_H: f32 = 36.0;
-const RAISED_TEXT_SIZE: f32 = scale::T_READ_FS;
-const BOX_MIN_H: f32 = scale::T_READ_LH + 2.0 * KIT_EDITOR_PAD_Y + 2.0;
+fn box_min_h() -> f32 {
+    TextRole::Read.spec().line_height + 2.0 * KIT_EDITOR_PAD_Y + 2.0
+}
 /// The box's side padding: `＋` and send sit 4 in from its edge.
 const FIELD_PAD: f32 = 4.0;
 /// The quiet row under the box.
@@ -490,7 +488,7 @@ fn composer_quote_block(id: &ElementId, q: &ComposerQuote, p: &aui_tokens::Palet
             .child(
                 div()
                     .font_family(scale::FONT_MONO)
-                    .text_px(12.65)
+                    .role_size(TextRole::Caption)
                     .line_height(px(20.0))
                     .text_color(code_ink)
                     .whitespace_nowrap()
@@ -503,13 +501,13 @@ fn composer_quote_block(id: &ElementId, q: &ComposerQuote, p: &aui_tokens::Palet
                 div()
                     .mt(px(2.0))
                     .font_family(scale::FONT_UI)
-                    .text_px(12.1)
+                    .role_size(TextRole::Caption)
                     .line_height(px(16.0))
                     .text_color(p.ink_4)
                     .child(format!("{lang} · {lines} line{}", if *lines == 1 { "" } else { "s" })),
             ),
         None => v_flex().child(
-            div().font_family(scale::FONT_UI).text_px(14.3).line_height(px(22.0)).text_color(p.fg_muted).line_clamp(2).max_h(px(44.0)).overflow_hidden().child(q.text.clone()),
+            div().font_family(scale::FONT_UI).role_size(TextRole::Body).line_height(px(22.0)).text_color(p.fg_muted).line_clamp(2).max_h(px(44.0)).overflow_hidden().child(q.text.clone()),
         ),
     };
     div()
@@ -575,7 +573,7 @@ fn attachment_chip(id: &ElementId, c: &ComposerChip, p: &aui_tokens::Palette, re
         .border_color(p.line)
         .overflow_hidden()
         .font_family(scale::FONT_UI)
-        .text_px(scale::FS_13)
+        .role_size(TextRole::Body)
         .whitespace_nowrap()
         .text_color(p.ink);
     chip = match (&thumb, c.kind) {
@@ -591,8 +589,8 @@ fn attachment_chip(id: &ElementId, c: &ComposerChip, p: &aui_tokens::Palette, re
         (None, ComposerChipKind::Image) => chip.child(icon(IconName::Image).size(px(13.0)).color(p.fg_muted)),
         (None, ComposerChipKind::File) => chip.child(icon(IconName::File).size(px(13.0)).color(p.fg_muted)),
         (None, ComposerChipKind::Quote) => chip.child(icon(IconName::Edit).size(px(13.0)).color(p.fg_muted)),
-        (None, ComposerChipKind::Mention) => chip.child(div().mono(scale::FS_12).text_color(p.fg_muted).child("@")),
-        (None, ComposerChipKind::Skill) => chip.child(div().mono(scale::FS_12).text_color(p.fg_muted).child("$")),
+        (None, ComposerChipKind::Mention) => chip.child(div().mono(TextRole::Caption).text_color(p.fg_muted).child("@")),
+        (None, ComposerChipKind::Skill) => chip.child(div().mono(TextRole::Caption).text_color(p.fg_muted).child("$")),
     };
     let label: SharedString = if c.kind == ComposerChipKind::Quote { format!("“{}”", c.label).into() } else { c.label.clone() };
     chip = chip.child(div().max_w(px(260.0)).truncate().when(failed.is_some(), |d| d.text_color(p.danger)).child(label));
@@ -603,7 +601,7 @@ fn attachment_chip(id: &ElementId, c: &ComposerChip, p: &aui_tokens::Palette, re
         _ => None,
     };
     if let Some(meta) = meta {
-        chip = chip.child(div().flex_none().text_px(scale::FS_12).text_color(p.fg_muted).child(meta));
+        chip = chip.child(div().flex_none().role_size(TextRole::Caption).text_color(p.fg_muted).child(meta));
     }
     if c.removable {
         chip = chip.child(
@@ -677,7 +675,7 @@ impl RenderOnce for Composer {
                         .border_color(p.line)
                         .bg(p.surface_1)
                         .font_family(scale::FONT_UI)
-                        .text_px(scale::FS_12)
+                        .role_size(TextRole::Caption)
                         .line_height(relative(1.0))
                         .medium()
                         .whitespace_nowrap()
@@ -701,8 +699,8 @@ impl RenderOnce for Composer {
                 }
             }
             let leading: gpui::AnyElement = match c.kind {
-                ComposerChipKind::Mention => div().mono(scale::FS_12).line_height(relative(1.0)).text_color(p.accent_ink).child("@").into_any_element(),
-                ComposerChipKind::Skill => div().mono(scale::FS_12).line_height(relative(1.0)).text_color(p.accent_ink).child("$").into_any_element(),
+                ComposerChipKind::Mention => div().mono(TextRole::Caption).line_height(relative(1.0)).text_color(p.accent_ink).child("@").into_any_element(),
+                ComposerChipKind::Skill => div().mono(TextRole::Caption).line_height(relative(1.0)).text_color(p.accent_ink).child("$").into_any_element(),
                 ComposerChipKind::Image => icon(IconName::Image).size(px(CHIP_GLYPH)).into_any_element(),
                 ComposerChipKind::File => icon(IconName::File).size(px(CHIP_GLYPH)).into_any_element(),
                 ComposerChipKind::Quote => icon(IconName::Edit).size(px(CHIP_GLYPH)).into_any_element(),
@@ -747,15 +745,15 @@ impl RenderOnce for Composer {
             // The kit's own editor padding (8 / 10), less 2 px each side,
             // so the text starts 8 past the `＋`.
             .when(raised, |d| d.mx(px(RAISED_TEXT_PAD_X - KIT_EDITOR_PAD_X)))
-            .ui(if raised { RAISED_TEXT_SIZE } else { TEXT_SIZE })
-            .line_height(if raised { relative(RAISED_TEXT_LH / RAISED_TEXT_SIZE) } else { relative(TEXT_LH) })
+            // Composer text is `t-read` in every composer (docs/83 §2.4).
+            .ui(TextRole::Read)
             .text_color(p.ink)
             .child(
                 Textarea::new(&self.state)
                     .appearance(false)
                     .bordered(false)
-                    .text_size(aui_tokens::scaled(if raised { RAISED_TEXT_SIZE } else { TEXT_SIZE }))
-                    .line_height(if raised { relative(RAISED_TEXT_LH / RAISED_TEXT_SIZE) } else { relative(TEXT_LH) }),
+                    .text_size(TextRole::Read.size())
+                    .line_height(TextRole::Read.line_height()),
             );
 
         // Toolbar.
@@ -947,8 +945,8 @@ impl RenderOnce for Composer {
             let edge = tween((id.clone(), "field-edge"), if focused { p.accent_ring } else { p.line_strong }, SEND_FADE, window, cx);
             // `＋` and send sit centred on the first line and stay at the
             // bottom as the text grows.
-            let control_inset = ((scale::T_READ_LH + 2.0 * KIT_EDITOR_PAD_Y - f32::from(control)) / 2.0).max(0.0);
-            let mut field = composer_box(edge, cx).id(id.clone()).min_h(px(BOX_MIN_H)).px(px(FIELD_PAD));
+            let control_inset = ((TextRole::Read.spec().line_height + 2.0 * KIT_EDITOR_PAD_Y - f32::from(control)) / 2.0).max(0.0);
+            let mut field = composer_box(edge, cx).id(id.clone()).min_h(px(box_min_h())).px(px(FIELD_PAD));
             if !self.quotes.is_empty() {
                 let mut stack = v_flex().w_full().gap(px(8.0)).px(px(RAISED_TEXT_PAD_X)).pt(px(RAISED_TEXT_PAD_X));
                 for q in &self.quotes {
@@ -1023,7 +1021,7 @@ impl RenderOnce for Composer {
                     .w_full()
                     .gap(px(META_GAP))
                     .px(px(META_PAD_X))
-                    .text_role(TextRole::MonoSmall)
+                    .mono(TextRole::Caption)
                     .font_weight(gpui::FontWeight::MEDIUM)
                     .text_color(p.fg_muted)
                     .whitespace_nowrap()

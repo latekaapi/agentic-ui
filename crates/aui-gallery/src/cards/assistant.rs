@@ -3,6 +3,7 @@
 //! at 760×640, light theme.
 
 use aui::data::{icon_button, pill};
+use aui_tokens::TextRole;
 use aui::nav::{role_section, sidebar_footer, Project, Role, RoleSession, SessionKind};
 use aui_icons::{IconName, RoleIcon};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
@@ -23,7 +24,6 @@ const HEAD_GAP: f32 = 8.0;
 const LEGEND_MEASURE: f32 = 268.0;
 const LEGEND_GAP: f32 = 10.0;
 const LEGEND_TOP: f32 = 4.0;
-const LEGEND_TEXT: f32 = 12.5;
 /// `.ft{padding:8px 12px}` and `.pill{height:16px}` in the footer.
 const FOOTER_PAD_Y: f32 = 8.0;
 const FOOTER_PILL_H: f32 = 16.0;
@@ -84,7 +84,7 @@ fn header(cx: &App) -> impl IntoElement {
         .pr(px(HEAD_PAD_RIGHT))
         .border_b_1()
         .border_color(p.line)
-        .child(div().flex_1().min_w(px(0.0)).truncate().ui(scale::FS_13).semibold().text_color(p.ink).child("Desk"))
+        .child(div().flex_1().min_w(px(0.0)).truncate().ui(TextRole::Body).semibold().text_color(p.ink).child("Desk"))
         .child(icon_button("card22-search", IconName::Search).ghost().sm())
         .child(icon_button("card22-new", IconName::Plus).ghost().sm())
 }
@@ -96,7 +96,7 @@ fn legend(p: Palette) -> impl IntoElement {
         ("Knowledge card.", " The orders, rules and regulations attached to the active role, so it is always visible what the assistant is grounded in. Projects and sessions can add more below it."),
         ("Light theme", " is the default here: the assistant is a writing tool and documents read best on paper-white."),
     ];
-    let mut col = v_flex().max_w(px(LEGEND_MEASURE)).pt(px(LEGEND_TOP)).gap(px(LEGEND_GAP)).ui(LEGEND_TEXT).text_color(p.fg_muted);
+    let mut col = v_flex().max_w(px(LEGEND_MEASURE)).pt(px(LEGEND_TOP)).gap(px(LEGEND_GAP)).ui(TextRole::Caption).text_color(p.fg_muted);
     for (lead, rest) in items {
         col = col.child(crate::cards::rows::lead_paragraph(p, lead, rest));
     }

@@ -35,7 +35,7 @@ impl RenderOnce for Tag {
         let p = cx.aui().colors;
         let mut el = div()
             .flex_none()
-            .text_role(TextRole::Tag)
+            .mono(TextRole::Micro).medium()
             .text_color(self.color.unwrap_or(p.fg_muted))
             .whitespace_nowrap();
         if let Some(max) = self.truncate {

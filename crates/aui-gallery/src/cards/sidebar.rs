@@ -2,6 +2,7 @@
 //! densities (the old `nav::sidebar` panel was deleted in docs/82 1.3; Baaz
 //! draws `screens::sidebar`). Reproduces `design/src/cards/sidebar/21-sidebar.html` at 760×640.
 
+use aui_tokens::TextRole;
 use aui::nav::{
     compact_session_row, rail, session_detail, sidebar_footer, RailItem, RowDensity, RowStatusKind, SessionSummary,
 };
@@ -117,7 +118,7 @@ fn status_panel(p: &Palette, caption: &'static str, id: &'static str, width: f32
     v_flex()
         .flex_none()
         .w(px(width))
-        .child(div().mb(px(CAPTION_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child(caption))
+        .child(div().mb(px(CAPTION_GAP)).ui(TextRole::Caption).text_color(p.fg_muted).child(caption))
         .child(list)
 }
 
@@ -145,7 +146,7 @@ fn detail_example(p: &Palette) -> impl IntoElement {
         .branch("feature/auth-refresh")
         .turns(5)
         .updated("8m ago");
-    v_flex().w_full().gap(px(CAPTION_GAP)).child(div().ui(scale::FS_12).text_color(p.fg_muted).child("Hover detail")).child(
+    v_flex().w_full().gap(px(CAPTION_GAP)).child(div().ui(TextRole::Caption).text_color(p.fg_muted).child("Hover detail")).child(
         h_flex().w_full().items_start().gap(px(WRAP_GAP)).child(list).child(card),
     )
 }
@@ -163,7 +164,7 @@ fn legend(p: Palette) -> impl IntoElement {
         .max_w(px(LEGEND_MEASURE))
         .pt(px(LEGEND_TOP))
         .gap(px(LEGEND_GAP))
-        .ui(scale::FS_12)
+        .ui(TextRole::Caption)
         .text_color(p.fg_muted);
     for (lead, rest) in items {
         col = col.child(crate::cards::rows::lead_paragraph(p, lead, rest));

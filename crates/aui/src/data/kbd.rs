@@ -1,6 +1,7 @@
 //! `.kbd`: a keycap — 18 px, mono 11 / 500, surface-2 with a line-strong border.
 
 use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::TextRole;
 use gpui::{div, prelude::*, px, App, IntoElement, SharedString, Window};
 
 /// `.kbd{height:18px;padding:0 5px}`.
@@ -33,7 +34,7 @@ impl RenderOnce for Kbd {
             .bg(p.surface_2)
             .text_color(p.fg_muted)
             .font_family(scale::FONT_MONO)
-            .text_px(scale::FS_11)
+            .role_size(TextRole::Micro)
             .line_height(gpui::relative(1.0))
             .medium()
             .whitespace_nowrap()

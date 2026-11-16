@@ -31,7 +31,6 @@ pub const CODE_FOLD_AT: usize = 12;
 const HEADER_GAP: f32 = 8.0;
 const HEADER_PAD_L: f32 = 12.0;
 const HEADER_PAD_R: f32 = 6.0;
-const HEADER_TEXT: f32 = 11.5;
 /// Header glyphs are 12 px; the actions rest at .6 opacity.
 const HEADER_GLYPH: f32 = 12.0;
 const ACTIONS_REST: f32 = 0.6;
@@ -45,9 +44,6 @@ const GUTTER_W: f32 = 22.0;
 const FOLD_H: f32 = 24.0;
 const FOLD_GAP: f32 = 6.0;
 const FOLD_GLYPH: f32 = 11.0;
-/// `.df{font:11.5px/1.65 mono}`; `.hunk{padding:2px 12px;font-size:11px}`; `.ln{padding-right:8px}`;
-/// `.gutter{width:36px;padding-right:8px}`; `.g2{width:20px;padding-right:8px}`.
-const DIFF_TEXT: f32 = 11.5;
 const DIFF_LH: f32 = 1.65;
 const HUNK_PAD_Y: f32 = 2.0;
 const HUNK_PAD_X: f32 = 12.0;
@@ -59,7 +55,7 @@ const GUTTER_PAD: f32 = 8.0;
 const ADD_NOTE_INSET: f32 = 2.0;
 const ADD_NOTE: f32 = 16.0;
 const ADD_NOTE_GLYPH: f32 = 10.0;
-/// `.note{margin:4px 12px 6px 64px;border:1px solid var(--line);padding:6px 8px;font:12px/1.4}`; caps margin-bottom 2; actions margin-top 6 gap 6.
+/// `.note{margin:4px 12px 6px 64px;border:1px solid var(--line);padding:6px 8px;font:12px/1.4}`; label margin-bottom 2; actions margin-top 6 gap 6.
 const NOTE_MT: f32 = 4.0;
 const NOTE_MR: f32 = 12.0;
 const NOTE_MB: f32 = 6.0;
@@ -414,7 +410,7 @@ fn block_header(p: &Palette, args: BlockHeaderArgs) -> impl IntoElement {
         .bg(crate::util::raised_lit(p, p.surface_2))
         .border_b_1()
         .border_color(p.line)
-        .mono(HEADER_TEXT)
+        .mono(TextRole::Micro)
         .line_height(relative(1.0))
         .medium()
         .text_color(p.fg_muted)
@@ -648,7 +644,7 @@ fn virtual_code_body(
         .overflow_hidden()
         .py(px(CODE_PAD_Y))
         .px(px(CODE_PAD_X))
-        .mono(scale::FS_12)
+        .mono(TextRole::Caption)
         .line_height(relative(CODE_LH))
         .text_color(cx.aui().colors.term_fg)
         .whitespace_nowrap()
@@ -736,7 +732,7 @@ impl RenderOnce for CodeBlock {
                 cx,
             )
         } else {
-            let mut body = v_flex().w_full().py(px(CODE_PAD_Y)).px(px(CODE_PAD_X)).mono(scale::FS_12).line_height(relative(CODE_LH)).text_color(p.ink).whitespace_nowrap();
+            let mut body = v_flex().w_full().py(px(CODE_PAD_Y)).px(px(CODE_PAD_X)).mono(TextRole::Caption).line_height(relative(CODE_LH)).text_color(p.ink).whitespace_nowrap();
             let mut base = 0usize;
             let shown = if folds { CODE_FOLD_AT } else { total };
             for (i, line) in self.code.lines().take(shown).enumerate() {
@@ -785,7 +781,7 @@ impl RenderOnce for CodeBlock {
                     .gap(px(FOLD_GAP))
                     .border_t_1()
                     .border_color(p.line)
-                    .ui(scale::FS_12)
+                    .ui(TextRole::Caption)
                     .paint_states(StatePaint::new().tint(false).ink(p.fg_muted, p.ink), &p)
                     .cursor_pointer()
                     .role(gpui::Role::Button)
@@ -868,7 +864,7 @@ pub struct NoteInsets {
     pub margin: (f32, f32, f32, f32),
     /// Body line height, relative to the font size.
     pub line_height: f32,
-    /// Gap under the caps line.
+    /// Gap under the label line.
     pub caps_gap: f32,
 }
 
@@ -899,10 +895,10 @@ pub fn diff_note_inset(p: &Palette, id: ElementId, note: &DiffNote, insets: Note
         .py(px(NOTE_PAD_Y))
         .px(px(NOTE_PAD_X))
         .rounded(px(scale::R_SM)), p, p.surface_2)
-        .ui(scale::FS_12)
+        .ui(TextRole::Caption)
         .line_height(relative(insets.line_height))
         .text_color(p.ink)
-        .child(div().mb(px(insets.caps_gap)).text_role(TextRole::Caps).line_height(relative(insets.line_height)).text_color(p.accent_ink).child(format!("NOTE · LINE {}", note.line)))
+        .child(div().mb(px(insets.caps_gap)).text_role(TextRole::Caption).line_height(relative(insets.line_height)).text_color(p.accent_ink).child(format!("Note · line {}", note.line)))
         .child(note.text.clone());
     if note.pending {
         let line = note.line;
@@ -956,9 +952,9 @@ impl RenderOnce for DiffBlock {
         let after: Vec<gpui::AnyElement> = vec![pill(format!("+{} −{}", self.diff.added, self.diff.removed)).variant(PillVariant::Success).height(COUNT_PILL_H).into_any_element()];
         let header = block_header(&p, BlockHeaderArgs { glyph: IconName::Git, name: self.diff.path.clone().into(), after, actions });
 
-        let mut body = v_flex().w_full().mono(DIFF_TEXT).line_height(relative(DIFF_LH)).text_color(p.ink);
+        let mut body = v_flex().w_full().mono(TextRole::Micro).line_height(relative(DIFF_LH)).text_color(p.ink);
         for (h, hunk) in self.diff.hunks.iter().enumerate() {
-            body = body.child(div().w_full().py(px(HUNK_PAD_Y)).px(px(HUNK_PAD_X)).bg(p.surface_2).ui(scale::FS_11).font_family(scale::FONT_MONO).text_color(p.fg_muted).child(hunk.header.clone()));
+            body = body.child(div().w_full().py(px(HUNK_PAD_Y)).px(px(HUNK_PAD_X)).bg(p.surface_2).ui(TextRole::Micro).font_family(scale::FONT_MONO).text_color(p.fg_muted).child(hunk.header.clone()));
             for (i, line) in hunk.lines.iter().enumerate() {
                 let line_id: ElementId = (id.clone(), SharedString::from(format!("h{h}-l{i}"))).into();
                 let (bg, sign) = match line.kind {

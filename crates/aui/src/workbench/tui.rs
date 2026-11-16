@@ -2,6 +2,7 @@
 //! and the hint line — terminal-only mode.
 
 use aui_motion::{looping, Loop};
+use aui_tokens::TextRole;
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, StyledText, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -12,7 +13,6 @@ use crate::transcript::{ansi_runs, parse_ansi};
 /// `.tui{padding:10px 12px;font:12px/1.5 mono}`.
 const PAD_Y: f32 = 10.0;
 const PAD_X: f32 = 12.0;
-const TEXT: f32 = 12.0;
 const LH: f32 = 1.5;
 /// `.box{border:1px line-strong;radius:6px;padding:6px 10px;margin:6px 0}`.
 const BOX_PAD_Y: f32 = 6.0;
@@ -78,7 +78,7 @@ impl RenderOnce for TuiPane {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let mut body = v_flex().w_full().py(px(PAD_Y)).px(px(PAD_X)).mono(TEXT).line_height(relative(LH)).text_color(p.term_fg);
+        let mut body = v_flex().w_full().py(px(PAD_Y)).px(px(PAD_X)).mono(TextRole::Caption).line_height(relative(LH)).text_color(p.term_fg);
         for l in &self.lines {
             body = body.child(line(&p, l));
         }

@@ -44,8 +44,6 @@ const INDICATOR_H: f32 = 2.0;
 const INDICATOR_INSET: f32 = 8.0;
 /// Glyphs in tabs and in the band's xs ghost buttons: 12 px.
 const SMALL_GLYPH: f32 = 12.0;
-/// The saved hint beside the tabs: `font-size:11px`.
-const HINT_TEXT: f32 = scale::FS_11;
 /// `.tool{height:34px;gap:4px;padding:0 10px;font-size:12px}`.
 const TOOLBAR_H: f32 = 34.0;
 const TOOLBAR_GAP: f32 = 4.0;
@@ -67,17 +65,11 @@ const DOC_PAD: f32 = 18.0;
 const PAPER_W: f32 = 520.0;
 const PAPER_PAD_Y: f32 = 38.0;
 const PAPER_PAD_X: f32 = 46.0;
-const PAPER_TEXT: f32 = 12.5;
 const PAPER_LH: f32 = 1.6;
-/// `.paper h1{font-size:18px;margin:0 0 4px;font-family:var(--font-ui)}`.
-const PAPER_TITLE: f32 = scale::FS_18;
 /// `.paper h1{line-height:1.3}` — the title sets its own leading rather than
 /// inheriting the body's 1.6, so a two-line title on a narrow page stays tight.
 const PAPER_TITLE_LH: f32 = 1.3;
 const PAPER_TITLE_GAP: f32 = 4.0;
-/// `.paper .k{font:11px var(--font-ui);margin-bottom:18px}` — the `font`
-/// shorthand drops the paper's line height back to the normal one.
-const PAPER_META: f32 = scale::FS_11;
 const PAPER_META_LH: f32 = 1.2;
 const PAPER_META_GAP: f32 = 18.0;
 /// `.paper p{margin:0 0 10px}`.
@@ -89,11 +81,8 @@ const LIST_INDENT: f32 = 18.0;
 /// Chrome's decimal marker carries a trailing space: the item's text starts at
 /// the 18 px indent and the marker's glyphs end 4 px before it.
 const LIST_MARKER_GAP: f32 = 4.0;
-const LIST_GAP: f32 = PAPER_TEXT;
+const LIST_GAP: f32 = 12.5;
 /// Headings: the UI face, bold — 13 px, 12 px, 11.5 px, 15 px above, 5 px below.
-const HEADING_1: f32 = 13.0;
-const HEADING_2: f32 = 12.0;
-const HEADING_3: f32 = 11.5;
 const HEADING_GAP_TOP: f32 = 15.0;
 const HEADING_GAP_BOTTOM: f32 = 5.0;
 /// Tables: hairline `#DDD` borders, a `#F5F6F9` header ground carrying the UI
@@ -101,8 +90,6 @@ const HEADING_GAP_BOTTOM: f32 = 5.0;
 /// horizontal cell padding, 12 px above and below.
 const TABLE_BORDER: u32 = 0xDDDDDD;
 const TABLE_HEADER_GROUND: u32 = 0xF5F6F9;
-const TABLE_HEADER_TEXT: f32 = scale::FS_11;
-const TABLE_BODY_TEXT: f32 = 11.0;
 const TABLE_CELL_PAD_Y: f32 = 6.0;
 const TABLE_CELL_PAD_X: f32 = 8.0;
 /// The narrowest a table column is ever drawn: 72 px holds "Female" plus the
@@ -134,16 +121,13 @@ const CHANGE_UNDERLINE: f32 = 2.0;
 const ARTS_GAP: f32 = 6.0;
 const ARTS_PAD_Y: f32 = 6.0;
 const ARTS_PAD_X: f32 = 10.0;
-/// The caps label before the artifacts: `margin-right:4px`.
+/// The label before the artifacts: `margin-right:4px`.
 const ARTS_LABEL_MARGIN: f32 = 4.0;
 /// `.art{height:26px;padding:0 8px 0 6px;border-radius:6px;gap:6px;font-size:11.5px}`.
 const ART_H: f32 = 26.0;
 const ART_PAD_LEFT: f32 = 6.0;
 const ART_PAD_RIGHT: f32 = 8.0;
 const ART_GAP: f32 = 6.0;
-const ART_TEXT: f32 = 11.5;
-/// `.art .v{font:500 10px var(--font-mono)}`.
-const ART_VERSION_TEXT: f32 = 10.0;
 /// `.art.more{padding:0 8px}` — the overflow chip has no glyph, so it carries
 /// the same padding on both sides.
 const ART_MORE_PAD: f32 = 8.0;
@@ -154,7 +138,6 @@ const ART_SHRINK: f32 = 1.0;
 const STATUS_H: f32 = 28.0;
 const STATUS_GAP: f32 = 10.0;
 const STATUS_PAD: f32 = 12.0;
-const STATUS_TEXT: f32 = scale::FS_11;
 
 type SelectHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 type MoreHandler = Rc<dyn Fn(&mut Window, &mut App)>;
@@ -221,7 +204,7 @@ impl RenderOnce for DocTabs {
                 .gap(px(TAB_GAP))
                 .px(px(TAB_PAD))
                 .paint_states(StatePaint::new().tint(false).ink(if active { p.ink } else { p.fg_muted }, p.ink), &p)
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .whitespace_nowrap()
                 .cursor_pointer();
             if let Some(glyph) = tab.icon {
@@ -253,7 +236,7 @@ impl RenderOnce for DocTabs {
 
 /// The "Saved" hint that sits at the right of the tab band (`.subtle`, 11 px).
 pub fn doc_saved_hint(text: impl Into<SharedString>, cx: &App) -> impl IntoElement {
-    div().flex_none().ui(HINT_TEXT).text_color(cx.aui().colors.fg_muted).child(text.into())
+    div().flex_none().ui(TextRole::Micro).text_color(cx.aui().colors.fg_muted).child(text.into())
 }
 
 // ---------------------------------------------------------------------------
@@ -445,7 +428,7 @@ fn toolbar_select(id: impl Into<ElementId>, label: SharedString, chevron: bool, 
         .border_color(p.line)
         .bg(p.surface_2)
         .text_color(p.ink)
-        .ui(scale::FS_12)
+        .ui(TextRole::Caption)
         .whitespace_nowrap()
         .cursor_pointer()
         .child(label);
@@ -471,7 +454,7 @@ fn mark_button(
 ) -> impl IntoElement {
     let p = cx.aui().colors;
     let id: ElementId = id.into();
-    let mut letter = div().ui(scale::FS_11).line_height(relative(1.0)).child(mark.letter());
+    let mut letter = div().ui(TextRole::Micro).line_height(relative(1.0)).child(mark.letter());
     letter = match mark {
         FormatMark::Bold => letter.semibold(),
         FormatMark::Italic => letter.italic(),
@@ -673,11 +656,11 @@ pub fn clamp_heading_level(level: u8) -> u8 {
 }
 
 /// The UI-face size of a heading level (clamped): 13 px, 12 px, 11.5 px.
-pub fn heading_text_size(level: u8) -> f32 {
+pub fn heading_text_role(level: u8) -> TextRole {
     match clamp_heading_level(level) {
-        1 => HEADING_1,
-        2 => HEADING_2,
-        _ => HEADING_3,
+        1 => TextRole::Body,
+        2 => TextRole::Caption,
+        _ => TextRole::Micro,
     }
 }
 
@@ -943,7 +926,7 @@ impl RenderOnce for DocPane {
         paper = paper.child(
                 div()
                     .mb(px(PAPER_TITLE_GAP))
-                    .ui(PAPER_TITLE)
+                    .ui(TextRole::Title)
                     .line_height(relative(PAPER_TITLE_LH))
                     .font_weight(FontWeight::BOLD)
                     .child(self.page.title.clone()),
@@ -951,7 +934,7 @@ impl RenderOnce for DocPane {
             .child(
                 div()
                     .mb(px(PAPER_META_GAP))
-                    .ui(PAPER_META)
+                    .ui(TextRole::Micro)
                     .line_height(relative(PAPER_META_LH))
                     .text_color(rgb(PAPER_META_INK))
                     .child(self.page.subtitle.clone()),
@@ -975,7 +958,7 @@ impl RenderOnce for DocPane {
         let mut body = v_flex()
             .w_full()
             .font_family(PAPER_FONT)
-            .text_px(PAPER_TEXT)
+            .role_size(TextRole::Caption)
             .line_height(relative(PAPER_LH));
         for (index, block) in self.page.blocks.iter().enumerate() {
             // CSS collapses adjacent vertical margins; the larger of the two wins.
@@ -1025,7 +1008,7 @@ impl RenderOnce for DocPane {
                     }
                     div()
                         .w_full()
-                        .ui(heading_text_size(*level))
+                        .ui(heading_text_role(*level))
                         .font_weight(FontWeight::BOLD)
                         .child(doc_text_cell(&self.id, SelectionKey::heading("", index), text, text_runs, &sel))
                         .into_any_element()
@@ -1141,9 +1124,9 @@ fn paint_table(
                     run.font.family = ui.family.clone();
                     run.font.weight = FontWeight::SEMIBOLD;
                 }
-                el = el.bg(rgb(TABLE_HEADER_GROUND)).ui(TABLE_HEADER_TEXT).font_weight(FontWeight::SEMIBOLD);
+                el = el.bg(rgb(TABLE_HEADER_GROUND)).ui(TextRole::Micro).font_weight(FontWeight::SEMIBOLD);
             } else {
-                el = el.font_family(PAPER_FONT).text_px(TABLE_BODY_TEXT);
+                el = el.font_family(PAPER_FONT).role_size(TextRole::Micro);
             }
             // The table's own border draws the outer edge; cells only rule
             // their inner sides.
@@ -1562,7 +1545,7 @@ fn overflow_counts(total: usize, max_visible: Option<usize>) -> (usize, usize) {
 }
 
 impl ArtifactStrip {
-    /// Overrides the caps label.
+    /// Overrides the label.
     pub fn label(mut self, label: impl Into<SharedString>) -> Self {
         self.label = label.into();
         self
@@ -1609,9 +1592,9 @@ impl RenderOnce for ArtifactStrip {
                 div()
                     .flex_none()
                     .mr(px(ARTS_LABEL_MARGIN))
-                    .text_role(TextRole::Caps)
+                    .text_role(TextRole::Caption)
                     .text_color(p.fg_muted)
-                    .child(self.label.to_uppercase()),
+                    .child(self.label.clone()),
             );
         let (visible, hidden) = overflow_counts(self.artifacts.len(), self.max_visible);
         for artifact in self.artifacts.into_iter().take(visible) {
@@ -1635,7 +1618,7 @@ impl RenderOnce for ArtifactStrip {
                 .border_color(border)
                 .bg(bg)
                 .text_color(text)
-                .ui(ART_TEXT)
+                .ui(TextRole::Micro)
                 .whitespace_nowrap()
                 .cursor_pointer()
                 .child(icon(artifact.kind.icon()).size(px(CHIP_GLYPH)).color(artifact.kind.tint(&p).unwrap_or(text)))
@@ -1647,8 +1630,8 @@ impl RenderOnce for ArtifactStrip {
                 el = el.child(
                     div()
                         .flex_none()
-                        .text_role(TextRole::MonoSmall)
-                        .text_px(ART_VERSION_TEXT)
+                        .mono(TextRole::Caption)
+                        .role_size(TextRole::Micro)
                         .medium()
                         .text_color(p.fg_muted)
                         .child(version),
@@ -1670,7 +1653,7 @@ impl RenderOnce for ArtifactStrip {
                 .border_1()
                 .border_color(p.line)
                 .text_color(p.fg_muted)
-                .ui(ART_TEXT)
+                .ui(TextRole::Micro)
                 .whitespace_nowrap()
                 .cursor_pointer()
                 .child(format!("+{hidden}"));
@@ -1741,7 +1724,7 @@ impl RenderOnce for PaneStatusRow {
             .px(px(STATUS_PAD))
             .border_t_1()
             .border_color(p.line)
-            .ui(STATUS_TEXT)
+            .ui(TextRole::Micro)
             .text_color(p.fg_muted)
             .children(self.left.into_iter().map(item))
             .child(div().flex_1().min_w(px(0.0)))

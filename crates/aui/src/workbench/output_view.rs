@@ -3,6 +3,7 @@
 //! transcript opens them on the screen the pane is showing.
 
 use crate::util::ScrollAxisLock as _;
+use aui_tokens::TextRole;
 use std::sync::Arc;
 
 use aui_icons::IconName;
@@ -16,7 +17,6 @@ use gpui_kit::base::{h_flex, v_flex};
 use crate::data::spinner;
 use crate::transcript::{parse_ansi, AnsiSpan};
 
-const OUT_TEXT: f32 = 12.65;
 const OUT_LH: f32 = 20.0;
 /// The cap the footer names.
 pub const OUTPUT_LINE_CAP: usize = 10_000;
@@ -64,7 +64,7 @@ pub fn output_title(command: &str, exit: Option<i32>, time: Option<SharedString>
         .gap(px(8.0))
         .items_center()
         .whitespace_nowrap()
-        .child(div().min_w(px(0.0)).overflow_hidden().text_ellipsis().font_family(scale::FONT_MONO).text_px(OUT_TEXT).font_weight(FontWeight::NORMAL).text_color(p.fg).child(format!("$ {command}")));
+        .child(div().min_w(px(0.0)).overflow_hidden().text_ellipsis().font_family(scale::FONT_MONO).role_size(TextRole::Caption).font_weight(FontWeight::NORMAL).text_color(p.fg).child(format!("$ {command}")));
     if let Some(secs) = running {
         row = row.child(
             h_flex()
@@ -72,17 +72,17 @@ pub fn output_title(command: &str, exit: Option<i32>, time: Option<SharedString>
                 .gap(px(6.0))
                 .items_center()
                 .font_family(scale::FONT_MONO)
-                .text_px(12.1)
+                .role_size(TextRole::Caption)
                 .text_color(p.ink_4)
                 .child(spinner("output-running").size(px(12.0)).muted(cx))
                 .child(format!("running · {secs} s")),
         );
     } else {
         if let Some(code) = exit {
-            row = row.child(div().flex_none().font_family(scale::FONT_MONO).text_px(12.1).text_color(if code != 0 { p.danger } else { p.ink_4 }).child(format!("exit {code}")));
+            row = row.child(div().flex_none().font_family(scale::FONT_MONO).role_size(TextRole::Caption).text_color(if code != 0 { p.danger } else { p.ink_4 }).child(format!("exit {code}")));
         }
         if let Some(t) = time {
-            row = row.child(div().flex_none().font_family(scale::FONT_MONO).text_px(12.1).text_color(p.ink_4).child(t));
+            row = row.child(div().flex_none().font_family(scale::FONT_MONO).role_size(TextRole::Caption).text_color(p.ink_4).child(t));
         }
     }
     row
@@ -177,7 +177,7 @@ impl RenderOnce for OutputView {
             .size_full()
             .bg(p.well)
             .font_family(scale::FONT_MONO)
-            .text_px(OUT_TEXT)
+            .role_size(TextRole::Caption)
             .line_height(px(OUT_LH))
             .child(div().flex_1().min_h(px(0.0)).pt(px(12.0)).pb(px(if self.capped.is_some() { 12.0 } else { 40.0 })).flex().flex_col().child(list))
             .when_some(self.capped, |d, n| {
@@ -190,7 +190,7 @@ impl RenderOnce for OutputView {
                         .border_t_1()
                         .border_color(p.line)
                         .font_family(scale::FONT_UI)
-                        .text_px(12.1)
+                        .role_size(TextRole::Caption)
                         .text_color(p.ink_4)
                         .child(format!("{} lines · capped at {}", group_thousands(n), group_thousands(OUTPUT_LINE_CAP))),
                 )
@@ -221,7 +221,7 @@ pub fn output_fetching(cx: &App) -> gpui::Div {
         .justify_center()
         .gap(px(8.0))
         .font_family(scale::FONT_UI)
-        .text_px(13.2)
+        .role_size(TextRole::Body)
         .text_color(p.fg_muted)
         .child(spinner("output-fetching").size(px(12.0)).muted(cx))
         .child("Fetching the full output…")
@@ -335,7 +335,7 @@ pub fn image_view(
             .justify_center()
             .cursor_pointer()
             .child(framed)
-            .child(div().flex_none().font_family(scale::FONT_MONO).text_px(12.1).text_color(p.ink_4).child(facts.clone()))
+            .child(div().flex_none().font_family(scale::FONT_MONO).role_size(TextRole::Caption).text_color(p.ink_4).child(facts.clone()))
             .into_any_element()
     };
     div().id(id).relative().size_full().role(gpui::Role::Image).aria_label(facts).child(measure).child(body)

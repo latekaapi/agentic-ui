@@ -1,7 +1,7 @@
 //! `.pill`: quiet by default; status variants tint the text and barely the
 //! ground. Pills are for status only (design rule).
 
-use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
+use aui_tokens::{scale, TextRole, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, AnyElement, App, Hsla, IntoElement, SharedString, Window};
 
 /// `.pill{height:20px;padding:0 7px;gap:5px}`.
@@ -50,13 +50,12 @@ pub struct Pill {
     variant: PillVariant,
     leading: Option<AnyElement>,
     height: Option<f32>,
-    font_size: Option<f32>,
     padding_x: Option<f32>,
 }
 
 /// A quiet pill.
 pub fn pill(label: impl Into<SharedString>) -> Pill {
-    Pill { label: label.into(), variant: PillVariant::Quiet, leading: None, height: None, font_size: None, padding_x: None }
+    Pill { label: label.into(), variant: PillVariant::Quiet, leading: None, height: None, padding_x: None }
 }
 
 impl Pill {
@@ -75,12 +74,6 @@ impl Pill {
     /// Overrides the 20 px height (the assistant footer uses 16).
     pub fn height(mut self, height: f32) -> Self {
         self.height = Some(height);
-        self
-    }
-
-    /// Overrides the 11 px text (tab badges use 9).
-    pub fn font_size(mut self, size: f32) -> Self {
-        self.font_size = Some(size);
         self
     }
 
@@ -106,7 +99,7 @@ impl RenderOnce for Pill {
             .bg(bg)
             .text_color(text)
             .font_family(scale::FONT_UI)
-            .text_px(self.font_size.unwrap_or(scale::FS_11))
+            .role_size(TextRole::Micro)
             .line_height(gpui::relative(1.0))
             .medium()
             .whitespace_nowrap();

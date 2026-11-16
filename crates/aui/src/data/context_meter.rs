@@ -294,10 +294,10 @@ fn breakdown(
             h_flex()
                 .w_full()
                 .h(px(POP_ROW_H))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child(div().flex_1().child(name))
-                .child(div().flex_none().mono(scale::FS_11).text_color(p.fg_muted).child(value)),
+                .child(div().flex_none().mono(TextRole::Micro).text_color(p.fg_muted).child(value)),
         );
     }
     if let Some(handler) = on_compact {

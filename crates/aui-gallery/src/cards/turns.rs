@@ -2,8 +2,9 @@
 //! `design/src/cards/transcript/31-turns.html` at 760×680.
 
 use aui::protocol::{Attachment, AttachmentKind, TurnMeta, UploadState};
+use aui_tokens::TextRole;
 use aui::transcript::{assistant_turn, format_age, user_turn, AnnotationBatch, AnnotationNote, AssistantTurnAction, UserTurnAction, COPY_HOLD, TextSelection};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::v_flex;
 
@@ -192,7 +193,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             AnnotationNote { index: 3, at: (1180.0, 70.0), selector: "div.card.enterprise".into(), note: "Drop the “Contact us” button here; link the text instead.".into() },
         ],
     };
-    let note = |text: &'static str| div().max_w(px(NOTE_MEASURE)).ui(scale::FS_12).text_color(p.fg_muted).child(text);
+    let note = |text: &'static str| div().max_w(px(NOTE_MEASURE)).ui(TextRole::Caption).text_color(p.fg_muted).child(text);
     v_flex()
         .w_full()
         .gap(px(TURN_GAP))

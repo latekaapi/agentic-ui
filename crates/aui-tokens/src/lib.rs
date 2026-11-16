@@ -58,7 +58,7 @@ pub enum ThumbState {
     Active,
 }
 pub use kit_theme::{theme_set_json, theme_set_value, KIT_THEME_DARK, KIT_THEME_LIGHT};
-pub use styled::{scaled, AuiStyled, TextRole};
+pub use styled::{active_density, active_text_size, AuiStyled, TextRole, TextSize, TypeSpec};
 pub use theme::{ActiveAui, AgentState, AuiTheme, Easing, ThemeKind, Tier};
 
 /// Raw JSON of `design/tokens/tokens.json`, embedded for tooling that wants the
@@ -312,43 +312,36 @@ mod tests {
 
     #[test]
     fn scale_matches_design() {
-        assert_eq!(scale::FS_13, 13.0);
         assert_eq!(scale::H_MD, 28.0);
         assert_eq!(scale::R_LG, 10.0);
         assert_eq!(scale::D_ENTER.as_millis(), 220);
         assert_eq!(scale::E_OUT, [0.16, 1.0, 0.3, 1.0]);
         assert_eq!(scale::FONT_UI, "Inter");
         assert_eq!(scale::FONT_MONO, "Geist Mono");
-        assert_eq!(scale::TRACK_CAPS_EM, 0.08);
-        // v2 removed the global text multiplier; the shim stays neutral.
-        assert_eq!(scale::TEXT_SCALE, 1.0);
-        // v2 size ladder.
-        assert_eq!(scale::CTL_DEFAULT, 36.0);
+        // docs/83 §2.5: the shared row is 32 (compact 28), bars 44.
+        assert_eq!(scale::CTL_DEFAULT, 32.0);
         assert_eq!(scale::CTL_COMPACT, 28.0);
         assert_eq!(scale::ROW_2_DEFAULT, 52.0);
         assert_eq!(scale::ROW_2_COMPACT, 44.0);
         assert_eq!(scale::BAR_DEFAULT, 44.0);
-        assert_eq!(scale::BAR_COMPACT, 36.0);
         assert_eq!(scale::ICON_DEFAULT, 16.0);
-        assert_eq!(scale::ICON_COMPACT, 14.0);
-        // FF's six-role type ladder (body 13/20, compact 12/18).
-        assert_eq!(scale::T_BODY_FS, 13.0);
-        assert_eq!(scale::T_BODY_LH, 20.0);
-        assert_eq!(scale::T_BODY_FS_C, 12.0);
-        assert_eq!(scale::T_BODY_LH_C, 18.0);
-        assert_eq!((scale::T_TITLE_FS, scale::T_TITLE_LH), (16.0, 22.0));
-        assert_eq!((scale::T_CAPTION_FS_C, scale::T_CAPTION_LH_C), (11.0, 14.0));
+        // docs/83 §2.4 ladder (comfortable) and its `-c` variants (the
+        // pre-2.10 sizes, Compact density).
+        assert_eq!((scale::T_BODY_FS, scale::T_BODY_LH), (14.0, 20.0));
+        assert_eq!((scale::T_BODY_FS_C, scale::T_BODY_LH_C), (13.0, 20.0));
+        assert_eq!((scale::T_TITLE_FS, scale::T_TITLE_LH), (18.0, 26.0));
+        assert_eq!((scale::T_CAPTION_FS, scale::T_CAPTION_LH), (13.0, 18.0));
+        assert_eq!((scale::T_CAPTION_FS_C, scale::T_CAPTION_LH_C), (12.0, 16.0));
+        assert_eq!((scale::T_MICRO_FS, scale::T_MICRO_FS_C), (12.0, 11.0));
         assert_eq!(scale::T_DISPLAY_FS, 28.0);
         assert_eq!(scale::T_DISPLAY_LH, 34.0);
-        assert_eq!(scale::T_MONO_FS, 13.0);
-        assert_eq!(scale::T_MONO_FS_C, 12.0);
-        // Shapes: one step tighter than FF Rounded (owner 2026-10-10), still
-        // concentric for the 4 px popup inset (10 = 6 + 4).
+        assert_eq!((scale::T_MONO_FS, scale::T_MONO_FS_C), (13.0, 13.0));
+        // docs/83 §2.5: items (rows, buttons, inputs, chips) 8, containers 10.
         assert_eq!(scale::SHAPE_CONTAINER, 10.0);
-        assert_eq!(scale::SHAPE_ITEM, 6.0);
+        assert_eq!(scale::SHAPE_ITEM, 8.0);
         assert_eq!(scale::OV_HOVER_DARK, 0.06);
         assert_eq!(scale::OV_PRESSED_LIGHT, 0.10);
-        // docs/83 §2.4/§2.5 names (applied by task 2.10).
+        // docs/83 §2.4/§2.5 names.
         assert_eq!((scale::T_READ_FS, scale::T_READ_LH), (16.0, 26.0));
         assert_eq!((scale::T_READ_MONO_FS, scale::T_READ_MONO_LH), (13.5, 22.0));
         assert_eq!((scale::ROW_GAP, scale::LIST_INSET, scale::R_8), (2.0, 8.0, 8.0));

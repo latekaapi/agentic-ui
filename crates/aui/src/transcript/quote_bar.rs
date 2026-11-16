@@ -8,6 +8,7 @@
 //! when that would sit within 38 px of the sheet's top.
 
 use aui_icons::{icon, IconName};
+use aui_tokens::TextRole;
 use aui_motion::{presence, EnterExit, PresenceStyle};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{prelude::*, px, App, ClickEvent, ElementId, IntoElement, Window};
@@ -71,7 +72,7 @@ pub fn quote_bar(id: impl Into<ElementId>, present: bool, on_quote: impl Fn(&Cli
                     .items_center()
                     .rounded(px(6.0))
                     .font_family(scale::FONT_UI)
-                    .text_px(14.3)
+                    .role_size(TextRole::Body)
                     .text_color(p.fg)
                     .paint_states(StatePaint::new(), &p)
                     .child(icon(IconName::Quote).size(px(14.0)).color(p.fg_muted))

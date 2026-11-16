@@ -4,15 +4,16 @@ use gpui::{px, Pixels};
 
 use crate::generated::scale;
 
-/// How tightly rows are packed. Standard is the design; compact trims the
-/// size ladder the way a "compact" preference would, without changing the
-/// shape tokens.
+/// How tightly rows are packed (Settings › Appearance › Density).
+/// Comfortable is the design (docs/83 §2.4–2.5); Compact is the type and
+/// row height Baaz drew before task 2.10 — every text role at its `-c`
+/// size and the shared row/control at 28 instead of 32.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Density {
-    /// The values in the design cards.
+    /// The design's values (docs/83 §2.4–2.5).
     #[default]
-    Standard,
-    /// Controls, rows and bars at their compact values.
+    Comfortable,
+    /// Today's (pre-2.10) type and 28 px rows.
     Compact,
 }
 
@@ -20,119 +21,121 @@ impl Density {
     /// The other density.
     pub fn toggled(self) -> Self {
         match self {
-            Density::Standard => Density::Compact,
-            Density::Compact => Density::Standard,
+            Density::Comfortable => Density::Compact,
+            Density::Compact => Density::Comfortable,
         }
     }
 
     /// Human-readable name.
     pub fn label(self) -> &'static str {
         match self {
-            Density::Standard => "Standard",
+            Density::Comfortable => "Comfortable",
             Density::Compact => "Compact",
+        }
+    }
+
+    /// The value stored in settings (`"comfortable"` / `"compact"`).
+    pub fn key(self) -> &'static str {
+        match self {
+            Density::Comfortable => "comfortable",
+            Density::Compact => "compact",
+        }
+    }
+
+    /// Parses [`Density::key`].
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "comfortable" => Some(Density::Comfortable),
+            "compact" => Some(Density::Compact),
+            _ => None,
         }
     }
 }
 
-/// Heights that depend on density. Everything else (spacing, radii, type)
-/// comes straight from [`scale`].
+/// Heights that depend on density. Everything else (spacing, radii) comes
+/// straight from [`scale`]; type comes from [`crate::TextRole`].
+///
+/// Only the shared control/row height and the two-line row change with
+/// density: the 44 px bar keeps the three header lines on one y in both,
+/// and spacing, icons and the component heights in `tokens.json`
+/// (`menu-row`, `tree-row`, `card-head`, `sub-header`, `palette-row`,
+/// `btn-h`) are the same in both.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Metrics {
-    /// The shared control height: buttons, rows, tab strips (36 / 28).
+    /// The shared row and control height: list rows, tabs (32 / 28).
     pub control: Pixels,
-    /// Two-line rows: sidebar rows, transcript rows (52 / 44).
+    /// Two-line rows (52 / 44).
     pub row_2: Pixels,
-    /// Chrome bars: shell header, panel headers (44 / 36).
+    /// Chrome bars: every column header (44 in both densities).
     pub bar: Pixels,
-    /// Glyph box for 14/16 px icons (16 / 14).
+    /// Glyph box for icons (16).
     pub icon: Pixels,
-    /// Control padding step (12 / 10).
+    /// Control padding step (12).
     pub ctl_px: Pixels,
-    /// Item padding step (8 / 6).
+    /// Item padding step (8).
     pub item_px: Pixels,
-    /// Gaps between siblings (8 / 4).
+    /// Gaps between siblings (8).
     pub gap: Pixels,
-    /// Container insets (16 / 12).
+    /// Container insets (16).
     pub inset: Pixels,
-    /// Deprecated v1 shell header cell. Use [`Metrics::bar`]: the header is
-    /// the bar at the active density.
+    /// Deprecated v1 shell header cell: the bar.
     pub header: Pixels,
-    /// Deprecated v1 panel header. Always 36 (the bar at its compact value);
-    /// use [`Metrics::bar`].
+    /// Deprecated v1 panel header: the 36 px sub-header (`sub-header`).
     pub panel_header: Pixels,
-    /// Deprecated v1 tab strip. Use [`Metrics::control`].
+    /// Deprecated v1 tab strip: the control.
     pub tab_strip: Pixels,
-    /// Deprecated v1 card header. Always 28 (the control at its compact
-    /// value); card headers migrate to [`Metrics::control`] in a later lane.
+    /// Deprecated v1 card header (28, `ctl-compact`).
     pub card_header: Pixels,
-    /// Deprecated v1 row. Use [`Metrics::control`].
+    /// Deprecated v1 row: the control.
     pub row: Pixels,
-    /// Deprecated v1 compact row. Always 28 (the control at its compact
-    /// value); use [`Metrics::control`] and read the density.
+    /// Deprecated v1 compact row (28, `ctl-compact`).
     pub row_sm: Pixels,
-    /// Deprecated v1 extra-small control (20, unchanged).
+    /// In-row control, extra small (20, `h-xs`).
     pub control_xs: Pixels,
-    /// Deprecated v1 small control (24, unchanged).
+    /// In-row control, small (24, `h-sm`).
     pub control_sm: Pixels,
-    /// Deprecated v1 medium control (28, unchanged).
+    /// In-row control, medium (28, `h-md`).
     pub control_md: Pixels,
-    /// Deprecated v1 large control (32, unchanged).
+    /// The list row: the control (32 / 28).
     pub control_lg: Pixels,
-    /// Deprecated v1 extra-large control (40, unchanged).
+    /// Large control (40, `h-xl`).
     pub control_xl: Pixels,
 }
 
 impl Metrics {
     /// Metrics for a density.
     pub fn for_density(density: Density) -> Self {
-        let (control, row_2, bar, icon, ctl_px, item_px, gap, inset) = match density {
-            Density::Standard => (
-                scale::CTL_DEFAULT,
-                scale::ROW_2_DEFAULT,
-                scale::BAR_DEFAULT,
-                scale::ICON_DEFAULT,
-                scale::CTL_PX_DEFAULT,
-                scale::ITEM_PX_DEFAULT,
-                scale::GAP_DEFAULT,
-                scale::INSET_DEFAULT,
-            ),
-            Density::Compact => (
-                scale::CTL_COMPACT,
-                scale::ROW_2_COMPACT,
-                scale::BAR_COMPACT,
-                scale::ICON_COMPACT,
-                scale::CTL_PX_COMPACT,
-                scale::ITEM_PX_COMPACT,
-                scale::GAP_COMPACT,
-                scale::INSET_COMPACT,
-            ),
+        let (control, row_2) = match density {
+            Density::Comfortable => (scale::CTL_DEFAULT, scale::ROW_2_DEFAULT),
+            Density::Compact => (scale::CTL_COMPACT, scale::ROW_2_COMPACT),
         };
-        let trim = match density {
-            Density::Standard => 0.0,
-            Density::Compact => 4.0,
-        };
-        let small_trim = trim / 2.0;
         Self {
             control: px(control),
             row_2: px(row_2),
-            bar: px(bar),
-            icon: px(icon),
-            ctl_px: px(ctl_px),
-            item_px: px(item_px),
-            gap: px(gap),
-            inset: px(inset),
-            header: px(bar),
-            panel_header: px(scale::BAR_COMPACT),
+            bar: px(scale::BAR_DEFAULT),
+            icon: px(scale::ICON_DEFAULT),
+            ctl_px: px(scale::CTL_PX_DEFAULT),
+            item_px: px(scale::ITEM_PX_DEFAULT),
+            gap: px(scale::GAP_DEFAULT),
+            inset: px(scale::INSET_DEFAULT),
+            header: px(scale::BAR_DEFAULT),
+            panel_header: px(scale::SUB_HEADER),
             tab_strip: px(control),
             card_header: px(scale::CTL_COMPACT),
             row: px(control),
             row_sm: px(scale::CTL_COMPACT),
-            control_xs: px(scale::H_XS - small_trim),
-            control_sm: px(scale::H_SM - small_trim),
-            control_md: px(scale::H_MD - small_trim),
-            control_lg: px(scale::H_LG - trim),
-            control_xl: px(scale::H_XL - trim),
+            control_xs: px(scale::H_XS),
+            control_sm: px(scale::H_SM),
+            control_md: px(scale::H_MD),
+            control_lg: px(control),
+            control_xl: px(scale::H_XL),
         }
+    }
+
+    /// The metrics of the active density (what [`crate::AuiTheme::set_density`]
+    /// last set), for code that holds no `App`.
+    pub fn active() -> Self {
+        Self::for_density(crate::styled::active_density())
     }
 }
 
@@ -142,9 +145,11 @@ mod tests {
 
     #[test]
     fn standard_matches_design() {
-        let m = Metrics::for_density(Density::Standard);
-        assert_eq!(m.control, px(36.0));
-        assert_eq!(m.row, px(36.0));
+        // docs/83 §2.5: rows 32, bars 44, two-line rows 52.
+        let m = Metrics::for_density(Density::Comfortable);
+        assert_eq!(m.control, px(32.0));
+        assert_eq!(m.row, px(32.0));
+        assert_eq!(m.control_lg, px(32.0));
         assert_eq!(m.bar, px(44.0));
         assert_eq!(m.row_2, px(52.0));
         assert_eq!(m.header, px(44.0));
@@ -154,10 +159,13 @@ mod tests {
 
     #[test]
     fn compact_is_tighter() {
-        let s = Metrics::for_density(Density::Standard);
+        let s = Metrics::for_density(Density::Comfortable);
         let c = Metrics::for_density(Density::Compact);
         assert!(c.row < s.row);
-        assert!(c.header < s.header);
+        // The bar never changes: the three header lines share one y.
+        assert_eq!(c.header, s.header);
+        assert_eq!(c.control_lg, px(28.0));
+        assert_eq!(Density::parse(Density::Compact.key()), Some(Density::Compact));
         assert_eq!(c.control, px(28.0));
         assert_eq!(c.card_header, px(28.0));
         assert_eq!(c.row_sm, px(28.0));

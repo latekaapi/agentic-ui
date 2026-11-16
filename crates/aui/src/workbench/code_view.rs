@@ -20,6 +20,7 @@
 //! per (file, columns) and rebuilt only when either changes.
 
 use crate::util::ScrollAxisLock as _;
+use aui_tokens::TextRole;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -38,9 +39,6 @@ const GUTTER_GAP: f32 = 12.0;
 /// Space at the right of the longest line; above the first.
 const PAD_RIGHT: f32 = 12.0;
 const PAD_TOP: f32 = 12.0;
-/// Gutter and code type.
-const GUTTER_TEXT: f32 = 12.1;
-const CODE_TEXT: f32 = 12.65;
 const LINE_H: f32 = 20.0;
 /// A reveal lands with its band this many lines below the top.
 pub const REVEAL_LEAD_LINES: usize = 3;
@@ -257,11 +255,11 @@ impl RenderOnce for CodeView {
             let font_id = window.text_system().resolve_font(&gpui::font(scale::FONT_MONO));
             let advance = window
                 .text_system()
-                .advance(font_id, px(CODE_TEXT), 'm')
+                .advance(font_id, TextRole::Caption.size(), 'm')
                 .map(|size| f32::from(size.width))
                 .ok()
                 .filter(|w| *w > 0.0)
-                .unwrap_or(CODE_TEXT * 0.6);
+                .unwrap_or(f32::from(TextRole::Caption.size()) * 0.6);
             let cols = ((width - GUTTER_W - GUTTER_GAP - PAD_RIGHT).max(0.0) / advance).floor() as usize;
             let cache = window.use_keyed_state((id.clone(), "wrap"), cx, |_, _| WrapCache::default());
             let key = (Arc::as_ptr(&self.lines) as usize, total, cols);
@@ -327,7 +325,7 @@ impl RenderOnce for CodeView {
             let band_ground = if p.is_dark() { gpui::white().alpha(0.07) } else { gpui::black().alpha(0.05) };
             let advance = rows.as_ref().map(|_| {
                 let font_id = window.text_system().resolve_font(&gpui::font(scale::FONT_MONO));
-                window.text_system().advance(font_id, px(CODE_TEXT), 'm').map(|s| f32::from(s.width)).unwrap_or(CODE_TEXT * 0.6)
+                window.text_system().advance(font_id, TextRole::Caption.size(), 'm').map(|s| f32::from(s.width)).unwrap_or(f32::from(TextRole::Caption.size()) * 0.6)
             });
             range
                 .map(|ix| {
@@ -369,7 +367,7 @@ impl RenderOnce for CodeView {
                                 .flex_none()
                                 .text_right()
                                 .font_family(scale::FONT_MONO)
-                                .text_px(GUTTER_TEXT)
+                                .role_size(TextRole::Caption)
                                 .text_color(if banded { p.fg } else { p.ink_4 })
                                 // The number on a line's first row only.
                                 .when(first, |d| d.child(line_no.to_string())),
@@ -379,7 +377,7 @@ impl RenderOnce for CodeView {
                                 .flex_none()
                                 .pl(px(indent_px))
                                 .font_family(scale::FONT_MONO)
-                                .text_px(CODE_TEXT)
+                                .role_size(TextRole::Caption)
                                 .line_height(px(LINE_H))
                                 .text_color(p.term_fg)
                                 .child(styled),
@@ -438,8 +436,7 @@ pub fn markdown_view(id: impl Into<ElementId>, source: impl Into<SharedString>, 
         code_ink: p.ink,
         code_bg: p.selected_overlay(),
         // The answer's body (turns.rs BODY_TEXT / BODY_LH / PARAGRAPH_GAP).
-        size: 16.0 / 1.1,
-        line_height: 26.0 / 16.0,
+        role: TextRole::Read,
         paragraph_gap: 16.0,
     };
     div()

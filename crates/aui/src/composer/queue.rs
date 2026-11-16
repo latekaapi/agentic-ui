@@ -2,24 +2,23 @@
 //! below the last turn.
 
 use std::time::Duration;
+use aui_tokens::TextRole;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{presence, stagger_delay, EnterExit, PresenceStyle};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::interact::paint::{PaintStates, StatePaint};
 use crate::util::{indexed_child, named_child};
 
-/// The queued row: 32 px, gap 8, caption text.
-const ROW_H: f32 = 32.0;
+/// The queued row: the shared row height (`Metrics::control`), gap 8,
+/// caption text.
 const ROW_GAP: f32 = 8.0;
 const ROW_PAD: f32 = 10.0;
-const ROW_TEXT: f32 = 12.0;
 /// The `queued` cap: 16 px, 10.5 mono, 0 / 6.
 const CAP_H: f32 = 16.0;
-const BADGE_TEXT: f32 = 10.5;
 const BADGE_PAD_X: f32 = 6.0;
 /// The xs ghost actions carry 11 px glyphs.
 const ACTION_GLYPH: f32 = 11.0;
@@ -94,7 +93,7 @@ impl RenderOnce for QueueRow {
         h_flex()
             .id(id.clone())
             .w_full()
-            .h(px(ROW_H))
+            .h(aui_tokens::Metrics::active().control)
             .gap(px(ROW_GAP))
             .pl(px(ROW_PAD))
             .pr(px(6.0))
@@ -103,7 +102,7 @@ impl RenderOnce for QueueRow {
             .bg(crate::util::raised_lit(&p, p.surface_2))
             .border_1()
             .border_color(p.line)
-            .ui(ROW_TEXT)
+            .ui(TextRole::Caption)
             .text_color(p.ink)
             .child(
                 div()
@@ -114,7 +113,7 @@ impl RenderOnce for QueueRow {
                     .items_center()
                     .rounded_full()
                     .bg(p.selected_overlay())
-                    .mono(BADGE_TEXT)
+                    .mono(TextRole::Micro)
                     .text_color(p.fg_muted)
                     .child(if self.editing { "editing" } else { "queued" }),
             )
@@ -193,7 +192,7 @@ impl RenderOnce for SuggestionChips {
                 .rounded_full()
                 .border_1()
                 .paint_states(StatePaint::new().on(p.surface_1).tint(false).edge(p.line, p.line_strong).ink(p.fg_muted, p.ink), &p)
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .opacity(style.opacity)
                 .cursor_pointer();
             if i == 0 && self.sparkle_first {

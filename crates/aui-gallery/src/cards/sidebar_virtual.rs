@@ -6,6 +6,7 @@
 //! so the screenshots carry the virtualisation proof.
 
 use std::cell::Cell;
+use aui_tokens::TextRole;
 use std::rc::Rc;
 
 use aui::nav::{ensure_row_visible, flatten_sidebar, row_index_for_session, sidebar_list_state, virtual_sidebar_view, Grouping, ProjectGroup};
@@ -120,12 +121,12 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     v_flex()
         .flex_none()
         .w(px(PANEL_W))
-        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child("Virtualised sidebar · 200 sessions"))
+        .child(div().mb(px(TITLE_GAP)).ui(TextRole::Caption).text_color(p.fg_muted).child("Virtualised sidebar · 200 sessions"))
         .child(panel)
         .child(
             div()
                 .mt(px(NOTE_TOP))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child(format!("{last} rows built last frame · {total} total")),
         )

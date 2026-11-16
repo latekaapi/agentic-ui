@@ -48,10 +48,10 @@ impl Gallery {
                 .items_center()
                 .gap(px(scale::SP_3))
                 .pr(px(scale::SP_4))
-                .child(div().text_role(TextRole::UiMedium).text_color(colors.ink).child("aui gallery"))
+                .child(div().text_role(TextRole::Body).medium().text_color(colors.ink).child("aui gallery"))
                 .child(
                     div()
-                        .text_role(TextRole::UiSmall)
+                        .text_role(TextRole::Caption)
                         .text_color(colors.fg_muted)
                         .child(format!("{} · {}", self.selected.group, self.selected.title)),
                 )
@@ -93,9 +93,9 @@ impl Gallery {
                     .px(px(scale::SP_5))
                     .flex()
                     .items_center()
-                    .text_role(TextRole::Caps)
+                    .text_role(TextRole::Caption)
                     .text_color(colors.fg_muted)
-                    .child(group.to_uppercase()),
+                    .child(group),
             );
             for entry in ENTRIES.iter().filter(|e| e.group == group) {
                 let selected = std::ptr::eq(entry, self.selected);
@@ -109,7 +109,8 @@ impl Gallery {
                         .flex()
                         .items_center()
                         .cursor_pointer()
-                        .text_role(if selected { TextRole::UiMedium } else { TextRole::Ui })
+                        .text_role(TextRole::Body)
+                        .when(selected, |d| d.medium())
                         .text_color(if selected { colors.ink } else { colors.fg_muted })
                         .when(selected, |d| d.bg(colors.surface_3))
                         .hover(|d| d.bg(if selected { colors.surface_3 } else { colors.surface_2 }))
@@ -134,7 +135,7 @@ impl Gallery {
             .overflow_hidden()
             .bg(colors.bg)
             .text_color(colors.ink)
-            .text_role(TextRole::Ui)
+            .text_role(TextRole::Body)
             .when(!entry.full_bleed(), |d| d.p(px(20.0)))
             .child((entry.build)(window, cx))
     }
@@ -155,10 +156,10 @@ impl Gallery {
                 v_flex()
                     .gap(px(scale::SP_1))
                     .child(div().text_role(TextRole::Title).text_color(colors.ink).child(entry.title))
-                    .child(div().text_role(TextRole::UiSmall).text_color(colors.fg_muted).child(entry.subtitle))
+                    .child(div().text_role(TextRole::Caption).text_color(colors.fg_muted).child(entry.subtitle))
                     .child(
                         div()
-                            .text_role(TextRole::Tag)
+                            .mono(TextRole::Micro).medium()
                             .text_color(colors.fg_muted)
                             .child(format!("{} · {}×{} · {:?}", entry.id, entry.width, entry.height, entry.theme)),
                     ),
@@ -195,8 +196,8 @@ fn chrome_button(
         .flex()
         .items_center()
         .cursor_pointer()
-        .text_role(TextRole::UiMedium)
-        .text_px(scale::FS_12)
+        .text_role(TextRole::Body).medium()
+        .role_size(TextRole::Caption)
         .text_color(ink)
         .hover(move |d| d.bg(surface_3))
         .on_click(on_click)

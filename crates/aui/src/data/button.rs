@@ -19,6 +19,7 @@
 //! carries [`crate::keys::track_pointer`] (the app shell does); the ring
 //! never appears from a click on the button itself either way.
 
+use aui_tokens::TextRole;
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, Hsla, IntoElement, MouseButton, Pixels, SharedString, Window};
@@ -88,9 +89,8 @@ pub enum ButtonSize {
     Sm,
     /// 20 px.
     Xs,
-    /// 28 px with the caption's 12 px text: the one action at the end of a
-    /// list row or card (D5 providers, `height:28px;font-size:13.2px` at
-    /// the app's 1.1 scale).
+    /// 28 px with Caption text: the one action at the end of a list row or
+    /// card (D5 providers).
     Row,
 }
 
@@ -115,11 +115,11 @@ impl ButtonSize {
         }
     }
 
-    fn font_size(self) -> f32 {
+    fn text_role(self) -> TextRole {
         match self {
-            ButtonSize::Md => scale::T_BODY_FS,
-            ButtonSize::Sm | ButtonSize::Row => scale::FS_12,
-            ButtonSize::Xs => scale::FS_11,
+            ButtonSize::Md => TextRole::Body,
+            ButtonSize::Sm | ButtonSize::Row => TextRole::Caption,
+            ButtonSize::Xs => TextRole::Micro,
         }
     }
 
@@ -415,7 +415,7 @@ impl RenderOnce for Button {
             .rounded(px(R_ITEM))
             .paint_states(paint, cx)
             .font_family(scale::FONT_UI)
-            .text_px(self.size.font_size())
+            .role_size(self.size.text_role())
             .font_weight(gpui::FontWeight::MEDIUM)
             .line_height(gpui::relative(1.0))
             .whitespace_nowrap()

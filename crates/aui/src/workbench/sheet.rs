@@ -2,6 +2,7 @@
 //! column headers, the selected cell, and the sheet tabs.
 
 use aui_icons::{icon, IconName};
+use aui_tokens::TextRole;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
@@ -22,9 +23,6 @@ const CHIP_GLYPH: f32 = 11.0;
 const ROW_HEADER_W: f32 = 32.0;
 const CELL_H: f32 = 26.0;
 const CELL_PAD: f32 = 8.0;
-const CELL_TEXT: f32 = 11.5;
-/// `.grid .h{font:500 10.5px mono}`.
-const HEADER_TEXT: f32 = 10.5;
 /// `.selc{outline:2px accent;outline-offset:-2px}`.
 const SELECT_OUTLINE: f32 = 2.0;
 /// `.stabs{gap:2px;height:30px;padding:0 8px;font-size:11.5px}` with 22 px radius-5 tabs, padding 0 10.
@@ -114,7 +112,7 @@ impl RenderOnce for SheetPane {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let mut pane = v_flex().id(id.clone()).size_full().bg(p.surface_1).ui(CELL_TEXT).text_color(p.ink);
+        let mut pane = v_flex().id(id.clone()).size_full().bg(p.surface_1).ui(TextRole::Micro).text_color(p.ink);
 
         if let Some((cell, formula)) = self.formula {
             pane = pane.child(
@@ -138,7 +136,7 @@ impl RenderOnce for SheetPane {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .mono(scale::FS_11)
+                            .mono(TextRole::Micro)
                             .line_height(relative(1.0))
                             .medium()
                             .child(cell),
@@ -155,7 +153,7 @@ impl RenderOnce for SheetPane {
                             .bg(p.surface_2)
                             .flex()
                             .items_center()
-                            .mono(scale::FS_11)
+                            .mono(TextRole::Micro)
                             .line_height(relative(1.0))
                             .text_color(p.fg_muted)
                             .truncate()
@@ -172,7 +170,7 @@ impl RenderOnce for SheetPane {
                 .justify_center()
                 .bg(p.surface_2)
                 .text_color(p.fg_muted)
-                .mono(HEADER_TEXT)
+                .mono(TextRole::Micro)
                 .line_height(relative(1.0))
                 .medium()
                 .child(text)
@@ -191,7 +189,7 @@ impl RenderOnce for SheetPane {
                     .justify_center()
                     .bg(p.surface_2)
                     .text_color(p.fg_muted)
-                    .mono(HEADER_TEXT)
+                    .mono(TextRole::Micro)
                     .line_height(relative(1.0))
                     .medium()
                     .child((r + 1).to_string()),
@@ -219,7 +217,7 @@ impl RenderOnce for SheetPane {
         pane = pane.child(grid);
 
         if !self.tabs.is_empty() {
-            let mut tabs = h_flex().w_full().h(px(TABS_H)).flex_none().gap(px(TABS_GAP)).px(px(TABS_PAD)).border_t_1().border_color(p.line).ui(CELL_TEXT);
+            let mut tabs = h_flex().w_full().h(px(TABS_H)).flex_none().gap(px(TABS_GAP)).px(px(TABS_PAD)).border_t_1().border_color(p.line).ui(TextRole::Micro);
             for (i, t) in self.tabs.iter().enumerate() {
                 let on = i == self.active_tab;
                 tabs = tabs.child(

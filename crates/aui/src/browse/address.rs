@@ -4,6 +4,7 @@
 //! is one quiet button; the host opens the Field on click.
 
 use aui_icons::{icon, IconName};
+use aui_tokens::TextRole;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::h_flex;
@@ -87,7 +88,7 @@ impl RenderOnce for AddressLine {
                 h_flex()
                     .flex_1()
                     .min_w(px(0.0))
-                    .ui(scale::FS_12)
+                    .ui(TextRole::Caption)
                     .child(
                         div()
                             .flex_none()

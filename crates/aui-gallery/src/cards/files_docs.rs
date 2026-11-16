@@ -3,6 +3,7 @@
 //! the worktree explorer beside the assistant's document pane.
 
 use aui::shell::TabItem;
+use aui_tokens::TextRole;
 use aui::workbench::{
     artifact_strip, doc_pane, doc_saved_hint, doc_tabs, doc_toolbar, file_tree, pane_status, pane_status_row, segmented, Artifact, ArtifactKind,
     DocBlock, DocCell, DocPage, DocRun, DocTable, FileNode, FileTreeAction, GitBadge,
@@ -295,7 +296,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                                 .gap(px(8.0))
                                 .px(px(12.0))
                                 .py(px(6.0))
-                                .child(div().flex_none().ui(scale::FS_11).text_color(p.fg_muted).child("Paper"))
+                                .child(div().flex_none().ui(TextRole::Micro).text_color(p.fg_muted).child("Paper"))
                                 .child(
                                     segmented("card54-flush-toggle", vec!["Framed".into(), "Flush".into()], usize::from(flush)).on_select(
                                         move |index, _, cx| {

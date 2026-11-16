@@ -4,6 +4,7 @@
 //! command row. Plus the restored-scrollback marker and the prompt row.
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
+use aui_tokens::TextRole;
 use aui_motion::{looping, Loop};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, ScrollHandle, SharedString, StyledText, Window};
@@ -17,7 +18,6 @@ use crate::transcript::{ansi_runs, parse_ansi};
 const SCROLL_PAD_Y: f32 = 10.0;
 const SCROLL_PAD_X: f32 = 12.0;
 const BLOCK_GAP: f32 = 8.0;
-const TERM_TEXT: f32 = 12.0;
 const TERM_LH: f32 = 1.55;
 /// `.blk .cmd{gap:8px;padding:5px 10px;border-radius:8px}`.
 const CMD_GAP: f32 = 8.0;
@@ -28,11 +28,8 @@ const EXIT_DOT: f32 = 6.0;
 const EXIT_RING: f32 = 3.0;
 /// `.who{gap:4px;font:500 10px/1 ui;padding-left:8px}` with an 11 px mark.
 const WHO_GAP: f32 = 4.0;
-const WHO_TEXT: f32 = 10.0;
 const WHO_PAD: f32 = 8.0;
 const WHO_MARK: f32 = 11.0;
-/// `.dur{font-size:11px}` with a 10 px spinner while live.
-const DUR_TEXT: f32 = 11.0;
 const LIVE_SPINNER: f32 = 10.0;
 /// `.out{padding:2px 10px 8px 26px}`.
 const OUT_PAD_TOP: f32 = 2.0;
@@ -52,7 +49,6 @@ const ACTS_GAP: f32 = 2.0;
 const ACTS_GLYPH: f32 = 11.0;
 /// `.marker{gap:8px;font:10.5px ui;padding:0 2px}`.
 const MARKER_GAP: f32 = 8.0;
-const MARKER_TEXT: f32 = 10.5;
 const MARKER_PAD: f32 = 2.0;
 /// `.prompt{gap:8px;padding:8px 12px;font:12px mono}`; cursor 7 × 14 blinking 1 s; `.ctx{font:500 10.5px ui;gap:8px}`.
 const PROMPT_GAP: f32 = 8.0;
@@ -61,7 +57,6 @@ const PROMPT_PAD_X: f32 = 12.0;
 const CURSOR_W: f32 = 7.0;
 const CURSOR_H: f32 = 14.0;
 const CURSOR_PERIOD: std::time::Duration = std::time::Duration::from_millis(1000);
-const CTX_TEXT: f32 = 10.5;
 const CTX_GAP: f32 = 8.0;
 
 /// How a block ended.
@@ -253,7 +248,7 @@ fn block(p: &Palette, root: &ElementId, b: &TermBlock, on_action: Option<ActionH
                 .flex_none()
                 .gap(px(WHO_GAP))
                 .pl(px(WHO_PAD))
-                .ui(WHO_TEXT)
+                .ui(TextRole::Micro)
                 .line_height(relative(1.0))
                 .medium()
                 .text_color(p.fg_muted)
@@ -263,7 +258,7 @@ fn block(p: &Palette, root: &ElementId, b: &TermBlock, on_action: Option<ActionH
     } else {
         cmd = cmd.child(div().flex_1());
     }
-    let mut dur = h_flex().flex_none().gap(px(scale::SP_2)).mono(DUR_TEXT).line_height(relative(1.0)).text_color(p.term_dim);
+    let mut dur = h_flex().flex_none().gap(px(scale::SP_2)).mono(TextRole::Micro).line_height(relative(1.0)).text_color(p.term_dim);
     if live {
         dur = dur.child(spinner((id.clone(), "spinner")).size(px(LIVE_SPINNER)));
     }
@@ -299,7 +294,7 @@ fn block(p: &Palette, root: &ElementId, b: &TermBlock, on_action: Option<ActionH
                 .pr(px(OUT_PAD_RIGHT))
                 .pb(px(FOLD_PAD_BOTTOM))
                 .pl(px(OUT_PAD_LEFT))
-                .ui(scale::FS_11)
+                .ui(TextRole::Micro)
                 .line_height(relative(1.0))
                 .text_color(p.fg_muted)
                 .cursor_pointer()
@@ -353,7 +348,7 @@ impl RenderOnce for BlockTerminal {
             .py(px(SCROLL_PAD_Y))
             .px(px(SCROLL_PAD_X))
             .gap(px(BLOCK_GAP))
-            .mono(TERM_TEXT)
+            .mono(TextRole::Caption)
             .line_height(relative(TERM_LH))
             .text_color(p.term_fg);
         if let Some(handle) = &self.scroll {
@@ -362,7 +357,7 @@ impl RenderOnce for BlockTerminal {
         if let Some(marker) = self.marker {
             let rule = || div().flex_1().h(px(1.0)).bg(p.line);
             scroll = scroll.child(
-                h_flex().w_full().gap(px(MARKER_GAP)).px(px(MARKER_PAD)).ui(MARKER_TEXT).text_color(p.fg_muted).whitespace_nowrap().child(rule()).child(marker).child(rule()),
+                h_flex().w_full().gap(px(MARKER_GAP)).px(px(MARKER_PAD)).ui(TextRole::Micro).text_color(p.fg_muted).whitespace_nowrap().child(rule()).child(marker).child(rule()),
             );
         }
         for b in &self.blocks {
@@ -380,12 +375,12 @@ impl RenderOnce for BlockTerminal {
                 .border_t_1()
                 .border_color(p.line)
                 .bg(p.surface_1)
-                .mono(TERM_TEXT)
+                .mono(TextRole::Caption)
                 .text_color(p.term_fg)
                 .child(div().semibold().text_color(p.accent).child("$"))
                 .child(div().child(prompt.text))
                 .child(div().flex_none().w(px(CURSOR_W)).h(px(CURSOR_H)).bg(p.term_cursor).opacity(if on { 1.0 } else { 0.0 }));
-            let mut ctx = h_flex().flex_none().gap(px(CTX_GAP)).ui(CTX_TEXT).line_height(relative(1.0)).medium().text_color(p.fg_muted);
+            let mut ctx = h_flex().flex_none().gap(px(CTX_GAP)).ui(TextRole::Micro).line_height(relative(1.0)).medium().text_color(p.fg_muted);
             for tag in prompt.context {
                 ctx = ctx.child(tag);
             }

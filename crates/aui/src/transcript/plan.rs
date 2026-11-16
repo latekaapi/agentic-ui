@@ -3,7 +3,8 @@
 //! rejects, edits or accepts it.
 
 use aui_protocol::{PlanSection, PlanState};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::TextRole;
+use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -15,7 +16,6 @@ use crate::util::ClickHandler;
 const HEAD_PAD_Y: f32 = 10.0;
 const HEAD_PAD_X: f32 = 12.0;
 const HEAD_GAP: f32 = 8.0;
-const HEAD_TEXT: f32 = 13.0;
 /// `.plan ol{padding:0 12px 10px 30px;font-size:12.5px;line-height:1.6}` —
 /// the 30 px left padding is the 12 px inset plus the marker column.
 const LIST_PAD_X: f32 = 12.0;
@@ -23,11 +23,6 @@ const LIST_PAD_BOTTOM: f32 = 10.0;
 const MARKER_COL: f32 = 18.0;
 /// The gap a browser leaves between an `::marker` and the item's content.
 const MARKER_GAP: f32 = 7.0;
-const ITEM_TEXT: f32 = 13.0;
-const ITEM_LH: f32 = 1.6;
-/// A section label is a caps row that owns the whole list width, with a little
-/// air above it — and none above the first, which the header already gives.
-const SECTION_TEXT: f32 = 11.0;
 const SECTION_GAP_TOP: f32 = 10.0;
 const SECTION_GAP_BOTTOM: f32 = 2.0;
 /// `.actions{gap:8px;padding:10px 12px}` and `.actions .hint{gap:5px;font-size:11px}`.
@@ -112,8 +107,7 @@ impl RenderOnce for PlanCard {
             ink: p.ink,
             code_ink: p.ink,
             code_bg: p.line,
-            size: ITEM_TEXT,
-            line_height: ITEM_LH,
+            role: TextRole::Body,
             paragraph_gap: 0.0,
         };
 
@@ -128,8 +122,7 @@ impl RenderOnce for PlanCard {
                         .w_full()
                         .when(index > 0, |d| d.mt(px(SECTION_GAP_TOP)))
                         .mb(px(SECTION_GAP_BOTTOM))
-                        .text_role(aui_tokens::TextRole::Caps)
-                        .line_height(aui_tokens::scaled(SECTION_TEXT * scale::LH_UI))
+                        .text_role(aui_tokens::TextRole::Caption)
                         .text_color(p.fg_muted)
                         .child(SharedString::from(section.label.clone())),
                 );
@@ -142,9 +135,8 @@ impl RenderOnce for PlanCard {
                         .pr(px(MARKER_GAP))
                         .flex()
                         .justify_end()
-                        .ui(ITEM_TEXT)
                         // The marker sits on the item's first line box.
-                        .line_height(aui_tokens::scaled(ITEM_TEXT * ITEM_LH))
+                        .ui(TextRole::Body)
                         .text_color(p.ink)
                         .child(format!("{}.", index + 1)),
                 ).child(div().flex_1().min_w(px(0.0)).child(prose((id.clone(), SharedString::from(format!("item-{index}"))), item, style))),
@@ -160,8 +152,8 @@ impl RenderOnce for PlanCard {
                     .gap(px(HEAD_GAP))
                     .py(px(HEAD_PAD_Y))
                     .px(px(HEAD_PAD_X))
-                    .child(div().flex_1().min_w(px(0.0)).truncate().ui(HEAD_TEXT).semibold().text_color(p.ink).child("Proposed plan"))
-                    .child(div().flex_none().px(px(8.0)).py(px(2.0)).rounded(px(6.0)).bg(p.line).ui(scale::FS_12).text_color(p.fg_muted).child("Plan mode")),
+                    .child(div().flex_1().min_w(px(0.0)).truncate().ui(TextRole::Body).semibold().text_color(p.ink).child("Proposed plan"))
+                    .child(div().flex_none().px(px(8.0)).py(px(2.0)).rounded(px(6.0)).bg(p.line).ui(TextRole::Caption).text_color(p.fg_muted).child("Plan mode")),
             )
             .child(list);
 

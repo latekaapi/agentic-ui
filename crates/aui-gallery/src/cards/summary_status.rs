@@ -18,7 +18,6 @@ const CAPS_GAP: f32 = 8.0;
 const STATUS_GAP: f32 = 10.0;
 const NEED_GAP: f32 = 14.0;
 /// `.caps` here inherits the body line height.
-const CAPS_LH: f32 = scale::LH_UI;
 /// `.row{gap:var(--sp-3)}` around the jump pill and its note.
 const ROW_GAP: f32 = scale::SP_3;
 
@@ -78,7 +77,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                     .on_retry(|_, _, _| {}),
             ),
         )
-        .child(div().mb(px(CAPS_GAP)).text_role(TextRole::Caps).line_height(relative(CAPS_LH)).text_color(p.fg_muted).child("STATUS ROWS"))
+        .child(div().mb(px(CAPS_GAP)).text_role(TextRole::Caption).text_color(p.fg_muted).child("Status rows"))
         .child(
             div().mb(px(STATUS_GAP)).child(
                 status_row("card38-working", "Working…").lead(StatusLead::Spinner).shimmer(true).elapsed("12 s").key_hint("esc", "to interrupt"),
@@ -99,9 +98,9 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
                 .mb(px(NEED_GAP))
                 .gap(px(ROW_GAP))
                 .child(jump_pill("card38-jump", "Jump to latest").count(3).on_jump(|_, _, _| {}))
-                .child(div().ui(scale::FS_12).text_color(p.fg_muted).child("appears when the reader scrolls away from the tail; counts new turns")),
+                .child(div().ui(TextRole::Caption).text_color(p.fg_muted).child("appears when the reader scrolls away from the tail; counts new turns")),
         )
-        .child(div().mb(px(CAPS_GAP)).text_role(TextRole::Caps).line_height(relative(CAPS_LH)).text_color(p.fg_muted).child("GOAL AND UNKNOWN ITEMS"))
+        .child(div().mb(px(CAPS_GAP)).text_role(TextRole::Caption).text_color(p.fg_muted).child("Goal and unknown items"))
         .child(div().mb(px(STATUS_GAP)).child(goal("card38-goal", &goals[0])))
         // A provider that reports 120 % has said something about itself worth
         // seeing: the number is verbatim and only the bar is clamped.

@@ -157,14 +157,6 @@ fn emit_scale(out: &mut String, tokens: &Value) {
             panic!("unrecognised shared token {key} = {value}");
         }
     }
-    // v1 compatibility: `text-scale` is gone from the design (v2 renders at
-    // whole pixels with no global multiplier), but hosts still name
-    // `scale::TEXT_SCALE`. It resolves to the neutral 1.0; documented as
-    // deprecated in prose so the mandated `-D warnings` gate stays green for
-    // the call sites a later lane migrates.
-    out.push_str("    /// Deprecated v1 text-scale shim: always 1.0. v2 has no global\n");
-    out.push_str("    /// text multiplier; type sizes come from the per-role `t-*-fs` tokens.\n");
-    out.push_str("    pub const TEXT_SCALE: f32 = 1.0;\n");
     out.push_str("}\n\n");
 }
 

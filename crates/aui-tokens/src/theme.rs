@@ -10,6 +10,7 @@ use crate::{
     fonts::load_fonts,
     generated::{dark, durations, light, scale, springs, Palette},
     kit_theme::{theme_set_json, KIT_THEME_DARK, KIT_THEME_LIGHT},
+    styled::{set_active_type, TextRole, TextSize},
 };
 
 /// Which of the two first-class themes is active. The harness defaults to
@@ -174,16 +175,14 @@ impl Easing {
 pub struct AuiTheme {
     /// Light or dark.
     pub kind: ThemeKind,
-    /// Standard or compact row metrics.
+    /// Comfortable or compact type and rows.
     pub density: Density,
+    /// Default or large type.
+    pub text_size: TextSize,
     /// The active colour palette.
     pub colors: Palette,
     /// Row and control heights for the active density.
     pub metrics: Metrics,
-    /// Deprecated v1 text multiplier. Always 1.0: v2 renders whole-pixel
-    /// type with no global scale. Kept so hosts that read it keep compiling;
-    /// a later lane removes it.
-    pub text_scale: f32,
 }
 
 impl Global for AuiTheme {}
@@ -199,7 +198,7 @@ impl AuiTheme {
                 ThemeKind::Dark => dark(),
             },
             metrics: Metrics::for_density(density),
-            text_scale: 1.0,
+            text_size: TextSize::Default,
         }
     }
 
@@ -226,9 +225,8 @@ impl AuiTheme {
             theme.light_theme = light_cfg;
             theme.dark_theme = dark_cfg;
         }
-        cx.set_global(AuiTheme::new(kind, Density::Standard));
+        cx.set_global(AuiTheme::new(kind, Density::Comfortable));
         Self::apply(cx, None);
-        Self::push_type_sizes(Density::Standard, cx);
     }
 
     /// Switches the theme (both the token palette and gpui-kit's theme).
@@ -247,14 +245,26 @@ impl AuiTheme {
         Self::set_kind(next, window, cx);
     }
 
-    /// Switches the row density (and the per-density type sizes).
+    /// Switches the density: every text role and the shared row height.
     pub fn set_density(density: Density, window: Option<&mut Window>, cx: &mut App) {
         {
             let this = cx.global_mut::<AuiTheme>();
             this.density = density;
             this.metrics = Metrics::for_density(density);
         }
-        Self::push_type_sizes(density, cx);
+        Self::push_type_sizes(cx);
+        Self::refresh(window, cx);
+    }
+
+    /// Switches the text size: every text role one step up the ladder, or
+    /// back.
+    pub fn set_text_size(text_size: TextSize, window: Option<&mut Window>, cx: &mut App) {
+        cx.global_mut::<AuiTheme>().text_size = text_size;
+        Self::push_type_sizes(cx);
+        Self::refresh(window, cx);
+    }
+
+    fn refresh(window: Option<&mut Window>, cx: &mut App) {
         if let Some(window) = window {
             window.refresh();
         } else {
@@ -262,19 +272,21 @@ impl AuiTheme {
         }
     }
 
-    /// Pushes the body/mono sizes for `density` into gpui-kit, whose `Root`
-    /// sets the window rem size from them.
-    fn push_type_sizes(density: Density, cx: &mut App) {
+    /// Mirrors the density and text size for [`TextRole`] and pushes the
+    /// active Body and Mono sizes into gpui-kit, whose `Root` sets the window
+    /// rem from them. aui and its hosts size no text in rems (every size is a
+    /// role in absolute px), so the rem reaches only gpui-kit's own widgets
+    /// — inputs and editors — and keeps them on the active Body size.
+    fn push_type_sizes(cx: &mut App) {
+        let (density, text_size) = {
+            let this = cx.global::<AuiTheme>();
+            (this.density, this.text_size)
+        };
+        set_active_type(density, text_size);
         {
             let theme = Theme::global_mut(cx);
-            // The window rem is the standard body size in BOTH densities:
-            // roles are absolute px (see `AuiStyled::text_role_in`), so a
-            // compact rem would shrink them a second time. Compact changes
-            // metrics and roles, never the rem; gpui-kit's own widgets keep
-            // the standard size until they take a role.
-            let _ = density;
-            theme.font_size = gpui::px(scale::T_BODY_FS);
-            theme.mono_font_size = gpui::px(scale::T_MONO_FS);
+            theme.font_size = gpui::px(TextRole::Body.spec_in(density, text_size).size);
+            theme.mono_font_size = gpui::px(TextRole::Mono.spec_in(density, text_size).size);
         }
         Theme::sync_base(cx);
     }
@@ -284,7 +296,7 @@ impl AuiTheme {
         Theme::change(kind.kit_mode(), window, cx);
         // `Theme::change` reloads the kit theme JSON, which carries its own
         // font sizes; push ours again so the rem never drifts.
-        Self::push_type_sizes(cx.global::<AuiTheme>().density, cx);
+        Self::push_type_sizes(cx);
         cx.refresh_windows();
     }
 

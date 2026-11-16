@@ -3,6 +3,7 @@
 //! at 980×720 (body padding 12).
 
 use aui::shell::{tab_strip, TabItem};
+use aui_tokens::TextRole;
 use aui::workbench::{block_terminal, tui_pane, BlockState, TermBlock, TermPrompt};
 use aui::data::{icon_button, ButtonSize};
 use aui_icons::{IconName, Provider};
@@ -14,8 +15,6 @@ use gpui_kit::base::{h_flex, v_flex};
 const FRAME_INSET: f32 = -8.0;
 const FRAME_W: f32 = 980.0 - 24.0;
 const FRAME_H: f32 = 690.0;
-/// The tab strip's hint text: `font-size:11px;margin-right:8px`.
-const HINT_TEXT: f32 = 11.0;
 const HINT_MARGIN: f32 = 8.0;
 /// Glyphs in the strip's xs buttons are 12 px.
 const XS_GLYPH: f32 = 12.0;
@@ -94,7 +93,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             })
         })
         .after_tabs(icon_button("card50-add", IconName::Plus).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)))
-        .trailing(div().mr(px(HINT_MARGIN)).ui(HINT_TEXT).text_color(p.fg_muted).whitespace_nowrap().child("⌘D split right · ⌘⇧D split down"))
+        .trailing(div().mr(px(HINT_MARGIN)).ui(TextRole::Micro).text_color(p.fg_muted).whitespace_nowrap().child("⌘D split right · ⌘⇧D split down"))
         .trailing(icon_button("card50-search", IconName::Search).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)))
         .trailing(icon_button("card50-split", IconName::Split).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)));
 

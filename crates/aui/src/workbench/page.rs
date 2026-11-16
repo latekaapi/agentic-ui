@@ -8,6 +8,7 @@
 //! is an overlay window in the host; these draw the content.
 
 use std::rc::Rc;
+use aui_tokens::TextRole;
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
 use aui_tokens::{dark, scale, ActiveAui, AuiStyled, Palette};
@@ -140,7 +141,7 @@ pub fn address_frame(id: impl Into<ElementId>, cx: &App) -> gpui::Stateful<gpui:
         .border_color(p.line)
         .whitespace_nowrap()
         .font_family(scale::FONT_UI)
-        .text_px(13.2)
+        .role_size(TextRole::Body)
 }
 
 /// A nav button that cannot act: the glyph faint at 60 %.
@@ -236,7 +237,7 @@ pub fn agent_pill(id: impl Into<ElementId>, provider: Provider, text: impl Into<
         .border_color(d.line_strong)
         .shadow(d.floating_shadow())
         .font_family(scale::FONT_UI)
-        .text_px(13.2)
+        .role_size(TextRole::Body)
         .text_color(d.fg)
         .whitespace_nowrap()
         .child(provider_mark(provider).size(px(16.0)))
@@ -275,7 +276,7 @@ pub fn annotate_pin(index: usize) -> gpui::Div {
                 .items_center()
                 .justify_center()
                 .font_family(scale::FONT_UI)
-                .text_px(11.0)
+                .role_size(TextRole::Micro)
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(gpui::white())
                 .child(index.to_string()),
@@ -319,7 +320,7 @@ pub fn notes_panel(
             .py(px(6.0))
             .items_start()
             .rounded(px(6.0))
-            .text_px(13.2)
+            .role_size(TextRole::Body)
             .line_height(px(18.0))
             .child(
                 div()
@@ -330,14 +331,14 @@ pub fn notes_panel(
                     .flex()
                     .items_center()
                     .justify_center()
-                    .text_px(11.0)
+                    .role_size(TextRole::Micro)
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(n.index.to_string()),
             )
             .child(
                 v_flex()
                     .min_w(px(0.0))
-                    .child(div().font_family(scale::FONT_MONO).text_px(12.1).text_color(d.fg_muted).overflow_hidden().whitespace_nowrap().text_ellipsis().child(n.selector.clone()))
+                    .child(div().font_family(scale::FONT_MONO).role_size(TextRole::Caption).text_color(d.fg_muted).overflow_hidden().whitespace_nowrap().text_ellipsis().child(n.selector.clone()))
                     .child(div().text_color(d.fg).child(n.note.clone())),
             )
     });
@@ -383,7 +384,7 @@ pub fn notes_panel(
         .border_color(d.line_strong)
         .shadow(d.floating_shadow())
         .font_family(scale::FONT_UI)
-        .text_px(13.2)
+        .role_size(TextRole::Body)
         .text_color(d.fg)
         .children(rows)
         .child(
@@ -446,7 +447,7 @@ pub fn address_field_frame(focused: bool, cx: &App) -> gpui::Div {
         .border_1()
         .border_color(super::pane::field_border(focused, cx))
         .font_family(scale::FONT_UI)
-        .text_px(14.3)
+        .role_size(TextRole::Body)
         .child(icon(IconName::Search).size(px(14.0)).color(p.fg_muted))
 }
 

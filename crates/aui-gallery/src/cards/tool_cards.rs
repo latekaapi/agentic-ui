@@ -2,6 +2,7 @@
 //! a two-column grid. Reproduces `design/src/cards/transcript/34-tool-cards.html` at 800×760.
 
 use aui::protocol::{sample, Block};
+use aui_tokens::TextRole;
 use aui::transcript::{tool_card, ToolCardIntent};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
@@ -52,7 +53,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .mt(px(scale::SP_4))
                 .max_w(px(NOTE_MEASURE))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child("D4: one header for every tool — the status glyph, the verb, the target in mono muted, then the result and duration in faint mono and the chevron. No buttons: the header toggles. Shell output and a read file sit on the Well and fold at six lines behind an in-place \"N more lines\"; edits show the 36/20 diff grid; search, web, browser, delegated and MCP bodies follow docs/41 §2.5."),
         )

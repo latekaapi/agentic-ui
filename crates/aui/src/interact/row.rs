@@ -9,7 +9,7 @@ use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, Pixels,
 use gpui_kit::base::h_flex;
 
 use super::paint::{PaintStates, StatePaint};
-use super::{InteractState, LIST_ROW_H, ROW_PAD_X, R_ITEM};
+use super::{InteractState, ROW_PAD_X, R_ITEM};
 use crate::data::record_ax_label;
 use crate::util::ClickHandler;
 
@@ -64,7 +64,7 @@ pub fn row(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Row {
     }
 }
 
-/// The flat list row (docs/83 §2.5, §4): 32 tall ([`LIST_ROW_H`]), 10 px
+/// The flat list row (docs/83 §2.5, §4): 32 tall (`Metrics::control`), 10 px
 /// inner padding ([`ROW_PAD_X`]), radius 8 ([`R_ITEM`]), an optional leading
 /// element and a trailing slot; hover / press / selected from the one model.
 /// Its accessible name is its title; with a click handler it is a button,
@@ -135,14 +135,14 @@ impl Row {
         self
     }
 
-    /// The row height: [`LIST_ROW_H`] for a one-line flat row,
-    /// `metrics.control` for a one-line ladder row, `row_2` for two lines.
+    /// The row height: `metrics.control` for one line (32, compact 28),
+    /// `row_2` for two.
     pub fn height(&self, cx: &App) -> Pixels {
         let metrics = &cx.aui().metrics;
-        match (self.byline.is_some(), self.flat) {
-            (true, _) => metrics.row_2,
-            (false, true) => px(LIST_ROW_H),
-            (false, false) => metrics.control,
+        if self.byline.is_some() {
+            metrics.row_2
+        } else {
+            metrics.control
         }
     }
 

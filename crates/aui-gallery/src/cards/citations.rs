@@ -4,14 +4,12 @@
 //! light theme.
 
 use aui::transcript::ProseStyle;
+use aui_tokens::TextRole;
 use aui::workbench::{cited_answer, source_hover_card, sources_card, Source, SourceTier, ANSWER_MARGIN};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::v_flex;
 
-/// `.a{font-size:13.5px;line-height:1.65}`; `.a p{margin:0 0 10px}` (one
-/// paragraph here, so the paragraph gap never applies).
-const BODY_TEXT: f32 = 13.5;
 const PARAGRAPH_GAP: f32 = 10.0;
 /// `.ds-note{max-width:80ch;margin-top:12px}` ≈ 640 px of Geist 12.
 const NOTE_MEASURE: f32 = 640.0;
@@ -54,8 +52,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         ink: p.ink,
         code_ink: p.accent_ink,
         code_bg: p.accent_soft,
-        size: BODY_TEXT,
-        line_height: scale::LH_BODY,
+        role: TextRole::Read,
         paragraph_gap: PARAGRAPH_GAP,
     };
     let start = QUOTE.find(HIGHLIGHT).unwrap_or(0);
@@ -76,7 +73,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .mt(px(scale::SP_4))
                 .max_w(px(NOTE_MEASURE))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child("Citation markers are small accent squares that lift on hover and open a source card with the exact passage highlighted. The sources list is grouped by retrieval tier so it is obvious whether a claim rests on a regulation, a project file or session chat; the bar is retrieval confidence."),
         )

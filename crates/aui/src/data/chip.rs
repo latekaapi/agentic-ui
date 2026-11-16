@@ -178,7 +178,7 @@ impl RenderOnce for Chip {
             .border_1()
             .paint_states(StatePaint::new().on(p.surface_1).tint(false).ink(rest_text, lit_text).edge(rest_edge, p.line_strong), &p)
             .font_family(scale::FONT_UI)
-            .text_px(scale::FS_12)
+            .role_size(TextRole::Caption)
             .line_height(gpui::relative(1.0))
             .medium()
             .whitespace_nowrap()
@@ -188,7 +188,7 @@ impl RenderOnce for Chip {
         }
         el = el.child(self.label);
         if let Some(detail) = self.detail {
-            el = el.child(div().text_px(scale::FS_11).text_color(p.fg_muted).child(detail));
+            el = el.child(div().role_size(TextRole::Micro).text_color(p.fg_muted).child(detail));
         }
         if self.chevron {
             el = el.child(icon(IconName::ChevronDown).size(px(CHEVRON)));

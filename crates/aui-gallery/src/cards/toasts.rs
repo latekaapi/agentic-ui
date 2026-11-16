@@ -19,7 +19,6 @@ const FAN_STACK_H: f32 = 280.0;
 const FAN_SECTION_GAP: f32 = 28.0;
 /// `.caps` inherits the body line height here; the Banners label adds
 /// `margin-bottom:10px`.
-const CAPS_LH: f32 = scale::LH_UI;
 const BANNERS_CAPS_BOTTOM: f32 = 10.0;
 /// `.ban{margin-bottom:8px}`, expressed as the gap between rows: CSS collapses
 /// the last row's margin into the note's `margin-top:12px`, gpui does not.
@@ -170,10 +169,10 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
 
 /// `.caps`.
 fn caps(p: Palette, label: &'static str) -> Div {
-    div().text_role(TextRole::Caps).line_height(relative(CAPS_LH)).text_color(p.fg_muted).child(label.to_uppercase())
+    div().text_role(TextRole::Caption).text_color(p.fg_muted).child(label)
 }
 
 /// `.ds-note`.
 fn note(p: Palette, text: &'static str) -> Div {
-    div().mt(px(NOTE_TOP)).ui(scale::FS_12).text_color(p.fg_muted).child(text)
+    div().mt(px(NOTE_TOP)).ui(TextRole::Caption).text_color(p.fg_muted).child(text)
 }

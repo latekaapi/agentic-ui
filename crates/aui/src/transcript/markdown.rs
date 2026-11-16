@@ -41,13 +41,14 @@
 //! so are always the most recently used. See [`super::memo`].
 
 use std::ops::Range;
+use aui_tokens::TextRole;
 use std::rc::Rc;
 use std::sync::{Arc, LazyLock};
 
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{
-    div, font, prelude::*, px, relative, App, ElementId, FontStyle, FontWeight, Hsla, IntoElement,
+    div, font, prelude::*, px, App, ElementId, FontStyle, FontWeight, Hsla, IntoElement,
     SharedString, StrikethroughStyle, TextRun, UnderlineStyle, Window,
 };
 use gpui_kit::base::{h_flex, v_flex};
@@ -115,19 +116,10 @@ const QUOTE_PAD_Y: f32 = 2.0;
 const IMAGE_MAX_H: f32 = 480.0;
 const IMAGE_CAPTION_PAD_Y: f32 = 8.0;
 const IMAGE_CAPTION_PAD_X: f32 = 12.0;
-/// Heading sizes in the reading scale (docs/83 §2.4): h1 22 / 30, h2 19 /
-/// 28, h3 17 / 26, all 600; h4–h6 stay at the body's 16 / 26 and read as
+/// Heading roles in the reading scale (docs/83 §2.4): h1 22 / 30, h2 19 /
+/// 28, h3 17 / 26, all 600; h4–h6 stay at the body's `t-read` and read as
 /// headings through weight alone.
-const HEADING_SIZES: [f32; 6] = [scale::T_H1_FS, scale::T_H2_FS, scale::T_H3_FS, scale::T_READ_FS, scale::T_READ_FS, scale::T_READ_FS];
-/// Heading line heights, as ratios of their sizes.
-const HEADING_LH: [f32; 6] = [
-    scale::T_H1_LH / scale::T_H1_FS,
-    scale::T_H2_LH / scale::T_H2_FS,
-    scale::T_H3_LH / scale::T_H3_FS,
-    scale::T_READ_LH / scale::T_READ_FS,
-    scale::T_READ_LH / scale::T_READ_FS,
-    scale::T_READ_LH / scale::T_READ_FS,
-];
+const HEADING_ROLES: [TextRole; 6] = [TextRole::H1, TextRole::H2, TextRole::H3, TextRole::Read, TextRole::Read, TextRole::Read];
 /// Extensions that make a `slash/path` token a workspace-path link.
 const PATH_EXTENSIONS: &[&str] = &[
     "rs", "md", "toml", "json", "jsonl", "txt", "py", "ts", "tsx", "js", "css", "html", "htm", "yaml",
@@ -1613,8 +1605,8 @@ fn render_block(
             sel,
         ),
         Block::Heading { level, spans } => {
-            let step = (level.saturating_sub(1) as usize).min(HEADING_SIZES.len() - 1);
-            let size = HEADING_SIZES[step];
+            let step = (level.saturating_sub(1) as usize).min(HEADING_ROLES.len() - 1);
+            let role = HEADING_ROLES[step];
             let (text, mut runs, links) = span_runs(spans, style, sel.link_ink);
             // Headings are uniformly semibold; code spans keep the mono
             // face at its own weight so code still reads as code.
@@ -1638,8 +1630,7 @@ fn render_block(
                 .into_any_element();
             div()
                 .w_full()
-                .ui(size)
-                .line_height(relative(HEADING_LH[step]))
+                .ui(role)
                 .text_color(style.ink)
                 .child(body)
                 .into_any_element()
@@ -1844,8 +1835,8 @@ fn image_block(id: ElementId, alt: &str, url: &str, root: Option<&str>, palette:
                     v_flex()
                         .flex_1()
                         .min_w(px(0.0))
-                        .child(div().w_full().truncate().ui(scale::FS_13).text_color(p.ink).child(if alt.is_empty() { "Image".to_owned() } else { alt.clone() }))
-                        .child(div().w_full().truncate().mono(scale::FS_11).text_color(p.ink_4).child(format!("{url} · not available"))),
+                        .child(div().w_full().truncate().ui(TextRole::Body).text_color(p.ink).child(if alt.is_empty() { "Image".to_owned() } else { alt.clone() }))
+                        .child(div().w_full().truncate().mono(TextRole::Micro).text_color(p.ink_4).child(format!("{url} · not available"))),
                 )
                 .into_any_element()
         }
@@ -1867,7 +1858,7 @@ fn image_block(id: ElementId, alt: &str, url: &str, root: Option<&str>, palette:
                 .w_full()
                 .px(px(IMAGE_CAPTION_PAD_X))
                 .py(px(IMAGE_CAPTION_PAD_Y))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(palette.fg_muted)
                 .child(alt.to_owned()),
         );
@@ -2443,8 +2434,7 @@ impl RenderOnce for Markdown {
         v_flex()
             .id(self.id.clone())
             .w_full()
-            .ui(self.style.size)
-            .line_height(relative(self.style.line_height))
+            .ui(self.style.role)
             .text_color(self.style.ink)
             .children(render_blocks(
                 &self.id,
@@ -2466,8 +2456,7 @@ mod tests {
             ink: gpui::black(),
             code_ink: gpui::red(),
             code_bg: gpui::white(),
-            size: 13.5,
-            line_height: 1.65,
+            role: TextRole::Body,
             paragraph_gap: 10.0,
         }
     }
@@ -2639,7 +2628,7 @@ mod tests {
         // Blocks carry no colours, so a theme switch must not re-parse.
         let mut other = style();
         other.ink = gpui::white();
-        other.size += 1.0;
+        other.role = TextRole::Read;
         let first = parsed_markdown("# Theme\n\nSwitch.", &style());
         let second = parsed_markdown("# Theme\n\nSwitch.", &other);
         assert!(Arc::ptr_eq(&first, &second));

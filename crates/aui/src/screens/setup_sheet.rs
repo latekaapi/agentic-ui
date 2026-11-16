@@ -20,6 +20,7 @@
 //! host decides which Escape closes the sheet.
 
 use std::rc::Rc;
+use aui_tokens::TextRole;
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
@@ -36,8 +37,6 @@ pub const SIGN_IN_W: f32 = 460.0;
 /// with its `line-region`, the title in `t-title`); the provider mark in it
 /// is 20 px.
 const HEAD_MARK: f32 = 20.0;
-/// Status, footnote: 13.2/18.
-const CAPTION_TEXT: f32 = scale::FS_12;
 const CAPTION_LH: f32 = 18.0;
 /// The side padding every block shares; a host's own body blocks use it
 /// too, so their text lines up with the title.
@@ -269,7 +268,7 @@ fn status_row(id: &ElementId, status: &SetupStatus, p: &Palette) -> AnyElement {
         .gap(px(8.0))
         .px(px(PAD_X))
         .pt(px(12.0))
-        .text_px(CAPTION_TEXT)
+        .role_size(TextRole::Caption)
         .line_height(px(CAPTION_LH))
         .text_color(p.fg_muted)
         .role(gpui::Role::Status)
@@ -326,7 +325,7 @@ impl RenderOnce for SetupSheet {
                 div()
                     .px(px(PAD_X))
                     .pt(px(10.0))
-                    .text_px(CAPTION_TEXT)
+                    .role_size(TextRole::Caption)
                     .line_height(px(CAPTION_LH))
                     .text_color(p.ink_4)
                     .child(note),

@@ -8,6 +8,7 @@
 //! in [`aui::keys`].
 
 use std::time::Duration;
+use aui_tokens::TextRole;
 
 use aui::composer::{composer, composer_state_rows, plus_menu, ComposerIntent, PlusMenuItem};
 use aui::data::{icon_button, status_dot, ButtonSize};
@@ -29,7 +30,7 @@ use gpui::*;
 use gpui_kit::base::input::TextareaState;
 use gpui_kit::base::{h_flex, v_flex};
 
-use super::model::{revealed_text, Block, BlockKind, Transcript, BODY_TEXT};
+use super::model::{revealed_text, Block, BlockKind, Transcript};
 use super::script::STEPS_DELAY;
 
 /// `.tr{padding:18px 32px 0;gap:16px}` and the status row's 12 px bottom padding.
@@ -310,7 +311,7 @@ impl AssistantMock {
                 group.into_any_element()
             }
             BlockKind::Answer { text, revealed, streaming } => {
-                let style = ProseStyle { ink: p.ink, code_ink: p.accent_ink, code_bg: p.accent_soft, size: BODY_TEXT, line_height: scale::LH_BODY, paragraph_gap: 10.0 };
+                let style = ProseStyle { ink: p.ink, code_ink: p.accent_ink, code_bg: p.accent_soft, role: TextRole::Read, paragraph_gap: 10.0 };
                 cited_answer(id, revealed_text(text, *revealed), style).streaming(*streaming).into_any_element()
             }
             BlockKind::Approval { tool, command, reason, state } => {
@@ -385,7 +386,7 @@ impl AssistantMock {
                 .px(px(TRANSCRIPT_PAD_X))
                 .pb(px(STATUS_PAD_BOTTOM))
                 .gap(px(scale::SP_3))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child(status_dot("assistant-status-dot", status.state))
                 .child(status.label.clone())
@@ -578,7 +579,7 @@ impl AssistantMock {
                             .flex_1()
                             .min_h(px(0.0))
                             .w_full()
-                            .child(div().w_full().px(px(12.0)).pt(px(8.0)).ui(scale::FS_12).child("Read-only preview"))
+                            .child(div().w_full().px(px(12.0)).pt(px(8.0)).ui(TextRole::Caption).child("Read-only preview"))
                             .child(div().flex_1().min_h(px(0.0)).w_full().child(pdf_pane("assistant-pdf-readonly", page, 31, 88).cited_as(1).controls(PdfControls::reading_only()))),
                     )
                     .child(pane_status_row("assistant-pdf-status", vec![pane_status("Highlight from citation 1")], vec![pane_status("Opened from chat")]))
@@ -971,8 +972,8 @@ pub fn build_all(window: &mut Window, cx: &mut App) -> AnyElement {
                         .h(px(SCREENS_CAPTION))
                         .items_center()
                         .gap(px(scale::SP_3))
-                        .child(div().ui(scale::FS_13).semibold().text_color(p.ink).child(screen.caption()))
-                        .child(div().mono(scale::FS_11).text_color(p.fg_muted).child("1440\u{d7}900")),
+                        .child(div().ui(TextRole::Body).semibold().text_color(p.ink).child(screen.caption()))
+                        .child(div().mono(TextRole::Micro).text_color(p.fg_muted).child("1440\u{d7}900")),
                 )
                 .child(div().w(px(SCREEN_W)).h(px(SCREEN_H)).flex_none().overflow_hidden().child(mock(key, screen, false, window, cx))),
         );

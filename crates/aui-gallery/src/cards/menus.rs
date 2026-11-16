@@ -5,7 +5,7 @@
 
 use aui::composer::{command_menu, mention_picker, CommandItem, CommandSection, MentionIcon, MentionItem, MentionSection};
 use aui_icons::IconName;
-use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, TextRole};
+use aui_tokens::{ActiveAui, AgentState, AuiStyled, TextRole};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -17,7 +17,6 @@ const GRID_MAX: f32 = 780.0;
 const CP_RADIUS: f32 = 14.0;
 const CP_PAD_X: f32 = 14.0;
 const CP_PAD_Y: f32 = 10.0;
-const CP_TEXT: f32 = scale::FS_14;
 const CP_MIN_H: f32 = 60.0;
 const CP_RING: f32 = 3.0;
 /// `.ds-note{max-width:80ch;margin-top:12px}` ≈ 640 px of Geist 12.
@@ -135,7 +134,7 @@ fn composer_stand_in(children: Vec<AnyElement>, cx: &App) -> impl IntoElement {
         .border_color(p.accent)
         .bg(p.surface_1)
         .shadow(vec![BoxShadow { color: p.accent_ring, offset: point(px(0.0), px(0.0)), blur_radius: px(0.0), spread_radius: px(CP_RING), inset: false }])
-        .ui(CP_TEXT)
+        .ui(TextRole::Subtitle)
         .text_color(p.ink)
         .children(children)
 }
@@ -184,7 +183,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                         )
                         .child(composer_stand_in(
                             vec![
-                                div().flex_none().mono(CP_TEXT).text_color(p.accent_ink).child("/re").into_any_element(),
+                                div().flex_none().mono(TextRole::Mono).text_color(p.accent_ink).child("/re").into_any_element(),
                                 div().flex_none().text_color(p.fg_muted).child("view").into_any_element(),
                             ],
                             cx,
@@ -210,7 +209,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                         .child(composer_stand_in(
                             vec![
                                 div().flex_none().child("Tighten validation in ").into_any_element(),
-                                div().flex_none().mono(CP_TEXT).text_color(p.accent_ink).child("@validators").into_any_element(),
+                                div().flex_none().mono(TextRole::Mono).text_color(p.accent_ink).child("@validators").into_any_element(),
                             ],
                             cx,
                         )),
@@ -220,7 +219,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .mt(px(NOTE_TOP))
                 .max_w(px(NOTE_MEASURE))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child("Both menus anchor to the caret, open upward from the composer and are fully keyboard-driven. Typed characters highlight in accent inside matches. Selecting a mention inserts a chip; selecting a command either runs it or expands into its arguments inline."),
         )
@@ -228,7 +227,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             v_flex()
                 .w_full()
                 .mt(px(NOTE_TOP))
-                .child(div().text_role(TextRole::Caps).text_color(p.fg_muted).child("Long menu · scrolls inside its own frame · selection 25 of 30".to_uppercase()))
+                .child(div().text_role(TextRole::Caption).text_color(p.fg_muted).child("Long menu · scrolls inside its own frame · selection 25 of 30"))
                 .child(
                     command_menu("card41-commands-long", "", long_command_sections(), long_index)
                         .at_rest()
@@ -243,14 +242,14 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                         .on_select(|_, _, _| {}),
                 )
                 .child(composer_stand_in(
-                    vec![div().flex_none().mono(CP_TEXT).text_color(p.accent_ink).child("/").into_any_element()],
+                    vec![div().flex_none().mono(TextRole::Mono).text_color(p.accent_ink).child("/").into_any_element()],
                     cx,
                 ))
                 .child(
                     div()
                         .mt(px(NOTE_TOP))
                         .max_w(px(NOTE_MEASURE))
-                        .ui(scale::FS_12)
+                        .ui(TextRole::Caption)
                         .text_color(p.fg_muted)
                         .child("Thirty rows in a 560 px frame: the wheel scrolls the menu, never the page behind, and the arrow keys keep the selection visible — row 25 sits in view on this capture."),
                 ),

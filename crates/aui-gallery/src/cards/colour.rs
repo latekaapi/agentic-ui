@@ -23,7 +23,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .mt(px(12.0))
                 .max_w(px(632.0)) // 80ch at 12 px Geist
-                .text_role(TextRole::UiSmall)
+                .text_role(TextRole::Caption)
                 .text_color(cx.aui().colors.fg_muted)
                 .child(
                     "The accent is ink on the ground (the one primary fill); accent-ring is the one blue, for focus, \
@@ -49,8 +49,8 @@ fn theme_section(title: &'static str, p: Palette) -> impl IntoElement {
             div()
                 .mb(px(12.0))
                 .text_role(TextRole::Caption)
-                .text_px(scale::FS_12)
-                .line_height(relative(scale::LH_UI)) // h3 inherits the body line height
+                .role_size(TextRole::Caption)
+
                 .text_color(p.fg_muted)
                 .child(title),
         )
@@ -101,7 +101,7 @@ fn swatches(p: Palette) -> impl IntoElement {
                     .px(px(6.0))
                     .py(px(5.0))
                     .font_family(scale::FONT_MONO)
-                    .text_px(10.0)
+                    .role_size(TextRole::Micro)
                     .line_height(relative(1.0))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(label)
@@ -131,7 +131,7 @@ fn surface_ladder(p: Palette) -> impl IntoElement {
                 .px(px(6.0))
                 .py(px(5.0))
                 .font_family(scale::FONT_MONO)
-                .text_px(10.0)
+                .role_size(TextRole::Micro)
                 .line_height(relative(1.0))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(p.fg_muted)
@@ -144,7 +144,7 @@ fn surface_ladder(p: Palette) -> impl IntoElement {
             div()
                 .mb(px(4.0))
                 .font_family(scale::FONT_MONO)
-                .text_px(10.0)
+                .role_size(TextRole::Micro)
                 .line_height(relative(1.0))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(p.fg_muted)
@@ -181,7 +181,7 @@ fn overlay_grid(p: Palette) -> impl IntoElement {
                             .px(px(6.0))
                             .py(px(5.0))
                             .font_family(scale::FONT_MONO)
-                            .text_px(10.0)
+                            .role_size(TextRole::Micro)
                             .line_height(relative(1.0))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(p.ink)
@@ -197,7 +197,7 @@ fn overlay_grid(p: Palette) -> impl IntoElement {
             div()
                 .mb(px(4.0))
                 .font_family(scale::FONT_MONO)
-                .text_px(10.0)
+                .role_size(TextRole::Micro)
                 .line_height(relative(1.0))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(p.fg_muted)
@@ -222,7 +222,7 @@ fn labels_row(p: Palette) -> impl IntoElement {
                 .px(px(6.0))
                 .py(px(5.0))
                 .font_family(scale::FONT_MONO)
-                .text_px(10.0)
+                .role_size(TextRole::Micro)
                 .line_height(relative(1.0))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(p.bg)
@@ -235,7 +235,7 @@ fn labels_row(p: Palette) -> impl IntoElement {
             div()
                 .mb(px(4.0))
                 .font_family(scale::FONT_MONO)
-                .text_px(10.0)
+                .role_size(TextRole::Micro)
                 .line_height(relative(1.0))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(p.fg_muted)
@@ -258,7 +258,7 @@ fn states(p: Palette, section: &'static str) -> impl IntoElement {
         row = row.child(
             h_flex()
                 .gap(px(6.0))
-                .text_role(TextRole::UiSmall)
+                .text_role(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child(pulse_ring(SharedString::from(format!("{section}-{label}")), px(7.0), color, pulse))
                 .child(label),

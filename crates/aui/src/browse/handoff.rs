@@ -10,7 +10,7 @@
 use std::rc::Rc;
 
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
-use gpui::{div, prelude::*, px, relative, App, ElementId, Entity, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, App, ElementId, Entity, IntoElement, SharedString, Window};
 use gpui_kit::base::input::TextareaState;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::input::Textarea;
@@ -25,9 +25,6 @@ const CAPS_H: f32 = 26.0;
 const ITEM_H: f32 = 34.0;
 const ITEM_INSET: f32 = 4.0;
 const FOOT_LH: f32 = 17.0;
-const BODY_TEXT: f32 = 13.5;
-const META_TEXT: f32 = 12.5;
-const FOOT_TEXT: f32 = 12.0;
 
 /// One row of the picker.
 #[derive(Debug, Clone, PartialEq)]
@@ -125,9 +122,9 @@ impl RenderOnce for HandoffPicker {
                 crate::a11y_text::a11y_text_field((id.clone(), "query"), "Find a session or project", &self.input, false, cx)
                     .flex_1()
                     .min_w(px(0.0))
-                    .ui(BODY_TEXT)
+                    .ui(TextRole::Body)
                     .text_color(p.ink)
-                    .child(Textarea::new(&self.input).appearance(false).bordered(false).text_size(aui_tokens::scaled(BODY_TEXT))),
+                    .child(Textarea::new(&self.input).appearance(false).bordered(false).role_size(TextRole::Body)),
             );
         let mut body = v_flex().w_full().flex_none();
         let mut index = 0usize;
@@ -141,8 +138,7 @@ impl RenderOnce for HandoffPicker {
                     .flex_none()
                     .px(px(PAD_X))
                     .pt(px(8.0))
-                    .text_role(TextRole::Caps)
-                    .line_height(relative(scale::LH_UI))
+                    .text_role(TextRole::Caption)
                     .text_color(p.fg_muted)
                     .child(title),
             );
@@ -183,14 +179,14 @@ impl RenderOnce for HandoffPicker {
                             }
                         })
                         .child(lead)
-                        .child(div().flex_1().min_w(px(0.0)).truncate().ui(BODY_TEXT).text_color(p.ink).child(row.title.clone()))
-                        .child(div().flex_none().ui(META_TEXT).text_color(p.fg_muted).child(row.meta.clone())),
+                        .child(div().flex_1().min_w(px(0.0)).truncate().ui(TextRole::Body).text_color(p.ink).child(row.title.clone()))
+                        .child(div().flex_none().ui(TextRole::Caption).text_color(p.fg_muted).child(row.meta.clone())),
                 );
             }
         }
         if index == 0 {
             body = body.child(
-                div().h(px(ITEM_H)).flex_none().px(px(PAD_X)).flex().items_center().ui(BODY_TEXT).text_color(p.fg_muted).child("Nothing matches"),
+                div().h(px(ITEM_H)).flex_none().px(px(PAD_X)).flex().items_center().ui(TextRole::Body).text_color(p.fg_muted).child("Nothing matches"),
             );
         }
         let close = self.on_intent.clone();
@@ -219,7 +215,7 @@ impl RenderOnce for HandoffPicker {
                     .px(px(PAD_X))
                     .border_t_1()
                     .border_color(p.line)
-                    .ui(FOOT_TEXT)
+                    .ui(TextRole::Caption)
                     .line_height(px(FOOT_LH))
                     .text_color(p.fg_muted)
                     .child(self.note.clone()),

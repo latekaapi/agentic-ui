@@ -15,6 +15,7 @@
 //! order. Either way the open state lives with the host.
 
 use aui_motion::shimmer_text;
+use aui_tokens::TextRole;
 use aui_protocol::DiffStat;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
@@ -165,7 +166,7 @@ impl RenderOnce for TurnFold {
                     .cursor_pointer()
                     .role(gpui::Role::Button)
                     .aria_label(label)
-                    .mono(scale::FS_12)
+                    .mono(TextRole::Caption)
                     .on_click(move |_, w, cx| {
                         cx.stop_propagation();
                         if let Some(h) = &open {
@@ -281,11 +282,11 @@ impl RenderOnce for LiveActivityRow {
         };
         let mut row = quiet_status_row(id.clone(), lead)
             .part(div().flex_none().child(verb))
-            .part(div().min_w(px(0.0)).truncate().mono(scale::FS_12).child(self.target));
+            .part(div().min_w(px(0.0)).truncate().mono(TextRole::Caption).child(self.target));
         if let Some(earlier) = earlier_label(self.earlier) {
             row = row.part(div().flex_none().text_color(p.ink_4).child(earlier));
         }
-        row = row.part(div().flex_none().mono(scale::FS_12).text_color(p.ink_4).child(turn_fold_elapsed(self.elapsed_ms)));
+        row = row.part(div().flex_none().mono(TextRole::Caption).text_color(p.ink_4).child(turn_fold_elapsed(self.elapsed_ms)));
         if !self.children.is_empty() {
             row = row.body(fold_body(self.children));
         }
@@ -301,7 +302,7 @@ impl RenderOnce for LiveActivityRow {
             Some(tail) => gpui_kit::base::v_flex()
                 .w_full()
                 .child(row)
-                .child(div().w_full().pl(px(LIVE_TAIL_INDENT)).pb(px(4.0)).mono(scale::FS_12).text_color(p.ink_4).truncate().child(tail))
+                .child(div().w_full().pl(px(LIVE_TAIL_INDENT)).pb(px(4.0)).mono(TextRole::Caption).text_color(p.ink_4).truncate().child(tail))
                 .into_any_element(),
             None => row.into_any_element(),
         }

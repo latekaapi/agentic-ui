@@ -16,6 +16,7 @@
 #![warn(missing_docs)]
 
 use std::path::Path;
+use aui_tokens::TextRole;
 use std::sync::{
     atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering},
     mpsc, Arc, Mutex,
@@ -1555,11 +1556,15 @@ fn drain_side(
 const UNDERLINE_W: f32 = 1.0;
 /// Strikethrough thickness, in px.
 const STRIKE_W: f32 = 1.0;
-/// The grid's text size, in px (the TUI pane's `.tui` size).
-const TERM_PX: f32 = 12.0;
-/// The grid's line height: the design's mono rhythm.
-/// Rationale: `docs/04-design-rules.md` sets mono to 1.6.
-const TERM_LH: f32 = 1.6;
+/// The grid's text size, in px: `TextRole::Mono` (docs/83 §2.4 "code and
+/// terminals").
+fn term_px() -> f32 {
+    TextRole::Mono.spec().size
+}
+/// The grid's line height: `TextRole::Mono`'s whole-pixel line.
+fn term_lh() -> f32 {
+    TextRole::Mono.spec().line_height
+}
 /// Bar-cursor and underline-cursor thickness, in px.
 const CURSOR_BAR_W: f32 = 2.0;
 /// Side padding of the grid text area, from the token scale: the block
@@ -1747,7 +1752,7 @@ fn rgb(c: Rgb) -> gpui::Hsla {
 /// backgrounds, selection, chrome and hit-testing still agree with the text.
 /// Measuring one face while painting another drifted the cursor left
 /// proportionally to the column — never split them again: resolve once via
-/// this helper and paint with it, at [`TERM_PX`].
+/// this helper and paint with it, at [`term_px`].
 fn term_font() -> gpui::Font {
     gpui::font(aui_tokens::scale::FONT_MONO)
 }
@@ -2252,7 +2257,7 @@ impl gpui::RenderOnce for TerminalGrid {
         });
         let palette = cx.aui().colors;
         // Layer 0, measured once (V5): the cell advance of [`term_font`] —
-        // the same face the rows paint in, at the same [`TERM_PX`] size —
+        // the same face the rows paint in, at the same [`term_px`] size —
         // through the window's own text system. One `advance` positions
         // everything: backgrounds, cursor, chrome, selection and the layout
         // probe that reports columns to the pty, while `cell_at` inverts it
@@ -2264,8 +2269,8 @@ impl gpui::RenderOnce for TerminalGrid {
         let font = term_font();
         let font_id = text_system.resolve_font(&font);
         let advance =
-            text_system.ch_advance(font_id, px(TERM_PX)).map(f32::from).unwrap_or(0.0);
-        let line_height = TERM_PX * TERM_LH;
+            text_system.ch_advance(font_id, px(term_px())).map(f32::from).unwrap_or(0.0);
+        let line_height = term_lh();
         // The cursor's ink box, from the same face and size: ascent +
         // descent, centred in the row by `cursor_rect`.
         let glyph_h = cursor_glyph_height(text_system, font_id);
@@ -2299,15 +2304,14 @@ impl gpui::RenderOnce for TerminalGrid {
             }
         }
         // Layer 2: batched same-style text runs, one line per row. Painted
-        // in [`term_font`] at `px(TERM_PX)` (V5) — the same face and size
-        // the advance above was measured from, never the rem-scaled `.mono`
-        // style, whose rendered size follows the text-scale preference and
-        // drifts a fixed-px advance proportionally to the column.
+        // in [`term_font`] at `px(term_px())` (V5) — the same face and size
+        // the advance above was measured from, so a cell's advance and its
+        // painted glyphs never drift apart across the column.
         let mut lines = gpui::div()
             .w_full()
             .font_family(aui_tokens::scale::FONT_MONO)
-            .text_size(px(TERM_PX))
-            .line_height(gpui::relative(TERM_LH));
+            .text_size(px(term_px()))
+            .line_height(px(term_lh()));
         for row in &snapshot.rows {
             let text = if row.text.is_empty() { " ".to_string() } else { row.text.clone() };
             lines = lines.child(
@@ -2577,14 +2581,14 @@ fn block_chrome_el(
         .flex()
         .items_center()
         .justify_center()
-        .mono(scale::FS_11)
+        .mono(TextRole::Micro)
         .text_color(status)
         .child(chrome.glyph.to_string());
     let mut meta = div()
         .flex()
         .flex_row()
         .items_center()
-        .mono(scale::FS_11)
+        .mono(TextRole::Micro)
         .text_color(palette.fg_muted)
         .bg(palette.surface_2)
         .rounded(px(scale::R_SM))
@@ -2603,7 +2607,7 @@ fn block_chrome_el(
                 .ml(px(scale::SP_1))
                 .overflow_hidden()
                 .whitespace_nowrap()
-                .mono(scale::FS_11)
+                .mono(TextRole::Micro)
                 .text_color(palette.ink)
                 .child(
                     gpui::StyledText::new(chrome.command.clone())
@@ -2783,7 +2787,7 @@ fn blink_visible(want_blink: bool, reduce_motion: bool, phase: f32) -> bool {
 /// The cursor's pixel rect `(x, y, w, h)`: the grid cell's position — never
 /// measured from the row text, so wide lines cannot shift it — two cells wide
 /// when it sits on a wide character. The height is the terminal face's ink
-/// box (`ascent + descent` at [`TERM_PX`], measured through the window's text
+/// box (`ascent + descent` at [`term_px`], measured through the window's text
 /// system), centred in the row: glyphs are 12 px centred in a 19.2 px row, so
 /// a full-`line_height` block covers the leading above and below and spills
 /// past the baseline. `glyph_h` is that ink height; pass
@@ -2805,12 +2809,12 @@ fn cursor_rect(
 }
 
 /// The cursor's ink height for the terminal face: `ascent + descent` at
-/// [`TERM_PX`], so the block hugs the glyphs instead of the row's leading.
+/// [`term_px`], so the block hugs the glyphs instead of the row's leading.
 fn cursor_glyph_height(text_system: &gpui::TextSystem, font_id: gpui::FontId) -> f32 {
-    let ascent = text_system.ascent(font_id, gpui::px(TERM_PX));
-    let descent = text_system.descent(font_id, gpui::px(TERM_PX));
+    let ascent = text_system.ascent(font_id, gpui::px(term_px()));
+    let descent = text_system.descent(font_id, gpui::px(term_px()));
     let h: f32 = (ascent + descent).into();
-    if h > 0.0 { h } else { TERM_PX * TERM_LH }
+    if h > 0.0 { h } else { term_lh() }
 }
 
 /// Whole columns for a measured content width, however small the pane is
@@ -3326,7 +3330,7 @@ mod tests {
         }
     }
 
-    /// The cursor fits the text: a 19.2 px row (`TERM_PX * TERM_LH`) with a
+    /// The cursor fits the text: a 19.2 px row (any row taller than the ink) with a
     /// 12 px ink box centres the block 3.6 px down, so it never covers the
     /// leading above or spill below the baseline. Without the fix the rect
     /// is the whole row (`y == 0`, `h == line_height`).

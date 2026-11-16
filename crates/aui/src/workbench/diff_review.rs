@@ -28,14 +28,11 @@ const BOTTOM_H: f32 = 44.0;
 /// `.top{gap:8px;padding:0 10px}`.
 const TOP_GAP: f32 = 8.0;
 const TOP_PAD_X: f32 = 10.0;
-/// The summary line (`.subtle{font-size:12px}`).
-const SUMMARY_TEXT: f32 = 12.0;
 
 
 // ── the files column ────────────────────────────────────────────────────────
 /// `.files{padding:8px;font-size:12px}` and `.files .caps{padding:4px 6px 6px}`.
 const FILES_PAD: f32 = 8.0;
-const FILES_TEXT: f32 = 12.0;
 const CAPS_PAD_TOP: f32 = 4.0;
 const CAPS_PAD_X: f32 = 6.0;
 const CAPS_PAD_BOTTOM: f32 = 6.0;
@@ -46,27 +43,19 @@ const FILE_ROW_GAP: f32 = 7.0;
 const FILE_ROW_PAD_X: f32 = 6.0;
 /// `.f .st{width:12px;font:600 10px mono}`.
 const STATUS_W: f32 = 12.0;
-const STATUS_TEXT: f32 = 10.0;
-/// `.f .c{font:500 10.5px mono}`.
-const COUNTS_TEXT: f32 = 10.5;
 /// `.f .n{width:14px;height:14px;border-radius:4px;font:600 9px/14px mono}`.
 const BADGE: f32 = 14.0;
-const BADGE_TEXT: f32 = 9.0;
 /// The note rows in the column: `height:auto;padding:4px 6px;font-size:11.5px`,
 /// the badge pinned to the top with `margin-top:2px`.
 const NOTE_ROW_PAD_Y: f32 = 4.0;
-const NOTE_ROW_TEXT: f32 = 11.5;
 const NOTE_ROW_BADGE_TOP: f32 = 2.0;
 
 // ── the diff body ───────────────────────────────────────────────────────────
-/// `.body{font:11.5px/1.65 mono}`.
-const DIFF_TEXT: f32 = 11.5;
 const DIFF_LH: f32 = 1.65;
 /// `.fh{height:30px;gap:8px;padding:0 12px;font:12px ui}` with a 12 px file glyph.
 const FILE_HEAD_H: f32 = 30.0;
 const FILE_HEAD_GAP: f32 = 8.0;
 const FILE_HEAD_PAD_X: f32 = 12.0;
-const FILE_HEAD_TEXT: f32 = 12.0;
 const FILE_HEAD_GLYPH: f32 = 12.0;
 /// `.pill{height:16px;padding:0 6px}` in the file header.
 const COUNT_PILL_H: f32 = 16.0;
@@ -74,7 +63,6 @@ const COUNT_PILL_PAD_X: f32 = 6.0;
 /// `.hunk{padding:2px 12px;font-size:11px;gap:8px}` with the 12 px `.chev` turned 90°.
 const HUNK_PAD_Y: f32 = 2.0;
 const HUNK_PAD_X: f32 = 12.0;
-const HUNK_TEXT: f32 = 11.0;
 const HUNK_GAP: f32 = 8.0;
 const HUNK_CHEV: f32 = 12.0;
 /// `.ln{padding-right:8px}`; `.ln .gutter{width:36px;padding-right:8px}`; `.ln .g2{width:26px;padding-right:8px}`.
@@ -96,7 +84,6 @@ const NOTE_MB: f32 = 6.0;
 const NOTE_ML: f32 = 70.0;
 const NOTE_PAD_Y: f32 = 6.0;
 const NOTE_PAD_X: f32 = 8.0;
-const NOTE_TEXT: f32 = 12.0;
 const NOTE_LH: f32 = 1.4;
 /// `.note .caps{margin-bottom:2px}`; the saved row is `margin-top:4px;gap:4px`,
 /// the pending one `margin-top:6px;gap:6px`.
@@ -112,7 +99,6 @@ const NOTE_PENDING_GAP: f32 = 6.0;
 /// `.bot{gap:8px;padding:0 12px}` with `.actions .hint{font-size:11px}`.
 const BOTTOM_GAP: f32 = 8.0;
 const BOTTOM_PAD_X: f32 = 12.0;
-const HINT_TEXT: f32 = 11.0;
 /// `.mark{width:12px;height:12px;margin:0 2px}` inside the primary button,
 /// whose own `gap:6px` sits either side of it.
 const SEND_MARK: f32 = 12.0;
@@ -342,21 +328,19 @@ fn note_badge(p: &Palette, label: String) -> impl IntoElement {
         .flex()
         .items_center()
         .justify_center()
-        .mono(BADGE_TEXT)
+        .mono(TextRole::Micro)
         .line_height(px(BADGE))
         .semibold()
         .text_color(gpui::white())
         .child(label)
 }
 
-/// `.caps`: the column headers, uppercased by the caller because gpui has no
-/// text-transform. `.caps` fixes no line height, so it keeps the inherited
-/// `--lh-ui` rather than the 1.0 of [`TextRole::Caps`].
+/// The column headers: sentence-case Caption in `fg-muted` (docs/83 §2.4).
 fn column_caps(p: &Palette, label: &'static str, top: f32) -> impl IntoElement {
-    div().pt(px(top)).px(px(CAPS_PAD_X)).pb(px(CAPS_PAD_BOTTOM)).ui(scale::FS_11).semibold().text_color(p.fg_muted).child(label)
+    div().pt(px(top)).px(px(CAPS_PAD_X)).pb(px(CAPS_PAD_BOTTOM)).text_role(TextRole::Caption).text_color(p.fg_muted).child(label)
 }
 
-/// `.note` under a diff row: the numbered caps line, the body (a textarea while
+/// `.note` under a diff row: the numbered label line, the body (a textarea while
 /// pending) and the Edit / Delete or Cancel / Add note actions.
 fn review_note(p: &Palette, id: ElementId, index: usize, note: &ReviewNote, on_action: Option<Handler>) -> impl IntoElement {
     let emit = |action: DiffReviewAction| {
@@ -382,14 +366,14 @@ fn review_note(p: &Palette, id: ElementId, index: usize, note: &ReviewNote, on_a
         .border_1()
         .border_color(p.line)
         .bg(p.surface_2)
-        .ui(NOTE_TEXT)
+        .ui(TextRole::Caption)
         .line_height(relative(NOTE_LH))
         .text_color(p.ink);
     let el = el
         .child(
             div()
                 .mb(px(NOTE_CAPS_GAP))
-                .text_role(TextRole::Caps)
+                .text_role(TextRole::Caption)
                 .line_height(relative(NOTE_LH))
                 .text_color(p.accent_ink)
                 .child(format!("NOTE {} · LINE {}", index + 1, note.line)),
@@ -468,7 +452,7 @@ impl RenderOnce for DiffReview {
             // The summary is the lowest-priority header text: it shrinks first
             // and truncates with an ellipsis, so the scope/view controls,
             // search and Collapse survive intact at narrow widths.
-            div().flex_initial().min_w(px(0.0)).truncate().ui(SUMMARY_TEXT).text_color(p.fg_muted).child(StyledText::new(text).with_runs(runs))
+            div().flex_initial().min_w(px(0.0)).truncate().ui(TextRole::Caption).text_color(p.fg_muted).child(StyledText::new(text).with_runs(runs))
         });
         // The header wraps to a second line below ~460 px instead of clipping:
         // every control stays full-size and clickable down to the 280 px pane
@@ -505,8 +489,8 @@ impl RenderOnce for DiffReview {
             .overflow_y_scroll()
             .border_r_1()
             .border_color(p.line)
-            .ui(FILES_TEXT)
-            .child(column_caps(&p, "CHANGED FILES", CAPS_PAD_TOP));
+            .ui(TextRole::Caption)
+            .child(column_caps(&p, "Changed files", CAPS_PAD_TOP));
         for (i, file) in self.files.iter().enumerate() {
             let row_id: ElementId = (id.clone(), SharedString::from(format!("file-{i}"))).into();
             let (letter, letter_color) = change_letter(file.change.change, &p);
@@ -524,17 +508,17 @@ impl RenderOnce for DiffReview {
                 .text_color(if file.selected { p.ink } else { p.fg_muted })
                 .paint_states(StatePaint::new().selected(file.selected), &p)
                 .on_click(emit(DiffReviewAction::SelectFile(path)))
-                .child(div().flex_none().w(px(STATUS_W)).flex().justify_center().mono(STATUS_TEXT).line_height(relative(1.0)).semibold().text_color(letter_color).child(letter))
+                .child(div().flex_none().w(px(STATUS_W)).flex().justify_center().mono(TextRole::Micro).line_height(relative(1.0)).semibold().text_color(letter_color).child(letter))
                 .child(div().min_w(px(0.0)).truncate().child(name));
             if file.notes > 0 {
                 row = row.child(note_badge(&p, file.notes.to_string()));
             }
             files = files.child(
                 row.child(div().flex_1())
-                    .child(div().flex_none().mono(COUNTS_TEXT).line_height(relative(1.0)).medium().text_color(p.fg_muted).child(counts(file.change.added, file.change.removed))),
+                    .child(div().flex_none().mono(TextRole::Micro).line_height(relative(1.0)).medium().text_color(p.fg_muted).child(counts(file.change.added, file.change.removed))),
             );
         }
-        files = files.child(column_caps(&p, "NOTES", NOTES_CAPS_TOP));
+        files = files.child(column_caps(&p, "Notes", NOTES_CAPS_TOP));
         for (i, note) in self.notes.iter().enumerate() {
             let summary = note.summary.clone().unwrap_or_else(|| note.text.clone());
             files = files.child(
@@ -545,7 +529,7 @@ impl RenderOnce for DiffReview {
                     .gap(px(FILE_ROW_GAP))
                     .py(px(NOTE_ROW_PAD_Y))
                     .px(px(FILE_ROW_PAD_X))
-                    .ui(NOTE_ROW_TEXT)
+                    .ui(TextRole::Micro)
                     .text_color(p.fg_muted)
                     .child(div().flex_none().mt(px(NOTE_ROW_BADGE_TOP)).child(note_badge(&p, (i + 1).to_string())))
                     .child(div().min_w(px(0.0)).child(format!("line {} · {}", note.line, summary))),
@@ -563,17 +547,17 @@ impl RenderOnce for DiffReview {
             .bg(p.surface_2)
             .border_b_1()
             .border_color(p.line)
-            .ui(FILE_HEAD_TEXT)
+            .ui(TextRole::Caption)
             .line_height(relative(1.0))
             .text_color(p.ink)
             .child(icon(IconName::File).size(px(FILE_HEAD_GLYPH)).color(p.ink))
-            .child(div().min_w(px(0.0)).truncate().mono(FILE_HEAD_TEXT).child(SharedString::from(self.diff.path.clone())))
+            .child(div().min_w(px(0.0)).truncate().mono(TextRole::Caption).child(SharedString::from(self.diff.path.clone())))
             .child(pill(counts(self.diff.added, self.diff.removed)).variant(PillVariant::Success).height(COUNT_PILL_H).padding_x(COUNT_PILL_PAD_X))
             .child(div().flex_1())
             .child(button((id.clone(), "open"), "Open in editor").xs().ghost().on_click(emit(DiffReviewAction::OpenInEditor)))
             .child(button((id.clone(), "stage"), "Stage").xs().ghost().on_click(emit(DiffReviewAction::Stage)));
 
-        let mut body = v_flex().id((id.clone(), "body")).flex_1().min_w(px(0.0)).min_h(px(0.0)).h_full().overflow_hidden().overflow_y_scroll().scroll_axis_locked().mono(DIFF_TEXT).line_height(relative(DIFF_LH)).text_color(p.ink).child(file_head);
+        let mut body = v_flex().id((id.clone(), "body")).flex_1().min_w(px(0.0)).min_h(px(0.0)).h_full().overflow_hidden().overflow_y_scroll().scroll_axis_locked().mono(TextRole::Micro).line_height(relative(DIFF_LH)).text_color(p.ink).child(file_head);
         for (h, hunk) in self.diff.hunks.iter().enumerate() {
             body = body.child(
                 h_flex()
@@ -586,7 +570,7 @@ impl RenderOnce for DiffReview {
                     .border_t_1()
                     .border_b_1()
                     .border_color(p.line)
-                    .text_px(HUNK_TEXT)
+                    .role_size(TextRole::Micro)
                     .text_color(p.fg_muted)
                     .child(icon(IconName::Chev).size(px(HUNK_CHEV)).color(p.fg_muted).rotate(gpui::radians(std::f32::consts::FRAC_PI_2)))
                     .child(div().min_w(px(0.0)).truncate().child(SharedString::from(hunk.header.clone()))),
@@ -684,7 +668,7 @@ impl RenderOnce for DiffReview {
             .bg(p.surface_2)
             .border_t_1()
             .border_color(p.line)
-            .child(div().flex_initial().min_w(px(0.0)).truncate().ui(HINT_TEXT).text_color(p.fg_muted).child(hint))
+            .child(div().flex_initial().min_w(px(0.0)).truncate().ui(TextRole::Micro).text_color(p.fg_muted).child(hint))
             .child(div().flex_1())
             .child(button((id.clone(), "clear"), "Clear").sm().ghost().on_click(emit(DiffReviewAction::Clear)))
             .child(send.on_click(emit(DiffReviewAction::Send)));

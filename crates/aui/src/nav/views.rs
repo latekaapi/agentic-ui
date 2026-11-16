@@ -2,7 +2,7 @@
 //! (with nested children) and date.
 //!
 //! Every grouping renders the same row (`.sr`, [`crate::nav::compact_session_row`]);
-//! only the headers above the rows change. The panel body starts at the caps
+//! only the headers above the rows change. The panel body starts at the label
 //! group row that carries the sliders icon (the view-options menu) and ends
 //! with the last row; the primary nav above it belongs to the sidebar, not to
 //! the view.
@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
 use aui_motion::collapse;
-use aui_tokens::{scale, scaled, ActiveAui, AuiStyled, TextRole};
+use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{
     div, font, prelude::*, px, radians, AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
     Pixels, SharedString, Style, TextRun, Window,
@@ -44,16 +44,12 @@ const PJ_PLAIN_PAD: f32 = NAV_GUTTER + LEADING_BOX / 2.0 - PJ_MARGIN_X;
 const FOLD_H: f32 = 28.0;
 /// `.fold .chev{width:12px}`.
 const FOLD_CHEVRON: f32 = 12.0;
-/// The plain group name: small muted label, not caps.
-const PJ_TEXT: f32 = scale::FS_11;
 /// `.pj .chev{width:11px;height:11px}` — one pixel smaller than the shared
 /// `.chev`, so this row rotates its own glyph.
 const PJ_CHEVRON: f32 = 11.0;
 /// The project mark on a group row: 18 px, as the sidebar header draws it.
 /// Drawn only when a caller passes one explicitly; the default row is plain.
 const GROUP_MARK: f32 = 18.0;
-/// The trailing branch: mono 11 fg-muted, truncating.
-const TRAIL_TEXT: f32 = scale::FS_11;
 const TRAIL_MAX: f32 = 120.0;
 /// The project name never shrinks below this while the branch still has room:
 /// the branch yields first and collapses toward zero, and only once it is
@@ -95,7 +91,7 @@ const TRAY_TOP: f32 = 6.0;
 const TRAY_GAP: f32 = 2.0;
 const TRAY_PAD: f32 = 1.0;
 const TRAY_GLYPH: f32 = 12.0;
-/// `.dg{gap:8px;height:26px;padding:0 12px;margin-top:8px;font-size:11px;font-weight:600;text-transform:uppercase}`.
+/// `.dg{gap:8px;height:26px;padding:0 12px;margin-top:8px;}` with a Caption sentence-case label.
 const DG_GAP: f32 = 8.0;
 const DG_H: f32 = 26.0;
 const DG_PAD_X: f32 = 12.0;
@@ -306,7 +302,7 @@ impl ProjectGroup {
     }
 }
 
-/// A date group: the `.dg` caps header with its hairline rule, and the flat
+/// A date group: the `.dg` label header with its hairline rule, and the flat
 /// rows under it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DateGroup {
@@ -331,7 +327,7 @@ pub enum Grouping {
     Status(Vec<StatusGroup>),
     /// Project rows with nested sessions and child sessions.
     Project(Vec<ProjectGroup>),
-    /// Flat rows under caps date headers.
+    /// Flat rows under date label headers.
     Date(Vec<DateGroup>),
 }
 
@@ -387,7 +383,7 @@ pub fn sidebar_view(id: impl Into<ElementId>, grouping: impl Into<Rc<Grouping>>)
 }
 
 impl SidebarView {
-    /// The caps group row above the groups (`Workspaces`, `Projects`,
+    /// The group label row above the groups (`Workspaces`, `Projects`,
     /// `Recent`). It carries the sliders icon when [`Self::on_view_options`]
     /// is set.
     pub fn caption(mut self, caption: impl Into<SharedString>) -> Self {
@@ -662,7 +658,7 @@ pub(crate) fn fold_row(
         .mr(px(PJ_MARGIN_X))
         .rounded(px(scale::R_SM))
         .paint_states(StatePaint::new(), &p)
-        .ui(scale::FS_12)
+        .ui(TextRole::Caption)
         .text_color(p.fg_muted)
         .cursor_pointer()
         .child(glyph)
@@ -1139,7 +1135,7 @@ fn branch_natural_width(text: &SharedString, window: &mut Window, cx: &mut App) 
         underline: None,
         strikethrough: None,
     };
-    window.text_system().layout_line(text, scaled(TRAIL_TEXT).to_pixels(window.rem_size()), &[run], None).width
+    window.text_system().layout_line(text, TextRole::Micro.size(), &[run], None).width
 }
 
 impl IntoElement for BranchDrop {
@@ -1241,7 +1237,7 @@ impl RenderOnce for ProjectGroupRow {
                 .ml(px(PJ_MARGIN_X))
                 .mr(px(PJ_MARGIN_X))
                 .mt(px(PJ_MARGIN_TOP))
-                .ui(PJ_TEXT)
+                .ui(TextRole::Micro)
                 .text_color(p.fg_muted)
                 .cursor_pointer()
                 .hover_group();
@@ -1329,7 +1325,7 @@ impl RenderOnce for ProjectGroupRow {
                 trailing.clone(),
                 div()
                     .min_w(px(0.0))
-                    .mono(TRAIL_TEXT)
+                    .mono(TextRole::Micro)
                     .text_color(p.fg_muted)
                     .max_w(px(TRAIL_MAX))
                     .truncate()
@@ -1375,9 +1371,9 @@ impl RenderOnce for DateGroupHeader {
             .mt(px(scale::SP_3))
             .gap(px(DG_GAP))
             .px(px(DG_PAD_X))
-            .text_role(TextRole::Caps)
+            .text_role(TextRole::Caption)
             .text_color(p.fg_muted)
-            .child(div().flex_none().child(self.label.to_uppercase()))
+            .child(div().flex_none().child(self.label.clone()))
             .child(div().flex_1().h(px(DG_RULE)).bg(p.line))
     }
 }

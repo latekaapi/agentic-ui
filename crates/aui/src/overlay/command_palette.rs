@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{presence, EnterExit, PresenceStyle};
-use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Density, Palette, TextRole};
+use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette, TextRole};
 use gpui::{
     div, prelude::*, px, App, ElementId, FontWeight, HighlightStyle, Hsla, IntoElement, ScrollHandle,
     SharedString, StyledText, Window,
@@ -42,7 +42,6 @@ const Q_H: f32 = 46.0;
 const BODY_MAX_H: f32 = 320.0;
 const Q_GAP: f32 = 10.0;
 const Q_PAD_X: f32 = 14.0;
-const Q_TEXT: f32 = scale::FS_14;
 const Q_ICON: f32 = 16.0;
 
 /// A section's padding, and its group label's (sentence case, `t-caption`
@@ -70,7 +69,6 @@ const BADGE_H: f32 = 16.0;
 const FT_H: f32 = 32.0;
 const FT_GAP: f32 = 14.0;
 const FT_PAD_X: f32 = 14.0;
-const FT_TEXT: f32 = scale::FS_11;
 /// The single space between a footer keycap and its word (`<span class="kbd">↩
 /// </span> open`), which flex cannot express as a text node here.
 const FT_KEY_GAP: f32 = 4.0;
@@ -507,7 +505,7 @@ fn query_row(
         .px(px(Q_PAD_X))
         .border_b_1()
         .border_color(p.line)
-        .ui(Q_TEXT)
+        .ui(TextRole::Subtitle)
         .child(icon(IconName::Search).size(px(Q_ICON)).color(p.fg_muted))
         .child(text)
         .child(esc)
@@ -546,7 +544,7 @@ fn palette_row(
         .px(px(ITEM_PAD_X))
         .rounded(px(R_ITEM))
         .paint_states(StatePaint::new().pointer(false).highlighted(on).ink(p.fg_muted, p.ink), p)
-        .text_role_in(TextRole::Body, Density::Standard)
+        .text_role(TextRole::Body)
         .cursor_pointer();
     // The old per-section block ended in bottom padding; the flattened body
     // moves it onto the section's last row, so sections keep their spacing.
@@ -593,7 +591,7 @@ fn palette_row(
                 .flex_shrink(1.0)
                 .min_w(px(0.0))
                 .truncate()
-                .text_role_in(TextRole::Caption, Density::Standard)
+                .text_role(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child(context),
         );
@@ -635,7 +633,7 @@ fn footer(p: &Palette) -> impl IntoElement {
         .px(px(FT_PAD_X))
         .border_t_1()
         .border_color(p.line)
-        .ui(FT_TEXT)
+        .ui(TextRole::Micro)
         .text_color(p.fg_muted)
         .child(footer_hint("↑↓", "navigate"))
         .child(footer_hint("↩", "open"))

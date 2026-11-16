@@ -145,14 +145,14 @@ impl ToastData {
         self
     }
 
-    /// The toast's resting height, derived from its CSS box: 10 px padding top
-    /// and bottom, the 13/1.3 title, the 2 px row gap, the 12/1.5 body, the
-    /// 1 px borders and — when it carries actions — 10 px plus the 20 px xs
-    /// control. [`ToastStack`] needs it to know how far to fan the stack out;
-    /// gpui cannot measure a sibling during layout.
-    pub fn height(&self, text_scale: f32) -> f32 {
-        let title = scale::FS_13 * text_scale * scale::LH_TIGHT;
-        let body = scale::FS_12 * text_scale * scale::LH_UI;
+    /// The toast's resting height, derived from its box: 10 px padding top
+    /// and bottom, the Subtitle title line, the 2 px row gap, the Caption
+    /// body line, the 1 px borders and — when it carries actions — 10 px plus
+    /// the 20 px xs control. [`ToastStack`] needs it to know how far to fan
+    /// the stack out; gpui cannot measure a sibling during layout.
+    pub fn height(&self) -> f32 {
+        let title = f32::from(TextRole::Subtitle.line_height());
+        let body = f32::from(TextRole::Caption.line_height());
         let actions = if self.actions.is_empty() { 0.0 } else { ACTIONS_TOP + scale::H_XS };
         TOAST_PAD_Y * 2.0 + 2.0 + title + ROW_GAP + body + actions
     }
@@ -235,7 +235,7 @@ impl RenderOnce for Toast {
             .flex_1()
             .min_w(px(0.0))
             .child(div().text_role(TextRole::Subtitle).text_color(p.ink).child(self.data.title.clone()))
-            .child(div().mt(px(ROW_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child(self.data.body.clone()));
+            .child(div().mt(px(ROW_GAP)).ui(TextRole::Caption).text_color(p.fg_muted).child(self.data.body.clone()));
         if !self.data.actions.is_empty() {
             let mut row = h_flex().mt(px(ACTIONS_TOP)).gap(px(ACTIONS_GAP));
             for (i, action) in self.data.actions.iter().enumerate() {
@@ -363,7 +363,6 @@ impl ToastStack {
 impl RenderOnce for ToastStack {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let id = self.id.clone();
-        let text_scale = cx.aui().text_scale;
         let (state, flags) = interaction_flags(id.clone(), window, cx);
         let hovered = self.hovered.unwrap_or(flags.hovered);
         // The fan travels on the layout spring, like every other size change.
@@ -385,7 +384,7 @@ impl RenderOnce for ToastStack {
             let measured = heights.borrow();
             for index in (0..count).rev() {
                 fanned[index] = offset;
-                let card = measured.get(&self.toasts[index].id).copied().unwrap_or_else(|| self.toasts[index].height(text_scale));
+                let card = measured.get(&self.toasts[index].id).copied().unwrap_or_else(|| self.toasts[index].height());
                 offset += card + FAN_GAP;
             }
         }

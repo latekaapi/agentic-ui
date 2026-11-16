@@ -7,6 +7,7 @@
 //! `AUI_GALLERY_STEPS` harness so `--screenshot screens/browse` can capture
 //! a chosen state.
 
+use aui_tokens::TextRole;
 use aui::browse::agent_window::{
     agent_card, agent_column, agent_line, AgentItem, AgentTranscript, CardIntent, LineIntent, LineState, Step, StepState,
 };
@@ -1334,7 +1335,7 @@ impl BrowseView {
                         .border_1()
                         .border_color(p.line)
                         .bg(p.overlay)
-                        .ui(scale::FS_12)
+                        .ui(TextRole::Caption)
                         .text_color(p.fg_muted)
                         .role(Role::Status)
                         .aria_label(text)
@@ -1361,7 +1362,7 @@ impl BrowseView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .ui(scale::FS_13)
+                .ui(TextRole::Body)
                 .text_color(cx.aui().colors.fg_muted)
                 .role(Role::Label)
                 .aria_label("No tabs — ⌘T for a new tab")
@@ -1536,7 +1537,7 @@ impl BrowseView {
                     .p(px(12.0))
                     .rounded(px(scale::R_SM))
                     .bg(cx.aui().colors.surface_2)
-                    .ui(scale::FS_13)
+                    .ui(TextRole::Body)
                     .text_color(cx.aui().colors.ink)
                     .child(answer),
             ),
@@ -1616,7 +1617,7 @@ impl BrowseView {
             .border_color(p.line)
             .bg(p.overlay)
             .child(task_face(TaskFace::Done))
-            .child(div().flex_1().min_w(px(0.0)).ui(scale::FS_13).text_color(p.ink).child("Done — the comparison is ready"))
+            .child(div().flex_1().min_w(px(0.0)).ui(TextRole::Body).text_color(p.ink).child("Done — the comparison is ready"))
             .child(button("browse-done-open", "Open answer").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 let answer = this.story.tabs().iter().position(|t| t.page == StoryPage::Answer);
                 match answer {
@@ -1659,7 +1660,7 @@ impl BrowseView {
             .border_color(p.line)
             .bg(p.overlay)
             .child(task_face(TaskFace::Paused))
-            .child(div().flex_1().min_w(px(0.0)).ui(scale::FS_13).text_color(p.ink).child(label))
+            .child(div().flex_1().min_w(px(0.0)).ui(TextRole::Body).text_color(p.ink).child(label))
             .child(
                 icon_button("browse-stopped-close", IconName::X)
                     .accessibility_label("Close")
@@ -1806,7 +1807,7 @@ impl BrowseView {
                     .flex()
                     .flex_row()
                     .justify_center()
-                    .ui(scale::FS_11)
+                    .ui(TextRole::Micro)
                     .text_color(p.fg_muted)
                     .child(caption),
             );
@@ -1848,7 +1849,7 @@ impl BrowseView {
                         .border_1()
                         .border_color(p.line)
                         .bg(p.overlay)
-                        .ui(scale::FS_12)
+                        .ui(TextRole::Caption)
                         .text_color(p.fg_muted)
                         .role(Role::Status)
                         .aria_label("Attach: Tab · File · Screenshot")

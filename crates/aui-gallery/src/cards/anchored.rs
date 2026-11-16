@@ -7,6 +7,7 @@
 //! with `on_children_prepainted` and handed back to the seat — never guessed.
 
 use aui::nav::{view_menu, MenuRow};
+use aui_tokens::TextRole;
 use aui::overlay::{anchored_menu, MenuAlign, MenuSide};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
@@ -75,7 +76,7 @@ fn trigger(state: Entity<AnchoredCard>, index: usize, label: &'static str, x: f3
                 .border_1()
                 .border_color(p.line_strong)
                 .bg(p.surface_1)
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child(label),
         )
@@ -105,7 +106,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     v_flex()
         .w_full()
         .child(
-            div().mb(px(NOTE_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child(
+            div().mb(px(NOTE_GAP)).ui(TextRole::Caption).text_color(p.fg_muted).child(
                 "Every trigger menu seats below-start of its trigger, flips above near the window bottom, and slides to stay inside — all four through anchored_menu.",
             ),
         )

@@ -3,7 +3,8 @@
 //! passage highlighted.
 
 use aui_icons::{icon, IconName};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::TextRole;
+use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::{div, font, prelude::*, px, relative, AnyElement, App, ElementId, Font, FontWeight, IntoElement, SharedString, StyledText, TextRun, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -28,15 +29,10 @@ const AREA_PAD: f32 = 20.0;
 const PAGE_W: f32 = 340.0;
 const PAGE_PAD_Y: f32 = 34.0;
 const PAGE_PAD_X: f32 = 36.0;
-const PAGE_TEXT: f32 = 11.5;
 const PAGE_LH: f32 = 1.6;
-/// `.pg h2{font:600 12px/1.4 ui;margin-bottom:10px}`; `.pg p{margin-bottom:9px}`.
-const HEADING_TEXT: f32 = 12.0;
 const HEADING_LH: f32 = 1.4;
 const HEADING_GAP: f32 = 10.0;
 const PARAGRAPH_GAP: f32 = 9.0;
-/// The footer line: 10.5 px, margin-top 22.
-const FOOTER_TEXT: f32 = 10.5;
 const FOOTER_TOP: f32 = 22.0;
 /// `.hl{background:rgba(accent,.16)}`.
 const HIGHLIGHT_ALPHA: f32 = 0.16;
@@ -212,11 +208,11 @@ impl RenderOnce for PdfPane {
             .px(px(TOOL_PAD))
             .border_b_1()
             .border_color(p.line)
-            .ui(scale::FS_12);
+            .ui(TextRole::Caption);
         if controls.pages {
             toolbar = toolbar
                 .child(ghost("prev", IconName::ArrowLeft).on_click(emit(PdfAction::Prev)))
-                .child(sel(div()).child(div().mono(scale::FS_12).child(self.page_no.to_string())).child(div().text_color(p.fg_muted).child(format!("/ {}", self.page_count))))
+                .child(sel(div()).child(div().mono(TextRole::Caption).child(self.page_no.to_string())).child(div().text_color(p.fg_muted).child(format!("/ {}", self.page_count))))
                 .child(ghost("next", IconName::ArrowRight).on_click(emit(PdfAction::Next)));
         }
         if controls.pages && (controls.zoom || controls.search) {
@@ -262,15 +258,15 @@ impl RenderOnce for PdfPane {
                     .border_1()
                     .border_color(p.line)
                     .font_family(PAPER_SERIF)
-                    .text_px(PAGE_TEXT)
+                    .role_size(TextRole::Micro)
                     .line_height(relative(PAGE_LH))
                     .text_color(paper_ink)
-                    .child(div().mb(px(HEADING_GAP)).ui(HEADING_TEXT).line_height(relative(HEADING_LH)).semibold().text_color(paper_ink).child(self.page.heading.clone()));
+                    .child(div().mb(px(HEADING_GAP)).ui(TextRole::Caption).line_height(relative(HEADING_LH)).semibold().text_color(paper_ink).child(self.page.heading.clone()));
                 let count = self.page.paragraphs.len();
                 for (i, para) in self.page.paragraphs.iter().enumerate() {
                     text = text.child(div().w_full().when(i + 1 < count, |d| d.mb(px(PARAGRAPH_GAP))).child(paragraph(para, paper_ink, highlight)));
                 }
-                text.child(div().mt(px(FOOTER_TOP)).text_px(FOOTER_TEXT).text_color(gpui::rgb(PAPER_MUTED)).child(self.page.footer.clone())).into_any_element()
+                text.child(div().mt(px(FOOTER_TOP)).role_size(TextRole::Micro).text_color(gpui::rgb(PAPER_MUTED)).child(self.page.footer.clone())).into_any_element()
             }
         };
 

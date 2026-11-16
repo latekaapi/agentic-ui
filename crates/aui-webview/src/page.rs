@@ -16,15 +16,14 @@
 //! geometry instead of pretending.
 
 use aui::workbench::{agent_action_pill, annotation_pin, element_outline, note_popover};
-use aui_tokens::{light, scale, AuiStyled, Palette};
+use aui_tokens::TextRole;
+use aui_tokens::{light, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, Div, FontWeight, IntoElement, SharedString};
 use gpui_kit::base::{h_flex, v_flex};
 
 /// `.page{padding:30px 36px}`.
 const PAGE_PAD_Y: f32 = 30.0;
 const PAGE_PAD_X: f32 = 36.0;
-/// `.page h1{font-size:24px;margin:0 0 6px}`.
-const H1_SIZE: f32 = 24.0;
 const H1_GAP: f32 = 6.0;
 /// `.page p{font-size:13px;margin:0 0 18px;max-width:50ch}` — 50ch of Geist 13.
 const LEAD_GAP: f32 = 18.0;
@@ -34,9 +33,6 @@ const CARDS_GAP: f32 = 14.0;
 const CARD_W: f32 = 150.0;
 const CARD_RADIUS: f32 = 10.0;
 const CARD_PAD: f32 = 14.0;
-const CARD_TEXT: f32 = 12.0;
-/// `.pc b{font-size:14px;margin-bottom:6px}`.
-const CARD_TITLE: f32 = 14.0;
 const CARD_TITLE_GAP: f32 = 6.0;
 /// `.pc .cta{margin-top:10px;padding:6px 10px;border-radius:6px}`.
 const CTA_TOP: f32 = 10.0;
@@ -174,13 +170,13 @@ pub fn page_body() -> Div {
         .px(px(PAGE_PAD_X))
         .bg(w.surface_1)
         .text_color(w.ink)
-        .ui(scale::FS_13)
-        .child(div().mb(px(H1_GAP)).ui(H1_SIZE).font_weight(FontWeight::BOLD).child("Simple pricing"))
+        .ui(TextRole::Body)
+        .child(div().mb(px(H1_GAP)).ui(TextRole::H1).font_weight(FontWeight::BOLD).child("Simple pricing"))
         .child(
             div()
                 .mb(px(LEAD_GAP))
                 .max_w(px(LEAD_MEASURE))
-                .ui(scale::FS_13)
+                .ui(TextRole::Body)
                 .text_color(w.fg_muted)
                 .child("Start free, upgrade when your team needs it. All plans include unlimited worktrees."),
         )
@@ -204,8 +200,8 @@ fn plan_card(w: Palette, title: &'static str, price: &'static str, detail: &'sta
         .rounded(px(CARD_RADIUS))
         .border_1()
         .border_color(w.line)
-        .ui(CARD_TEXT)
-        .child(div().mb(px(CARD_TITLE_GAP)).ui(CARD_TITLE).font_weight(FontWeight::BOLD).child(title))
+        .ui(TextRole::Caption)
+        .child(div().mb(px(CARD_TITLE_GAP)).ui(TextRole::Subtitle).font_weight(FontWeight::BOLD).child(title))
         .child(div().child(price))
         .child(div().child(detail))
         // The CTA is an inline-block: it hugs its label on its own line.

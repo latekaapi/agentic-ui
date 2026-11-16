@@ -2,6 +2,7 @@
 //! re-expanded. Reproduces `design/src/cards/transcript/32-thinking.html` at 760×520.
 
 use aui::protocol::ThinkingState;
+use aui_tokens::TextRole;
 use aui::transcript::thinking_block;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::*;
@@ -45,7 +46,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .mt(px(scale::SP_4) - px(BLOCK_GAP))
                 .max_w(px(NOTE_MEASURE))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child("D4: a quiet row — no surface. While it streams, \"Thinking\" shimmers with its elapsed and the trace shows capped, 32 in from the measure, under a 34 px top fade; once done it reads \"Thought for 4.2 s · summary\" and the whole row toggles the trace."),
         )

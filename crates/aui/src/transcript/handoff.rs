@@ -30,18 +30,13 @@ use crate::overlay::{dialog, Dialog};
 const HEAD_PAD_Y: f32 = 10.0;
 const HEAD_PAD_X: f32 = 12.0;
 const HEAD_GAP: f32 = 8.0;
-const TITLE_TEXT: f32 = 13.0;
-const SOURCE_TEXT: f32 = 11.5;
 const MARK: f32 = 16.0;
 const ARROW: f32 = 12.0;
-/// Body rhythm: 12 px list text, caps section labels, 8 px section gaps.
+/// Body rhythm: Caption list text, sentence-case section labels, 8 px section gaps.
 const BODY_PAD_X: f32 = 12.0;
 const BODY_PAD_BOTTOM: f32 = 10.0;
 const BODY_GAP: f32 = 8.0;
 const SECTION_GAP_TOP: f32 = 8.0;
-const ITEM_TEXT: f32 = 12.5;
-const DETAIL_TEXT: f32 = 12.0;
-const STATE_TEXT: f32 = 12.0;
 /// The action row: hint, spacer, Cancel, Open.
 const ACTIONS_PAD_Y: f32 = 10.0;
 const ACTIONS_GAP: f32 = 8.0;
@@ -214,17 +209,17 @@ fn carried_list(p: &Palette, carried: &[HandoffItem]) -> AnyElement {
     let mut list =
         v_flex().w_full().gap(px(2.0)).child(div().text_role(TextRole::Caption).text_color(p.fg_muted).child("Carried"));
     if carried.is_empty() {
-        list = list.child(div().ui(ITEM_TEXT).text_color(p.fg_muted).child("Nothing carried over."));
+        list = list.child(div().ui(TextRole::Caption).text_color(p.fg_muted).child("Nothing carried over."));
     }
     for item in carried {
         list = list.child(
             h_flex()
                 .w_full()
                 .gap(px(scale::SP_2))
-                .ui(ITEM_TEXT)
+                .ui(TextRole::Caption)
                 .child(div().flex_none().text_color(p.ink).child(item.label.clone()))
                 .children(item.detail.clone().map(|d| {
-                    div().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).text_color(p.fg_muted).child(format!("· {d}"))
+                    div().min_w(px(0.0)).truncate().ui(TextRole::Caption).text_color(p.fg_muted).child(format!("· {d}"))
                 })),
         );
     }
@@ -237,18 +232,18 @@ fn lost_list(p: &Palette, lost: &[HandoffItem]) -> AnyElement {
     let mut list =
         v_flex().w_full().gap(px(2.0)).child(div().text_role(TextRole::Caption).text_color(p.fg_muted).child("Not carried"));
     if lost.is_empty() {
-        list = list.child(div().ui(ITEM_TEXT).text_color(p.fg_muted).child("Nothing left behind."));
+        list = list.child(div().ui(TextRole::Caption).text_color(p.fg_muted).child("Nothing left behind."));
     }
     for item in lost {
         list = list.child(
             h_flex()
                 .w_full()
                 .gap(px(scale::SP_2))
-                .ui(ITEM_TEXT)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child(div().flex_none().child(item.label.clone()))
                 .children(item.detail.clone().map(|d| {
-                    div().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).child(format!("· {d}"))
+                    div().min_w(px(0.0)).truncate().ui(TextRole::Caption).child(format!("· {d}"))
                 })),
         );
     }
@@ -417,7 +412,7 @@ fn step_list(id: &ElementId, p: &Palette, steps: &[HandoffStep], halted: bool) -
             .w_full()
             .items_center()
             .gap(px(scale::SP_2))
-            .ui(ITEM_TEXT)
+            .ui(TextRole::Caption)
             .text_color(if failed { p.danger } else if dimmed { p.fg_muted } else { p.ink })
             .role(gpui::Role::ListItem)
             .aria_label(label)
@@ -428,7 +423,7 @@ fn step_list(id: &ElementId, p: &Palette, steps: &[HandoffStep], halted: bool) -
                 div()
                     .min_w(px(0.0))
                     .truncate()
-                    .ui(DETAIL_TEXT)
+                    .ui(TextRole::Caption)
                     .text_color(if failed { p.danger } else { p.fg_muted })
                     .child(detail.clone()),
             );
@@ -478,8 +473,8 @@ impl RenderOnce for HandoffCard {
                 v_flex()
                     .flex_1()
                     .min_w(px(0.0))
-                    .child(div().min_w(px(0.0)).truncate().ui(TITLE_TEXT).semibold().text_color(p.ink).child(title))
-                    .child(div().min_w(px(0.0)).truncate().ui(SOURCE_TEXT).text_color(p.fg_muted).child(source)),
+                    .child(div().min_w(px(0.0)).truncate().ui(TextRole::Body).semibold().text_color(p.ink).child(title))
+                    .child(div().min_w(px(0.0)).truncate().ui(TextRole::Micro).text_color(p.fg_muted).child(source)),
             )
             .child(div().flex_none().child(pill(pill_label).variant(pill_variant)));
 
@@ -499,7 +494,7 @@ impl RenderOnce for HandoffCard {
         };
         let failed = matches!(&self.state, HandoffState::Refused { .. } | HandoffState::Failed { .. });
         body = body.child(
-            div().w_full().ui(STATE_TEXT).text_color(if failed { p.danger } else { p.fg_muted }).child(state_line),
+            div().w_full().ui(TextRole::Caption).text_color(if failed { p.danger } else { p.fg_muted }).child(state_line),
         );
 
         // The progress steps while the move is live; settled cards collapse
@@ -607,7 +602,7 @@ pub fn handoff_confirm(
                             div()
                                 .flex_1()
                                 .min_w(px(0.0))
-                                .ui(ITEM_TEXT)
+                                .ui(TextRole::Caption)
                                 .semibold()
                                 .text_color(p.ink)
                                 .child(handoff_confirm_destination(to, &to_model)),
@@ -619,7 +614,7 @@ pub fn handoff_confirm(
                 .child(
                     div()
                         .w_full()
-                        .ui(DETAIL_TEXT)
+                        .ui(TextRole::Caption)
                         .text_color(p.fg_muted)
                         .child(HANDOFF_FRESH_NOTE),
                 )

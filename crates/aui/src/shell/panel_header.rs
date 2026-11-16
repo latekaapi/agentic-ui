@@ -2,7 +2,8 @@
 //! title 600, subtitle fg-muted, spacer, quiet xs actions.
 
 use aui_icons::{icon, IconName};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::TextRole;
+use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::h_flex;
 
@@ -83,7 +84,7 @@ impl RenderOnce for PanelHeader {
             .border_b_1()
             .border_color(p.line)
             .text_color(p.ink)
-            .ui(scale::FS_13);
+            .ui(TextRole::Body);
         if self.grip {
             let mut grip = div().flex_none().w(px(GRIP_W)).h(px(GRIP_H)).relative().cursor_grab();
             let cols = (GRIP_W / GRIP_STEP) as usize;

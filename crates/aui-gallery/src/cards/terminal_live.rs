@@ -9,6 +9,7 @@
 //! at 1500 ms and one at 4000 ms show different amounts of the session.
 
 use aui::data::{icon_button, ButtonSize};
+use aui_tokens::TextRole;
 use aui::shell::{tab_strip, TabItem};
 use aui::workbench::TermPrompt;
 use aui_icons::{IconName, Provider};
@@ -24,8 +25,6 @@ const FRAME_W: f32 = 980.0 - 24.0;
 pub(super) const TERM_FRAME_H: f32 = 690.0;
 /// …and the TUI-only card is 980×560.
 pub(super) const TUI_FRAME_H: f32 = 530.0;
-/// The tab strip's hint text: `font-size:11px;margin-right:8px`.
-const HINT_TEXT: f32 = 11.0;
 const HINT_MARGIN: f32 = 8.0;
 /// Glyphs in the strip's xs buttons are 12 px.
 const XS_GLYPH: f32 = 12.0;
@@ -71,7 +70,7 @@ pub(super) fn strip(key: &'static str, start: usize, window: &mut Window, cx: &m
             })
         })
         .after_tabs(icon_button(sub("add"), IconName::Plus).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)))
-        .trailing(div().mr(px(HINT_MARGIN)).ui(HINT_TEXT).text_color(p.fg_muted).whitespace_nowrap().child("⌘D split right · ⌘⇧D split down"))
+        .trailing(div().mr(px(HINT_MARGIN)).ui(TextRole::Micro).text_color(p.fg_muted).whitespace_nowrap().child("⌘D split right · ⌘⇧D split down"))
         .trailing(icon_button(sub("search"), IconName::Search).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)))
         .trailing(icon_button(sub("split"), IconName::Split).ghost().size(ButtonSize::Xs).icon_size(px(XS_GLYPH)))
 }

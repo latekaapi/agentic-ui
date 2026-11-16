@@ -3,12 +3,13 @@
 //! runs so inline code can switch to the mono face (gpui-kit's markdown view
 //! keeps one font per paragraph).
 
+use aui_tokens::TextRole;
 use std::sync::{Arc, LazyLock};
 
 use aui_tokens::AuiStyled;
 #[cfg(test)]
 use aui_tokens::scale;
-use gpui::{div, prelude::*, px, relative, App, ElementId, Font, FontStyle, FontWeight, Hsla, IntoElement, StrikethroughStyle, StyledText, TextRun, UnderlineStyle, Window};
+use gpui::{div, prelude::*, px, App, ElementId, Font, FontStyle, FontWeight, Hsla, IntoElement, StrikethroughStyle, StyledText, TextRun, UnderlineStyle, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use super::markdown::{mono_font, ui_font, Span};
@@ -41,8 +42,8 @@ pub fn caret_visible(_id: impl Into<gpui_kit::base::TransitionId>, _window: &mut
 
 /// The caret's offset from the top of the line box it closes: centred in the
 /// line, then dropped by `vertical-align`.
-pub fn caret_top_in_line(line_height: gpui::Pixels, caret_height: gpui::Pixels, text_scale: f32) -> gpui::Pixels {
-    (line_height - caret_height) / 2.0 + px(CARET_BASELINE_DROP * text_scale)
+pub fn caret_top_in_line(line_height: gpui::Pixels, caret_height: gpui::Pixels) -> gpui::Pixels {
+    (line_height - caret_height) / 2.0 + px(CARET_BASELINE_DROP)
 }
 
 /// Colours and sizes for a prose block.
@@ -54,10 +55,8 @@ pub struct ProseStyle {
     pub code_ink: Hsla,
     /// Inline code ground.
     pub code_bg: Hsla,
-    /// Body size in design px.
-    pub size: f32,
-    /// Line height ratio.
-    pub line_height: f32,
+    /// The body's text role (size and line height).
+    pub role: TextRole,
     /// Gap between paragraphs.
     pub paragraph_gap: f32,
 }
@@ -184,7 +183,7 @@ pub fn prose(id: impl Into<ElementId>, markdown: &str, style: ProseStyle) -> imp
     let id: ElementId = id.into();
     let blocks = prose_blocks(markdown);
     let count = blocks.len();
-    let mut col = v_flex().w_full().ui(style.size).line_height(relative(style.line_height)).text_color(style.ink);
+    let mut col = v_flex().w_full().ui(style.role).text_color(style.ink);
     for (i, block) in blocks.iter().enumerate() {
         let last = i + 1 == count;
         match block {
@@ -226,7 +225,7 @@ mod tests {
 
     #[test]
     fn shared_string_is_not_needed_for_runs() {
-        let style = ProseStyle { ink: gpui::black(), code_ink: gpui::black(), code_bg: gpui::white(), size: 13.5, line_height: 1.65, paragraph_gap: 10.0 };
+        let style = ProseStyle { ink: gpui::black(), code_ink: gpui::black(), code_bg: gpui::white(), role: TextRole::Body, paragraph_gap: 10.0 };
         let (text, runs) = runs(&parse_inline("a `b` c"), &style);
         assert_eq!(text, "a b c");
         assert_eq!(runs.iter().map(|r| r.len).sum::<usize>(), text.len());
@@ -234,7 +233,7 @@ mod tests {
 
     /// A style with distinguishable colours, for the run assertions.
     fn style() -> ProseStyle {
-        ProseStyle { ink: gpui::black(), code_ink: gpui::red(), code_bg: gpui::white(), size: 13.5, line_height: 1.65, paragraph_gap: 10.0 }
+        ProseStyle { ink: gpui::black(), code_ink: gpui::red(), code_bg: gpui::white(), role: TextRole::Body, paragraph_gap: 10.0 }
     }
 
     #[test]
@@ -345,9 +344,9 @@ mod tests {
 
     #[test]
     fn caret_top_centres_then_drops_by_the_baseline_offset() {
-        let top = caret_top_in_line(px(24.0), px(CARET_H), 1.0);
+        let top = caret_top_in_line(px(24.0), px(CARET_H));
         assert_eq!(top, px((24.0 - CARET_H) / 2.0 + CARET_BASELINE_DROP));
-        // The drop scales with the text, the centring with the line box.
-        assert_eq!(caret_top_in_line(px(24.0), px(CARET_H), 2.0), top + px(CARET_BASELINE_DROP));
+        // The centring follows the line box.
+        assert_eq!(caret_top_in_line(px(26.0), px(CARET_H)), top + px(1.0));
     }
 }

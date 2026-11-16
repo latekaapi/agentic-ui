@@ -25,6 +25,7 @@
 //! ```
 
 use std::{cell::RefCell, rc::Rc};
+use aui_tokens::TextRole;
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
 use aui_motion::{spring_px, SpringKind};
@@ -232,7 +233,7 @@ impl RenderOnce for TerminalTabs {
                 .px(px(TAB_PAD))
                 .paint_states(StatePaint::new().tint(false).ink(if active { p.ink } else { p.fg_muted }, p.ink), &p)
                 .hover_group()
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .whitespace_nowrap()
                 .cursor_pointer()
                 .when(active, |d| d.bg(p.term_bg))
@@ -423,7 +424,7 @@ impl RenderOnce for TerminalDock {
             .border_color(p.line_region)
             .child(div().flex_1().min_w(px(0.0)).flex().child(self.header));
         if let Some(hint) = self.hint {
-            header = header.child(div().flex_none().ui(scale::FS_12).text_color(p.fg_muted).whitespace_nowrap().child(hint));
+            header = header.child(div().flex_none().ui(TextRole::Caption).text_color(p.fg_muted).whitespace_nowrap().child(hint));
         }
         header = header.child(maximize).child(dismiss);
 
@@ -436,7 +437,7 @@ impl RenderOnce for TerminalDock {
                     .items_center()
                     .justify_center()
                     .gap(px(scale::SP_4))
-                    .child(div().ui(scale::FS_13).text_color(p.fg_muted).child("No terminal yet"));
+                    .child(div().ui(TextRole::Body).text_color(p.fg_muted).child("No terminal yet"));
                 let mut new = button((id.clone(), "new-terminal"), "New terminal");
                 if let Some(f) = self.on_action.clone() {
                     new = new.on_click(move |_, w, cx| f(TerminalDockAction::NewTerminal, w, cx));

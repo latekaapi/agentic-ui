@@ -35,22 +35,18 @@ pub use paint::{over, tinted, PaintHover, PaintStates, PaletteSource, StatePaint
 pub use row::{list_row, row, Row};
 pub use surface::{dismiss_layer, menu_panel, nested_radius, surface, Surface, PANEL_PAD};
 
-// ── Flat metrics awaiting tokens ────────────────────────────────────────────
-// docs/83 §2.5 names these values; aui-tokens has no token for them yet.
-// Task 2.3 (docs/82) moves them into tokens.json; until then the primitives
-// read them from here, never as bare literals at call sites.
+// ── Flat list metrics (docs/83 §2.5), each a token ─────────────────────────
+// The one-line row height is density-dependent: read `Metrics::control`.
 
-/// One-line list row height (`ctl-default` flat: 32).
-pub const LIST_ROW_H: f32 = 32.0;
 /// The gap between rows in a list (`row-gap`: 2).
-pub const ROW_GAP: f32 = 2.0;
+pub const ROW_GAP: f32 = scale::ROW_GAP;
 /// A list's inset from its region's edge (`list-inset`: 8).
-pub const LIST_INSET: f32 = 8.0;
-/// A row's inner padding on x (flat: 10).
-pub const ROW_PAD_X: f32 = 10.0;
-/// The item radius (`r-md` / `shape-item` flat: 8): rows, buttons, inputs,
-/// tabs, segmented.
-pub const R_ITEM: f32 = 8.0;
+pub const LIST_INSET: f32 = scale::LIST_INSET;
+/// A row's inner padding on x (`row-pad-x`: 10).
+pub const ROW_PAD_X: f32 = scale::ROW_PAD_X;
+/// The item radius (`shape-item`: 8): rows, buttons, inputs, tabs,
+/// segmented.
+pub const R_ITEM: f32 = scale::SHAPE_ITEM;
 /// A menu row's height (docs/83 §7: 28, token `menu-row`).
 pub const MENU_ROW_H: f32 = scale::MENU_ROW;
 /// A menu row's radius (docs/83 §7: 6, token `r-6`).

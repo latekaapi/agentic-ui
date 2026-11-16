@@ -2,6 +2,7 @@
 //! forward / reload cluster for the Browse sidebar header.
 
 use aui_icons::{icon, IconName};
+use aui_tokens::TextRole;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::h_flex;
@@ -12,8 +13,8 @@ use crate::data::{icon_button, record_ax_label, tag, ButtonSize};
 use crate::nav::chevron;
 use crate::util::ClickHandler;
 
-/// 30 px rows with an 8 px ground inset, like the compact session rows.
-const ROW_H: f32 = 30.0;
+/// Rows at the shared row height (`Metrics::control`) with an 8 px ground
+/// inset, like the session rows.
 const ROW_MARGIN_X: f32 = 8.0;
 const ROW_GAP: f32 = 8.0;
 const ROW_PAD_RIGHT: f32 = 8.0;
@@ -21,15 +22,12 @@ const ROW_PAD_RIGHT: f32 = 8.0;
 const INDENT: f32 = 22.0;
 /// Letter tiles and folder glyphs: 16 px.
 const TILE: f32 = 16.0;
-const TILE_TEXT: f32 = 10.0;
 /// Pin tiles: 34 px squares in a 4-up grid.
 const PIN_TILE: f32 = 34.0;
 const PIN_GAP: f32 = 8.0;
 const PIN_COLS: u16 = 4;
 /// The tab close `×`: 12 px glyph on an xs ghost button.
 const CLOSE_GLYPH: f32 = 12.0;
-/// Row titles: 12.5 px, like the sidebar rows.
-const TITLE_TEXT: f32 = 12.5;
 
 type KeyHandler = std::rc::Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 
@@ -49,7 +47,7 @@ fn letter_tile(letter: SharedString, p: &aui_tokens::Palette) -> impl IntoElemen
         .rounded(px(4.0))
         .bg(p.surface_2)
         .text_color(p.fg_muted)
-        .ui(TILE_TEXT)
+        .ui(TextRole::Micro)
         .medium()
         .overflow_hidden()
         .child(first)
@@ -103,7 +101,7 @@ impl RenderOnce for PinGrid {
                 .border_color(p.line)
                 .paint_states(StatePaint::new(), &p)
                 .text_color(p.fg_muted)
-                .ui(scale::FS_13)
+                .ui(TextRole::Body)
                 .medium()
                 .cursor_pointer()
                 .role(gpui::Role::Button)
@@ -161,7 +159,7 @@ impl RenderOnce for TabRow {
         record_ax_label(&label);
         let mut row = h_flex()
             .id(id.clone())
-            .h(px(ROW_H))
+            .h(aui_tokens::Metrics::active().control)
             .flex_none()
             .items_center()
             .gap(px(ROW_GAP))
@@ -171,7 +169,7 @@ impl RenderOnce for TabRow {
             .rounded(px(scale::R_SM))
             .paint_states(StatePaint::new().selected(self.data.active), &p)
             .hover_group()
-            .ui(TITLE_TEXT)
+            .ui(TextRole::Caption)
             .text_color(if self.data.active { p.ink } else { p.fg_muted })
             .cursor_pointer()
             .role(gpui::Role::Button)
@@ -237,7 +235,7 @@ impl RenderOnce for FolderRow {
         record_ax_label(&label);
         let mut row = h_flex()
             .id(id.clone())
-            .h(px(ROW_H))
+            .h(aui_tokens::Metrics::active().control)
             .flex_none()
             .items_center()
             .gap(px(ROW_GAP))
@@ -246,7 +244,7 @@ impl RenderOnce for FolderRow {
             .pr(px(ROW_PAD_RIGHT))
             .rounded(px(scale::R_SM))
             .paint_states(StatePaint::new(), &p)
-            .ui(TITLE_TEXT)
+            .ui(TextRole::Caption)
             .medium()
             .text_color(p.ink)
             .cursor_pointer()
@@ -343,7 +341,7 @@ impl RenderOnce for TaskFolderRow {
                     .flex_1()
                     .min_w(px(0.0))
                     .truncate()
-                    .ui(TITLE_TEXT)
+                    .ui(TextRole::Caption)
                     .medium()
                     .text_color(p.ink)
                     .child(self.name.clone()),
@@ -355,7 +353,7 @@ impl RenderOnce for TaskFolderRow {
         let mut status = div()
             .id((id, "chat"))
             .flex_none()
-            .ui(scale::FS_11)
+            .ui(TextRole::Micro)
             .text_color(status_ink)
             .whitespace_nowrap()
             .cursor_pointer()
@@ -370,7 +368,7 @@ impl RenderOnce for TaskFolderRow {
         }
         h_flex()
             .id(row_id)
-            .h(px(ROW_H))
+            .h(aui_tokens::Metrics::active().control)
             .flex_none()
             .items_center()
             .gap(px(ROW_GAP))

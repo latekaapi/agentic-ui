@@ -41,17 +41,10 @@ const COMMAND_W: f32 = 120.0;
 /// Rows padded 0 / 10, gap 10, [`MENU_ROW_H`] tall.
 const ROW_PAD_X: f32 = 10.0;
 const ROW_GAP: f32 = 10.0;
-const COMMAND_TEXT: f32 = scale::FS_12;
 /// The `font:` shorthand of `.it .c` resets the line height to `normal`.
 const COMMAND_LH: f32 = 1.5;
-/// `.it .d{font-size:12px}`, and `.it .d.mono{font-size:11px}` for the paths
-/// and symbol locations of the mention picker.
-const DETAIL_TEXT: f32 = scale::FS_12;
-const DETAIL_MONO_TEXT: f32 = scale::FS_11;
 /// `.i{width:14px}` — the file, folder and globe glyphs.
 const ROW_ICON: f32 = 14.0;
-/// `<span class="ic mono" style="font-size:11px">ƒ</span>` — the symbol glyph.
-const SYMBOL_TEXT: f32 = scale::FS_11;
 
 /// `.ft{gap:12px;padding:6px 8px 2px;border-top:1px solid var(--line);
 /// margin-top:4px;font-size:11px}`.
@@ -60,7 +53,6 @@ const FT_PAD_TOP: f32 = 6.0;
 const FT_PAD_X: f32 = 10.0;
 const FT_PAD_BOTTOM: f32 = 2.0;
 const FT_MARGIN_TOP: f32 = 4.0;
-const FT_TEXT: f32 = scale::FS_11;
 
 type SelectHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 type HoverHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
@@ -102,7 +94,7 @@ impl CommandItem {
 /// A titled block of command rows (`Built-in`, `Skills`, `Custom`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandSection {
-    /// The caps header.
+    /// The section label.
     pub title: SharedString,
     /// The rows, in order.
     pub items: Vec<CommandItem>,
@@ -278,7 +270,7 @@ impl MentionItem {
 /// A titled block of mention rows (`Files in acme-web`, `Symbols`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct MentionSection {
-    /// The caps header.
+    /// The section label.
     pub title: SharedString,
     /// The rows, in order.
     pub items: Vec<MentionItem>,
@@ -477,7 +469,7 @@ fn row_visible(scroll: &ScrollHandle, target: usize) -> bool {
 }
 
 /// The direct-child index of the `active`th row inside the popover: rows are
-/// interrupted by one caps header per section (and the `/` menu ends in the
+/// interrupted by one section label per section (and the `/` menu ends in the
 /// key-hint footer), so the child index leads the row index by the headers
 /// before it.
 fn row_child_index(counts: &[usize], active: usize) -> usize {
@@ -578,7 +570,7 @@ fn menu_row(
         .px(px(ROW_PAD_X))
         .rounded(px(R_MENU_ROW))
         .paint_states(StatePaint::new().pointer(false).highlighted(on), cx)
-        .text_role_in(TextRole::Body, aui_tokens::Density::Standard)
+        .text_role(TextRole::Body)
         .text_color(if on { p.fg } else { p.fg_muted })
         .cursor_pointer();
 
@@ -646,7 +638,7 @@ fn command_row(
                 .min_w(px(COMMAND_W))
                 .whitespace_nowrap()
                 .font_family(scale::FONT_MONO)
-                .text_px(COMMAND_TEXT)
+                .role_size(TextRole::Caption)
                 .line_height(relative(COMMAND_LH))
                 .medium()
                 .text_color(if on { p.fg } else { p.fg_muted })
@@ -655,13 +647,13 @@ fn command_row(
         // One line: the row is `ROW_H` tall, so a description that outgrows
         // its column truncates (the full text belongs to `/help`), never
         // wraps onto the row below.
-        .child(div().flex_1().min_w(px(0.0)).truncate().ui(DETAIL_TEXT).text_color(if on { p.fg } else { p.fg_muted }).child(item.description));
+        .child(div().flex_1().min_w(px(0.0)).truncate().ui(TextRole::Caption).text_color(if on { p.fg } else { p.fg_muted }).child(item.description));
 
     if let Some(key) = item.key {
         row = row.child(div().flex_none().role_in(TextRole::Micro, cx).text_color(p.ink_4).child(key));
     }
     if let Some(source) = item.source_tag {
-        row = row.child(div().flex_none().ui(DETAIL_TEXT).text_color(p.ink_4).child(source));
+        row = row.child(div().flex_none().ui(TextRole::Caption).text_color(p.ink_4).child(source));
     }
     if let Some(handler) = on_select.clone() {
         let item_id = item.id.clone();
@@ -690,7 +682,7 @@ fn mention_row(
 
     row = match item.icon {
         MentionIcon::Glyph(name) => row.child(icon(name).size(px(ROW_ICON)).color(p.fg_muted)),
-        MentionIcon::Symbol => row.child(div().flex_none().mono(SYMBOL_TEXT).text_color(p.fg_muted).child("ƒ")),
+        MentionIcon::Symbol => row.child(div().flex_none().mono(TextRole::Micro).text_color(p.fg_muted).child("ƒ")),
         MentionIcon::Dot(state) => row.child(status_dot(dot_id, state)),
     };
 
@@ -718,9 +710,9 @@ fn mention_row(
     // location.
     let detail = div().flex_1().min_w(px(0.0)).flex().justify_end().truncate().text_color(p.fg_muted);
     row = row.child(if item.detail_mono {
-        detail.mono(DETAIL_MONO_TEXT).child(item.detail)
+        detail.mono(TextRole::Micro).child(item.detail)
     } else {
-        detail.ui(DETAIL_TEXT).child(item.detail)
+        detail.ui(TextRole::Caption).child(item.detail)
     });
 
     if let Some(key) = item.key {
@@ -752,7 +744,7 @@ fn footer(p: &Palette, enter: &'static str) -> impl IntoElement {
         .mt(px(FT_MARGIN_TOP))
         .border_t_1()
         .border_color(p.line)
-        .ui(FT_TEXT)
+        .ui(TextRole::Micro)
         .text_color(p.ink_4)
         .child("↑↓ move")
         .child(format!("⏎ {enter}"))

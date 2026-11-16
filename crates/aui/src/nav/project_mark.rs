@@ -4,13 +4,12 @@
 //! palette cousins and the command palette's project rows, so the mark
 //! reads the same everywhere.
 
+use aui_tokens::TextRole;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, Hsla, IntoElement, Pixels, SharedString, Window};
 
 /// The default mark: 18 px, as the sidebar header and group rows draw it.
 const SIZE: f32 = 18.0;
-/// The initial at the default size: 11 px semibold.
-const FONT: f32 = scale::FS_11;
 
 /// A project mark. Build with [`project_mark`].
 #[derive(IntoElement)]
@@ -40,7 +39,9 @@ impl ProjectMark {
 impl RenderOnce for ProjectMark {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let font = FONT * f32::from(self.size) / SIZE;
+        // The initial is Micro at the default tile and scales with the tile,
+        // like a glyph.
+        let font = TextRole::Micro.size() * (f32::from(self.size) / SIZE);
         div()
             .flex_none()
             .flex()
@@ -51,7 +52,7 @@ impl RenderOnce for ProjectMark {
             .bg(self.colour)
             .text_color(p.bg)
             .font_family(scale::FONT_UI)
-            .text_px(font)
+            .text_size(font)
             .line_height(gpui::relative(1.0))
             .semibold()
             .child(self.initial)

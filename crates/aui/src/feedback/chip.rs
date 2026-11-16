@@ -5,10 +5,11 @@
 //! Browse: 12 above the sheet's bottom, in an overlay window over the page).
 
 use std::time::Duration;
+use aui_tokens::TextRole;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{presence, EnterExit, PresenceStyle};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::h_flex;
 
@@ -106,7 +107,7 @@ fn pill_text(id: impl Into<ElementId>, label: SharedString, cx: &App) -> gpui::S
         .h(px(24.0))
         .px(px(8.0))
         .rounded(px(6.0))
-        .ui(scale::FS_12)
+        .ui(TextRole::Caption)
         .cursor_pointer()
         .paint_states(StatePaint::new().ink(p.fg_muted, p.ink), &p)
         .role(gpui::Role::Button)
@@ -142,10 +143,10 @@ impl RenderOnce for ToastChip {
             .aria_label(tip)
             .child(div().flex_none().size(px(8.0)).rounded_full().bg(dot))
             // Title and body truncate so the action and ✕ always stay inside.
-            .child(div().flex_none().max_w(px(200.0)).truncate().ui(scale::FS_13).semibold().text_color(p.ink).child(self.title))
-            .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().ui(scale::FS_13).text_color(p.fg_muted).child(self.body));
+            .child(div().flex_none().max_w(px(200.0)).truncate().ui(TextRole::Body).semibold().text_color(p.ink).child(self.title))
+            .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().ui(TextRole::Body).text_color(p.fg_muted).child(self.body));
         if self.queued > 0 {
-            chip = chip.child(div().flex_none().ui(scale::FS_12).text_color(p.ink_4).child(format!("+{}", self.queued)));
+            chip = chip.child(div().flex_none().ui(TextRole::Caption).text_color(p.ink_4).child(format!("+{}", self.queued)));
         }
         if let Some((label, on_click)) = self.action {
             chip = chip.child(pill_text((id.clone(), "action"), label, cx).on_click(move |e, w, cx| on_click(e, w, cx)));
@@ -242,7 +243,7 @@ impl RenderOnce for FeedbackPill {
         }
         let mut pill = floating_pill(id.clone(), cx).px(px(4.0)).gap(px(6.0)).child(toggle);
         if let Some(notes) = self.notes {
-            pill = pill.child(div().flex_none().pl(px(2.0)).mono(scale::FS_11).text_color(p.ink_4).whitespace_nowrap().child(notes));
+            pill = pill.child(div().flex_none().pl(px(2.0)).mono(TextRole::Micro).text_color(p.ink_4).whitespace_nowrap().child(notes));
             record_ax_label("Done");
             let mut done = h_flex()
                 .id((id.clone(), "done"))
@@ -252,7 +253,7 @@ impl RenderOnce for FeedbackPill {
                 .rounded(px(6.0))
                 .bg(p.ink)
                 .text_color(p.bg)
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .semibold()
                 .cursor_pointer()
                 .role(gpui::Role::Button)

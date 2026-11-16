@@ -55,7 +55,6 @@ const OUTLINE_LABEL_LEFT: f32 = -1.0;
 const OUTLINE_LABEL_TOP: f32 = -20.0;
 const OUTLINE_LABEL_PAD_Y: f32 = 2.0;
 const OUTLINE_LABEL_PAD_X: f32 = 6.0;
-const OUTLINE_LABEL_SIZE: f32 = 10.0;
 /// `.sel{border:1.5px solid var(--accent);border-radius:6px}`.
 const SELECTED_BORDER: f32 = 1.5;
 const SELECTED_RADIUS: f32 = 6.0;
@@ -63,7 +62,6 @@ const SELECTED_RADIUS: f32 = 6.0;
 /// `.pin{width:20px;height:20px;border-radius:50% 50% 50% 4px;font:600 11px}`.
 const PIN_SIZE: f32 = 20.0;
 const PIN_CORNER: f32 = 4.0;
-const PIN_TEXT: f32 = 11.0;
 /// `.pin.on{outline:2px solid #fff;outline-offset:1px}` — gpui has no
 /// outline, so the ring is a border on a wrapper inset by offset + width.
 const PIN_RING: f32 = 2.0;
@@ -72,13 +70,10 @@ const PIN_RING_OFFSET: f32 = 1.0;
 /// `.pop{width:236px;padding:10px;font-size:12px}`.
 const POPOVER_WIDTH: f32 = 236.0;
 const POPOVER_PAD: f32 = 10.0;
-/// `.pop .el{font:11px mono;margin-bottom:6px}`.
-const POPOVER_PATH_SIZE: f32 = 11.0;
 const POPOVER_PATH_GAP: f32 = 6.0;
-/// `.pop textarea{padding:6px 8px;font:12px/1.4 ui;rows=2}`.
+/// `.pop textarea{padding:6px 8px;rows=2}` in Caption.
 const DRAFT_PAD_Y: f32 = 6.0;
 const DRAFT_PAD_X: f32 = 8.0;
-const DRAFT_LINE_HEIGHT: f32 = 1.4;
 const DRAFT_ROWS: f32 = 2.0;
 /// `.pop .acts{gap:6px;margin-top:8px}`.
 const POPOVER_ACTIONS_GAP: f32 = 6.0;
@@ -92,7 +87,6 @@ const PANEL_WIDTH: f32 = 272.0;
 const PANEL_HEAD_HEIGHT: f32 = 36.0;
 const PANEL_PAD_X: f32 = 12.0;
 const PANEL_HEAD_GAP: f32 = 8.0;
-const PANEL_HEAD_SIZE: f32 = 12.5;
 /// `.side .hd .btn.icon.xs svg{width:12px}`.
 const PANEL_HEAD_GLYPH: f32 = 12.0;
 /// `.an{gap:10px;padding:10px 12px;font-size:12px}`.
@@ -100,13 +94,7 @@ const ROW_GAP: f32 = 10.0;
 const ROW_PAD_Y: f32 = 10.0;
 /// `.an .n{width:18px;height:18px;font:600 10px}`.
 const DISC_SIZE: f32 = 18.0;
-const DISC_TEXT: f32 = 10.0;
-/// `.an .el{font:10.5px mono}` and `.an p{margin-top:2px;line-height:1.4}`.
-/// The `font` shorthand drops the inherited line height, so the path line is
-/// a `normal` line box: the design's tight ratio.
-const ROW_PATH_SIZE: f32 = 10.5;
 const ROW_NOTE_TOP: f32 = 2.0;
-const ROW_NOTE_SIZE: f32 = 12.0;
 const ROW_NOTE_LINE_HEIGHT: f32 = 1.4;
 /// `.side .shot{margin:10px 12px 0;height:64px;border-radius:6px}` with 12 px pins.
 const SHOT_MARGIN: f32 = 10.0;
@@ -116,7 +104,6 @@ const SHOT_PIN: f32 = 12.0;
 const SHOT_PIN_CORNER: f32 = 2.0;
 /// `.side .meta{padding:10px 12px;font-size:11px;line-height:1.6}`.
 const META_PAD_Y: f32 = 10.0;
-const META_SIZE: f32 = 11.0;
 const META_LINE_HEIGHT: f32 = 1.6;
 /// `.actions{gap:8px;padding:10px 12px}`.
 const ACTIONS_GAP: f32 = 8.0;
@@ -258,7 +245,7 @@ impl RenderOnce for BrowserNav {
             .gap(px(URL_GAP))
             .rounded(px(scale::R_SM))
             .bg(p.surface_2)
-            .mono(scale::FS_12)
+            .mono(TextRole::Caption)
             .text_color(p.fg_muted)
             .cursor_pointer()
             .when(self.secure, |d| d.child(icon(IconName::Shield).size(px(URL_SHIELD)).color(p.success)))
@@ -313,7 +300,7 @@ fn annotate_toggle(id: impl Into<ElementId>, on: bool, compact: bool, handler: O
         .border_1()
         .border_color(edge)
         .paint_states(StatePaint::new().on(ground).ink(text, text), &p)
-        .ui(scale::FS_12)
+        .ui(TextRole::Caption)
         .medium()
         .whitespace_nowrap()
         .cursor_pointer()
@@ -331,7 +318,7 @@ fn annotate_toggle(id: impl Into<ElementId>, on: bool, compact: bool, handler: O
                     .border_1()
                     .border_color(gpui::white().alpha(MODE_KBD_BORDER_ALPHA))
                     .font_family(scale::FONT_MONO)
-                    .text_px(scale::FS_11)
+                    .role_size(TextRole::Micro)
                     .line_height(relative(1.0))
                     .child("esc"),
             )
@@ -409,7 +396,7 @@ impl RenderOnce for ElementOutline {
                         .bg(accent)
                         .text_color(gpui::white())
                         .font_family(scale::FONT_MONO)
-                        .text_px(OUTLINE_LABEL_SIZE)
+                        .role_size(TextRole::Micro)
                         .line_height(relative(1.0))
                         .medium()
                         .whitespace_nowrap()
@@ -460,7 +447,7 @@ impl RenderOnce for AnnotationPin {
             .bg(p.accent)
             .text_color(gpui::white())
             .font_family(scale::FONT_UI)
-            .text_px(PIN_TEXT)
+            .role_size(TextRole::Micro)
             .line_height(relative(1.0))
             .semibold()
             .child(SharedString::from(self.index.to_string()));
@@ -561,7 +548,7 @@ impl RenderOnce for NotePopover {
             .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .text_color(p.ink)
-            .ui(scale::FS_12)
+            .ui(TextRole::Caption)
             .child(
                 div()
                     .w_full()
@@ -569,8 +556,7 @@ impl RenderOnce for NotePopover {
                     .truncate()
                     .mb(px(POPOVER_PATH_GAP))
                     .font_family(scale::FONT_MONO)
-                    .text_px(POPOVER_PATH_SIZE)
-                    .line_height(relative(scale::LH_TIGHT))
+                    .role_size(TextRole::Micro)
                     .text_color(p.fg_muted)
                     .child(self.path),
             )
@@ -578,15 +564,14 @@ impl RenderOnce for NotePopover {
             .child(
                 div()
                     .w_full()
-                    .min_h(px(DRAFT_ROWS * DRAFT_LINE_HEIGHT * scale::FS_12 + 2.0 * DRAFT_PAD_Y))
+                    .min_h(TextRole::Caption.line_height() * DRAFT_ROWS + px(2.0 * DRAFT_PAD_Y))
                     .py(px(DRAFT_PAD_Y))
                     .px(px(DRAFT_PAD_X))
                     .rounded(px(scale::R_SM))
                     .border_1()
                     .border_color(p.line)
                     .bg(p.surface_2)
-                    .ui(scale::FS_12)
-                    .line_height(relative(DRAFT_LINE_HEIGHT))
+                    .ui(TextRole::Caption)
                     .child(match &self.input {
                         Some(input) => crate::a11y_text::a11y_text_input((id.clone(), "note-input"), "Note for the agent", input, cx).w_full().into_any_element(),
                         None => self.draft.clone().into_any_element(),
@@ -717,7 +702,7 @@ impl RenderOnce for AnnotationsPanel {
             .gap(px(PANEL_HEAD_GAP))
             .border_b_1()
             .border_color(p.line)
-            .ui(PANEL_HEAD_SIZE)
+            .ui(TextRole::Caption)
             .semibold()
             .text_color(p.ink)
             .child(icon(IconName::Edit).color(p.ink))
@@ -758,7 +743,7 @@ impl RenderOnce for AnnotationsPanel {
                 .px(px(PANEL_PAD_X))
                 .border_b_1()
                 .border_color(p.line)
-                .ui(META_SIZE)
+                .ui(TextRole::Micro)
                 .line_height(relative(META_LINE_HEIGHT))
                 .text_color(p.fg_muted)
                 .child(METADATA_NOTE),
@@ -819,7 +804,7 @@ fn annotation_row(
         .size(px(DISC_SIZE))
         .rounded_full()
         .font_family(scale::FONT_UI)
-        .text_px(DISC_TEXT)
+        .role_size(TextRole::Micro)
         .line_height(relative(1.0))
         .semibold()
         .child(SharedString::from(annotation.index.to_string()));
@@ -845,11 +830,11 @@ fn annotation_row(
             v_flex()
                 .flex_1()
                 .min_w(px(0.0))
-                .child(div().min_w(px(0.0)).truncate().text_role(TextRole::Tag).text_px(ROW_PATH_SIZE).line_height(relative(scale::LH_TIGHT)).text_color(p.fg_muted).child(annotation.selector.clone()))
+                .child(div().min_w(px(0.0)).truncate().mono(TextRole::Micro).medium().text_color(p.fg_muted).child(annotation.selector.clone()))
                 .child(
                     div()
                         .mt(px(ROW_NOTE_TOP))
-                        .ui(ROW_NOTE_SIZE)
+                        .ui(TextRole::Caption)
                         .line_height(relative(ROW_NOTE_LINE_HEIGHT))
                         .text_color(if annotation.pending { p.fg_muted } else { p.ink })
                         .child(annotation.note.clone()),
@@ -937,7 +922,7 @@ impl RenderOnce for AgentActionPill {
             .border_1()
             .border_color(p.line_strong)
             .shadow(p.floating_shadow())
-            .ui(scale::FS_12)
+            .ui(TextRole::Caption)
             .text_color(p.ink)
             .whitespace_nowrap()
             .child(provider_mark(self.provider).size(px(PILL_MARK)))

@@ -4,7 +4,8 @@
 //! document paper.
 
 use aui::data::{button, record_ax_label};
-use aui_tokens::{scale, AuiStyled};
+use aui_tokens::TextRole;
+use aui_tokens::AuiStyled;
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -25,8 +26,8 @@ fn shell(children: Vec<AnyElement>) -> AnyElement {
 fn heading(title: &str, subtitle: &str) -> AnyElement {
     v_flex()
         .gap(px(2.0))
-        .child(div().ui(scale::FS_18).semibold().text_color(gpui::rgb(INK)).child(title.to_string()))
-        .child(div().ui(scale::FS_12).text_color(gpui::rgb(INK).opacity(0.6)).child(subtitle.to_string()))
+        .child(div().ui(TextRole::Title).semibold().text_color(gpui::rgb(INK)).child(title.to_string()))
+        .child(div().ui(TextRole::Caption).text_color(gpui::rgb(INK).opacity(0.6)).child(subtitle.to_string()))
         .into_any_element()
 }
 
@@ -35,7 +36,7 @@ fn row(cells: Vec<(&str, f32)>) -> AnyElement {
     let mut line = h_flex().w_full().py(px(6.0)).gap(px(12.0));
     for (text, width) in cells {
         line = line.child(
-            div().w(px(width)).flex_none().truncate().ui(scale::FS_12).text_color(gpui::rgb(INK)).child(text.to_string()),
+            div().w(px(width)).flex_none().truncate().ui(TextRole::Caption).text_color(gpui::rgb(INK)).child(text.to_string()),
         );
     }
     v_flex().w_full().child(line).child(div().w_full().h(px(1.0)).bg(gpui::rgb(INK).opacity(0.12))).into_any_element()
@@ -71,7 +72,7 @@ pub fn link_row(
         .child(
             div()
                 .id(id)
-                .ui(scale::FS_13)
+                .ui(TextRole::Body)
                 .text_color(link)
                 .cursor_pointer()
                 .role(Role::Button)
@@ -113,9 +114,9 @@ pub fn udise_page(
                 .w_full()
                 .items_center()
                 .gap(px(12.0))
-                .child(div().w(px(120.0)).flex_none().truncate().ui(scale::FS_12).text_color(gpui::rgb(INK)).child(state.to_string()))
+                .child(div().w(px(120.0)).flex_none().truncate().ui(TextRole::Caption).text_color(gpui::rgb(INK)).child(state.to_string()))
                 .child(div().w(px(value as f32 * 9.0)).h(px(14.0)).rounded(px(4.0)).bg(gpui::rgb(INK).opacity(0.75)))
-                .child(div().ui(scale::FS_12).text_color(gpui::rgb(INK)).child(value.to_string())),
+                .child(div().ui(TextRole::Caption).text_color(gpui::rgb(INK)).child(value.to_string())),
         );
     }
     shell(vec![
@@ -139,9 +140,9 @@ pub fn dropout_page(
                 .w_full()
                 .items_center()
                 .gap(px(12.0))
-                .child(div().w(px(120.0)).flex_none().truncate().ui(scale::FS_12).text_color(gpui::rgb(INK)).child(state.to_string()))
+                .child(div().w(px(120.0)).flex_none().truncate().ui(TextRole::Caption).text_color(gpui::rgb(INK)).child(state.to_string()))
                 .child(div().w(px(value * 22.0)).h(px(14.0)).rounded(px(4.0)).bg(gpui::rgb(INK).opacity(0.75)))
-                .child(div().ui(scale::FS_12).text_color(gpui::rgb(INK)).child(format!("{value:.1} %"))),
+                .child(div().ui(TextRole::Caption).text_color(gpui::rgb(INK)).child(format!("{value:.1} %"))),
         );
     }
     shell(vec![
@@ -164,11 +165,11 @@ pub fn datagov_page(
             .border_1()
             .border_color(gpui::rgb(INK).opacity(0.2))
             .p(px(16.0))
-            .child(div().ui(scale::FS_13).medium().text_color(gpui::rgb(INK)).child("Sign in to download".to_string()))
+            .child(div().ui(TextRole::Body).medium().text_color(gpui::rgb(INK)).child("Sign in to download".to_string()))
             .child(
                 div()
                     .pt(px(4.0))
-                    .ui(scale::FS_12)
+                    .ui(TextRole::Caption)
                     .text_color(gpui::rgb(INK).opacity(0.6))
                     .child("The file stays on data.gov.in until you sign in.".to_string()),
             )
@@ -207,7 +208,7 @@ pub fn answer_page(
             .items_center()
             .gap(px(8.0))
             .pt(px(8.0))
-            .child(div().ui(scale::FS_11).text_color(gpui::rgb(INK).opacity(0.55)).child("Steers queue behind this turn".to_string()))
+            .child(div().ui(TextRole::Micro).text_color(gpui::rgb(INK).opacity(0.55)).child("Steers queue behind this turn".to_string()))
             .child(div().flex_1())
             .child(button("answer-ask", "Ask more").on_click(on_ask_more))
             .child(button("answer-done", "Done").primary().on_click(on_done))
@@ -227,7 +228,7 @@ pub fn peek_page(
     ];
     let mut body = v_flex().w_full().gap(px(8.0));
     for para in PARAS {
-        body = body.child(div().w_full().ui(scale::FS_13).text_color(gpui::rgb(INK)).child(para.to_string()));
+        body = body.child(div().w_full().ui(TextRole::Body).text_color(gpui::rgb(INK)).child(para.to_string()));
     }
     shell(vec![
         heading("PGI 2.0: how the grades are computed", "Methodology note"),
@@ -240,7 +241,7 @@ pub fn peek_page(
 fn simple_page(title: &str, lines: &[&str], link: Hsla, on_link: impl Fn(&StoryPage, &mut Window, &mut App) + 'static) -> AnyElement {
     let mut body = v_flex().w_full().gap(px(6.0));
     for line in lines {
-        body = body.child(div().w_full().ui(scale::FS_13).text_color(gpui::rgb(INK)).child(line.to_string()));
+        body = body.child(div().w_full().ui(TextRole::Body).text_color(gpui::rgb(INK)).child(line.to_string()));
     }
     shell(vec![
         heading(title, "A saved page from the story"),

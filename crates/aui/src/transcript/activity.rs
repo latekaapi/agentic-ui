@@ -12,8 +12,6 @@ use crate::icons::{icon, IconName};
 use crate::transcript::transcript_card;
 use crate::util::ClickHandler;
 
-/// Header text is 12.5 px.
-const HEADER_TEXT: f32 = 12.5;
 /// `.steps{gap:3px;margin-left:2px} .steps i{width:14px;height:14px;border-radius:4px} svg 9px`.
 const STEP_GAP: f32 = 3.0;
 const STEP_ML: f32 = 2.0;
@@ -26,7 +24,6 @@ const TL_PAD_BOTTOM: f32 = 8.0;
 /// `.st{grid-template-columns:18px 1fr auto;gap:0 8px;min-height:30px;font-size:12.5px}` with the rail at 8.5 px.
 const NODE: f32 = 18.0;
 const ROW_GAP: f32 = 8.0;
-const ROW_TEXT: f32 = 12.5;
 const RAIL_X: f32 = 8.5;
 /// `.st .g i{width:8px;height:8px}` and the 3 px accent-soft ring while running.
 const DOT: f32 = 8.0;
@@ -100,7 +97,7 @@ impl RenderOnce for ActivityGroup {
             ActivityState::Working => {
                 card = card
                     .header(spinner((id.clone(), "spinner")))
-                    .header(shimmer_text((id.clone(), "label"), self.summary.clone(), cx).text_size(aui_tokens::scaled(HEADER_TEXT)).font_weight(gpui::FontWeight::MEDIUM));
+                    .header(shimmer_text((id.clone(), "label"), self.summary.clone(), cx).role_size(TextRole::Caption).font_weight(gpui::FontWeight::MEDIUM));
             }
             ActivityState::Done => {
                 card = card.header(glyph_ok()).header(div().medium().child(self.summary.clone()));
@@ -119,7 +116,7 @@ impl RenderOnce for ActivityGroup {
         card = card
             .header(strip)
             .header(div().flex_1())
-            .header(div().text_role(TextRole::MonoSmall).font_weight(gpui::FontWeight::MEDIUM).text_color(p.fg_muted).child(self.elapsed.clone()));
+            .header(div().mono(TextRole::Caption).font_weight(gpui::FontWeight::MEDIUM).text_color(p.fg_muted).child(self.elapsed.clone()));
 
         let count = self.steps.len();
         let mut timeline = v_flex().w_full().pt(px(TL_PAD_TOP)).px(px(TL_PAD_X)).pb(px(TL_PAD_BOTTOM));
@@ -149,7 +146,7 @@ impl RenderOnce for ActivityGroup {
                 .w_full()
                 .min_h(cx.aui().metrics.row)
                 .gap(px(ROW_GAP))
-                .ui(ROW_TEXT)
+                .ui(TextRole::Caption)
                 .text_color(if pending { p.fg_muted } else { p.ink })
                 .child(
                     // The rail: a 1 px line behind the node, half height on the first and last rows.
@@ -167,10 +164,10 @@ impl RenderOnce for ActivityGroup {
                         .flex_1()
                         .min_w(px(0.0))
                         .child(div().medium().mr(px(VERB_GAP)).whitespace_nowrap().child(step.verb.clone()))
-                        .child(div().min_w(px(0.0)).truncate().mono(scale::FS_12).text_color(p.fg_muted).child(step.target.clone())),
+                        .child(div().min_w(px(0.0)).truncate().mono(TextRole::Caption).text_color(p.fg_muted).child(step.target.clone())),
                 );
             if let Some(result) = &step.result {
-                row = row.child(div().flex_none().text_role(TextRole::MonoSmall).font_weight(gpui::FontWeight::MEDIUM).text_color(result_color).child(result.clone()));
+                row = row.child(div().flex_none().mono(TextRole::Caption).font_weight(gpui::FontWeight::MEDIUM).text_color(result_color).child(result.clone()));
             }
             timeline = timeline.child(row);
         }

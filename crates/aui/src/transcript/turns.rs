@@ -7,6 +7,7 @@
 //! rail whose height is always reserved, so nothing shifts.
 
 use aui_icons::{icon, IconName};
+use aui_tokens::TextRole;
 use aui_motion::{icon_morph, IconMorph};
 use aui_protocol::{Attachment, AttachmentKind, TurnMeta};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
@@ -39,7 +40,6 @@ const ATTACH_GAP: f32 = 6.0;
 const BUBBLE_RADIUS: f32 = scale::SHAPE_CONTAINER;
 const BUBBLE_PAD_Y: f32 = 10.0;
 const BUBBLE_PAD_X: f32 = scale::SP_5;
-const BUBBLE_TEXT: f32 = BODY_TEXT;
 /// The rail under a bubble: 24 px, always reserved; edit · copy as 28 px
 /// icon buttons (glyph 12) then the age, 6 apart.
 const RAIL_H: f32 = 24.0;
@@ -63,10 +63,9 @@ const QUOTE_PAD_L: f32 = 12.0;
 /// The annotation batch: a 120 px screenshot strip with 18 px numbered pins.
 const SHOT_H: f32 = 120.0;
 const PIN: f32 = 18.0;
-/// The assistant answer and the bubble: `t-read`, 16 / 26 (docs/83 §2.4,
-/// the owner's reading scale of 2026-10-14), paragraphs 16 apart.
-const BODY_TEXT: f32 = scale::T_READ_FS;
-const BODY_LH: f32 = scale::T_READ_LH / scale::T_READ_FS;
+/// The assistant answer and the bubble are `TextRole::Read`, 16 / 26
+/// (docs/83 §2.4, the owner's reading scale of 2026-10-14), paragraphs 16
+/// apart.
 const PARAGRAPH_GAP: f32 = 16.0;
 /// Under an answer, on hover: one copy button 8 below, the footer 10 below it.
 const COPY_TOP: f32 = 8.0;
@@ -372,19 +371,12 @@ pub fn turn_span_selected_text_settled(
 }
 
 /// Prose style shared by both turns: inline code on `code_bg` in the mono face.
-fn prose_style(
-    p: &Palette,
-    size: f32,
-    line_height: f32,
-    code_bg: gpui::Hsla,
-    code_ink: gpui::Hsla,
-) -> ProseStyle {
+fn prose_style(p: &Palette, code_bg: gpui::Hsla, code_ink: gpui::Hsla) -> ProseStyle {
     ProseStyle {
         ink: p.ink,
         code_ink,
         code_bg,
-        size,
-        line_height,
+        role: TextRole::Read,
         paragraph_gap: PARAGRAPH_GAP,
     }
 }
@@ -458,7 +450,7 @@ fn picture_tile(p: &Palette, id: ElementId, attachment: &Attachment, video: bool
                     .rounded(px(3.0))
                     .bg(gpui::rgba(0x121215d9))
                     .font_family(scale::FONT_MONO)
-                    .text_px(10.0)
+                    .role_size(TextRole::Micro)
                     .line_height(relative(1.4))
                     .text_color(gpui::white())
                     .child(length)
@@ -482,12 +474,12 @@ fn file_chip(p: &Palette, id: ElementId, attachment: &Attachment) -> gpui::State
         .bg(p.surface_3)
         .border_1()
         .border_color(p.line)
-        .ui(scale::FS_13)
+        .ui(TextRole::Body)
         .text_color(p.ink)
         .child(icon(IconName::File).size(px(CHIP_GLYPH)).color(p.fg_muted))
         .child(div().max_w(px(240.0)).truncate().child(attachment.name.clone()));
     if let Some(meta) = file_meta(attachment) {
-        chip = chip.child(div().flex_none().ui(scale::FS_12).text_color(p.fg_muted).child(meta));
+        chip = chip.child(div().flex_none().ui(TextRole::Caption).text_color(p.fg_muted).child(meta));
     }
     chip
 }
@@ -512,8 +504,8 @@ fn quote_block(p: &Palette, id: ElementId, words: &str, code: Option<&str>, sour
     // Between FG and muted: #C9C9D0 on dark, #3F3F46 on light (docs/43 §0).
     let code_ink: gpui::Hsla = if p.is_dark() { gpui::rgb(0xC9C9D0).into() } else { gpui::rgb(0x3F3F46).into() };
     let text = match code {
-        Some(_) => div().font_family(scale::FONT_MONO).text_px(12.65).line_height(px(20.0)).text_color(code_ink).whitespace_nowrap().overflow_hidden().line_clamp(4).max_h(px(80.0)),
-        None => div().font_family(scale::FONT_UI).text_px(14.3).line_height(px(22.0)).text_color(p.fg_muted).line_clamp(3).max_h(px(66.0)).overflow_hidden(),
+        Some(_) => div().font_family(scale::FONT_MONO).role_size(TextRole::Caption).line_height(px(20.0)).text_color(code_ink).whitespace_nowrap().overflow_hidden().line_clamp(4).max_h(px(80.0)),
+        None => div().font_family(scale::FONT_UI).role_size(TextRole::Body).line_height(px(22.0)).text_color(p.fg_muted).line_clamp(3).max_h(px(66.0)).overflow_hidden(),
     };
     let source_line = match code.filter(|l| !l.is_empty()) {
         Some(lang) => format!("from the reply above · {lang}"),
@@ -534,7 +526,7 @@ fn quote_block(p: &Palette, id: ElementId, words: &str, code: Option<&str>, sour
                 .pl(px(QUOTE_PAD_L))
                 .child(text.child(words.to_owned())),
         )
-        .child(div().pl(px(QUOTE_PAD_L + QUOTE_RULE)).mt(px(4.0)).font_family(scale::FONT_UI).text_px(12.1).line_height(px(16.0)).text_color(p.ink_4).child(source_line));
+        .child(div().pl(px(QUOTE_PAD_L + QUOTE_RULE)).mt(px(4.0)).font_family(scale::FONT_UI).role_size(TextRole::Caption).line_height(px(16.0)).text_color(p.ink_4).child(source_line));
     if let (Some(source), Some(on_quote)) = (source, on_quote) {
         let words = words.to_owned();
         crate::data::record_ax_label("Show the quoted reply");
@@ -581,7 +573,7 @@ fn annotation_body(p: &Palette, id: &ElementId, batch: &AnnotationBatch, strip_w
                     .flex()
                     .items_center()
                     .justify_center()
-                    .ui(scale::FS_11)
+                    .ui(TextRole::Micro)
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(p.bg)
                     .child(note.index.to_string()),
@@ -592,7 +584,7 @@ fn annotation_body(p: &Palette, id: &ElementId, batch: &AnnotationBatch, strip_w
     let count = batch.notes.len();
     col = col.child(
         div()
-            .ui(scale::FS_12)
+            .ui(TextRole::Caption)
             .text_color(p.fg_muted)
             .child(format!("{count} annotation{} · {}", if count == 1 { "" } else { "s" }, batch.address)),
     );
@@ -613,7 +605,7 @@ fn annotation_body(p: &Palette, id: &ElementId, batch: &AnnotationBatch, strip_w
                         .flex()
                         .items_center()
                         .justify_center()
-                        .ui(scale::FS_11)
+                        .ui(TextRole::Micro)
                         .font_weight(gpui::FontWeight::SEMIBOLD)
                         .text_color(p.ink)
                         .child(note.index.to_string()),
@@ -622,8 +614,8 @@ fn annotation_body(p: &Palette, id: &ElementId, batch: &AnnotationBatch, strip_w
                     v_flex()
                         .flex_1()
                         .min_w(px(0.0))
-                        .child(div().mono(scale::FS_11).text_color(p.fg_muted).child(note.selector.clone()))
-                        .child(div().ui(scale::FS_12).text_color(p.ink).child(note.note.clone())),
+                        .child(div().mono(TextRole::Micro).text_color(p.fg_muted).child(note.selector.clone()))
+                        .child(div().ui(TextRole::Caption).text_color(p.ink).child(note.note.clone())),
                 ),
         );
     }
@@ -680,8 +672,7 @@ impl RenderOnce for UserTurn {
             .px(px(BUBBLE_PAD_X))
             .rounded(px(BUBBLE_RADIUS))
             .bg(p.surface_3)
-            .ui(BUBBLE_TEXT)
-            .line_height(relative(BODY_LH))
+            .ui(TextRole::Read)
             .text_color(p.ink);
         for (index, quote) in quotes {
             bubble = bubble.child(quote_block(&p, (id.clone(), SharedString::from(format!("quote-{index}"))).into(), &quote.name, quote_code(quote), quote.quote_of.clone(), self.on_quote.clone()));
@@ -691,7 +682,7 @@ impl RenderOnce for UserTurn {
             bubble = bubble.w_full().child(annotation_body(&p, &id, batch, 600.0));
         } else {
             bubble = bubble.child({
-                let mut body = markdown((id.clone(), "text"), self.markdown.clone(), prose_style(&p, BUBBLE_TEXT, BODY_LH, p.surface_4, p.accent_ink));
+                let mut body = markdown((id.clone(), "text"), self.markdown.clone(), prose_style(&p, p.surface_4, p.accent_ink));
                 // A user message is complete by definition: a settled
                 // whole-JSON message draws its `json` code block.
                 body = body.settled(true);
@@ -739,7 +730,7 @@ impl RenderOnce for UserTurn {
         }
         rail = rail.child(buttons);
         if let Some(age) = self.age {
-            rail = rail.child(div().font_family(scale::FONT_MONO).text_px(scale::FS_11).line_height(relative(1.0)).text_color(p.ink_4).child(age));
+            rail = rail.child(div().font_family(scale::FONT_MONO).role_size(TextRole::Micro).line_height(relative(1.0)).text_color(p.ink_4).child(age));
         }
         col.child(rail)
     }
@@ -1031,7 +1022,7 @@ impl RenderOnce for AssistantTurn {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let style = prose_style(&p, BODY_TEXT, BODY_LH, p.surface_4, p.ink);
+        let style = prose_style(&p, p.surface_4, p.ink);
         // gpui text hosts no inline elements, so the caret is an absolutely
         // positioned sibling of the prose: last frame's prose bounds give the
         // wrap width, the last paragraph is re-shaped with the same runs the
@@ -1041,23 +1032,22 @@ impl RenderOnce for AssistantTurn {
             .use_keyed_state((id.clone(), "caret-bounds"), cx, |_, _| Rc::new(RefCell::new(None)))
             .read(cx)
             .clone();
-        let scale_factor = cx.aui().text_scale;
         let caret = if self.streaming {
             let measured = *bounds.borrow();
             match measured {
                 Some(b) if b.size.width > px(0.0) => {
-                    let font_size = window.rem_size() * (BODY_TEXT / scale::FS_13);
-                    let line_height = font_size * BODY_LH;
+                    let font_size = TextRole::Read.size();
+                    let line_height = TextRole::Read.line_height();
                     last_block_runs(&self.markdown, &style, p.accent)
                         .and_then(|(text, runs)| last_line_width(window, text.into(), font_size, &runs, b.size.width))
                         .map(|x| {
-                            let height = px(CARET_H * scale_factor);
-                            let top = b.size.height - line_height + caret_top_in_line(line_height, height, scale_factor);
+                            let height = px(CARET_H);
+                            let top = b.size.height - line_height + caret_top_in_line(line_height, height);
                             div()
                                 .absolute()
-                                .left(x + px(CARET_MARGIN_LEFT * scale_factor))
+                                .left(x + px(CARET_MARGIN_LEFT))
                                 .top(top)
-                                .w(px(CARET_W * scale_factor))
+                                .w(px(CARET_W))
                                 .h(height)
                                 .bg(p.ink)
                         })
@@ -1077,8 +1067,7 @@ impl RenderOnce for AssistantTurn {
             .id(id.clone())
             .relative()
             .w_full()
-            .ui(BODY_TEXT)
-            .line_height(relative(BODY_LH))
+            .ui(TextRole::Read)
             .text_color(p.ink)
             .hover_group();
         turn = turn.child(
@@ -1126,7 +1115,7 @@ impl RenderOnce for AssistantTurn {
                     div()
                         .mt(px(FOOTER_TOP))
                         .font_family(scale::FONT_MONO)
-                        .text_px(scale::FS_11)
+                        .role_size(TextRole::Micro)
                         .line_height(relative(1.0))
                         .text_color(p.ink_4)
                         .child(self.footer.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(" · ")),

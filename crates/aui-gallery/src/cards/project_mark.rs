@@ -3,7 +3,7 @@
 //! in both themes.
 
 use aui::nav::project_mark;
-use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
+use aui_tokens::{ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -27,7 +27,7 @@ fn size_row(p: Palette, size: f32, caption: &'static str) -> impl IntoElement {
     }
     v_flex()
         .gap(px(MARK_GAP))
-        .child(div().ui(scale::FS_12).text_color(p.fg_muted).child(caption))
+        .child(div().ui(TextRole::Caption).text_color(p.fg_muted).child(caption))
         .child(marks)
 }
 
@@ -42,7 +42,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         div()
             .mt(px(ROW_GAP))
             .max_w(px(632.0))
-            .text_role(TextRole::UiSmall)
+            .text_role(TextRole::Caption)
             .text_color(cx.aui().colors.fg_muted)
             .child(
                 "One shape identifies a project everywhere: the header switcher, the group rows, the palette and the rail all draw this mark. \

@@ -18,6 +18,7 @@
 //! timed in the same run: an absolute `ns/call` moves with the machine's
 //! thermal state, so only a ratio measured back to back means anything.
 
+use aui_tokens::TextRole;
 use std::time::Instant;
 
 use aui_tokens::scale;
@@ -101,8 +102,7 @@ fn style() -> ProseStyle {
         ink: gpui::black(),
         code_ink: gpui::red(),
         code_bg: gpui::white(),
-        size: scale::FS_13,
-        line_height: scale::LH_BODY,
+        role: TextRole::Body,
         paragraph_gap: 10.0,
     }
 }

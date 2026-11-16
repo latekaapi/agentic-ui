@@ -2,6 +2,7 @@
 //! tile, its name and meta line, and host-defined action buttons.
 
 use std::rc::Rc;
+use aui_tokens::TextRole;
 
 use aui_icons::icon;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
@@ -19,11 +20,6 @@ const TILE: f32 = 36.0;
 const TILE_RADIUS: f32 = 8.0;
 /// `.fc .ic svg{width:18px;height:18px}`.
 const TILE_GLYPH: f32 = 18.0;
-/// `.fc b{font-size:13px}` and `.fc span.d{font-size:12px}`.
-const NAME_TEXT: f32 = scale::FS_13;
-const META_TEXT: f32 = scale::FS_12;
-/// The status word after the meta line: 11 px semibold.
-const STATUS_TEXT: f32 = scale::FS_11;
 /// `.fc .acts{gap:6px}`.
 const ACTIONS_GAP: f32 = 6.0;
 
@@ -141,15 +137,15 @@ impl RenderOnce for FileCard {
                 v_flex()
                     .flex_1()
                     .min_w(px(0.0))
-                    .child(div().truncate().ui(NAME_TEXT).semibold().text_color(p.ink).child(self.name.clone()))
+                    .child(div().truncate().ui(TextRole::Body).semibold().text_color(p.ink).child(self.name.clone()))
                     .child({
                         let mut row = h_flex().w_full().gap(px(CARD_GAP)).items_center();
                         match self.meta.clone() {
-                            Some(meta) => row = row.child(div().flex_1().min_w(px(0.0)).truncate().ui(META_TEXT).text_color(p.fg_muted).child(meta)),
+                            Some(meta) => row = row.child(div().flex_1().min_w(px(0.0)).truncate().ui(TextRole::Caption).text_color(p.fg_muted).child(meta)),
                             None => row = row.child(div().flex_1().min_w(px(0.0))),
                         }
                         if let Some(status) = self.status.clone() {
-                            row = row.child(div().flex_none().ui(STATUS_TEXT).semibold().text_color(p.success).child(status));
+                            row = row.child(div().flex_none().ui(TextRole::Micro).semibold().text_color(p.success).child(status));
                         }
                         row
                     }),

@@ -93,8 +93,6 @@ const SR_MARGIN_X: f32 = 8.0;
 /// ellipsis, so the title keeps the other ~65% on a narrow sidebar instead
 /// of being starved by "Needs approval".
 const SR_TRAILING_MAX: f32 = 0.35;
-const SR_TEXT: f32 = 12.5;
-const SR_META_TEXT: f32 = 11.5;
 /// `.sr.child{margin-left:30px;padding-left:10px}` with the rail at `left:-1px; top/bottom 2px`.
 const SR_CHILD_INDENT: f32 = 30.0;
 const SR_CHILD_PAD: f32 = 10.0;
@@ -161,7 +159,7 @@ pub fn dense_field(state: &Entity<TextareaState>) -> Textarea {
     Textarea::new(state)
         .appearance(false)
         .bordered(false)
-        .text_size(aui_tokens::scaled(SR_TEXT))
+        .role_size(TextRole::Caption)
         .h(px(DENSE_FIELD_H))
 }
 
@@ -180,7 +178,7 @@ impl gpui::Render for RowTip {
             .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .text_color(p.ink)
-            .ui(scale::FS_12)
+            .ui(TextRole::Caption)
             .whitespace_nowrap()
             .child(self.0.clone())
     }
@@ -290,8 +288,6 @@ pub struct SessionRow {
     nested: bool,
     margin_x: f32,
     row_gap: f32,
-    name_size: f32,
-    meta_size: f32,
     branch_max: f32,
     activity_max: Option<f32>,
     show_actions: bool,
@@ -310,8 +306,6 @@ pub fn session_row(id: impl Into<ElementId>, session: SessionSummary) -> Session
         nested: false,
         margin_x: 0.0,
         row_gap: ROW_GAP,
-        name_size: scale::FS_13,
-        meta_size: scale::FS_12,
         branch_max: BRANCH_MAX,
         activity_max: None,
         show_actions: true,
@@ -338,13 +332,6 @@ impl SessionRow {
     /// Gap between the row's lines (2 in card 20, 3 in the shell and sidebar).
     pub fn row_gap(mut self, gap: f32) -> Self {
         self.row_gap = gap;
-        self
-    }
-
-    /// Name and meta sizes (13 / 12 by default; the sidebar card uses 12.5 / 11.5).
-    pub fn text_sizes(mut self, name: f32, meta: f32) -> Self {
-        self.name_size = name;
-        self.meta_size = meta;
         self
     }
 
@@ -464,8 +451,8 @@ fn has_legacy_second_line(s: &SessionSummary) -> bool {
 }
 
 /// The meta line: tags, marks and extra items, one line, truncating.
-fn meta_line(p: &aui_tokens::Palette, size: f32, items: Vec<gpui::AnyElement>) -> Div {
-    h_flex().w_full().min_w(px(0.0)).overflow_hidden().gap(px(META_GAP)).ui(size).text_color(p.fg_muted).whitespace_nowrap().children(items)
+fn meta_line(p: &aui_tokens::Palette, role: TextRole, items: Vec<gpui::AnyElement>) -> Div {
+    h_flex().w_full().min_w(px(0.0)).overflow_hidden().gap(px(META_GAP)).ui(role).text_color(p.fg_muted).whitespace_nowrap().children(items)
 }
 
 fn meta_items(p: &aui_tokens::Palette, s: &SessionSummary, branch_max: f32) -> Vec<gpui::AnyElement> {
@@ -495,7 +482,7 @@ fn meta_items(p: &aui_tokens::Palette, s: &SessionSummary, branch_max: f32) -> V
     items
 }
 
-fn activity_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary, size: f32, max: Option<f32>) -> Option<Div> {
+fn activity_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary, role: TextRole, max: Option<f32>) -> Option<Div> {
     let activity = s.activity.as_ref()?;
     let (color, glyph): (gpui::Hsla, Option<gpui::AnyElement>) = match activity.kind {
         ActivityKind::Working => (p.fg_muted, Some(spinner((id.clone(), "activity-spinner")).size(px(ACTIVITY_SPINNER)).into_any_element())),
@@ -507,7 +494,7 @@ fn activity_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary, si
     if let Some(max) = max {
         text = text.max_w(px(max));
     }
-    Some(meta_line(p, size, Vec::new()).text_color(color).children(glyph).child(text))
+    Some(meta_line(p, role, Vec::new()).text_color(color).children(glyph).child(text))
 }
 
 /// Option B's context line: which second line the compact row draws.
@@ -675,7 +662,7 @@ pub fn compact_row_title_ink(selected: bool, palette: &aui_tokens::Palette) -> g
 fn context_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> AnyElement {
     if let Some(text) = &s.attention {
         let shown = if text.trim().is_empty() { SharedString::from(" ") } else { text.clone() };
-        return meta_line(p, SR_META_TEXT, Vec::new())
+        return meta_line(p, TextRole::Caption, Vec::new())
             .text_color(p.fg_muted)
             .child(div().min_w(px(0.0)).truncate().child(shown))
             .into_any_element();
@@ -683,20 +670,20 @@ fn context_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> 
     match &s.byline {
         Some(Byline::Placeholder(text)) => {
             let shown = if text.is_empty() { SharedString::from(" ") } else { text.clone() };
-            meta_line(p, SR_META_TEXT, Vec::new())
+            meta_line(p, TextRole::Caption, Vec::new())
                 .text_color(SecondLineKind::Placeholder.ink(p))
                 .child(div().min_w(px(0.0)).truncate().child(shown))
                 .into_any_element()
         }
         Some(Byline::Preview(text)) => {
             let shown = if text.is_empty() { SharedString::from(" ") } else { text.clone() };
-            meta_line(p, SR_META_TEXT, Vec::new())
+            meta_line(p, TextRole::Caption, Vec::new())
                 .text_color(SecondLineKind::Preview.ink(p))
                 .child(div().min_w(px(0.0)).truncate().child(shown))
                 .into_any_element()
         }
         Some(Byline::TwoLines { ask, result }) => {
-            let line = meta_line(p, SR_META_TEXT, Vec::new()).text_color(SecondLineKind::Byline.ink(p));
+            let line = meta_line(p, TextRole::Caption, Vec::new()).text_color(SecondLineKind::Byline.ink(p));
             match (ask.is_empty(), result.is_empty()) {
                 (true, true) => line.child(div().child(" ")),
                 (true, false) => line.child(div().min_w(px(0.0)).truncate().child(result.clone())),
@@ -716,13 +703,13 @@ fn context_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> 
         }
         None => {
             if let Some(text) = project_branch_text(s) {
-                return meta_line(p, SR_META_TEXT, Vec::new())
+                return meta_line(p, TextRole::Caption, Vec::new())
                     .text_color(p.fg_muted)
                     .child(div().min_w(px(0.0)).truncate().child(text))
                     .into_any_element();
             }
             if !has_non_project_legacy(s) {
-                return meta_line(p, SR_META_TEXT, Vec::new()).child(div().child(" ")).into_any_element();
+                return meta_line(p, TextRole::Caption, Vec::new()).child(div().child(" ")).into_any_element();
             }
             let mut items = Vec::new();
             if let Some(activity) = &s.activity {
@@ -741,7 +728,7 @@ fn context_line(p: &aui_tokens::Palette, id: &ElementId, s: &SessionSummary) -> 
             if s.pinned {
                 meta.insert(0, pin_mark(p));
             }
-            meta_line(p, SR_META_TEXT, meta).into_any_element()
+            meta_line(p, TextRole::Caption, meta).into_any_element()
         }
     }
 }
@@ -753,12 +740,12 @@ impl RenderOnce for SessionRow {
         let s = self.session;
 
         let dot = div().flex_none().w(px(DOT_COL)).mt(px(DOT_TOP)).child(status_dot((id.clone(), "dot"), s.state).pulse(s.pulse));
-        let name_size = if self.nested { scale::FS_12 } else { self.name_size };
-        let name = div().flex_1().min_w(px(0.0)).ui(name_size).medium().text_color(p.ink).truncate().child(s.name.clone());
+        let name_role = if self.nested { TextRole::Caption } else { TextRole::Body };
+        let name = div().flex_1().min_w(px(0.0)).ui(name_role).medium().text_color(p.ink).truncate().child(s.name.clone());
         let time = div()
             .flex_none()
             .mt(px(TIME_TOP))
-            .text_role(TextRole::MonoSmall)
+            .mono(TextRole::Caption)
             .font_weight(gpui::FontWeight::MEDIUM)
             .text_color(p.fg_muted)
             .hide_on_hover(!self.show_actions)
@@ -771,11 +758,11 @@ impl RenderOnce for SessionRow {
             items.insert(0, pin_mark(&p));
         }
         if !items.is_empty() {
-            lines = lines.child(meta_line(&p, self.meta_size, items));
+            lines = lines.child(meta_line(&p, TextRole::Caption, items));
         }
         // `.meta .trunc{max-width}` applies to the activity sentence too.
         let activity_max = self.activity_max.or(Some(self.branch_max));
-        if let Some(activity) = activity_line(&p, &id, &s, self.meta_size, activity_max) {
+        if let Some(activity) = activity_line(&p, &id, &s, TextRole::Caption, activity_max) {
             lines = lines.child(activity);
         }
 
@@ -837,7 +824,6 @@ impl RenderOnce for SessionRow {
             let mut r = session_row(child_id, child)
                 .nested()
                 .row_gap(self.row_gap)
-                .text_sizes(self.name_size, self.meta_size)
                 .branch_max(self.branch_max)
                 .show_actions(self.show_actions);
             r.margin_bottom = self.margin_bottom;
@@ -1009,7 +995,7 @@ impl RenderOnce for CompactSessionRow {
                         .min_w(px(0.0))
                         .max_w(relative(SR_TRAILING_MAX))
                         .truncate()
-                        .text_role(TextRole::MonoSmall)
+                        .mono(TextRole::Caption)
                         .font_weight(gpui::FontWeight::MEDIUM)
                         .text_color(trailing_ink)
                         .debug_selector(|| "compact-trailing".into())
@@ -1044,7 +1030,7 @@ impl RenderOnce for CompactSessionRow {
             .rounded(px(scale::R_MD))
             .paint_states(StatePaint::new().selected(self.selected).pressable(false), &p)
             .hover_group()
-            .ui(SR_TEXT)
+            .ui(TextRole::Caption)
             .text_color(text)
             .cursor_pointer();
         // The bounds-carrying hover report: the row's own rect travels with the

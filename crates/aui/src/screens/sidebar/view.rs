@@ -38,7 +38,7 @@ use gpui_kit::base::ElementExt as _;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{spring_phase, SpringKind};
-use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Density, TextRole};
+use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, TextRole};
 use gpui::{
     div, list, prelude::*, px, radians, AnyElement, App, ElementId, Entity, IntoElement, ListState, Pixels, RenderOnce,
     SharedString, Window,
@@ -415,7 +415,7 @@ impl Ctx {
             .flex_1()
             .min_w(px(0.0))
             .truncate()
-            .text_role_in(TextRole::Body, Density::Standard)
+            .text_role(TextRole::Body)
             .child(text.into())
     }
 
@@ -514,7 +514,7 @@ impl Ctx {
             return self.rename_field(session, &editing.draft, window, cx);
         }
         let second = self.second_line(session);
-        let title = div().truncate().text_role_in(TextRole::Body, Density::Standard).text_color(p.fg).child(session.name.clone());
+        let title = div().truncate().text_role(TextRole::Body).text_color(p.fg).child(session.name.clone());
         let mut text = v_flex().flex_1().min_w(px(0.0)).justify_center().child(title);
         if let Some(line) = second.clone() {
             text = text.child(div().truncate().role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(line));
@@ -638,7 +638,7 @@ impl Ctx {
                 .min_w(px(0.0))
                 .items_center()
                 .text_color(p.fg)
-                .child(div().truncate().text_role_in(TextRole::Body, Density::Standard).child(draft.clone()))
+                .child(div().truncate().text_role(TextRole::Body).child(draft.clone()))
                 .child(div().flex_none().w(px(1.0)).h(metrics.icon).bg(p.fg))
                 .into_any_element(),
         };
@@ -653,7 +653,7 @@ impl Ctx {
                 .border_1()
                 .border_color(p.line)
                 .text_color(p.fg)
-                .text_role_in(TextRole::Body, Density::Standard)
+                .text_role(TextRole::Body)
                 .child(body),
         );
         let ctx = self.clone();
@@ -807,7 +807,7 @@ impl Ctx {
                     .min_w(px(0.0))
                     .max_w(px(scale::SP_7 * 3.0))
                     .truncate()
-                    .text_role_in(TextRole::Mono, Density::Compact)
+                    .mono(TextRole::Caption)
                     .text_color(p.fg_muted)
                     .child(branch.clone()),
             );
@@ -983,7 +983,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
                         .flex_1()
                         .min_w(px(0.0))
                         .overflow_hidden()
-                        .text_role_in(TextRole::Body, Density::Standard)
+                        .text_role(TextRole::Body)
                         .child(div().text_color(p.fg).child(browse.host.clone()))
                         .child(div().truncate().text_color(p.fg_muted).child(browse.path.clone())),
                 )
@@ -1260,7 +1260,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_role_in(TextRole::Body, Density::Standard)
+                        .text_role(TextRole::Body)
                         .medium()
                         .text_color(p.fg_muted)
                         .child(match pin.favicon.as_ref() {
@@ -1389,7 +1389,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
                 .pl(px(ROW_PAD_X))
                 .pr(px(ROW_PAD_X))
                 .child(lead)
-                .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().text_role_in(TextRole::Body, Density::Standard).text_color(if hovered { p.fg } else { p.fg_muted }).child(folder.name.clone()));
+                .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().text_role(TextRole::Body).text_color(if hovered { p.fg } else { p.fg_muted }).child(folder.name.clone()));
             let target = match &folder.kind {
                 FolderKind::Yours => {
                     head = head
@@ -1763,7 +1763,7 @@ impl RenderOnce for SidebarScreen {
                     .flex_shrink(1.0)
                     .min_w(px(0.0))
                     .truncate()
-                    .text_role_in(TextRole::Body, Density::Standard)
+                    .text_role(TextRole::Body)
                     .text_color(if checking { p.fg_muted } else { p.fg })
                     .child(account.name.clone()),
             )

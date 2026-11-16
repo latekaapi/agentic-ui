@@ -3,6 +3,7 @@
 //! 720×560.
 
 use aui::nav::{compact_session_row, session_row, ActivityKind, MetaItem, RowAction, SessionSummary};
+use aui_tokens::TextRole;
 use aui_icons::Provider;
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled, Palette};
 use gpui::*;
@@ -87,7 +88,7 @@ fn rename_mock(p: Palette) -> impl IntoElement {
         .border_1()
         .border_color(p.accent)
         .bg(p.surface_1)
-        .ui(12.5)
+        .ui(TextRole::Caption)
         .text_color(p.ink)
         .child(div().flex_1().min_w(px(0.0)).truncate().child("Checkout flow"))
 }
@@ -140,7 +141,7 @@ fn legend(p: Palette) -> impl IntoElement {
         ("Rename.", " The dense field edits in place at the row-title size with no chrome; the focus border lives on its 22 px wrapper, so the row keeps its 30 px and siblings never move."),
         ("Children.", " Fan-out tasks nest under the parent with a hairline rail and a smaller name."),
     ];
-    let mut col = v_flex().max_w(px(LEGEND_MEASURE)).pt(px(LEGEND_TOP)).gap(px(LEGEND_GAP)).ui(scale::FS_12).text_color(p.fg_muted);
+    let mut col = v_flex().max_w(px(LEGEND_MEASURE)).pt(px(LEGEND_TOP)).gap(px(LEGEND_GAP)).ui(TextRole::Caption).text_color(p.fg_muted);
     for (lead, rest) in items {
         col = col.child(lead_paragraph(p, lead, rest));
     }

@@ -17,8 +17,9 @@
 //! keyboard is.
 
 use std::rc::Rc;
+use aui_tokens::TextRole;
 
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -69,8 +70,6 @@ const SUBMENU_W: f32 = 300.0;
 /// The submenu's caption header, above its first row.
 const SUB_HEADER_H: f32 = 28.0;
 const SUBMENU_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
-/// The meta's mono size.
-const DETAIL_TEXT: f32 = scale::FS_11;
 
 /// One row of a composer picker.
 #[derive(Debug, Clone, PartialEq)]
@@ -238,7 +237,7 @@ impl PickerMenu {
         self
     }
 
-    /// Replaces the caps header.
+    /// Replaces the section label.
     pub fn title(mut self, title: impl Into<SharedString>) -> Self {
         self.title = title.into();
         self
@@ -284,17 +283,17 @@ impl PickerMenu {
     }
 }
 
-/// A row's trailing cluster: the meta in faint mono, the badges as 9 % caps.
+/// A row's trailing cluster: the meta in faint mono, the badges as tags.
 fn row_trailing(row: &PickerRow, p: &aui_tokens::Palette) -> Option<gpui::AnyElement> {
     if row.meta.is_none() && row.badges.is_empty() {
         return None;
     }
     let mut trailing = h_flex().gap(px(ITEM_GAP)).items_center();
     if let Some(meta) = &row.meta {
-        trailing = trailing.child(div().flex_none().mono(DETAIL_TEXT).text_color(p.ink_4).child(meta.clone()));
+        trailing = trailing.child(div().flex_none().mono(TextRole::Micro).text_color(p.ink_4).child(meta.clone()));
     }
     for badge in &row.badges {
-        trailing = trailing.child(div().flex_none().px(px(6.0)).rounded_full().bg(p.selected_overlay()).ui(DETAIL_TEXT).line_height(px(16.0)).text_color(p.fg_muted).child(badge.clone()));
+        trailing = trailing.child(div().flex_none().px(px(6.0)).rounded_full().bg(p.selected_overlay()).ui(TextRole::Micro).line_height(px(16.0)).text_color(p.fg_muted).child(badge.clone()));
     }
     Some(trailing.into_any_element())
 }
@@ -717,7 +716,7 @@ impl RenderOnce for EffortSliderMenu {
         let under = h_flex()
             .w_full()
             .mt(px(4.0))
-            .ui(scale::FS_11)
+            .ui(TextRole::Micro)
             .text_color(p.ink_4)
             .child(div().flex_1().child(ends(0)))
             .child(div().flex_none().child(ends(count.saturating_sub(1) / 2)))
@@ -732,8 +731,8 @@ impl RenderOnce for EffortSliderMenu {
                     .gap(px(6.0))
                     .items_baseline()
                     .mb(px(8.0))
-                    .child(div().flex_none().ui(scale::FS_13).semibold().text_color(p.ink).child(name))
-                    .child(div().min_w(px(0.0)).truncate().ui(scale::FS_12).text_color(p.fg_muted).child(meaning)),
+                    .child(div().flex_none().ui(TextRole::Body).semibold().text_color(p.ink).child(name))
+                    .child(div().min_w(px(0.0)).truncate().ui(TextRole::Caption).text_color(p.fg_muted).child(meaning)),
             )
             .child(track)
             .child(under);

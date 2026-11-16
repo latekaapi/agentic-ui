@@ -3,10 +3,11 @@
 //! ([`crate::composer::ComposerChip`]).
 
 use std::time::Duration;
+use aui_tokens::TextRole;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{looping, presence, EnterExit, Loop, PresenceStyle};
-use aui_tokens::{scale, ActiveAui, AuiStyled, Easing};
+use aui_tokens::{ActiveAui, AuiStyled, Easing};
 use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::v_flex;
 
@@ -23,10 +24,6 @@ const TILE_GLYPH: f32 = 16.0;
 /// infinite alternate`; gpui has no transform, so it is a relative `top`.
 const BOB_RISE: f32 = 4.0;
 const BOB_PERIOD: Duration = Duration::from_millis(1400);
-/// `.drop .ov b{font-size:14px}` (a bare `<b>`, so weight 700) and
-/// `.drop .ov span{font-size:12px}`.
-const OVERLAY_TITLE: f32 = scale::FS_14;
-const OVERLAY_SUBTITLE: f32 = scale::FS_12;
 
 /// The drag-over overlay (`.ov`). Build with [`drop_overlay`].
 ///
@@ -131,8 +128,8 @@ impl RenderOnce for DropOverlay {
                                     .justify_center()
                                     .child(icon(IconName::ArrowUp).size(px(TILE_GLYPH)).color(p.ink)),
                             )
-                            .child(div().ui(OVERLAY_TITLE).font_weight(gpui::FontWeight::SEMIBOLD).text_color(p.ink).child(self.title))
-                            .child(div().ui(OVERLAY_SUBTITLE).text_color(p.fg_muted).child(self.subtitle)),
+                            .child(div().ui(TextRole::Subtitle).font_weight(gpui::FontWeight::SEMIBOLD).text_color(p.ink).child(self.title))
+                            .child(div().ui(TextRole::Caption).text_color(p.fg_muted).child(self.subtitle)),
                     ),
             )
             .into_any_element()

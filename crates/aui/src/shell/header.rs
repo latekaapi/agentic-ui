@@ -3,7 +3,8 @@
 //! overflow, right-pane toggle) and right (the pane's tab strip, `+`, close).
 
 use aui_icons::{provider_mark, IconName, Provider};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::TextRole;
+use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::h_flex;
 
@@ -186,7 +187,7 @@ impl RenderOnce for CentreHeader {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
-        let mut title = h_flex().min_w(px(0.0)).gap(px(TITLE_GAP)).text_color(p.ink).ui(scale::FS_13).semibold();
+        let mut title = h_flex().min_w(px(0.0)).gap(px(TITLE_GAP)).text_color(p.ink).ui(TextRole::Body).semibold();
         if let Some(provider) = self.provider {
             title = title.child(provider_mark(provider));
         }
@@ -308,7 +309,7 @@ impl RenderOnce for RightHeader {
         // would double the header's subject, so it is not drawn.
         let title = if tabs.is_none() {
             self.title.map(|title| {
-                div().min_w(px(0.0)).truncate().text_color(p.ink).ui(scale::FS_13).semibold().child(title).into_any_element()
+                div().min_w(px(0.0)).truncate().text_color(p.ink).ui(TextRole::Body).semibold().child(title).into_any_element()
             })
         } else {
             None

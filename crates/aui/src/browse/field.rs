@@ -24,7 +24,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
-use aui_tokens::{scale, ActiveAui, AuiStyled, Density, TextRole};
+use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, ScrollHandle, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::base::input::TextareaState;
@@ -541,7 +541,6 @@ const FIELD_W: f32 = scale::PALETTE_W;
 const Q_H: f32 = 46.0;
 const Q_GAP: f32 = 10.0;
 const Q_PAD_X: f32 = 14.0;
-const Q_TEXT: f32 = scale::FS_14;
 const Q_ICON: f32 = 16.0;
 /// The caret after the query: a 1 px bar at the text height.
 const CARET_W: f32 = 1.0;
@@ -568,7 +567,6 @@ const ITEM_ICON: f32 = 14.0;
 const FT_H: f32 = 32.0;
 const FT_GAP: f32 = 14.0;
 const FT_PAD_X: f32 = 14.0;
-const FT_TEXT: f32 = scale::FS_11;
 /// The single space between a footer keycap and its word.
 const FT_KEY_GAP: f32 = 4.0;
 
@@ -869,7 +867,7 @@ impl RenderOnce for Field {
                             .pt(px(SEC_PAD_TOP))
                             .px(px(CAPS_PAD_X))
                             .pb(px(CAPS_PAD_BOTTOM))
-                            .text_role_in(TextRole::Caption, Density::Standard)
+                            .text_role(TextRole::Caption)
                             .text_color(p.fg_muted)
                             .child(caption),
                     );
@@ -920,7 +918,7 @@ fn input_row(
             .px(px(7.0))
             .rounded(px(scale::R_SM))
             .bg(p.surface_3)
-            .ui(scale::FS_12)
+            .ui(TextRole::Caption)
             .text_color(p.fg_muted)
             .child(icon(glyph).size(px(11.0)).color(p.fg_muted))
             .child(scope.clone())
@@ -960,7 +958,7 @@ fn input_row(
         .px(px(Q_PAD_X))
         .border_b_1()
         .border_color(p.line)
-        .ui(Q_TEXT)
+        .ui(TextRole::Subtitle)
         .child(icon(IconName::Search).size(px(Q_ICON)).color(p.fg_muted))
         .children(pill)
         .child(text)
@@ -1042,7 +1040,7 @@ fn field_row(
         .px(px(ITEM_PAD_X))
         .rounded(px(R_ITEM))
         .paint_states(StatePaint::new().pointer(false).highlighted(on).ink(p.fg_muted, p.ink), p)
-        .text_role_in(TextRole::Body, Density::Standard)
+        .text_role(TextRole::Body)
         .child(icon(row_icon(&row.kind)).size(px(ITEM_ICON)).color(glyph_color))
         .child(div().flex_shrink(1.0).min_w(px(0.0)).truncate().child(row.title.clone()));
     if let Some(detail) = &row.detail {
@@ -1053,7 +1051,7 @@ fn field_row(
                 .flex_shrink(1.0)
                 .min_w(px(0.0))
                 .truncate()
-                .text_role_in(TextRole::Caption, Density::Standard)
+                .text_role(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child(detail.clone()),
         );
@@ -1062,7 +1060,7 @@ fn field_row(
     // folder's its count: plain faint text at the right edge. Every other
     // hint is a keycap.
     if matches!(row.kind, FieldRowKind::History { .. } | FieldRowKind::Bookmark { .. } | FieldRowKind::Folder { .. }) {
-        el = el.child(div().flex_none().ml_auto().text_role_in(TextRole::Caption, Density::Standard).text_color(p.fg_muted).child(row.hint.clone()));
+        el = el.child(div().flex_none().ml_auto().text_role(TextRole::Caption).text_color(p.fg_muted).child(row.hint.clone()));
     } else {
         el = el.child(div().flex_none().ml_auto().child(kbd(row.hint.clone())));
     }
@@ -1105,7 +1103,7 @@ fn footer(p: &aui_tokens::Palette) -> impl IntoElement {
         .px(px(FT_PAD_X))
         .border_t_1()
         .border_color(p.line)
-        .ui(FT_TEXT)
+        .ui(TextRole::Micro)
         .text_color(p.fg_muted)
         .child(footer_hint("↑↓", "navigate"))
         .child(open_hint())

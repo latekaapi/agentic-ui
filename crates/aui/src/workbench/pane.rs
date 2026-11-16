@@ -45,9 +45,6 @@ const CLOSE_GLYPH: f32 = 12.0;
 /// The pushed row's padding and the gap between its controls.
 const PUSHED_PAD: f32 = 6.0;
 const PUSHED_GAP: f32 = 2.0;
-/// The state block's title and line.
-const NAME_TEXT: f32 = 14.3;
-const CONTEXT_TEXT: f32 = 13.2;
 
 /// One of the transcript row's pane toggles (Changes · Files · Page): a 28 px
 /// ghost icon button, glyph 14 muted, hover 5 % + foreground, **lit** (the
@@ -364,9 +361,9 @@ impl RenderOnce for StateBlock {
             .justify_center()
             .font_family(scale::FONT_UI)
             .child(tile)
-            .child(div().text_px(NAME_TEXT).font_weight(FontWeight::SEMIBOLD).text_color(p.fg).text_center().child(self.title));
+            .child(div().role_size(TextRole::Body).font_weight(FontWeight::SEMIBOLD).text_color(p.fg).text_center().child(self.title));
         if let Some(line) = self.line {
-            col = col.child(div().max_w(px(260.0)).text_px(CONTEXT_TEXT).line_height(px(18.0)).text_color(p.fg_muted).text_center().child(line));
+            col = col.child(div().max_w(px(260.0)).role_size(TextRole::Body).line_height(px(18.0)).text_color(p.fg_muted).text_center().child(line));
         }
         if let Some(action) = self.action {
             col = col.child(div().mt(px(8.0)).child(action));
@@ -394,7 +391,7 @@ pub fn secondary_action(id: impl Into<ElementId>, label: impl Into<SharedString>
         .border_1()
         .border_color(p.line)
         .font_family(scale::FONT_UI)
-        .text_px(NAME_TEXT)
+        .role_size(TextRole::Body)
         .text_color(p.fg)
         .whitespace_nowrap()
         .paint_states(StatePaint::new().on(p.surface_4), &p)
@@ -629,11 +626,11 @@ pub fn filter_bar(
                 .border_1()
                 .border_color(field_border(focused, cx))
                 .font_family(scale::FONT_UI)
-                .text_px(13.2)
+                .role_size(TextRole::Body)
                 .text_color(p.fg)
                 .child(icon(IconName::Search).size(px(12.0)).color(p.fg_muted))
                 .child(crate::a11y_text::a11y_text_input((id.clone(), "input"), "Filter files", state, cx).flex_1().min_w(px(0.0)))
-                .when_some(count, |d, c| d.child(div().flex_none().font_family(scale::FONT_MONO).text_px(12.1).text_color(p.ink_4).child(c))),
+                .when_some(count, |d, c| d.child(div().flex_none().font_family(scale::FONT_MONO).role_size(TextRole::Caption).text_color(p.ink_4).child(c))),
         )
         .child(div().w(px(1.0)).h(px(16.0)).mx(px(4.0)).flex_none().bg(p.line))
         .child(icon_button((id, "close"), IconName::X).ghost().icon_size(px(12.0)).accessibility_label("Close the filter").on_click(move |e, w, cx| on_close(e, w, cx)))

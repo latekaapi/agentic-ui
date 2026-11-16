@@ -3,6 +3,7 @@
 //! quote blocks in the composer (prose and code), and the sent bubble's quote.
 
 use aui::composer::{composer, composer_state_rows, ComposerQuote};
+use aui_tokens::TextRole;
 use aui::protocol::{Attachment, AttachmentKind, UploadState};
 use aui::transcript::{quote_bar, user_turn};
 use aui_icons::Provider;
@@ -16,13 +17,13 @@ fn quote(name: &str, meta: Option<&str>) -> Attachment {
 
 pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     let p = cx.aui().colors;
-    let label = |t: &'static str| div().text_px(12.0).text_color(p.fg_muted).child(t);
+    let label = |t: &'static str| div().role_size(TextRole::Caption).text_color(p.fg_muted).child(t);
     let bar = quote_bar("d6-qbar", true, |_, _, _| {}, window, cx);
     let selected = div()
         .relative()
         .w(px(560.0))
         .pt(px(44.0))
-        .text_px(16.0)
+        .role_size(TextRole::Title)
         .line_height(px(26.0))
         .text_color(p.fg)
         .child(div().absolute().left(px(0.0)).top(px(4.0)).children(bar))

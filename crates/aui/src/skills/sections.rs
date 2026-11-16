@@ -51,7 +51,7 @@ impl RenderOnce for ScopeSectionHeader {
             .pb(px(SECT_BOTTOM))
             .child(div().flex_none().text_role(TextRole::Caption).text_color(p.fg_muted).child(self.label));
         if let Some(hint) = self.hint_mono {
-            row = row.child(div().flex_none().text_role(TextRole::MonoSmall).text_color(p.ink_4).child(hint));
+            row = row.child(div().flex_none().mono(TextRole::Caption).text_color(p.ink_4).child(hint));
         }
         row.child(div().flex_1())
             .child(div().flex_none().text_role(TextRole::Caption).text_color(p.ink_4).child(self.count))
@@ -413,7 +413,7 @@ impl RenderOnce for SkillDetail {
                     .flex_none()
                     .w_full()
                     .truncate()
-                    .text_role(TextRole::MonoSmall)
+                    .mono(TextRole::Caption)
                     .text_color(p.fg_muted)
                     .mt(px(6.0))
                     .child(path),

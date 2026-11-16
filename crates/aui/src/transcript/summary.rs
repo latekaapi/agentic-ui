@@ -3,9 +3,10 @@
 //! row (hint, spacer, Create PR, Commit…, Review diff).
 
 use std::rc::Rc;
+use aui_tokens::TextRole;
 
 use aui_protocol::{Check, ChangeKind, FileChange};
-use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
+use aui_tokens::{ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -25,7 +26,6 @@ const FILES_PAD_BOTTOM: f32 = 8.0;
 const FILE_ROW_H: f32 = 24.0;
 const FILE_ROW_GAP: f32 = 8.0;
 const FILE_STATUS_W: f32 = 14.0;
-const FILE_DELTA_SIZE: f32 = 11.0;
 /// The space between the `+8` and the `−3` of a file's delta.
 const DELTA_GAP: f32 = 4.0;
 /// `.sm .checks{gap:12px;padding:0 12px 10px;font-size:12px}` with 12 px checks;
@@ -111,19 +111,19 @@ impl RenderOnce for SummaryCard {
             .py(px(HEAD_PAD_Y))
             .px(px(PAD_X))
             .child(status_check(p.success))
-            .child(div().min_w(px(0.0)).truncate().ui(scale::FS_13).semibold().text_color(p.ink).child(self.title.clone()))
+            .child(div().min_w(px(0.0)).truncate().ui(TextRole::Body).semibold().text_color(p.ink).child(self.title.clone()))
             .child(div().flex_1())
-            .child(div().flex_none().mono(scale::FS_11).text_color(p.ink_4).child(self.meta.clone()));
+            .child(div().flex_none().mono(TextRole::Micro).text_color(p.ink_4).child(self.meta.clone()));
 
         // Files 2 apart in 24 px rows: the status letter (mono 11, 14 wide,
         // success for an addition, else muted), the path in mono, `+N −M`.
-        let mut files = v_flex().w_full().px(px(PAD_X)).pb(px(FILES_PAD_BOTTOM)).gap(px(FILES_GAP)).mono(scale::FS_12).text_color(p.ink);
+        let mut files = v_flex().w_full().px(px(PAD_X)).pb(px(FILES_PAD_BOTTOM)).gap(px(FILES_GAP)).mono(TextRole::Caption).text_color(p.ink);
         for file in &self.files {
             let (letter, colour) = change_letter(file.change, &p);
             let delta = h_flex()
                 .flex_none()
                 .gap(px(DELTA_GAP))
-                .text_px(FILE_DELTA_SIZE)
+                .role_size(TextRole::Micro)
                 .child(div().text_color(p.success).child(format!("+{}", file.added)))
                 // The design writes removals with a minus sign, not a hyphen.
                 .child(div().text_color(p.danger).child(format!("−{}", file.removed)));
@@ -132,7 +132,7 @@ impl RenderOnce for SummaryCard {
                     .w_full()
                     .h(px(FILE_ROW_H))
                     .gap(px(FILE_ROW_GAP))
-                    .child(div().flex_none().w(px(FILE_STATUS_W)).mono(scale::FS_11).text_color(colour).child(letter))
+                    .child(div().flex_none().w(px(FILE_STATUS_W)).mono(TextRole::Micro).text_color(colour).child(letter))
                     .child(div().min_w(px(0.0)).truncate().child(file.path.clone()))
                     .child(div().flex_1())
                     .child(delta),
@@ -140,7 +140,7 @@ impl RenderOnce for SummaryCard {
         }
 
         // The checks as one muted caption line with success ticks, 12 apart.
-        let mut checks = h_flex().w_full().px(px(PAD_X)).pb(px(CHECKS_PAD_BOTTOM)).gap(px(CHECKS_GAP)).ui(scale::FS_12).text_color(p.fg_muted);
+        let mut checks = h_flex().w_full().px(px(PAD_X)).pb(px(CHECKS_PAD_BOTTOM)).gap(px(CHECKS_GAP)).ui(TextRole::Caption).text_color(p.fg_muted);
         for check in &self.checks {
             let (glyph, colour) = if check.passed { (IconName::Check, p.success) } else { (IconName::X, p.danger) };
             checks = checks.child(

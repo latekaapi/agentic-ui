@@ -26,6 +26,7 @@
 //!   policy or judge resolution collapses to.
 
 use std::rc::Rc;
+use aui_tokens::TextRole;
 use std::time::Duration;
 
 use aui_motion::{presence, EnterExit, PresenceStyle};
@@ -65,7 +66,6 @@ const RULE_OPACITY: f32 = 0.7;
 /// The stage strip: the same inset as the command, its own row rhythm.
 const STAGE_GAP: f32 = 6.0;
 const STAGE_ROW_GAP: f32 = 8.0;
-const STAGE_TEXT: f32 = 12.0;
 const STAGE_GLYPH: f32 = 12.0;
 /// The badge pills in the header sit on the title's own line.
 const BADGE_GAP: f32 = 6.0;
@@ -385,7 +385,7 @@ impl RenderOnce for ApprovalCard {
             .w_full()
             .items_center()
             .gap(px(BADGE_GAP))
-            .child(div().flex_none().ui(scale::FS_13).semibold().text_color(p.ink).child(self.title.clone()));
+            .child(div().flex_none().ui(TextRole::Body).semibold().text_color(p.ink).child(self.title.clone()));
         if self.badges.protected_write {
             title_line = title_line.child(pill("Protected write").variant(PillVariant::Warning));
         }
@@ -425,7 +425,7 @@ impl RenderOnce for ApprovalCard {
                     .flex_1()
                     .min_w(px(0.0))
                     .child(title_line)
-                    .when(!subtitle.is_empty(), |d| d.child(div().w_full().ui(scale::FS_12).text_color(p.fg_muted).child(subtitle))),
+                    .when(!subtitle.is_empty(), |d| d.child(div().w_full().ui(TextRole::Caption).text_color(p.fg_muted).child(subtitle))),
             );
 
         let mut card = crate::util::flat_block(v_flex().relative().top(style.offset_y).opacity(style.opacity).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
@@ -447,8 +447,8 @@ impl RenderOnce for ApprovalCard {
             .text_color(p.ink)
             .child(self.command.clone());
         card = card.child(match self.body_kind {
-            ApprovalBodyKind::Command | ApprovalBodyKind::FileWrite => subject.font_family(scale::FONT_MONO).text_px(scale::FS_12),
-            ApprovalBodyKind::Other => subject.ui(scale::FS_12),
+            ApprovalBodyKind::Command | ApprovalBodyKind::FileWrite => subject.font_family(scale::FONT_MONO).role_size(TextRole::Caption),
+            ApprovalBodyKind::Other => subject.ui(TextRole::Caption),
         });
 
         // The stage strip: a pipeline is decided one stage at a time, so the
@@ -460,7 +460,7 @@ impl RenderOnce for ApprovalCard {
                 .mx(px(BODY_INSET_X))
                 .mb(px(BODY_INSET_BOTTOM))
                 .gap(px(STAGE_GAP))
-                .child(div().flex_none().ui(scale::FS_12).text_color(p.fg_muted).child(format!("Stage {position} of {total}")));
+                .child(div().flex_none().ui(TextRole::Caption).text_color(p.fg_muted).child(format!("Stage {position} of {total}")));
             for (index, stage) in self.stages.iter().enumerate() {
                 let current = self.current_stage == Some(index);
                 let ink = if stage.resolved {
@@ -474,12 +474,12 @@ impl RenderOnce for ApprovalCard {
                     .w_full()
                     .items_center()
                     .gap(px(STAGE_ROW_GAP))
-                    .mono(STAGE_TEXT)
+                    .mono(TextRole::Caption)
                     .text_color(ink)
                     .child(div().flex_none().size(px(STAGE_GLYPH)).children(stage.resolved.then(|| icon(IconName::Check).size(px(STAGE_GLYPH)).color(p.success))))
                     .child(div().flex_1().min_w(px(0.0)).child(stage.argv.join(" ")));
                 if !stage.argv_complete {
-                    row = row.child(div().flex_none().ui(scale::FS_11).text_color(p.warning).child("(partial parse)"));
+                    row = row.child(div().flex_none().ui(TextRole::Micro).text_color(p.warning).child("(partial parse)"));
                 }
                 strip = strip.child(row);
             }
@@ -571,9 +571,9 @@ impl ApprovalCard {
         };
         let mut row = quiet_status_row(id, glyph)
             .part(div().flex_none().child(verdict))
-            .part(div().min_w(px(0.0)).truncate().mono(scale::FS_12).child(self.command.clone()));
+            .part(div().min_w(px(0.0)).truncate().mono(TextRole::Caption).child(self.command.clone()));
         if let Some(tail) = tail {
-            row = row.part(div().flex_none().mono(scale::FS_12).text_color(p.ink_4).child(tail));
+            row = row.part(div().flex_none().mono(TextRole::Caption).text_color(p.ink_4).child(tail));
         }
         row
     }

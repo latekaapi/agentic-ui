@@ -74,7 +74,7 @@ impl Card {
                 .px(px(CARD_PAD_X))
                 .items_center()
                 .justify_between()
-                .child(div().flex_1().min_w(px(0.0)).truncate().text_role_in(TextRole::Body, aui_tokens::Density::Standard).child(title))
+                .child(div().flex_1().min_w(px(0.0)).truncate().text_role(TextRole::Body).child(title))
                 .children(trailing)
                 .into_any_element(),
         );

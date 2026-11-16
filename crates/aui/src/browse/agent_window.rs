@@ -12,6 +12,7 @@
 //! composer's `composer_state` pattern) and are only borrowed for the frame.
 
 use std::rc::Rc;
+use aui_tokens::TextRole;
 
 use aui_protocol::{ActivityState, Step as ProtocolStep, StepState as ProtocolStepState};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
@@ -62,10 +63,6 @@ const FACE_GLYPH: f32 = 14.0;
 /// Row padding and gaps.
 const ROW_PAD_X: f32 = 12.0;
 const ROW_GAP: f32 = 8.0;
-/// Body and caption type.
-const BODY_TEXT: f32 = 13.5;
-const SMALL_TEXT: f32 = 12.0;
-const CAPTION_TEXT: f32 = 11.0;
 /// The remove `×` in a context chip.
 const CHIP_X: f32 = 10.0;
 /// The leading kind glyph in a context chip, mirroring the composer's row.
@@ -428,7 +425,7 @@ pub fn ask_height(has_site_actions: bool, cx: &App) -> f32 {
 /// excluded), capped at [`ANSWER_MAX_LINES`].
 pub fn answer_lines(answer: &str, inner: f32, window: &Window, cx: &App) -> usize {
     let width = (inner - ROW_PAD_X * 2.0).max(40.0);
-    let size = aui_tokens::scaled(BODY_TEXT).to_pixels(window.rem_size());
+    let size = TextRole::Body.size();
     // The family the text actually draws in: the theme's, which gpui-kit's
     // Root (and a host's float) puts on the tree — not `FONT_UI`.
     let font = gpui::font(gpui_kit::component::ActiveTheme::theme(cx).font_family.clone());
@@ -533,7 +530,7 @@ impl RenderOnce for AgentLine {
                 let label = v_flex()
                     .gap(px(0.0))
                     .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("You're driving"))
-                    .child(div().ui(SMALL_TEXT).text_color(p.fg_muted).child("The agent is waiting"));
+                    .child(div().ui(TextRole::Caption).text_color(p.fg_muted).child("The agent is waiting"));
                 work_row(&id, TaskFace::Paused, label, vec![hand_back.into_any_element()], handler, &p)
                     .into_any_element()
             }
@@ -610,7 +607,7 @@ fn work_row(
         .border_color(p.line_strong)
         .shadow(p.floating_shadow())
         .child(task_face(face))
-        .child(div().flex_1().min_w(px(0.0)).truncate().ui(BODY_TEXT).text_color(p.ink).child(label))
+        .child(div().flex_1().min_w(px(0.0)).truncate().ui(TextRole::Body).text_color(p.ink).child(label))
         .children(actions)
         .child(expand_button(id, handler))
 }
@@ -690,7 +687,7 @@ fn ask_card(
                 .px(px(ROW_PAD_X))
                 .pt(px(ROW_GAP))
                 .gap(px(4.0))
-                .child(div().h(px(SITE_CAPTION_H)).ui(CAPTION_TEXT).line_height(px(SITE_CAPTION_H)).medium().text_color(p.fg_muted).child("ON THIS SITE"))
+                .child(div().h(px(SITE_CAPTION_H)).ui(TextRole::Micro).line_height(px(SITE_CAPTION_H)).medium().text_color(p.fg_muted).child("ON THIS SITE"))
                 .child(actions),
         );
     }
@@ -716,7 +713,7 @@ fn drafted_row(id: &ElementId, label: impl IntoElement, actions: Vec<gpui::AnyEl
         .border_color(p.line_strong)
         .shadow(p.floating_shadow())
         .child(crate::data::glyph_ok())
-        .child(div().flex_1().min_w(px(0.0)).ui(BODY_TEXT).child(label))
+        .child(div().flex_1().min_w(px(0.0)).ui(TextRole::Body).child(label))
         .children(actions)
 }
 
@@ -745,7 +742,7 @@ fn answer_card(
             .gap(px(ROW_GAP))
             .px(px(ROW_PAD_X))
             .child(crate::data::spinner((id.clone(), "spin")))
-            .child(div().flex_1().min_w(px(0.0)).truncate().ui(BODY_TEXT).text_color(p.fg_muted).child("Reading this page…"))
+            .child(div().flex_1().min_w(px(0.0)).truncate().ui(TextRole::Body).text_color(p.fg_muted).child("Reading this page…"))
             .child(button((id.clone(), "stop"), "Stop").ghost().sm().on_click(click(handler.clone(), LineIntent::Stop)))
             .into_any_element(),
         Some(answer) => {
@@ -756,7 +753,7 @@ fn answer_card(
                 .child(
                     div()
                         .w_full()
-                        .ui(BODY_TEXT)
+                        .ui(TextRole::Body)
                         .line_height(px(ANSWER_LH))
                         .text_color(p.ink)
                         .line_clamp(ANSWER_MAX_LINES)
@@ -771,7 +768,7 @@ fn answer_card(
                         .gap(px(6.0))
                         .items_center()
                         .child(icon(IconName::File).size(px(CHIP_GLYPH)).color(p.fg_muted))
-                        .child(div().min_w(px(0.0)).truncate().ui(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.fg_muted).child(format!("From {source}"))),
+                        .child(div().min_w(px(0.0)).truncate().ui(TextRole::Caption).line_height(px(SMALL_LH)).text_color(p.fg_muted).child(format!("From {source}"))),
                 );
             }
             // Narrow, the row holds Copy, this and ×: the short label fits.
@@ -808,7 +805,7 @@ fn answer_card(
             .gap(px(ROW_GAP))
             .px(px(ROW_PAD_X))
             .child(icon(IconName::Sparkle).size(px(FACE_GLYPH)).color(p.accent_ink))
-            .child(div().flex_1().min_w(px(0.0)).truncate().ui(BODY_TEXT).text_color(p.fg_muted).child(question.clone()))
+            .child(div().flex_1().min_w(px(0.0)).truncate().ui(TextRole::Body).text_color(p.fg_muted).child(question.clone()))
             .into_any_element(),
         Some(_) => ask_card(id, text, chips, &[], input, handler, cx).border_color(p.line).shadow(Vec::new()).into_any_element(),
     };
@@ -837,14 +834,14 @@ fn ask_input(id: impl Into<ElementId>, label: &SharedString, input: &Entity<Text
     crate::a11y_text::a11y_text_field(id, label.clone(), input, false, cx)
         .flex_1()
         .min_w(px(0.0))
-        .ui(BODY_TEXT)
+        .ui(TextRole::Body)
         .line_height(relative(1.4))
         .text_color(p.ink)
         .child(
             Textarea::new(input)
                 .appearance(false)
                 .bordered(false)
-                .text_size(aui_tokens::scaled(BODY_TEXT))
+                .role_size(TextRole::Body)
                 .line_height(relative(1.4)),
         )
         .into_any_element()
@@ -870,13 +867,13 @@ fn chips_row(
     for c in chips {
         let leading: gpui::AnyElement = match c.kind {
             ComposerChipKind::Mention => div()
-                .mono(scale::FS_12)
+                .mono(TextRole::Caption)
                 .line_height(relative(1.0))
                 .text_color(p.accent_ink)
                 .child("@")
                 .into_any_element(),
             ComposerChipKind::Skill => div()
-                .mono(scale::FS_12)
+                .mono(TextRole::Caption)
                 .line_height(relative(1.0))
                 .text_color(p.accent_ink)
                 .child("$")
@@ -970,7 +967,7 @@ fn approval_card(
                 .min_w(px(0.0))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 // The transcript approval's title: 13 px semibold in ink.
-                .ui(scale::FS_13)
+                .ui(TextRole::Body)
                 .text_color(p.ink)
                 .line_height(px(TITLE_LH))
                 .when(compact, |d| d.line_clamp(2).max_h(px(TITLE_LH * 2.0)).overflow_hidden())
@@ -1020,7 +1017,7 @@ fn approval_card(
     let hint = div()
         .min_w(px(0.0))
         .truncate()
-        .ui(SMALL_TEXT)
+        .ui(TextRole::Caption)
         .line_height(px(SMALL_LH))
         .text_color(p.fg_muted)
         .child(data.hint.clone());
@@ -1057,10 +1054,10 @@ fn approval_detail(data: &ApprovalData, cx: &mut App) -> gpui::AnyElement {
             .min_w(px(0.0))
             .h(px(SMALL_LH))
             .gap(px(4.0))
-            .child(div().flex_none().mono(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.fg_muted).child(data.host.clone()))
-            .child(div().min_w(px(0.0)).truncate().ui(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.fg_muted).child(tail.to_string()))
+            .child(div().flex_none().mono(TextRole::Caption).line_height(px(SMALL_LH)).text_color(p.fg_muted).child(data.host.clone()))
+            .child(div().min_w(px(0.0)).truncate().ui(TextRole::Caption).line_height(px(SMALL_LH)).text_color(p.fg_muted).child(tail.to_string()))
             .into_any_element(),
-        None => div().h(px(SMALL_LH)).truncate().ui(SMALL_TEXT).line_height(px(SMALL_LH)).text_color(p.fg_muted).child(data.line.clone()).into_any_element(),
+        None => div().h(px(SMALL_LH)).truncate().ui(TextRole::Caption).line_height(px(SMALL_LH)).text_color(p.fg_muted).child(data.line.clone()).into_any_element(),
     }
 }
 
@@ -1182,7 +1179,7 @@ fn card_header(
                 .min_w(px(0.0))
                 .items_start()
                 .gap(px(2.0))
-                .child(div().font_weight(gpui::FontWeight::SEMIBOLD).ui(BODY_TEXT).text_color(p.ink).child(transcript.title.clone()))
+                .child(div().font_weight(gpui::FontWeight::SEMIBOLD).ui(TextRole::Body).text_color(p.ink).child(transcript.title.clone()))
                 .child(
                     button((id.clone(), "model"), transcript.model.clone())
                         .ghost()
@@ -1278,7 +1275,7 @@ fn agent_body(
                         .items_center()
                         .gap(px(6.0))
                         .child(icon(IconName::Clock).size(px(12.0)).color(p.fg_muted))
-                        .child(div().ui(SMALL_TEXT).text_color(p.fg_muted).child(format!("{text} · queued"))),
+                        .child(div().ui(TextRole::Caption).text_color(p.fg_muted).child(format!("{text} · queued"))),
                 );
             }
             AgentItem::Answer(text) => {
@@ -1288,8 +1285,7 @@ fn agent_body(
                     ink: p.ink,
                     code_ink: p.ink,
                     code_bg: p.surface_3,
-                    size: BODY_TEXT,
-                    line_height: 1.65,
+                    role: TextRole::Body,
                     paragraph_gap: scale::SP_2,
                 };
                 body = body.child(div().w_full().text_color(p.ink).child(crate::transcript::markdown(item_id, text.clone(), style)));
@@ -1312,12 +1308,12 @@ fn agent_body(
                                 .child(
                                     h_flex()
                                         .gap(px(4.0))
-                                        .ui(BODY_TEXT)
+                                        .ui(TextRole::Body)
                                         .text_color(p.ink)
                                         .child("Continued in")
                                         .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(title.clone())),
                                 )
-                                .child(div().ui(SMALL_TEXT).text_color(p.fg_muted).child(detail.clone())),
+                                .child(div().ui(TextRole::Caption).text_color(p.fg_muted).child(detail.clone())),
                         )
                         .child(
                             button((id.clone(), SharedString::from(format!("open-{i}"))), "Open")
@@ -1330,7 +1326,7 @@ fn agent_body(
                     .id(item_id)
                     .w_full()
                     .gap(px(6.0))
-                    .child(div().ui(BODY_TEXT).text_color(p.ink).child(text.clone()));
+                    .child(div().ui(TextRole::Body).text_color(p.ink).child(text.clone()));
                 for (n, choice) in choices.iter().enumerate() {
                     question = question.child(
                         button((id.clone(), SharedString::from(format!("item-{i}-choice-{n}"))), choice.clone())
@@ -1519,14 +1515,14 @@ fn multiline_input(
     crate::a11y_text::a11y_text_field(id, label, input, true, cx)
         .flex_1()
         .min_w(px(0.0))
-        .ui(BODY_TEXT)
+        .ui(TextRole::Body)
         .line_height(relative(1.55))
         .text_color(p.ink)
         .child(
             Textarea::new(input)
                 .appearance(false)
                 .bordered(false)
-                .text_size(aui_tokens::scaled(BODY_TEXT))
+                .role_size(TextRole::Body)
                 .line_height(relative(1.55)),
         )
         .into_any_element()

@@ -18,10 +18,6 @@ use gpui_kit::base::{h_flex, v_flex};
 use crate::interact::paint::{PaintHover, PaintStates, StatePaint};
 use crate::data::{icon_button, spinner};
 
-/// The type the screen uses.
-const BODY_TEXT: f32 = 14.3;
-const SMALL_TEXT: f32 = 13.2;
-const MONO_SMALL: f32 = 12.1;
 
 type Click = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 /// A click on the unchanged run after hunk `i`.
@@ -47,11 +43,11 @@ pub fn changes_caption(id: impl Into<ElementId>, label: impl Into<SharedString>,
         .px(px(8.0))
         .pb(px(6.0))
         .font_family(scale::FONT_UI)
-        .text_px(SMALL_TEXT)
+        .role_size(TextRole::Body)
         .line_height(px(18.0))
         .text_color(p.fg_muted)
         .child(label)
-        .when_some(count, |d, n| d.child(div().font_family(scale::FONT_MONO).text_px(MONO_SMALL).text_color(p.ink_4).child(n.to_string())))
+        .when_some(count, |d, n| d.child(div().font_family(scale::FONT_MONO).role_size(TextRole::Caption).text_color(p.ink_4).child(n.to_string())))
 }
 
 // ─────────────────────────────────────────────────────────────── change rows
@@ -133,7 +129,7 @@ impl RenderOnce for ChangeRow {
         let show_folder = self.width.is_none_or(|w| f32::from(w) >= CHANGE_FOLDER_MIN_WIDTH) && !folder.is_empty();
         let turn = open_close((self.id.clone(), "chevron"), self.open, SpringKind::Moderate, COLLAPSE_EXIT, window, cx);
         let label = format!("{} the diff for {}", if self.open { "Hide" } else { "Show" }, self.change.path);
-        let mut counts = h_flex().flex_none().gap(px(6.0)).font_family(scale::FONT_MONO).text_px(MONO_SMALL);
+        let mut counts = h_flex().flex_none().gap(px(6.0)).font_family(scale::FONT_MONO).role_size(TextRole::Caption);
         if self.change.added > 0 {
             counts = counts.child(div().text_color(p.success).child(format!("+{}", self.change.added)));
         }
@@ -151,7 +147,7 @@ impl RenderOnce for ChangeRow {
             .whitespace_nowrap()
             .cursor_pointer()
             .font_family(scale::FONT_UI)
-            .text_px(BODY_TEXT)
+            .role_size(TextRole::Body)
             .text_color(p.fg)
             .role(gpui::Role::Button)
             .aria_label(label)
@@ -169,7 +165,7 @@ impl RenderOnce for ChangeRow {
             )
             .child(div().w(px(12.0)).flex_none().text_center().text_role(TextRole::Micro).text_color(letter_color).child(letter))
             .child(div().flex_none().child(name.clone()))
-            .when(show_folder, |d| d.child(div().min_w(px(0.0)).overflow_hidden().text_ellipsis().text_px(SMALL_TEXT).text_color(p.fg_muted).child(folder)))
+            .when(show_folder, |d| d.child(div().min_w(px(0.0)).overflow_hidden().text_ellipsis().role_size(TextRole::Body).text_color(p.fg_muted).child(folder)))
             .child(div().flex_1().min_w(px(0.0)))
             .child(counts);
         // The "open file" button shows while the row is hovered; its box is
@@ -288,7 +284,7 @@ impl RenderOnce for DiffBody {
             .mb(px(6.0))
             .overflow_hidden()
             .font_family(scale::FONT_MONO)
-            .text_px(MONO_SMALL)
+            .role_size(TextRole::Caption)
             .line_height(px(20.0));
         let hunks = self.diff.hunks.len();
         // One gutter, 36 wide (8 of it before the sign); wider when the
@@ -340,7 +336,7 @@ impl RenderOnce for DiffBody {
                                     .role(gpui::Role::Button)
                                     .aria_label(format!("Show {n} unchanged lines"))
                                     .font_family(scale::FONT_UI)
-                                    .text_px(SMALL_TEXT)
+                                    .role_size(TextRole::Body)
                                     .paint_states(StatePaint::new().tint(false).ink(p.fg_muted, p.fg), &p)
                                     .child(icon(IconName::ChevronDown).size(px(11.0)))
                                     .child(format!("{n} unchanged line{}", if n == 1 { "" } else { "s" }))
@@ -402,7 +398,7 @@ pub fn primary_action(id: impl Into<ElementId>, label: impl Into<SharedString>, 
         .rounded(px(6.0))
         .paint_states(StatePaint::new().on(p.accent).ink(ink, ink).disabled(disabled || busy), &p)
         .font_family(scale::FONT_UI)
-        .text_px(BODY_TEXT)
+        .role_size(TextRole::Body)
         .font_weight(FontWeight::SEMIBOLD)
         .whitespace_nowrap()
         .when(disabled || busy, |d| d.opacity(0.45))
@@ -429,7 +425,7 @@ pub fn text_action(id: impl Into<ElementId>, label: impl Into<SharedString>, gly
         .items_center()
         .rounded(px(6.0))
         .font_family(scale::FONT_UI)
-        .text_px(if height < 26.0 { SMALL_TEXT } else { BODY_TEXT })
+        .role_size(TextRole::Body)
         .whitespace_nowrap()
         .paint_states(StatePaint::new().ink(p.fg_muted, p.fg), &p)
         .when_some(glyph, |d, g| d.child(icon(g).size(px(12.0))))
@@ -447,7 +443,7 @@ pub fn branch_label(branch: &str, suffix: Option<SharedString>, cx: &App) -> gpu
         .items_center()
         .whitespace_nowrap()
         .font_family(scale::FONT_MONO)
-        .text_px(MONO_SMALL)
+        .role_size(TextRole::Caption)
         .text_color(p.fg_muted)
         .child(icon(IconName::Branch).size(px(12.0)).color(p.fg_muted))
         .child(branch.to_string())
@@ -493,7 +489,7 @@ pub fn commit_message_view(id: impl Into<ElementId>, message: &str, cx: &App) ->
         .px(px(4.0))
         .py(px(2.0))
         .font_family(scale::FONT_UI)
-        .text_px(BODY_TEXT)
+        .role_size(TextRole::Body)
         .line_height(px(22.0))
         .map(|d| {
             if first.is_empty() && rest.is_none() {
@@ -523,7 +519,7 @@ pub fn hook_failed_note(id: impl Into<ElementId>, title: impl Into<SharedString>
         .border_1()
         .border_color(p.attention_border(p.danger))
         .font_family(scale::FONT_UI)
-        .text_px(BODY_TEXT)
+        .role_size(TextRole::Body)
         .child(
             h_flex()
                 .gap(px(8.0))
@@ -536,7 +532,7 @@ pub fn hook_failed_note(id: impl Into<ElementId>, title: impl Into<SharedString>
         .child(
             v_flex()
                 .font_family(scale::FONT_MONO)
-                .text_px(MONO_SMALL)
+                .role_size(TextRole::Caption)
                 .line_height(px(18.0))
                 .text_color(p.fg_muted)
                 .children(lines.iter().take(4).map(|l| div().overflow_hidden().whitespace_nowrap().text_ellipsis().child(l.clone()))),
@@ -595,7 +591,7 @@ pub fn pr_card(
         .gap(px(8.0))
         .items_center()
         .whitespace_nowrap()
-        .text_px(SMALL_TEXT)
+        .role_size(TextRole::Body)
         .text_color(p.fg_muted)
         .child(div().size(px(8.0)).flex_none().rounded_full().bg(state.dot(&p)))
         .child(state.label());
@@ -619,14 +615,14 @@ pub fn pr_card(
         .border_1()
         .border_color(p.line)
         .font_family(scale::FONT_UI)
-        .text_px(BODY_TEXT)
+        .role_size(TextRole::Body)
         .child(
             h_flex()
                 .gap(px(8.0))
                 .items_center()
                 .child(icon(IconName::PullRequest).size(px(14.0)).color(p.success))
                 .child(div().min_w(px(0.0)).flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().font_weight(FontWeight::SEMIBOLD).text_color(p.fg).child(title.into()))
-                .child(div().flex_none().font_family(scale::FONT_MONO).text_px(MONO_SMALL).text_color(p.ink_4).child(format!("#{number}"))),
+                .child(div().flex_none().font_family(scale::FONT_MONO).role_size(TextRole::Caption).text_color(p.ink_4).child(format!("#{number}"))),
         )
         .child(meta)
 }
@@ -648,7 +644,7 @@ pub fn form_field(label: impl Into<SharedString>, control: impl IntoElement, cx:
     let p = cx.aui().colors;
     v_flex()
         .gap(px(6.0))
-        .child(div().font_family(scale::FONT_UI).text_px(SMALL_TEXT).text_color(p.fg_muted).child(label.into()))
+        .child(div().font_family(scale::FONT_UI).role_size(TextRole::Body).text_color(p.fg_muted).child(label.into()))
         .child(control)
 }
 
@@ -672,7 +668,7 @@ pub fn base_picker(id: impl Into<ElementId>, base: impl Into<SharedString>, cx: 
         .border_1()
         .border_color(p.line)
         .font_family(scale::FONT_MONO)
-        .text_px(12.65)
+        .role_size(TextRole::Caption)
         .text_color(p.fg)
         .child(base)
         .child(icon(IconName::ChevronDown).size(px(12.0)).color(p.fg_muted))
@@ -692,7 +688,7 @@ pub fn base_and_head(picker: impl IntoElement, head: &str, cx: &App) -> gpui::Di
                 .gap(px(5.0))
                 .items_center()
                 .font_family(scale::FONT_MONO)
-                .text_px(12.65)
+                .role_size(TextRole::Caption)
                 .text_color(p.fg)
                 .child(icon(IconName::Branch).size(px(12.0)).color(p.fg_muted))
                 .child(head.to_string()),
@@ -713,7 +709,7 @@ pub fn well_input(child: impl IntoElement, min_h: f32, focused: bool, cx: &App) 
         .border_1()
         .border_color(super::pane::field_border(focused, cx))
         .font_family(scale::FONT_UI)
-        .text_px(BODY_TEXT)
+        .role_size(TextRole::Body)
         .line_height(px(22.0))
         .text_color(p.fg)
         .child(child)
@@ -752,7 +748,7 @@ pub fn draft_checkbox(id: impl Into<ElementId>, checked: bool, cx: &App) -> gpui
         .gap(px(8.0))
         .items_center()
         .font_family(scale::FONT_UI)
-        .text_px(BODY_TEXT)
+        .role_size(TextRole::Body)
         .text_color(p.fg)
         .child(boxed)
         .child("Open as a draft")

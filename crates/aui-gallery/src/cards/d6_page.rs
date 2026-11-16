@@ -3,6 +3,7 @@
 //! the notes panel), no page yet, couldn't load. The page itself is a white
 //! stand-in here; in Baaz it is the native page window.
 
+use aui_tokens::TextRole;
 use aui::workbench::{
     address_field_frame, agent_pill, annotate_outline, annotate_pin, no_page_state, notes_panel, page_address, page_error_state, page_nav_row,
     recent_pages_menu, PageNote, RecentRow,
@@ -23,8 +24,8 @@ fn page_ground() -> Div {
         .bg(gpui::white())
         .p(px(24.0))
         .text_color(gpui::rgb(0x18181B))
-        .child(div().text_px(28.0).font_weight(FontWeight::BOLD).child("Simple pricing"))
-        .child(div().mt(px(6.0)).text_px(14.0).text_color(gpui::rgb(0x63636D)).child("Start free, upgrade when your team needs it."))
+        .child(div().role_size(TextRole::Display).font_weight(FontWeight::BOLD).child("Simple pricing"))
+        .child(div().mt(px(6.0)).role_size(TextRole::Subtitle).text_color(gpui::rgb(0x63636D)).child("Start free, upgrade when your team needs it."))
         .child(
             div()
                 .mt(px(20.0))
@@ -34,14 +35,14 @@ fn page_ground() -> Div {
                 .border_1()
                 .border_color(gpui::rgb(0xE4E4E7))
                 .child(div().font_weight(FontWeight::SEMIBOLD).child("Starter"))
-                .child(div().text_px(13.0).child("$0 / month"))
-                .child(div().mt(px(10.0)).px(px(10.0)).py(px(5.0)).rounded(px(6.0)).bg(gpui::rgb(0x18181B)).text_color(gpui::white()).text_px(12.0).child("Try free")),
+                .child(div().role_size(TextRole::Body).child("$0 / month"))
+                .child(div().mt(px(10.0)).px(px(10.0)).py(px(5.0)).rounded(px(6.0)).bg(gpui::rgb(0x18181B)).text_color(gpui::white()).role_size(TextRole::Caption).child("Try free")),
         )
 }
 
 fn screen(label: &str, w: f32, body: impl IntoElement, cx: &App) -> Div {
     let p = cx.aui().colors;
-    v_flex().gap(px(6.0)).child(div().text_px(12.0).text_color(p.fg_muted).child(label.to_string())).child(
+    v_flex().gap(px(6.0)).child(div().role_size(TextRole::Caption).text_color(p.fg_muted).child(label.to_string())).child(
         div()
             .w(px(w))
             .h(px(H))
@@ -69,7 +70,7 @@ fn screen_recent(label: &str, w: f32, body: impl IntoElement, cx: &App) -> Div {
         RecentRow::new("https://tailwindcss.com/docs/grid-template-columns", "", false),
     ];
     let menu = recent_pages_menu(SharedString::from(format!("{label}-menu")), &rows, w, std::rc::Rc::new(|_, _, _| {})).at_rest();
-    v_flex().gap(px(6.0)).child(div().text_px(12.0).text_color(p.fg_muted).child(label.to_string())).child(
+    v_flex().gap(px(6.0)).child(div().role_size(TextRole::Caption).text_color(p.fg_muted).child(label.to_string())).child(
         div()
             .relative()
             .w(px(w))

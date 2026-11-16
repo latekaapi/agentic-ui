@@ -2,8 +2,9 @@
 //! `design/src/cards/transcript/37-code-diff-blocks.html` at 760×560.
 
 use aui::protocol::{Diff, DiffKind, DiffLine, Hunk};
+use aui_tokens::TextRole;
 use aui::transcript::{code_block, diff_block, DiffNote};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::v_flex;
 
@@ -158,7 +159,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(
             div()
                 .max_w(px(NOTE_MEASURE))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child("Code blocks sit on the terminal ground with a 30 px header: filename, language, then quiet actions that brighten on hover. Copy morphs to a check on the swap spring (click it). Blocks past 400 lines virtualise, open scrolled to the highlighted lines 40–44. The preview pane below fills its height and owns the only scroll, opening at line 1000. Diff blocks reveal a plus on line hover to add a note."),
         )

@@ -2,6 +2,7 @@
 //! by click (to choose one) or by dropping one onto it.
 
 use std::path::PathBuf;
+use aui_tokens::TextRole;
 use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
@@ -122,8 +123,8 @@ impl RenderOnce for FolderDropCard {
                     .items_center()
                     .gap(px(STACK_GAP))
                     .child(icon(IconName::Folder).size(px(GLYPH)).color(p.fg_muted))
-                    .child(div().ui(scale::FS_13).semibold().text_color(p.ink).child(self.title))
-                    .child(div().ui(scale::FS_12).text_color(p.fg_muted).child(self.subtitle)),
+                    .child(div().ui(TextRole::Body).semibold().text_color(p.ink).child(self.title))
+                    .child(div().ui(TextRole::Caption).text_color(p.fg_muted).child(self.subtitle)),
             )
             .child(div().flex_1().flex().justify_end().children(self.key.map(kbd)));
         if let Some(on_click) = self.on_click {

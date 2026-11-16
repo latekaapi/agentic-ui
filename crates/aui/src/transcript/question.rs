@@ -9,6 +9,7 @@
 //! [`answered_row`] in the card's place.
 
 use aui_motion::{spring_phase, SpringKind};
+use aui_tokens::TextRole;
 use aui_protocol::{Answer, QuestionOption, QuestionPreview};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, SharedString, Window};
@@ -30,9 +31,6 @@ const HEAD_GAP: f32 = 10.0;
 const TILE: f32 = 26.0;
 const TILE_RADIUS: f32 = 7.0;
 const TILE_GLYPH: f32 = 14.0;
-/// Title 600 at body size; the subtitle and the question's header in caption.
-const TITLE_TEXT: f32 = 13.0;
-const SUB_TEXT: f32 = 12.0;
 /// Options: rows 8 / 10 in an 8 px inset, radius 6, gap 10.
 const OPT_PAD_Y: f32 = 8.0;
 const OPT_PAD_X: f32 = 10.0;
@@ -49,15 +47,11 @@ const DOT: f32 = 8.0;
 const DOT_FROM: f32 = 0.4;
 /// `.opt .cb{border-radius:4px}` and `.opt.on .cb::after{border-radius:1px}`.
 const CHECKBOX_RADIUS: f32 = 4.0;
-/// The label at body size (600 when picked), the description in caption.
-const LABEL_TEXT: f32 = 13.0;
-const DESCRIPTION_TEXT: f32 = 12.0;
 /// "Other": a 32 px Well input, margins 0 / 8 / 8, the edit glyph.
 const OTHER_MARGIN_BOTTOM: f32 = 8.0;
 const OTHER_H: f32 = 32.0;
 const OTHER_PAD_X: f32 = 10.0;
 const OTHER_GAP: f32 = 8.0;
-const OTHER_TEXT: f32 = 12.0;
 const OTHER_GLYPH: f32 = 12.0;
 /// `.q .ft{padding:8px 12px;gap:8px}` with an 11 px hint.
 const FOOT_PAD_Y: f32 = 8.0;
@@ -69,7 +63,6 @@ const PREVIEW_GLYPH: f32 = 12.0;
 /// A mono preview body sits on the terminal ground, like a tool card's output.
 const PREVIEW_PAD_Y: f32 = 8.0;
 const PREVIEW_PAD_X: f32 = 10.0;
-const PREVIEW_LINE: f32 = scale::LH_MONO;
 
 /// A closure fed the index of the option the person clicked. Shared, because
 /// every option row wires the same handler.
@@ -304,7 +297,7 @@ fn preview_body(id: impl Into<ElementId>, preview: &QuestionPreview, p: &Palette
             .child(crate::transcript::prose(
                 id,
                 &preview.content,
-                ProseStyle { ink: p.fg_muted, code_ink: p.fg_muted, code_bg: p.surface_3, size: DESCRIPTION_TEXT, line_height: scale::LH_BODY, paragraph_gap: scale::SP_2 },
+                ProseStyle { ink: p.fg_muted, code_ink: p.fg_muted, code_bg: p.surface_3, role: TextRole::Caption, paragraph_gap: scale::SP_2 },
             ))
             .into_any_element(),
         // MSP hands the diff over as text, not as hunks, so it takes the code
@@ -316,8 +309,7 @@ fn preview_body(id: impl Into<ElementId>, preview: &QuestionPreview, p: &Palette
             .py(px(PREVIEW_PAD_Y))
             .rounded(px(scale::R_MD))
             .bg(p.term_bg)
-            .mono(DESCRIPTION_TEXT)
-            .line_height(aui_tokens::scaled(DESCRIPTION_TEXT * PREVIEW_LINE))
+            .mono(TextRole::Caption)
             .text_color(p.term_fg)
             .child(SharedString::from(preview.content.clone()))
             .into_any_element(),
@@ -361,15 +353,15 @@ impl RenderOnce for QuestionCard {
             .child(icon(IconName::Question).size(px(TILE_GLYPH)).color(p.fg_muted));
         // The auto-resolve tag: caption, warning on warning-soft, radius 6.
         let countdown = self.timeout.map(|(remaining_ms, _)| {
-            div().flex_none().px(px(8.0)).py(px(2.0)).rounded(px(6.0)).bg(p.warning_soft).ui(scale::FS_12).text_color(p.warning).child(countdown_label(remaining_ms))
+            div().flex_none().px(px(8.0)).py(px(2.0)).rounded(px(6.0)).bg(p.warning_soft).ui(TextRole::Caption).text_color(p.warning).child(countdown_label(remaining_ms))
         });
         // The question's own header (caption muted) over the prompt (600).
         let prompt_block = v_flex()
             .flex_1()
             .min_w(px(0.0))
-            .when(!self.header.is_empty(), |d| d.child(div().ui(SUB_TEXT).text_color(p.fg_muted).child(self.header.clone())))
-            .child(div().ui(TITLE_TEXT).semibold().text_color(p.ink).child(self.prompt.clone()))
-            .when(!self.subtitle.is_empty(), |d| d.child(div().ui(SUB_TEXT).text_color(p.fg_muted).child(self.subtitle.clone())));
+            .when(!self.header.is_empty(), |d| d.child(div().ui(TextRole::Caption).text_color(p.fg_muted).child(self.header.clone())))
+            .child(div().ui(TextRole::Body).semibold().text_color(p.ink).child(self.prompt.clone()))
+            .when(!self.subtitle.is_empty(), |d| d.child(div().ui(TextRole::Caption).text_color(p.fg_muted).child(self.subtitle.clone())));
 
         let mut card = crate::util::flat_block(v_flex().id(id.clone()).w_full().rounded(px(crate::transcript::card::CARD_RADIUS)), &p, p.surface_2)
             .border_1()
@@ -393,10 +385,10 @@ impl RenderOnce for QuestionCard {
                                 v_flex()
                                     .flex_1()
                                     .min_w(px(0.0))
-                                    .child(div().ui(TITLE_TEXT).semibold().text_color(p.ink).child(wizard.topic.clone()))
-                                    .when(!wizard.why.is_empty(), |d| d.child(div().ui(SUB_TEXT).text_color(p.fg_muted).child(wizard.why.clone()))),
+                                    .child(div().ui(TextRole::Body).semibold().text_color(p.ink).child(wizard.topic.clone()))
+                                    .when(!wizard.why.is_empty(), |d| d.child(div().ui(TextRole::Caption).text_color(p.fg_muted).child(wizard.why.clone()))),
                             )
-                            .child(div().flex_none().mono(scale::FS_11).text_color(p.ink_4).child(format!("{} of {}", wizard.index + 1, wizard.total)))
+                            .child(div().flex_none().mono(TextRole::Micro).text_color(p.ink_4).child(format!("{} of {}", wizard.index + 1, wizard.total)))
                             .children(countdown),
                     )
                     .child(progress_bar(&p, (wizard.index + 1) as f32 / wizard.total.max(1) as f32))
@@ -437,8 +429,8 @@ impl RenderOnce for QuestionCard {
                     v_flex()
                         .flex_1()
                         .min_w(px(0.0))
-                        .child(div().ui(LABEL_TEXT).when(on, |d| d.semibold()).text_color(p.ink).child(SharedString::from(option.label.clone())))
-                        .when(!option.description.is_empty(), |d| d.child(div().ui(DESCRIPTION_TEXT).text_color(p.fg_muted).child(SharedString::from(option.description.clone())))),
+                        .child(div().ui(TextRole::Body).when(on, |d| d.semibold()).text_color(p.ink).child(SharedString::from(option.label.clone())))
+                        .when(!option.description.is_empty(), |d| d.child(div().ui(TextRole::Caption).text_color(p.fg_muted).child(SharedString::from(option.description.clone())))),
                 );
             if !option.key.is_empty() {
                 row = row.child(key_cap(&p, option.key.clone()));
@@ -467,7 +459,7 @@ impl RenderOnce for QuestionCard {
                 .pl(px(18.0))
                 .items_center()
                 .gap(px(PREVIEW_GAP))
-                .ui(DESCRIPTION_TEXT)
+                .ui(TextRole::Caption)
                 .paint_states(StatePaint::new().tint(false).ink(p.fg_muted, p.ink), &p)
                 .cursor_pointer()
                 .role(gpui::Role::Button)
@@ -505,7 +497,7 @@ impl RenderOnce for QuestionCard {
                 .mb(px(OTHER_MARGIN_BOTTOM))
                 .rounded(px(OPT_RADIUS))
                 .bg(p.well)
-                .ui(OTHER_TEXT)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .cursor_text()
                 .role(gpui::Role::Button)
@@ -572,7 +564,7 @@ pub(crate) fn progress_bar(p: &Palette, fraction: f32) -> impl IntoElement {
 
 /// The key cap at an option's right: faint mono on white 7 %, radius 4, 1 / 6.
 fn key_cap(p: &Palette, key: impl Into<SharedString>) -> impl IntoElement {
-    div().flex_none().px(px(6.0)).py(px(1.0)).rounded(px(4.0)).bg(p.line).mono(scale::FS_11).text_color(p.ink_4).child(key.into())
+    div().flex_none().px(px(6.0)).py(px(1.0)).rounded(px(4.0)).bg(p.line).mono(TextRole::Micro).text_color(p.ink_4).child(key.into())
 }
 
 /// How a question settled, which is what the collapsed row says it did.
@@ -670,7 +662,7 @@ impl RenderOnce for AnsweredRow {
             row = row.part(div().min_w(px(0.0)).truncate().text_color(p.ink).child(text.clone()));
         }
         for chip in self.chips {
-            row = row.part(div().flex_none().px(px(5.0)).py(px(1.0)).rounded(px(4.0)).bg(p.line).mono(scale::FS_12).child(chip));
+            row = row.part(div().flex_none().px(px(5.0)).py(px(1.0)).rounded(px(4.0)).bg(p.line).mono(TextRole::Caption).child(chip));
         }
         let Some(question) = self.question else {
             return row.into_any_element();
@@ -694,7 +686,7 @@ impl RenderOnce for AnsweredRow {
                     .px(px(QUIET_ROW_BLEED))
                     .pt(px(SETTLED_QUESTION_PAD_TOP))
                     .min_w(px(0.0))
-                    .ui(scale::FS_13)
+                    .ui(TextRole::Body)
                     .text_color(p.fg_muted)
                     .truncate()
                     .child(question),

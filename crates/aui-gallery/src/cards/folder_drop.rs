@@ -2,7 +2,8 @@
 //! and one drawn in its drag-over state with the keycap.
 
 use aui::nav::{folder_drop_card, FolderDropCard};
-use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
+use aui_tokens::TextRole;
+use aui_tokens::{ActiveAui, AuiStyled, Palette};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -18,7 +19,7 @@ fn column(p: &Palette, title: &'static str, card: FolderDropCard) -> impl IntoEl
     v_flex()
         .flex_none()
         .w(px(COLUMN_W))
-        .child(div().mb(px(TITLE_GAP)).ui(scale::FS_12).text_color(p.fg_muted).child(title))
+        .child(div().mb(px(TITLE_GAP)).ui(TextRole::Caption).text_color(p.fg_muted).child(title))
         .child(card)
 }
 

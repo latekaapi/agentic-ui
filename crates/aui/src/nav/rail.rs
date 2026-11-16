@@ -2,6 +2,7 @@
 //! active session in its state colour, the avatar at the bottom.
 
 use aui_icons::{icon, IconName};
+use aui_tokens::TextRole;
 use aui_tokens::{scale, ActiveAui, AgentState, AuiStyled};
 use gpui::{div, prelude::*, px, App, ElementId, IntoElement, SharedString, Window};
 use gpui_kit::base::v_flex;
@@ -28,9 +29,6 @@ const SEP_MARGIN: f32 = 6.0;
 const AVATAR: f32 = 24.0;
 /// The session dot in a rail cell: `.dot{width:8px;height:8px}`.
 const SESSION_DOT: f32 = 8.0;
-/// A titled session tile: its initial, and the state dot tucked in the
-/// corner so the letter stays the cell's content.
-const TILE_TEXT: f32 = scale::FS_13;
 const TILE_DOT: f32 = 6.0;
 const TILE_DOT_INSET: f32 = 3.0;
 /// The tooltip's width cap: a long title truncates rather than spanning the pane.
@@ -51,7 +49,7 @@ impl gpui::Render for RailTip {
             .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .text_color(p.ink)
-            .ui(scale::FS_12)
+            .ui(TextRole::Caption)
             .max_w(px(TIP_MAX_W))
             .truncate()
             .child(self.0.clone())
@@ -309,7 +307,7 @@ impl RenderOnce for Rail {
                                 .map(|c| c.to_uppercase().to_string())
                                 .unwrap_or_else(|| "\u{b7}".to_owned());
                             cell = cell
-                                .ui(TILE_TEXT)
+                                .ui(TextRole::Body)
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .child(initial)
                                 .child(

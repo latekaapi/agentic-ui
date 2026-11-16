@@ -33,7 +33,6 @@ const HEAD_GAP: f32 = 8.0;
 const PAD_X: f32 = 12.0;
 /// `.f{height:26px;padding:0 12px;gap:8px;font-size:12px;color:var(--ink-2)}`.
 const ROW_GAP: f32 = 8.0;
-const ROW_TEXT: f32 = scale::FS_12;
 /// `.f .cb{width:14px;height:14px;border-radius:4px;border:1.5px}` with a
 /// 9 px stroke-3 check in white once it is on.
 const CHECKBOX: f32 = 14.0;
@@ -45,24 +44,25 @@ const CHECK_MARK: f32 = 9.0;
 const CHECK_MARK_FROM: f32 = 0.4;
 /// `.f .st{width:12px;text-align:center;font:600 10px var(--font-mono)}`.
 const STATUS_W: f32 = 12.0;
-const STATUS_TEXT: f32 = 10.0;
 /// `.commit{padding:10px 12px;border-top:1px solid var(--line)}`.
 const COMMIT_PAD_Y: f32 = 10.0;
 /// `.commit .ai{gap:6px;font-size:11px;color:var(--accent-ink);margin:6px 0 8px}`
 /// with a 12 px sparkle.
 const DRAFT_GAP: f32 = 6.0;
-const DRAFT_TEXT: f32 = scale::FS_11;
 const DRAFT_ICON: f32 = 12.0;
 const DRAFT_MARGIN_TOP: f32 = 6.0;
 const DRAFT_MARGIN_BOTTOM: f32 = 8.0;
-/// `.commit textarea{padding:8px;font:12.5px/1.45;rows=3}` on surface-2 with a
+/// `.commit textarea{padding:8px;rows=3}` in Caption on surface-2 with a
 /// 1 px line border: three lines plus the padding and the border.
 const MESSAGE_PAD: f32 = 8.0;
-const MESSAGE_TEXT: f32 = 12.5;
-const MESSAGE_LINE: f32 = 1.45;
 const MESSAGE_ROWS: f32 = 3.0;
-const MESSAGE_LINE_H: f32 = MESSAGE_TEXT * MESSAGE_LINE;
-const MESSAGE_HEIGHT: f32 = MESSAGE_ROWS * MESSAGE_LINE_H + 2.0 * MESSAGE_PAD + 2.0;
+/// One message line: `TextRole::Caption`'s line.
+fn message_line_h() -> f32 {
+    TextRole::Caption.spec().line_height
+}
+fn message_height() -> f32 {
+    MESSAGE_ROWS * message_line_h() + 2.0 * MESSAGE_PAD + 2.0
+}
 /// `.row{margin-top:8px;gap:6px;justify-content:flex-end}` — plus the 6 px of
 /// descender space CSS leaves under the inline-block textarea, which gpui's
 /// block flow does not add.
@@ -72,32 +72,23 @@ const ACTIONS_GAP: f32 = 6.0;
 /// `.ab{gap:10px;padding:8px 12px;border-top:1px solid var(--line);font:500 11px var(--font-mono);color:var(--ink-3)}`.
 const AHEAD_GAP: f32 = 10.0;
 const AHEAD_PAD_Y: f32 = 8.0;
-const AHEAD_TEXT: f32 = scale::FS_11;
 /// The branch glyph the card prints before the branch name.
 const BRANCH_GLYPH: &str = "⎇";
 /// `.form{padding:12px}`.
 const FORM_PAD: f32 = 12.0;
-/// `.lbl{font-size:11px;font-weight:600;color:var(--ink-3);margin:0 0 6px}`;
-/// the label keeps the form's 1.5 line height (tracking is not expressible).
-const LABEL_LINE: f32 = scale::LH_UI;
+/// the label: Caption, `fg-muted`, sentence case (docs/83 §2.4), 6 px under.
 const LABEL_MARGIN_BOTTOM: f32 = 6.0;
 /// `.in{height:30px;padding:0 10px;gap:8px;font-size:13px;margin-bottom:12px}`.
 const FIELD_H: f32 = 30.0;
 const FIELD_PAD_X: f32 = 10.0;
 const FIELD_GAP: f32 = 8.0;
-const FIELD_TEXT: f32 = scale::FS_13;
 const FIELD_MARGIN_BOTTOM: f32 = 12.0;
-/// `.in .mono{font-size:12px}` and the 11 px chevron of the base-branch select.
-const FIELD_MONO_TEXT: f32 = scale::FS_12;
 const FIELD_CHEVRON: f32 = 11.0;
-/// `.in.ta{height:auto;padding:8px 10px;align-items:flex-start;font-size:12.5px;line-height:1.5}`.
+/// `.in.ta{height:auto;padding:8px 10px;align-items:flex-start}` in Caption.
 const AREA_PAD_Y: f32 = 8.0;
-const AREA_TEXT: f32 = 12.5;
-const AREA_LINE: f32 = scale::LH_UI;
 /// `.checks{gap:6px;margin-bottom:12px;font-size:12px}` with 8 px between a
 /// row's glyph and its label.
 const CHECKS_GAP: f32 = 6.0;
-const CHECKS_TEXT: f32 = scale::FS_12;
 const CHECK_ROW_GAP: f32 = 8.0;
 /// `.ftr{gap:8px;padding-top:8px;border-top:1px solid var(--line)}`.
 const FOOTER_GAP: f32 = 8.0;
@@ -248,7 +239,7 @@ impl RenderOnce for GitChanges {
             .border_b_1()
             .border_color(p.line)
             .text_color(p.ink)
-            .ui(scale::FS_13)
+            .ui(TextRole::Body)
             .semibold()
             .child(icon(IconName::Git).color(p.ink))
             .child("Changes")
@@ -274,7 +265,7 @@ impl RenderOnce for GitChanges {
                 .gap(px(ROW_GAP))
                 .px(px(PAD_X))
                 .text_color(p.fg_muted)
-                .ui(ROW_TEXT)
+                .ui(TextRole::Caption)
                 .cursor_pointer()
                 .child(row_checkbox((row_id.clone(), "check").into(), *on, &p, window, cx))
                 .child(
@@ -283,7 +274,7 @@ impl RenderOnce for GitChanges {
                         .w(px(STATUS_W))
                         .text_align(gpui::TextAlign::Center)
                         .font_family(scale::FONT_MONO)
-                        .text_px(STATUS_TEXT)
+                        .role_size(TextRole::Micro)
                         .semibold()
                         .text_color(colour)
                         .child(letter),
@@ -303,7 +294,7 @@ impl RenderOnce for GitChanges {
             .mt(px(DRAFT_MARGIN_TOP))
             .mb(px(DRAFT_MARGIN_BOTTOM))
             .text_color(p.accent_ink)
-            .ui(DRAFT_TEXT)
+            .ui(TextRole::Micro)
             .child(icon(IconName::Sparkle).size(px(DRAFT_ICON)).color(p.accent_ink))
             .child(div().flex_none().child("Drafted from this turn ·"));
         let mut regenerate = div().id((id.clone(), "regenerate")).flex_none().underline().cursor_pointer().child("regenerate");
@@ -315,20 +306,18 @@ impl RenderOnce for GitChanges {
         let mut message = v_flex()
             .w_full()
             .flex_none()
-            .h(px(MESSAGE_HEIGHT))
+            .h(px(message_height()))
             .p(px(MESSAGE_PAD))
             .rounded(px(scale::R_SM))
             .border_1()
             .border_color(p.line)
             .bg(p.surface_2)
             .text_color(p.ink)
-            .font_family(scale::FONT_UI)
-            .text_px(MESSAGE_TEXT)
-            .line_height(gpui::relative(MESSAGE_LINE))
+            .ui(TextRole::Caption)
             .overflow_hidden();
         for line in message_lines(&self.message) {
             message = message.child(if line.is_empty() {
-                div().flex_none().h(px(MESSAGE_LINE_H))
+                div().flex_none().h(px(message_line_h()))
             } else {
                 div().w_full().flex_none().child(line)
             });
@@ -381,7 +370,7 @@ impl RenderOnce for GitChanges {
             .border_t_1()
             .border_color(p.line)
             .text_color(p.fg_muted)
-            .mono(AHEAD_TEXT)
+            .mono(TextRole::Micro)
             .medium()
             .child(div().min_w(px(0.0)).truncate().child(format!("{BRANCH_GLYPH} {}", self.branch)))
             .child(div().flex_1())
@@ -518,16 +507,15 @@ impl PrForm {
 }
 
 
-/// `.lbl`: a caps label over a field.
+/// `.lbl`: a sentence-case Caption label over a field.
 fn field_label(label: &'static str, p: &Palette) -> impl IntoElement {
     div()
         .w_full()
         .flex_none()
         .mb(px(LABEL_MARGIN_BOTTOM))
-        .text_role(TextRole::Caps)
-        .line_height(gpui::relative(LABEL_LINE))
+        .text_role(TextRole::Caption)
         .text_color(p.fg_muted)
-        .child(label.to_uppercase())
+        .child(label)
 }
 
 impl RenderOnce for PrForm {
@@ -544,7 +532,7 @@ impl RenderOnce for PrForm {
             .border_b_1()
             .border_color(p.line)
             .text_color(p.ink)
-            .ui(scale::FS_13)
+            .ui(TextRole::Body)
             .semibold()
             .child(icon(IconName::Git).color(p.ink))
             .child("Create pull request")
@@ -568,8 +556,8 @@ impl RenderOnce for PrForm {
             .id((id.clone(), "base"))
             .cursor_pointer()
             .text_color(p.ink)
-            .ui(FIELD_TEXT)
-            .child(div().flex_none().font_family(scale::FONT_MONO).text_px(FIELD_MONO_TEXT).child(self.base.clone()))
+            .ui(TextRole::Body)
+            .child(div().flex_none().font_family(scale::FONT_MONO).role_size(TextRole::Caption).child(self.base.clone()))
             .child(div().flex_1())
             .child(icon(IconName::ChevronDown).size(px(FIELD_CHEVRON)).color(p.fg_muted));
         if let Some(handler) = self.on_action.clone() {
@@ -578,7 +566,7 @@ impl RenderOnce for PrForm {
 
         let title = field(h_flex().h(px(FIELD_H)).px(px(FIELD_PAD_X)).gap(px(FIELD_GAP)))
             .text_color(p.ink)
-            .ui(FIELD_TEXT)
+            .ui(TextRole::Body)
             .child(div().min_w(px(0.0)).truncate().child(self.title.clone()));
 
         // Paragraphs of mixed runs: split text runs on blank lines, keep mono
@@ -610,16 +598,14 @@ impl RenderOnce for PrForm {
         }
         let mut description = field(v_flex().py(px(AREA_PAD_Y)).px(px(FIELD_PAD_X)))
             .text_color(p.fg_muted)
-            .font_family(scale::FONT_UI)
-            .text_px(AREA_TEXT)
-            .line_height(gpui::relative(AREA_LINE));
+            .ui(TextRole::Caption);
         let count = paragraphs.len();
         for (n, (text, runs)) in paragraphs.into_iter().enumerate() {
             if text.is_empty() {
                 continue;
             }
             // A blank line between paragraphs, as the `<br><br>` in the card.
-            description = description.child(div().w_full().when(n + 1 < count, |d| d.mb(px(AREA_TEXT * AREA_LINE))).child(gpui::StyledText::new(text).with_runs(runs)));
+            description = description.child(div().w_full().when(n + 1 < count, |d| d.mb(TextRole::Caption.line_height())).child(gpui::StyledText::new(text).with_runs(runs)));
         }
 
         let mut checks = v_flex()
@@ -628,7 +614,7 @@ impl RenderOnce for PrForm {
             .gap(px(CHECKS_GAP))
             .mb(px(FIELD_MARGIN_BOTTOM))
             .text_color(p.ink)
-            .ui(CHECKS_TEXT);
+            .ui(TextRole::Caption);
         for (index, check) in self.checks.iter().enumerate() {
             let lead = if check.running {
                 spinner((id.clone(), SharedString::from(format!("check{index}")))).into_any_element()

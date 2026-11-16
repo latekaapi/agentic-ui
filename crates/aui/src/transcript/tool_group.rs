@@ -6,8 +6,9 @@
 //! inside a card.
 
 use aui_motion::{open_close, SpringKind, COLLAPSE_EXIT};
+use aui_tokens::TextRole;
 use aui_protocol::{ActivityState, Block, ToolCall, ToolStatus};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{ActiveAui, AuiStyled};
 use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::record_ax_label;
 use gpui::{div, prelude::*, px, radians, App, ElementId, IntoElement, SharedString, Window};
@@ -27,7 +28,6 @@ const HEADER_GAP: f32 = 8.0;
 const PREVIEW_PAD_TOP: f32 = 6.0;
 const PREVIEW_PAD_X: f32 = 10.0;
 const PREVIEW_PAD_BOTTOM: f32 = 8.0;
-const PREVIEW_TEXT: f32 = 12.0;
 const PREVIEW_GAP: f32 = 6.0;
 /// The preview rows' glyph.
 const PREVIEW_GLYPH: f32 = 12.0;
@@ -232,7 +232,7 @@ impl RenderOnce for ToolGroup {
                 .px(px(PREVIEW_PAD_X))
                 .pb(px(PREVIEW_PAD_BOTTOM))
                 .gap(px(PREVIEW_GAP))
-                .ui(PREVIEW_TEXT)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted);
             for (index, call) in self.group.calls.iter().take(GROUP_PREVIEW).enumerate() {
                 let glyph: gpui::AnyElement = match call.status {
@@ -250,7 +250,7 @@ impl RenderOnce for ToolGroup {
                         .gap(px(HEADER_GAP))
                         .child(glyph)
                         .child(div().whitespace_nowrap().child(call.verb.clone()))
-                        .child(div().flex_1().min_w(px(0.0)).truncate().mono(scale::FS_12).child(call.target.clone())),
+                        .child(div().flex_1().min_w(px(0.0)).truncate().mono(TextRole::Caption).child(call.target.clone())),
                 );
             }
             let hidden = preview_hidden(count);

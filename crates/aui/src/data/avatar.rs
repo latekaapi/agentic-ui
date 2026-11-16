@@ -1,11 +1,11 @@
-//! `.avatar`: a 22 px circle on surface-3 with a 10 px / 600 initial.
+//! `.avatar`: a 22 px circle on surface-3 with a Micro / 600 initial.
 
+use aui_tokens::TextRole;
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, IntoElement, Pixels, SharedString, Window};
 
-/// `.avatar{width:22px;height:22px;font-size:10px}`.
+/// The circle's default size.
 const SIZE: f32 = 22.0;
-const FONT: f32 = 10.0;
 
 /// An avatar. Build with [`avatar`].
 #[derive(IntoElement)]
@@ -30,7 +30,9 @@ impl Avatar {
 impl RenderOnce for Avatar {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let font = FONT * f32::from(self.size) / SIZE;
+        // The initial is Micro at the default tile and scales with the tile,
+        // like a glyph.
+        let font = TextRole::Micro.size() * (f32::from(self.size) / SIZE);
         div()
             .flex_none()
             .flex()
@@ -41,7 +43,7 @@ impl RenderOnce for Avatar {
             .bg(p.surface_3)
             .text_color(p.fg_muted)
             .font_family(scale::FONT_UI)
-            .text_px(font)
+            .text_size(font)
             .line_height(gpui::relative(1.0))
             .semibold()
             .child(self.initial)

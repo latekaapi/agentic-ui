@@ -19,7 +19,7 @@ use crate::util::ScrollAxisLock as _;
 use std::rc::Rc;
 
 use aui_icons::{icon, FileType, IconName};
-use aui_tokens::{scale, ActiveAui, AuiStyled, Density, TextRole};
+use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, App, BoxShadow, ElementId, Hsla, IntoElement, ScrollHandle, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -419,7 +419,7 @@ fn tree_row(id: impl Into<ElementId>, node: FileNode, ring: bool, window: &mut W
             .id(id)
             .w_full()
             .p(px(8.0))
-            .text_role_in(TextRole::Caption, Density::Standard)
+            .text_role(TextRole::Caption)
             .text_color(p.ink_4)
             .child(node.name)
             .into_any_element();
@@ -438,7 +438,7 @@ fn tree_row(id: impl Into<ElementId>, node: FileNode, ring: bool, window: &mut W
         .whitespace_nowrap()
         .cursor_pointer()
         // The sidebar's own row size, so the two lists read as one scale.
-        .text_role_in(TextRole::Body, Density::Standard)
+        .text_role(TextRole::Body)
         .text_color(if node.ignored { p.ink_4 } else { p.fg })
         .role(gpui::Role::TreeItem)
         .aria_label(match node.badge {
@@ -473,7 +473,7 @@ fn tree_row(id: impl Into<ElementId>, node: FileNode, ring: bool, window: &mut W
                 .w(px(BADGE_W))
                 .flex_none()
                 .text_center()
-                .text_role_in(TextRole::Micro, Density::Standard)
+                .text_role(TextRole::Micro)
                 .text_color(badge.color(&p))
                 .child(badge.letter()),
         );

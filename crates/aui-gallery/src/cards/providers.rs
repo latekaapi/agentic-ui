@@ -7,6 +7,7 @@
 //! banner. Plus the account-menu usage cards and a settled whole-JSON
 //! assistant message.
 
+use aui_tokens::TextRole;
 use aui::screens::{
     connect_providers, login, provider_card, setup_sheet, sheet_scrim, signed_out_banner,
     usage_card, AssistRun, CardDetails, ConnectRowData, DefaultPicker, DetailRow, LoginState,
@@ -28,8 +29,8 @@ fn band(caption: &'static str, content: impl IntoElement) -> AnyElement {
         .gap(px(6.0))
         .child(
             div()
-                .text_px(scale::FS_11)
-                .line_height(gpui::relative(scale::LH_UI))
+                .role_size(TextRole::Micro)
+
                 .child(caption),
         )
         .child(content)
@@ -85,7 +86,7 @@ fn fake_terminal(lines: &'static str, cx: &App) -> AnyElement {
         .px(px(12.0))
         .py(px(10.0))
         .font_family(scale::FONT_MONO)
-        .text_px(11.5)
+        .role_size(TextRole::Micro)
         .line_height(px(19.0))
         .text_color(p.ink)
         .children(lines.lines().map(|line| div().child(SharedString::from(line))))

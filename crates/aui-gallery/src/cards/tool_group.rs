@@ -2,8 +2,9 @@
 //! collapsed preview group and an open group with full cards.
 
 use aui::protocol::{sample, Block};
+use aui_tokens::TextRole;
 use aui::transcript::{tool_group, ToolGroupData, ToolGroupIntent};
-use aui_tokens::{scale, ActiveAui, AuiStyled};
+use aui_tokens::{ActiveAui, AuiStyled};
 use gpui::*;
 use gpui_kit::base::v_flex;
 
@@ -57,7 +58,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
     col.child(
         div()
             .max_w(px(NOTE_MEASURE))
-            .ui(scale::FS_12)
+            .ui(TextRole::Caption)
             .text_color(p.fg_muted)
             .child("D4: consecutive calls are one surface. Closed, the header and a caption preview of the first two calls with +k more; open, every call is a row of the same card — the tool header over a 7 % rule, its output on the Well right under it. Nothing nests."),
     )

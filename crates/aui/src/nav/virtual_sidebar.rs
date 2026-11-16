@@ -154,7 +154,7 @@ pub enum SessionScope {
 /// cannot disagree about order, folds, or keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarRow {
-    /// The caps caption row; emitted first when the view has a caption.
+    /// The caption label row; emitted first when the view has a caption.
     Caption,
     /// A collapsible status header; `group` indexes the status groups.
     StatusHeader {
@@ -377,7 +377,7 @@ pub fn virtual_sidebar_view(id: impl Into<ElementId>, grouping: impl Into<Rc<Gro
 }
 
 impl VirtualSidebarView {
-    /// The caps group row above the groups (`Workspaces`, `Projects`,
+    /// The group label row above the groups (`Workspaces`, `Projects`,
     /// `Recent`). It carries the sliders icon when [`Self::on_view_options`]
     /// is set.
     pub fn caption(mut self, caption: impl Into<SharedString>) -> Self {

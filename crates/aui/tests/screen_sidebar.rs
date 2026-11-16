@@ -234,7 +234,7 @@ fn screen_item_count_follows_mode_and_loading() {
 }
 
 #[gpui::test]
-fn list_row_height_is_32_standard_28_compact(cx: &mut TestAppContext) {
+fn list_row_height_is_32_comfortable_28_compact(cx: &mut TestAppContext) {
     init(cx);
     assert_eq!(cx.update(|cx| list_row_height(cx)), px(32.0));
     cx.update(|cx| AuiTheme::set_density(Density::Compact, None, cx));

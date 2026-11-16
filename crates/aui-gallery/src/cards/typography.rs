@@ -1,7 +1,7 @@
 //! Card 02 · Typography. The seven v2 text roles at both densities, each with
 //! its exact size, whole-pixel line height and weight beside the sample.
 
-use aui_tokens::{ActiveAui, AuiStyled, Density, Palette, TextRole};
+use aui_tokens::{ActiveAui, AuiStyled, Density, Palette, TextRole, TextSize, TypeSpec};
 use gpui::*;
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -38,12 +38,12 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .mt(px(6.0))
                 .max_w(px(NOTE_MEASURE))
-                .text_role_in(TextRole::Caption, Density::Standard)
+                .text_role(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child(
-                    "Seven roles, whole-pixel line heights, no global text scale. \
-                     Weights: 700 display only, 600 titles, 500 micro and emphasis, 400 everything else. \
-                     Never uppercase a sample: v2 has no caps role.",
+                    "Every size is a role: whole-pixel line heights, no global text scale, no px entry point. \
+                     Weights: 600 Markdown headings only, 500 display, titles and emphasis, 400 everything else. \
+                     Never uppercase a sample: there is no caps role.",
                 ),
         )
         .into_any_element()
@@ -52,9 +52,10 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
 /// One role row: the mono key (`role · fs/lh · weight`, standard then
 /// compact), then the standard and compact samples side by side.
 fn role_row(p: Palette, role: TextRole, name: &'static str, sample: &'static str) -> impl IntoElement {
-    let (std_family, std_fs, std_lh, std_weight) = role.spec(Density::Standard);
-    let (_, c_fs, c_lh, _) = role.spec(Density::Compact);
-    let _ = std_family;
+    let std = role.spec_in(Density::Comfortable, TextSize::Default);
+    let compact = role.spec_in(Density::Compact, TextSize::Default);
+    let (std_fs, std_lh, std_weight) = (std.size, std.line_height, std.weight);
+    let (c_fs, c_lh) = (compact.size, compact.line_height);
     h_flex()
         .w_full()
         .items_start()
@@ -64,7 +65,7 @@ fn role_row(p: Palette, role: TextRole, name: &'static str, sample: &'static str
                 .w(px(KEY_COL))
                 .flex_none()
                 .font_family(aui_tokens::scale::FONT_MONO)
-                .text_px(11.0)
+                .role_size(TextRole::Micro)
                 .line_height(relative(1.4))
                 .medium()
                 .text_color(p.fg_muted)
@@ -78,16 +79,19 @@ fn role_row(p: Palette, role: TextRole, name: &'static str, sample: &'static str
                 .min_w(px(0.0))
                 .items_start()
                 .gap(px(SAMPLE_GAP))
-                .child(div().flex_1().min_w(px(0.0)).text_role_in(role, Density::Standard).text_color(p.ink).child(sample))
+                .child(at(div().flex_1().min_w(px(0.0)), std).text_color(p.ink).child(sample))
                 .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .text_role_in(role, Density::Compact)
+                    at(div().flex_1().min_w(px(0.0)), compact)
                         .text_color(p.fg_muted)
                         .child(sample),
                 ),
         )
+}
+
+/// A sample drawn at an explicit density's spec (the card shows both side by
+/// side, whatever the active density is).
+fn at(el: gpui::Div, s: TypeSpec) -> gpui::Div {
+    el.font_family(s.family).text_size(px(s.size)).line_height(px(s.line_height)).font_weight(s.weight)
 }
 
 /// `400` / `500` / `600` / `700` for the key column.

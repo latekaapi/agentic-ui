@@ -3,6 +3,7 @@
 //! the ghost tab that follows the pointer.
 
 use aui_icons::{icon, IconName};
+use aui_tokens::TextRole;
 use aui_motion::{spring_phase, SpringKind};
 use aui_tokens::{scale, ActiveAui, AuiStyled};
 use gpui::{div, prelude::*, px, App, Div, ElementId, IntoElement, SharedString, Window};
@@ -136,7 +137,7 @@ impl RenderOnce for TabGhost {
             .border_color(p.line_strong)
             .shadow(p.floating_shadow())
             .text_color(p.ink)
-            .ui(scale::FS_12)
+            .ui(TextRole::Caption)
             .whitespace_nowrap();
         if let Some(glyph) = self.icon {
             g = g.child(icon(glyph).size(px(GHOST_ICON)).color(p.ink));

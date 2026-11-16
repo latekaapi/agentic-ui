@@ -4,6 +4,7 @@
 //! `design/src/cards/transcript/36-question-plan-todo.html` at 800×760.
 
 use aui::protocol::{sample, Block, QuestionOption, TodoItem, TodoState};
+use aui_tokens::TextRole;
 use aui::transcript::{answered_row, plan_card, question_card, Wizard, todo_list, QuestionOutcome};
 use gpui::*;
 use gpui_kit::base::input::TextareaState;
@@ -191,7 +192,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
                                 Textarea::new(&clarify)
                                     .appearance(false)
                                     .bordered(false)
-                                    .text_size(aui_tokens::scaled(aui_tokens::scale::FS_12)),
+                                    .text_size(TextRole::Caption.size()),
                             ),
                         )
                         .on_clarify(|_, _, _| {})

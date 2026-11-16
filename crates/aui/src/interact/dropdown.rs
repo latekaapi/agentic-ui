@@ -31,7 +31,7 @@ use std::rc::Rc;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{presence, EnterExit, PresenceStyle};
-use aui_tokens::{scale, ActiveAui, AuiStyled, Density, TextRole};
+use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, ElementId, IntoElement, Pixels, RenderOnce, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex, PresencePhase};
 
@@ -431,7 +431,7 @@ fn row_body(item: DropdownItem, lit: bool, row_px: Option<Pixels>, cx: &App) -> 
     let title = div()
         .min_w(px(0.0))
         .when(!item.wrap, |d| d.truncate())
-        .text_role_in(TextRole::Body, Density::Standard)
+        .text_role(TextRole::Body)
         .text_color(fg)
         .child(item.label);
     let text = match item.detail {

@@ -23,8 +23,6 @@ const CAPS2_BOTTOM: f32 = 0.0;
 const WAITING_PILL: f32 = 18.0;
 /// `.ds-note{max-width:80ch}` ≈ 616 px of Geist 12 (matches the reference wrap).
 const NOTE_MEASURE: f32 = 626.0;
-/// `.caps` in this card inherits the body line height.
-const CAPS_LH: f32 = scale::LH_UI;
 
 /// Builds the card content.
 pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
@@ -54,7 +52,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
             div()
                 .mt(px(scale::SP_4))
                 .max_w(px(NOTE_MEASURE))
-                .ui(scale::FS_12)
+                .ui(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .child("There is no session header inside the transcript. The provider mark sits beside the worktree name in the centre header, the model and mode chips live in the composer, and facts like the CLI version or a hand-off appear once as marker rows when they change."),
         )
@@ -62,7 +60,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
 }
 
 fn caps(p: Palette, label: &'static str) -> Div {
-    div().text_role(TextRole::Caps).line_height(relative(CAPS_LH)).text_color(p.fg_muted).child(label.to_uppercase())
+    div().text_role(TextRole::Caption).text_color(p.fg_muted).child(label)
 }
 
 /// The card frames each header row like a cell: line border, radius 8,

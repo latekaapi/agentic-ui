@@ -8,6 +8,7 @@
 //! the toggle, and a long body's "N more lines" row expands it in place.
 
 use aui_motion::{looping, Loop};
+use aui_tokens::TextRole;
 use aui_protocol::{Block, DiffKind, DiffStat, ToolBody, ToolStatus, Turn};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Easing, Palette};
 use gpui::{div, prelude::*, px, relative, App, ElementId, IntoElement, SharedString, StyledText, Window};
@@ -26,7 +27,6 @@ use crate::transcript::transcript_card;
 /// Output on the Well: padding 10 / 12, mono, line 20.
 const OUT_PAD_Y: f32 = 10.0;
 const OUT_PAD_X: f32 = 12.0;
-const OUT_TEXT: f32 = 11.5;
 const OUT_LH: f32 = 1.65;
 /// Shell output folds after this many lines (the card shows six, then `14 more lines`).
 /// The six are always the LAST lines — the tail — whether the command is
@@ -82,8 +82,6 @@ const SUB_PAD_X: f32 = 12.0;
 const SUB_WHO_W: f32 = 64.0;
 /// MCP: key column 92 px.
 const MCP_KEY_W: f32 = 92.0;
-/// The faint mono of header facts (`exit 0`, `0.1 s`, `3 lines`).
-const META_TEXT: f32 = 11.0;
 
 /// What the card's header and fold rows ask for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -316,12 +314,12 @@ impl RenderOnce for ToolCard {
             .flat(self.flat)
             .header(glyph)
             .header(div().whitespace_nowrap().child(self.verb.clone()))
-            .header(div().min_w(px(0.0)).truncate().mono(scale::FS_12).text_color(p.fg_muted).child(self.target.clone()))
+            .header(div().min_w(px(0.0)).truncate().mono(TextRole::Caption).text_color(p.fg_muted).child(self.target.clone()))
             .header(div().flex_1());
 
         // The right cluster, gap 8: the result, then the duration, in faint
         // mono; `exit N` in danger.
-        let mut right = h_flex().flex_none().gap(px(scale::SP_3)).mono(META_TEXT).text_color(p.ink_4);
+        let mut right = h_flex().flex_none().gap(px(scale::SP_3)).mono(TextRole::Micro).text_color(p.ink_4);
         let mut show_duration = true;
         let chips = |right: gpui::Div, added: String, removed: String| {
             record_chip(&added);
@@ -407,7 +405,7 @@ fn more_row(p: &Palette, label: String, emit: impl Fn(ToolCardIntent) -> IntentC
         .h(px(MORE_H))
         .px(px(OUT_PAD_X))
         .gap(px(MORE_GAP))
-        .ui(scale::FS_12)
+        .ui(TextRole::Caption)
         .paint_states(StatePaint::new().tint(false).ink(p.fg_muted, p.ink), p)
         .cursor_pointer()
         .role(gpui::Role::Button)
@@ -514,7 +512,7 @@ fn well_body(p: &Palette, id: &ElementId, lines: &[String], ansi: bool, unfolded
         starts.push((start, drawn));
         start += drawn + 1;
     }
-    let mut out = v_flex().w_full().py(px(OUT_PAD_Y)).px(px(OUT_PAD_X)).mono(OUT_TEXT).line_height(relative(OUT_LH)).text_color(p.ink);
+    let mut out = v_flex().w_full().py(px(OUT_PAD_Y)).px(px(OUT_PAD_X)).mono(TextRole::Micro).line_height(relative(OUT_LH)).text_color(p.ink);
     for (index, line) in lines.iter().enumerate().skip(skip) {
         let (line_start, line_len) = starts[index];
         out = out.child(out_line(p, id, index, line, ansi, line_start, line_len, select));
@@ -527,7 +525,7 @@ fn well_body(p: &Palette, id: &ElementId, lines: &[String], ansi: bool, unfolded
 }
 
 fn diff_body(p: &Palette, diff: &aui_protocol::Diff, unfolded: bool, emit: impl Fn(ToolCardIntent) -> IntentClick) -> impl IntoElement {
-    let mut body = v_flex().w_full().py(px(DIFF_PAD_Y)).mono(OUT_TEXT).line_height(relative(DIFF_LH)).text_color(p.ink);
+    let mut body = v_flex().w_full().py(px(DIFF_PAD_Y)).mono(TextRole::Micro).line_height(relative(DIFF_LH)).text_color(p.ink);
     let hunks = if unfolded { &diff.hunks[..] } else { &diff.hunks[..diff.hunks.len().min(1)] };
     for hunk in hunks {
         for line in &hunk.lines {
@@ -558,7 +556,7 @@ fn diff_body(p: &Palette, diff: &aui_protocol::Diff, unfolded: bool, emit: impl 
 
 fn search_body(p: &Palette, hits: &[aui_protocol::SearchHit], unfolded: bool, emit: impl Fn(ToolCardIntent) -> IntentClick) -> impl IntoElement {
     let (shown, hidden) = if unfolded { (hits, 0) } else { search_visible_hits(hits) };
-    let mut body = v_flex().w_full().py(px(HITS_PAD_Y)).px(px(HITS_PAD_X)).mono(OUT_TEXT).line_height(relative(HITS_LH)).text_color(p.ink);
+    let mut body = v_flex().w_full().py(px(HITS_PAD_Y)).px(px(HITS_PAD_X)).mono(TextRole::Micro).line_height(relative(HITS_LH)).text_color(p.ink);
     for hit in shown {
         // `path:line snippet` as one line: the path muted, the match in the
         // foreground. The snippet is char-capped first, so a huge match
@@ -580,7 +578,7 @@ fn search_body(p: &Palette, hits: &[aui_protocol::SearchHit], unfolded: bool, em
 }
 
 fn web_body(p: &Palette, id: &ElementId, results: &[aui_protocol::WebResult], hidden: usize, on_link: Option<LinkHandler>) -> impl IntoElement {
-    let mut body = v_flex().w_full().py(px(WEB_PAD_Y)).px(px(WEB_PAD_X)).gap(px(WEB_GAP)).ui(scale::FS_13).text_color(p.ink);
+    let mut body = v_flex().w_full().py(px(WEB_PAD_Y)).px(px(WEB_PAD_X)).gap(px(WEB_GAP)).ui(TextRole::Body).text_color(p.ink);
     for (index, r) in results.iter().enumerate() {
         let mut title = div().id((id.clone(), SharedString::from(format!("web-{index}")))).min_w(px(0.0)).truncate().child(r.title.clone());
         if let Some(open) = on_link.clone() {
@@ -663,7 +661,7 @@ fn browser_body(p: &Palette, id: &ElementId, screenshot: Option<&str>, caption: 
                     .px(px(SHOT_LABEL_PAD_X))
                     .rounded(px(scale::R_XS))
                     .bg(gpui::rgba(0x121215d9))
-                    .ui(scale::FS_11)
+                    .ui(TextRole::Micro)
                     .text_color(gpui::rgb(0xF2F2F4))
                     .child(caption.to_string())
             })),
@@ -673,7 +671,7 @@ fn browser_body(p: &Palette, id: &ElementId, screenshot: Option<&str>, caption: 
 /// The sub-agent's own lines, two columns: who (64 px, muted) and what was
 /// said, in caption. Nothing nests: no bubbles, no inner cards.
 fn sub_agent_body(p: &Palette, turns: &[Turn]) -> impl IntoElement {
-    let mut body = v_flex().w_full().py(px(SUB_PAD_Y)).px(px(SUB_PAD_X)).gap(px(scale::SP_2)).ui(scale::FS_12).text_color(p.ink);
+    let mut body = v_flex().w_full().py(px(SUB_PAD_Y)).px(px(SUB_PAD_X)).gap(px(scale::SP_2)).ui(TextRole::Caption).text_color(p.ink);
     for turn in turns {
         let (who, text) = match turn {
             Turn::User { text, .. } => ("You".to_owned(), text.clone()),
@@ -706,19 +704,19 @@ fn sub_agent_body(p: &Palette, turns: &[Turn]) -> impl IntoElement {
 }
 
 fn mcp_body(p: &Palette, params: &[(String, String)], result_json: &str, unfolded: bool, emit: impl Fn(ToolCardIntent) -> IntentClick) -> impl IntoElement {
-    let mut body = v_flex().w_full().py(px(HITS_PAD_Y)).px(px(HITS_PAD_X)).ui(scale::FS_12).line_height(relative(HITS_LH)).text_color(p.ink);
+    let mut body = v_flex().w_full().py(px(HITS_PAD_Y)).px(px(HITS_PAD_X)).ui(TextRole::Caption).line_height(relative(HITS_LH)).text_color(p.ink);
     for (k, v) in params {
         body = body.child(
             h_flex()
                 .w_full()
                 .items_start()
                 .child(div().flex_none().w(px(MCP_KEY_W)).truncate().text_color(p.fg_muted).child(k.clone()))
-                .child(div().flex_1().min_w(px(0.0)).mono(OUT_TEXT).child(v.clone())),
+                .child(div().flex_1().min_w(px(0.0)).mono(TextRole::Micro).child(v.clone())),
         );
     }
     let (shown, remainder) = if unfolded { (result_json.to_owned(), Remainder::default()) } else { mcp_visible_text(result_json) };
     if !shown.trim().is_empty() {
-        body = body.child(div().w_full().pt(px(if params.is_empty() { 0.0 } else { scale::SP_2 })).mono(OUT_TEXT).text_color(p.fg_muted).child(shown));
+        body = body.child(div().w_full().pt(px(if params.is_empty() { 0.0 } else { scale::SP_2 })).mono(TextRole::Micro).text_color(p.fg_muted).child(shown));
     }
     let mut col = v_flex().w_full().child(body);
     if let Some(cut) = remainder.label() {

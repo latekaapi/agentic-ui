@@ -40,7 +40,7 @@ use std::rc::Rc;
 use aui_icons::{icon, IconName};
 use aui_motion::EnterExit;
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
-use gpui::{div, prelude::*, px, relative, AnyElement, App, ElementId, Hsla, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, AnyElement, App, ElementId, Hsla, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::data::{button, ButtonSize};
@@ -289,8 +289,7 @@ impl RenderOnce for Dialog {
                     .px(px(DETAIL_PAD_X))
                     .rounded(px(R_ITEM))
                     .bg(p.surface_3)
-                    .mono(scale::FS_11)
-                    .line_height(relative(scale::LH_MONO))
+                    .mono(TextRole::Micro)
                     .text_color(p.fg_muted)
                     .child(detail),
             );

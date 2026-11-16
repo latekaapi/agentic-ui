@@ -6,6 +6,7 @@
 //! reading view, not shown, gone and loading.
 
 use std::sync::Arc;
+use aui_tokens::TextRole;
 
 use aui::workbench::{
     code_skeleton, code_view, file_tree, filter_bar, markdown_view, pane_action, pane_subheader, pushed_row, secondary_action,
@@ -58,7 +59,7 @@ fn screen(label: &str, body: impl IntoElement, row: impl IntoElement, cx: &App) 
     let p = cx.aui().colors;
     v_flex()
         .gap(px(6.0))
-        .child(div().text_px(12.0).text_color(p.fg_muted).child(label.to_string()))
+        .child(div().role_size(TextRole::Caption).text_color(p.fg_muted).child(label.to_string()))
         .child(
             div()
                 .relative()
@@ -132,7 +133,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         v_flex().child(tab_header("d6-files-tabs", "Files", None, cx)).child(
             pane_subheader(cx)
                 .px(px(6.0))
-                .child(div().flex_1().pl(px(4.0)).text_px(12.0).text_color(cx.aui().colors.fg_muted).child("baaz"))
+                .child(div().flex_1().pl(px(4.0)).role_size(TextRole::Caption).text_color(cx.aui().colors.fg_muted).child("baaz"))
                 .child(pane_action("d6-filter", IconName::Search, "Filter files").toggled(false)),
         ),
         cx,
