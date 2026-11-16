@@ -321,7 +321,11 @@ fn preview_body(id: impl Into<ElementId>, preview: &QuestionPreview, p: &Palette
 /// frame-coloured tick), the dot popping in on the fast spring.
 fn option_mark(id: ElementId, on: bool, multi: bool, p: &Palette, window: &mut Window, cx: &mut App) -> impl IntoElement {
     let phase = spring_phase(id, on, SpringKind::Fast, window, cx).clamp(0.0, 1.0);
-    let mark = div().flex_none().mt(px(MARK_OFFSET)).size(px(MARK)).flex().items_center().justify_center();
+    // `MARK_OFFSET` sits the mark on the label's first line at the default
+    // body line height; a larger text size grows that line, so the mark
+    // moves down by half the growth to stay centred on it.
+    let grown = f32::from(TextRole::Body.line_height()) - TextRole::Body.spec_in(aui_tokens::active_density(), aui_tokens::TextSize::Default).line_height;
+    let mark = div().flex_none().mt(px(MARK_OFFSET + grown.max(0.0) / 2.0)).size(px(MARK)).flex().items_center().justify_center();
     if multi {
         mark.rounded(px(CHECKBOX_RADIUS))
             .when(!on, |d| d.border(px(MARK_BORDER)).border_color(p.fg_muted))
