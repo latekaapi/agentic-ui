@@ -310,10 +310,10 @@ impl RenderOnce for SetupSheet {
             .mx(px(PAD_X))
             .mt(px(10.0))
             .h(px(TERM_H))
+            // A recessed well, told apart by its fill alone: nothing nested
+            // in a sheet wears an edge (docs/83 §1 rule 3).
             .rounded(px(TERM_R))
             .bg(p.well)
-            .border_1()
-            .border_color(p.line)
             .overflow_hidden()
             .role(gpui::Role::Group)
             .aria_label("Terminal")

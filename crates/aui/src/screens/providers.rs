@@ -52,12 +52,6 @@ use crate::data::{button, spinner, ButtonSize};
 const CONNECT_W: f32 = 440.0;
 /// The column's gap between masthead, rows and footer.
 const COLUMN_GAP: f32 = 8.0;
-/// Title 19.8/26 semibold.
-const TITLE_TEXT: f32 = scale::FS_18;
-const TITLE_LH: f32 = 26.0;
-/// Body 14.3/20: names and the intro.
-const BODY_TEXT: f32 = scale::FS_13;
-const BODY_LH: f32 = 20.0;
 /// Caption 13.2/18: status lines, footers, details.
 const CAPTION_TEXT: f32 = scale::FS_12;
 const CAPTION_LH: f32 = 18.0;
@@ -65,10 +59,8 @@ const CAPTION_LH: f32 = 18.0;
 const MONO_TEXT: f32 = 11.5;
 /// The rows container and the card: radius 10.
 const PANEL_R: f32 = 10.0;
-/// A connect row: at least 60 tall, padded 12/14, gap 12.
-const ROW_MIN_H: f32 = 60.0;
-const ROW_PAD_Y: f32 = 12.0;
-const ROW_PAD_X: f32 = 14.0;
+/// The gap between a connect row's mark, text and action; its y padding
+/// is the Settings row's ([`crate::data::SETTINGS_ROW_PAD_Y`]).
 const ROW_GAP: f32 = 12.0;
 /// The provider mark in rows and cards.
 const MARK: f32 = 24.0;
@@ -639,31 +631,20 @@ impl RenderOnce for ConnectScreen {
             masthead = masthead.child(div().mb(px(4.0)).child(mark));
         }
         masthead = masthead
-            .child(
-                div()
-                    .text_px(TITLE_TEXT)
-                    .line_height(px(TITLE_LH))
-                    .semibold()
-                    .text_color(p.ink)
-                    .child(self.title),
-            )
+            .child(div().text_role(TextRole::Title).text_color(p.ink).child(self.title))
             .child(
                 div()
                     .mb(px(8.0))
                     .text_center()
-                    .text_px(BODY_TEXT)
-                    .line_height(px(BODY_LH))
+                    .text_role(TextRole::Body)
                     .text_color(p.fg_muted)
                     .child(self.intro),
             );
 
-        let mut rows_el = v_flex()
-            .w_full()
-            .rounded(px(PANEL_R))
-            .bg(p.surface_2)
-            .border_1()
-            .border_color(p.line)
-            .overflow_hidden();
+        // The rows on the Settings row pattern (docs/83 §7): no box around
+        // them, a 1 px `line` between rows and one above and below the
+        // group, so the list reads as one block under the masthead.
+        let mut rows_el = v_flex().w_full().border_y_1().border_color(p.line);
         for (n, row) in self.rows.iter().enumerate() {
             rows_el = rows_el.child(connect_row(&self.id, row, n > 0, &p, on_intent.clone()));
         }
@@ -853,14 +834,7 @@ fn connect_row(
     let text = v_flex()
         .flex_1()
         .min_w(px(0.0))
-        .child(
-            div()
-                .text_px(BODY_TEXT)
-                .line_height(px(BODY_LH))
-                .semibold()
-                .text_color(p.ink)
-                .child(name.clone()),
-        )
+        .child(div().text_role(TextRole::Body).text_color(p.ink).child(name.clone()))
         .child(status_line((id.clone(), SharedString::from(format!("{}-status", row.id))).into(), &row.status, p));
 
     let action: Option<AnyElement> = match &row.action {
@@ -881,11 +855,9 @@ fn connect_row(
     let mut el = h_flex()
         .id((id.clone(), row.id.clone()))
         .w_full()
-        .min_h(px(ROW_MIN_H))
         .items_center()
         .gap(px(ROW_GAP))
-        .px(px(ROW_PAD_X))
-        .py(px(ROW_PAD_Y))
+        .py(px(crate::data::SETTINGS_ROW_PAD_Y))
         .child(provider_mark(row.provider).size(px(MARK)))
         .child(text)
         .children(action);
@@ -1036,14 +1008,7 @@ impl RenderOnce for ProviderCard {
                 v_flex()
                     .flex_1()
                     .min_w(px(0.0))
-                    .child(
-                        div()
-                            .text_px(BODY_TEXT)
-                            .line_height(px(BODY_LH))
-                            .semibold()
-                            .text_color(p.ink)
-                            .child(name.clone()),
-                    )
+                    .child(div().text_role(TextRole::Body).medium().text_color(p.ink).child(name.clone()))
                     .child(status_line((self.id.clone(), "status").into(), &data.status, &p)),
             );
         for (n, def) in data.actions.iter().take(3).enumerate() {
@@ -1056,14 +1021,8 @@ impl RenderOnce for ProviderCard {
             ));
         }
 
-        let mut card = v_flex()
-            .id(self.id.clone())
-            .w_full()
-            .rounded(px(PANEL_R))
-            .bg(p.surface_2)
-            .border_1()
-            .border_color(p.line)
-            .child(top);
+        // A flat card (docs/83 §1 rule 3): the fill draws it, no border.
+        let mut card = v_flex().id(self.id.clone()).w_full().rounded(px(PANEL_R)).bg(p.surface_2).child(top);
 
         if !data.assist.is_empty() {
             card = card.child(
@@ -1156,8 +1115,6 @@ fn details_block(
                 .py(px(8.0))
                 .rounded(px(BOX_R))
                 .bg(p.surface_3)
-                .border_1()
-                .border_color(p.line)
                 .child(div().flex_none().mt(px(2.0)).child(icon(IconName::Alert).size(px(13.0)).color(p.warning)))
                 .child(div().flex_1().min_w(px(0.0)).child(notice_text(&details.notice, p))),
         );

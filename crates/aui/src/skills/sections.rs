@@ -12,9 +12,10 @@ use crate::data::segmented;
 
 use super::row::SkillMode;
 
-/// `.sect`: the caps scope label, the mono discovery-dirs hint, the hairline
-/// rule and the mono count (`This project · .agents/skills — 3`). Build with
-/// [`scope_section_header`].
+/// A scope section's label (docs/83 §2.4, §7): the scope in sentence case,
+/// Caption `fg-muted`; the discovery-dirs hint in mono (a path) at `ink-4`;
+/// the count at the right in Caption `ink-4`. No rule beside the label.
+/// Build with [`scope_section_header`].
 #[derive(IntoElement)]
 pub struct ScopeSectionHeader {
     label: SharedString,
@@ -31,9 +32,8 @@ pub fn scope_section_header(
     ScopeSectionHeader { label: label.into(), hint_mono, count: count.into() }
 }
 
-/// `.cap{font-size:12.1px;font-weight:600;letter-spacing:.08em}` and the
-/// section's `20px 12px 6px` seat.
-const CAP_TEXT: f32 = 12.1;
+/// The label's seat: a section's top gap, the rows' x padding, the gap to
+/// the first row and between the label's parts.
 const SECT_TOP: f32 = 20.0;
 const SECT_PAD_X: f32 = 12.0;
 const SECT_BOTTOM: f32 = 6.0;
@@ -49,19 +49,12 @@ impl RenderOnce for ScopeSectionHeader {
             .mt(px(SECT_TOP))
             .px(px(SECT_PAD_X))
             .pb(px(SECT_BOTTOM))
-            .child(
-                div()
-                    .flex_none()
-                    .text_role(TextRole::Caps)
-                    .text_color(p.fg_muted)
-                    .child(self.label.to_uppercase()),
-            );
+            .child(div().flex_none().text_role(TextRole::Caption).text_color(p.fg_muted).child(self.label));
         if let Some(hint) = self.hint_mono {
-            row = row.child(div().flex_none().mono(CAP_TEXT).text_color(p.ink_4).child(hint));
+            row = row.child(div().flex_none().text_role(TextRole::MonoSmall).text_color(p.ink_4).child(hint));
         }
-        row.child(div().flex_1().h(px(1.0)).bg(p.line)).child(
-            div().flex_none().mono(CAP_TEXT).text_color(p.ink_4).child(self.count),
-        )
+        row.child(div().flex_1())
+            .child(div().flex_none().text_role(TextRole::Caption).text_color(p.ink_4).child(self.count))
     }
 }
 
@@ -142,12 +135,10 @@ pub fn cost_meter(
 }
 
 /// `.bar{height:6px}` with a 2 px gutter between slices; the legend is
-/// `12.1px` fg-muted on a 16 px gap.
+/// Caption `fg-muted` on a 16 px gap. The total is `t-title` (docs/83 §7:
+/// "the 3.5k hero number becomes `t-title`"), its caption Body `fg-muted`.
 const BAR_H: f32 = 6.0;
 const BAR_GAP: f32 = 2.0;
-const TOTAL_TEXT: f32 = 26.4;
-const CAP_LINE_TEXT: f32 = 14.3;
-const LEGEND_TEXT: f32 = 12.1;
 const LEGEND_GAP: f32 = 16.0;
 /// The summary seats itself like the list it heads.
 const METER_PAD_X: f32 = 12.0;
@@ -173,7 +164,7 @@ impl RenderOnce for CostMeter {
         }
         let mut legend = h_flex().w_full().items_center().gap(px(LEGEND_GAP));
         for seg in &self.segments {
-            legend = legend.child(div().flex_none().ui(LEGEND_TEXT).text_color(p.fg_muted).child(seg.label.clone()));
+            legend = legend.child(div().flex_none().text_role(TextRole::Caption).text_color(p.fg_muted).child(seg.label.clone()));
         }
         v_flex()
             .w_full()
@@ -185,16 +176,8 @@ impl RenderOnce for CostMeter {
                     .w_full()
                     .items_baseline()
                     .gap(px(8.0))
-                    .child(
-                        div()
-                            .flex_none()
-                            .ui(TOTAL_TEXT)
-                            .line_height(relative(1.0))
-                            .semibold()
-                            .text_color(p.ink)
-                            .child(self.total_label),
-                    )
-                    .child(div().flex_none().ui(CAP_LINE_TEXT).text_color(p.fg_muted).child(self.caption)),
+                    .child(div().flex_none().text_role(TextRole::Title).text_color(p.ink).child(self.total_label))
+                    .child(div().flex_none().text_role(TextRole::Body).text_color(p.fg_muted).child(self.caption)),
             )
             .child(bar)
             .child(legend)
@@ -278,7 +261,7 @@ impl DetailAction {
 /// One titled section of the detail pane; the body is the caller's slot
 /// (description text, rendered SKILL.md, the file list, diagnostics).
 pub struct DetailSection {
-    /// The caps title (`What the model sees`).
+    /// The section title, sentence case (`What the model sees`).
     pub title: SharedString,
     /// The section body.
     pub body: AnyElement,
@@ -338,16 +321,12 @@ pub fn skill_detail(id: impl Into<ElementId>, name: impl Into<SharedString>) -> 
     }
 }
 
-/// `.name{font-size:19.8px}` with the scope chip; the path mono line under it.
-const DETAIL_NAME: f32 = 19.8;
-const DETAIL_PATH: f32 = 12.1;
+/// The name is `t-title` with the scope chip; the path (mono) under it.
 /// The stats card: `14px 16px` padding, radius 8, `14px 16px` gaps.
 const STATS_PAD_Y: f32 = 14.0;
 const STATS_PAD_X: f32 = 16.0;
 const STATS_GAP_Y: f32 = 14.0;
 const STATS_GAP_X: f32 = 16.0;
-const STAT_KEY: f32 = 12.1;
-const STAT_VALUE: f32 = 14.3;
 /// Section titles sit `22px` past the block above; bodies `8px` under.
 const SECTION_TOP: f32 = 22.0;
 const SECTION_GAP: f32 = 8.0;
@@ -355,7 +334,6 @@ const SECTION_GAP: f32 = 8.0;
 const FOOT_PAD_Y: f32 = 12.0;
 const FOOT_PAD_X: f32 = 24.0;
 const FOOT_GAP: f32 = 8.0;
-const FOOT_HINT: f32 = 12.1;
 
 impl SkillDetail {
     /// The scope chip (`This project`, `Personal`, `Built-in`).
@@ -419,13 +397,7 @@ impl RenderOnce for SkillDetail {
         let id = self.id.clone();
 
         let mut head = h_flex().w_full().items_center().gap(px(10.0)).child(
-            div()
-                .flex_none()
-                .ui(DETAIL_NAME)
-                .line_height(relative(1.0))
-                .semibold()
-                .text_color(p.ink)
-                .child(self.name.clone()),
+            div().flex_none().text_role(TextRole::Title).text_color(p.ink).child(self.name.clone()),
         );
         if let Some(scope) = self.scope {
             head = head.child(crate::data::chip((id.clone(), "scope"), scope));
@@ -441,8 +413,7 @@ impl RenderOnce for SkillDetail {
                     .flex_none()
                     .w_full()
                     .truncate()
-                    .mono(DETAIL_PATH)
-                    .line_height(relative(scale::LH_MONO))
+                    .text_role(TextRole::MonoSmall)
                     .text_color(p.fg_muted)
                     .mt(px(6.0))
                     .child(path),
@@ -460,8 +431,7 @@ impl RenderOnce for SkillDetail {
             div()
                 .flex_none()
                 .w_full()
-                .ui(STAT_KEY)
-                .line_height(relative(scale::LH_UI))
+                .text_role(TextRole::Caption)
                 .text_color(p.fg_muted)
                 .mt(px(8.0))
                 .child(self.state.hint()),
@@ -485,16 +455,8 @@ impl RenderOnce for SkillDetail {
             .children(self.stats.into_iter().map(|(key, value)| {
                 v_flex()
                     .min_w(px(0.0))
-                    .child(div().flex_none().ui(STAT_KEY).text_color(p.fg_muted).child(key))
-                    .child(
-                        div()
-                            .flex_none()
-                            .ui(STAT_VALUE)
-                            .line_height(relative(scale::LH_UI))
-                            .text_color(p.ink)
-                            .mt(px(2.0))
-                            .child(value),
-                    )
+                    .child(div().flex_none().text_role(TextRole::Caption).text_color(p.fg_muted).child(key))
+                    .child(div().flex_none().text_role(TextRole::Body).text_color(p.ink).mt(px(2.0)).child(value))
             }));
             body = body.child(grid);
         }
@@ -505,10 +467,10 @@ impl RenderOnce for SkillDetail {
                 .child(
                     div()
                         .flex_none()
-                        .text_role(TextRole::Caps)
+                        .text_role(TextRole::Caption)
                         .text_color(p.fg_muted)
                         .mt(px(SECTION_TOP))
-                        .child(section.title.to_uppercase()),
+                        .child(section.title),
                 )
                 .child(div().flex_none().w_full().mt(px(SECTION_GAP)).child(section.body));
         }
@@ -524,7 +486,7 @@ impl RenderOnce for SkillDetail {
             .border_t_1()
             .border_color(p.line);
         if let Some(hint) = self.hint {
-            foot = foot.child(div().flex_none().ui(FOOT_HINT).text_color(p.fg_muted).child(hint));
+            foot = foot.child(div().flex_none().text_role(TextRole::Caption).text_color(p.fg_muted).child(hint));
         }
         foot = foot.child(div().flex_1());
         if let Some(label) = self.overflow_label {

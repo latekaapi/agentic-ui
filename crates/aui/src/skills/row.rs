@@ -4,8 +4,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aui_tokens::{scale, ActiveAui, AuiStyled};
-use gpui::{div, prelude::*, px, relative, App, Bounds, ElementId, IntoElement, Pixels, SharedString, Window};
+use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
+use gpui::{div, prelude::*, px, App, Bounds, ElementId, IntoElement, Pixels, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::interact::paint::{PaintStates, StatePaint};
@@ -128,9 +128,12 @@ pub enum SkillRowIntent {
 type RowHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 type ModeHandler = Rc<dyn Fn(&SharedString, SkillMode, &mut Window, &mut App)>;
 
-/// `.row`: the ≈56 px skill row — name (500) with its chips, the one-line
-/// description in fg-muted, mono ink-4 tokens right-aligned, the mode chip, the
-/// switch. Off and overridden rows sit at reduced ink. Build with
+/// The skill row, on the Settings row pattern (docs/83 §7): the name in
+/// Body with its chips over a one-line Caption description in `fg-muted`,
+/// 16 px vertical padding; at the right the startup tokens (mono `ink-4`,
+/// the one mono thing in the row), the mode chip and the switch. Selection
+/// is the `ov-selected` fill alone. Off and overridden rows sit at reduced
+/// ink. The page draws the 1 px `line` between rows. Build with
 /// [`skill_row`].
 #[derive(IntoElement)]
 pub struct SkillRow {
@@ -145,16 +148,12 @@ pub fn skill_row(model: SkillRowModel) -> SkillRow {
     SkillRow { model, on_select: None, on_toggle: None, on_set_mode: None }
 }
 
-/// `.row{gap:16px;padding:10px 12px}` with the 64 px token column.
+/// The gap between the row's blocks, its x padding (the list inset's
+/// row padding) and the 64 px token column. Its y padding is the Settings
+/// row's ([`crate::data::SETTINGS_ROW_PAD_Y`]).
 const ROW_GAP: f32 = 16.0;
-const ROW_PAD_Y: f32 = 10.0;
 const ROW_PAD_X: f32 = 12.0;
-const ROW_H: f32 = 56.0;
 const TOK_W: f32 = 64.0;
-/// `.rname{font-size:14.3px}` and `.rdesc{font-size:13.2px}`.
-const NAME_TEXT: f32 = 14.3;
-const DESC_TEXT: f32 = 13.2;
-const TOK_TEXT: f32 = 12.1;
 /// Off and overridden rows sit below full ink.
 const DIM_OPACITY: f32 = 0.55;
 
@@ -207,9 +206,7 @@ impl RenderOnce for SkillRow {
                 .min_w(px(0.0))
                 .max_w_full()
                 .truncate()
-                .ui(NAME_TEXT)
-                .line_height(relative(1.0))
-                .medium()
+                .text_role(TextRole::Body)
                 .text_color(p.ink)
                 .child(model.name.clone()),
         );
@@ -235,8 +232,7 @@ impl RenderOnce for SkillRow {
                     .flex_none()
                     .w_full()
                     .truncate()
-                    .ui(DESC_TEXT)
-                    .line_height(relative(scale::LH_UI))
+                    .text_role(TextRole::Caption)
                     .text_color(p.fg_muted)
                     .child(model.description.clone()),
             );
@@ -244,12 +240,11 @@ impl RenderOnce for SkillRow {
         let mut row = h_flex()
             .id(row_id.clone())
             .w_full()
-            .min_h(px(ROW_H))
             .items_center()
             .gap(px(ROW_GAP))
             .px(px(ROW_PAD_X))
-            .py(px(ROW_PAD_Y))
-            .rounded(px(scale::R_SM))
+            .py(px(crate::data::SETTINGS_ROW_PAD_Y))
+            .rounded(px(scale::SHAPE_ITEM))
             .cursor_pointer()
             .child(text)
             .child(
@@ -258,9 +253,7 @@ impl RenderOnce for SkillRow {
                     .w(px(TOK_W))
                     .flex()
                     .justify_end()
-                    .mono(TOK_TEXT)
-                    .line_height(relative(1.0))
-                    .medium()
+                    .text_role(TextRole::MonoSmall)
                     .text_color(p.ink_4)
                     .child(model.tokens.clone()),
             );
@@ -304,12 +297,9 @@ impl RenderOnce for SkillRow {
         // fully visible while the left block wraps or clips.
         row = row.child(div().flex_none().child(toggle));
 
-        // Selected keeps its surface-3 card; hover is the one model.
-        row = if model.selected {
-            row.bg(p.surface_3).border_1().border_color(p.line)
-        } else {
-            row.paint_states(StatePaint::new().pressable(false), &p)
-        };
+        // Selection is the `ov-selected` fill, no box (docs/83 §1 rule 3);
+        // hover is the one model.
+        row = row.paint_states(StatePaint::new().pressable(false).selected(model.selected), &p);
         if !model.on || model.dimmed {
             row = row.opacity(DIM_OPACITY);
         }

@@ -146,11 +146,12 @@ pub struct Section {
     title: SharedString,
     description: Option<SharedString>,
     rows: Vec<AnyElement>,
+    note: Option<SharedString>,
 }
 
 /// A [`Section`] titled `title`.
 pub fn section(title: impl Into<SharedString>) -> Section {
-    Section { title: title.into(), description: None, rows: Vec::new() }
+    Section { title: title.into(), description: None, rows: Vec::new(), note: None }
 }
 
 impl Section {
@@ -171,6 +172,13 @@ impl Section {
         self.rows.extend(rows);
         self
     }
+
+    /// A muted Caption line under the last row, for a pointer that is not
+    /// a setting ("Grouping and sort live in the sidebar's view menu").
+    pub fn note(mut self, text: impl Into<SharedString>) -> Self {
+        self.note = Some(text.into());
+        self
+    }
 }
 
 impl RenderOnce for Section {
@@ -189,6 +197,9 @@ impl RenderOnce for Section {
                 el = el.child(rule(cx));
             }
             el = el.child(row);
+        }
+        if let Some(note) = self.note {
+            el = el.child(div().w_full().role_in(TextRole::Caption, cx).text_color(p.fg_muted).child(note));
         }
         el
     }

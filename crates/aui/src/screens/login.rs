@@ -353,10 +353,9 @@ impl RenderOnce for Login {
             .gap(px(CARD_GAP))
             .p(px(CARD_PAD))
             .rounded(px(scale::R_LG))
-            // A card on the ground: `surface-2` inside a `line` hairline.
+            // A card on the ground: the `surface-2` fill draws it, no edge
+            // (docs/83 §1 rule 3).
             .bg(p.surface_2)
-            .border_1()
-            .border_color(p.line)
             .text_color(p.ink)
             .child(masthead(&p, provider, headline, subtitle))
             .children(blocks);

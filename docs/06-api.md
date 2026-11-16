@@ -1108,7 +1108,7 @@ Skills page: the list rows, scope sections, cost meter, detail pane, import prev
   - `pub fn on_activate(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — The row was activated; the argument is the row’s id.
   - `pub fn subtitle_mono(self) -> Self` — Draws the subtitle in mono (a source path like `~/.claude/skills`).
   - `pub fn trailing(self, trailing: impl Into<SharedString>) -> Self` — Muted text at the row’s right edge.
-- **struct** `ScopeSectionHeader` — `.sect`: the caps scope label, the mono discovery-dirs hint, the hairline rule and the mono count (`This project · .agents/skills — 3`). Build with `scope_section_header`.
+- **struct** `ScopeSectionHeader` — A scope section's label (docs/83 §2.4, §7): the scope in sentence case, Caption `fg-muted`; the discovery-dirs hint in mono (a path) at `ink-4`; the count at the right in Caption `ink-4`. No rule beside the label. Build with `scope_section_header`.
 - **struct** `SkillChip` — One chip on a row (`Overrides built-in git`, `threejs plugin`, `1 issue`).
   - fields: `label`, `tone`
   - `pub fn new(label: impl Into<SharedString>, tone: ChipTone) -> Self` — A chip with a label and a tone.
@@ -1122,7 +1122,7 @@ Skills page: the list rows, scope sections, cost meter, detail pane, import prev
   - `pub fn section(self, title: impl Into<SharedString>, body: impl IntoElement) -> Self` — A titled section around the caller’s body slot.
   - `pub fn stat(self, key: impl Into<SharedString>, value: impl Into<SharedString>) -> Self` — A stats-grid cell (`At startup` / `290 tokens`).
   - `pub fn state(self, state: SkillState) -> Self` — The state the segmented control shows.
-- **struct** `SkillRow` — `.row`: the ≈56 px skill row — name (500) with its chips, the one-line description in ink-3, mono ink-4 tokens right-aligned, the mode chip, the switch. [...]
+- **struct** `SkillRow` — The skill row, on the Settings row pattern (docs/83 §7): the name in Body with its chips over a one-line Caption description in `fg-muted`, 16 px vertical padding; at the right the startup tokens (mono `ink-4`, the one mono thing in the row), the mode chip and the switch. [...]
   - `pub fn on_select(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — The row was clicked; the argument is `SkillRowModel::id`.
   - `pub fn on_set_mode(self, f: impl Fn(&SharedString, SkillMode, &mut Window, &mut App) + 'static) -> Self` — The mode menu picked a mode; the arguments are `SkillRowModel::id` and the mode.
   - `pub fn on_toggle(self, f: impl Fn(&SharedString, &mut Window, &mut App) + 'static) -> Self` — The switch was flipped; the argument is `SkillRowModel::id`.
