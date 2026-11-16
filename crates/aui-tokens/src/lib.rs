@@ -156,6 +156,18 @@ impl Palette {
         }
     }
 
+    /// The overlay ink — white in dark, black in light — at `alpha`: what
+    /// the hover/selected/pressed tints and the scrollbar thumb are made of,
+    /// for the few marks that need the same ink at their own strength (a
+    /// quote rule, a drop ring, a highlighted code band).
+    pub fn overlay_ink(&self, alpha: f32) -> gpui::Hsla {
+        if self.is_dark() {
+            gpui::white().alpha(alpha)
+        } else {
+            gpui::black().alpha(alpha)
+        }
+    }
+
     /// The hover tint: white at 6 % in dark (lightens), black at 5 % in
     /// light (darkens). Surface-relative: paint it over whatever step it
     /// sits on. The ladder is hover < selected < pressed in both themes

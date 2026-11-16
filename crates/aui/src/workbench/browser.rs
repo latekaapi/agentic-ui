@@ -394,7 +394,7 @@ impl RenderOnce for ElementOutline {
                         .px(px(OUTLINE_LABEL_PAD_X))
                         .rounded_t(px(OUTLINE_RADIUS))
                         .bg(accent)
-                        .text_color(gpui::white())
+                        .text_color(light().bg)
                         .font_family(scale::FONT_MONO)
                         .role_size(TextRole::Micro)
                         .line_height(relative(1.0))
@@ -454,13 +454,14 @@ impl RenderOnce for AnnotationPin {
         if !self.selected {
             return pin.into_any_element();
         }
-        // `outline:2px solid #fff;outline-offset:1px` as a ring on a wrapper.
+        // `outline:2px solid #fff;outline-offset:1px` as a ring on a wrapper:
+        // the page's paper white, whatever the app's theme.
         let inset = PIN_RING + PIN_RING_OFFSET;
         div()
             .flex_none()
             .p(px(PIN_RING_OFFSET))
             .border(px(PIN_RING))
-            .border_color(gpui::white())
+            .border_color(p.paper)
             .rounded_tl(px(round + inset))
             .rounded_tr(px(round + inset))
             .rounded_br(px(round + inset))

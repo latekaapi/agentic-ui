@@ -322,7 +322,7 @@ impl RenderOnce for CodeView {
         let rows = wrapped.as_ref().map(|(rows, _)| rows.clone());
         let list = uniform_list((id.clone(), "lines"), row_count, move |range, window, cx| {
             let p = cx.aui().colors;
-            let band_ground = if p.is_dark() { gpui::white().alpha(0.07) } else { gpui::black().alpha(0.05) };
+            let band_ground = p.overlay_ink(if p.is_dark() { 0.07 } else { 0.05 });
             let advance = rows.as_ref().map(|_| {
                 let font_id = window.text_system().resolve_font(&gpui::font(scale::FONT_MONO));
                 window.text_system().advance(font_id, TextRole::Caption.size(), 'm').map(|s| f32::from(s.width)).unwrap_or(f32::from(TextRole::Caption.size()) * 0.6)

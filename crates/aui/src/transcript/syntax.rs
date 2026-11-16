@@ -305,21 +305,15 @@ mod ts {
 
 /// The colour for a token class.
 pub fn token_color(kind: TokenKind, p: &Palette) -> Hsla {
-    // Light draws its own three syntax hues (docs/43 §2.8): the ANSI hues are
-    // tuned for a terminal ground and read washed out on the light sheet.
-    if !p.is_dark() {
-        match kind {
-            TokenKind::Keyword => return gpui::rgb(0x7C3AED).into(),
-            TokenKind::Function => return gpui::rgb(0x1D4ED8).into(),
-            TokenKind::String => return gpui::rgb(0x15803D).into(),
-            _ => {}
-        }
-    }
+    // Keywords, functions and strings have their own `syntax-*` tokens: dark
+    // holds the ANSI magenta / blue / green, light its own three hues
+    // (docs/43 §2.8), because the ANSI hues are tuned for a terminal ground
+    // and read washed out on the light sheet.
     match kind {
         TokenKind::Plain => p.term_fg,
-        TokenKind::Keyword => p.ansi_magenta,
-        TokenKind::Function => p.ansi_blue,
-        TokenKind::String => p.ansi_green,
+        TokenKind::Keyword => p.syntax_keyword,
+        TokenKind::Function => p.syntax_function,
+        TokenKind::String => p.syntax_string,
         TokenKind::Number => p.ansi_yellow,
         TokenKind::Comment => p.term_dim,
     }

@@ -440,7 +440,7 @@ fn picture_tile(p: &Palette, id: ElementId, attachment: &Attachment, video: bool
     };
     if video {
         tile = tile
-            .child(div().absolute().inset_0().bg(gpui::black().alpha(0.25)).flex().items_center().justify_center().child(icon(IconName::Play).size(px(PLAY_GLYPH)).color(gpui::white())))
+            .child(div().absolute().inset_0().bg(p.media_dim).flex().items_center().justify_center().child(icon(IconName::Play).size(px(PLAY_GLYPH)).color(p.media_ink)))
             .children(attachment.meta.clone().map(|length| {
                 div()
                     .absolute()
@@ -448,11 +448,11 @@ fn picture_tile(p: &Palette, id: ElementId, attachment: &Attachment, video: bool
                     .bottom(px(4.0))
                     .px(px(3.0))
                     .rounded(px(3.0))
-                    .bg(gpui::rgba(0x121215d9))
+                    .bg(p.media_scrim)
                     .font_family(scale::FONT_MONO)
                     .role_size(TextRole::Micro)
                     .line_height(relative(1.4))
-                    .text_color(gpui::white())
+                    .text_color(p.media_ink)
                     .child(length)
             }));
     }
@@ -501,8 +501,8 @@ pub fn quote_code(a: &Attachment) -> Option<&str> {
 /// quote (`code` = its language, or "" when unknown) is mono 12.65 / 20,
 /// 4 lines, "from the reply above · rust". A click scrolls to the source.
 fn quote_block(p: &Palette, id: ElementId, words: &str, code: Option<&str>, source: Option<String>, on_quote: Option<QuoteHandler>) -> impl IntoElement {
-    // Between FG and muted: #C9C9D0 on dark, #3F3F46 on light (docs/43 §0).
-    let code_ink: gpui::Hsla = if p.is_dark() { gpui::rgb(0xC9C9D0).into() } else { gpui::rgb(0x3F3F46).into() };
+    // Between FG and muted: the `code-ink` token (docs/43 §0).
+    let code_ink = p.code_ink;
     let text = match code {
         Some(_) => div().font_family(scale::FONT_MONO).role_size(TextRole::Caption).line_height(px(20.0)).text_color(code_ink).whitespace_nowrap().overflow_hidden().line_clamp(4).max_h(px(80.0)),
         None => div().font_family(scale::FONT_UI).role_size(TextRole::Body).line_height(px(22.0)).text_color(p.fg_muted).line_clamp(3).max_h(px(66.0)).overflow_hidden(),
@@ -553,7 +553,7 @@ fn annotation_body(p: &Palette, id: &ElementId, batch: &AnnotationBatch, strip_w
             .h(px(SHOT_H))
             .rounded(px(TILE_RADIUS))
             .overflow_hidden()
-            .bg(gpui::white())
+            .bg(p.paper)
             .child(div().absolute().top_0().left_0().w(px(strip_w)).h(px(h * scale)).child(gpui::img(shot).size_full().object_fit(gpui::ObjectFit::Fill)));
         for note in &batch.notes {
             let (x, y) = (note.at.0 * scale, note.at.1 * scale);

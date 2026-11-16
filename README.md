@@ -104,8 +104,8 @@ cargo run -p aui-gallery -- --theme light --entry <id>      # open in a theme / 
 cargo run -p aui-gallery -- --screenshot-window <out.png>   # whole window, chrome included
 cargo run -p aui-gallery -- --screenshot <entry> <out.png> --screenshot-delay 900   # sample motion later
 
-# render, diff against the reference and print the pixel distance
-scripts/parity.sh <entry> <reference-stem>     # e.g. scripts/parity.sh foundations/colour 01-color
+# render every entry in both themes and compare with design/baseline/ (exit 1 on a difference)
+python3 scripts/gallery-baseline.py            # --update regenerates, in its own commit
 
 # regenerate the gpui-kit theme JSON (crates/aui-tokens/themes/agentic-ui.json)
 cargo run -p aui-tokens --example dump-theme
@@ -148,24 +148,26 @@ is 1.85 (async closures).
 
 - `design/` holds the design system: `design/src/cards/**` are the authored
   cards, `design/dist/` the built HTML, `design/tokens/` the token JSON, and
-  `design/reference/` the rendered PNGs that Rust output is compared against.
+  `design/baseline/` the gallery's own renders of every entry in both themes,
+  which every change is compared against (`scripts/gallery-baseline.py`).
 - `docs/02-component-spec.md` is the component contract — every card, every
   state, every measurement.
 - `docs/03-parity-process.md` is the render-and-compare loop.
 - `docs/04-design-rules.md` is the taste guide the specs are written against.
 
-When the design and the code disagree, the design wins; change the card first,
-re-render the reference, then change the Rust.
+When the design and the code disagree, the design wins; change the spec first,
+then the Rust, then regenerate the baselines it changes.
 
 ## The parity loop
 
 For each component: read its section of the spec, build it in `aui`, add a
 gallery entry covering every state, render it with
-`cargo run -p aui-gallery -- --screenshot <entry> <out.png>`, and compare the
-result against the matching PNG in `design/reference/`. Differences in spacing,
-weight, colour or motion are bugs in the Rust until the spec says otherwise. The
-full procedure, including how to add a new reference render and what counts as a
-pass, is in [`docs/03-parity-process.md`](docs/03-parity-process.md).
+`cargo run -p aui-gallery -- --screenshot <entry> <out.png>`, look at it in both
+themes, then run `scripts/gallery-baseline.py`, which compares every entry with its
+checked-in baseline in `design/baseline/`. Differences in spacing, weight, colour
+or motion are bugs in the Rust until the spec says otherwise. The full procedure,
+including when to regenerate a baseline and what counts as a pass, is in
+[`docs/03-parity-process.md`](docs/03-parity-process.md).
 
 ## License
 

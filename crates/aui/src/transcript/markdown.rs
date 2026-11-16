@@ -1784,7 +1784,7 @@ fn render_block(
             div()
                 .w_full()
                 .border_l(px(QUOTE_RULE))
-                .border_color(if palette.is_dark() { gpui::white().alpha(QUOTE_RULE_ALPHA) } else { gpui::black().alpha(QUOTE_RULE_ALPHA) })
+                .border_color(palette.overlay_ink(QUOTE_RULE_ALPHA))
                 .py(px(QUOTE_PAD_Y))
                 .pl(px(QUOTE_INDENT))
                 .children(render_blocks(&nested, inner, &dimmed, palette, &quoted, fence))

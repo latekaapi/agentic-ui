@@ -19,7 +19,7 @@ use std::rc::Rc;
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{
-    div, font, prelude::*, px, relative, rgb, AnyElement, App, ElementId, FontWeight, Hsla, IntoElement, ScrollHandle, SharedString, StyledText,
+    div, font, prelude::*, px, relative, AnyElement, App, ElementId, FontWeight, Hsla, IntoElement, ScrollHandle, SharedString, StyledText,
     TextRun, UnderlineStyle, Window,
 };
 use gpui_kit::base::{h_flex, v_flex};
@@ -85,11 +85,9 @@ const LIST_GAP: f32 = 12.5;
 /// Headings: the UI face, bold — 13 px, 12 px, 11.5 px, 15 px above, 5 px below.
 const HEADING_GAP_TOP: f32 = 15.0;
 const HEADING_GAP_BOTTOM: f32 = 5.0;
-/// Tables: hairline `#DDD` borders, a `#F5F6F9` header ground carrying the UI
-/// face at 11 px semibold, Georgia body cells at 11 px, 6 px vertical and 8 px
-/// horizontal cell padding, 12 px above and below.
-const TABLE_BORDER: u32 = 0xDDDDDD;
-const TABLE_HEADER_GROUND: u32 = 0xF5F6F9;
+/// Tables: hairline `paper-rule` borders, a `paper-head` header ground
+/// carrying the UI face at 11 px semibold, Georgia body cells at 11 px, 6 px
+/// vertical and 8 px horizontal cell padding, 12 px above and below.
 const TABLE_CELL_PAD_Y: f32 = 6.0;
 const TABLE_CELL_PAD_X: f32 = 8.0;
 /// The narrowest a table column is ever drawn: 72 px holds "Female" plus the
@@ -100,21 +98,20 @@ pub const TABLE_MIN_COL_W: f32 = 72.0;
 const TABLE_GAP: f32 = 12.0;
 /// Images sit 12 px from their neighbours; the caller picks the logical size.
 const IMAGE_GAP: f32 = 12.0;
-/// A rule is a 1 px `#DDD` hairline with 16 px above and below.
-const RULE_COLOUR: u32 = 0xDDDDDD;
+/// A rule is a 1 px `paper-rule` hairline with 16 px above and below.
 const RULE_GAP: f32 = 16.0;
 /// `.paper{font-family:Georgia,"Times New Roman",serif}` — the single place
 /// the design leaves the UI face, and the tokens carry no serif family.
 const PAPER_FONT: &str = "Georgia";
-/// `.paper{background:#fff;color:#1a1c22}` — the page is white in both themes,
-/// so these are literal and not palette colours.
-const PAPER_BG: u32 = 0xFFFFFF;
-const PAPER_INK: u32 = 0x1A1C22;
-/// `.paper .k{color:#7b818f}`.
-const PAPER_META_INK: u32 = 0x7B818F;
-/// `.paper .ai{background:rgba(80,87,214,.12);border-bottom:2px solid #5057D6}` —
-/// fixed against the white page rather than taken from the theme's accent.
-const CHANGE_INK: u32 = 0x5057D6;
+/// The page's colours: `.paper{background:#fff;color:#1a1c22}`, `.paper
+/// .k{color:#7b818f}` and the changed-span ink `.paper .ai{border-bottom:2px
+/// solid #5057D6}` are the `paper`, `paper-ink`, `paper-muted` and
+/// `paper-change` tokens. The page is white in both themes, so the tokens
+/// are the same in both palettes and this reads them from one.
+pub(crate) fn paper_palette() -> aui_tokens::Palette {
+    aui_tokens::light()
+}
+/// The changed span's ground: `paper-change` at 12 %.
 const CHANGE_GROUND_ALPHA: f32 = 0.12;
 const CHANGE_UNDERLINE: f32 = 2.0;
 /// `.arts{gap:6px;padding:6px 10px}`.
@@ -908,11 +905,11 @@ fn doc_text_cell(pane_id: &ElementId, key: SelectionKey, text: String, runs: Vec
 impl RenderOnce for DocPane {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
-        let ink: Hsla = rgb(PAPER_INK).into();
+        let ink = paper_palette().paper_ink;
         let mut paper = v_flex()
             .px(px(self.paper_pad.map(|(_, x)| x).unwrap_or(PAPER_PAD_X)))
             .py(px(self.paper_pad.map(|(y, _)| y).unwrap_or(PAPER_PAD_Y)))
-            .bg(rgb(PAPER_BG))
+            .bg(paper_palette().paper)
             .text_color(ink);
         if self.flush {
             // The paper IS the pane: full width, at least the pane height
@@ -936,7 +933,7 @@ impl RenderOnce for DocPane {
                     .mb(px(PAPER_META_GAP))
                     .ui(TextRole::Micro)
                     .line_height(relative(PAPER_META_LH))
-                    .text_color(rgb(PAPER_META_INK))
+                    .text_color(paper_palette().paper_muted)
                     .child(self.page.subtitle.clone()),
             );
 
@@ -1028,7 +1025,7 @@ impl RenderOnce for DocPane {
                             .aria_label(image.alt.clone()),
                     )
                     .into_any_element(),
-                DocBlock::Rule => div().w_full().h(px(1.0)).bg(rgb(RULE_COLOUR)).into_any_element(),
+                DocBlock::Rule => div().w_full().h(px(1.0)).bg(paper_palette().paper_rule).into_any_element(),
             };
             body = body.child(div().w_full().mb(px(gap)).child(el));
         }
@@ -1049,7 +1046,7 @@ impl RenderOnce for DocPane {
             // surface band shows below a short page. Top-aligned exactly
             // like the framed pane, so long content still scrolls; the
             // paper's own minimum height fills short pages.
-            root = root.items_start().p(px(0.0)).bg(rgb(PAPER_BG));
+            root = root.items_start().p(px(0.0)).bg(paper_palette().paper);
         } else {
             // Top-align: the row's default cross-axis stretch would size the
             // paper to the pane and leave nothing to scroll.
@@ -1089,7 +1086,7 @@ fn paint_table(
     if table.rows.is_empty() {
         return div().w_full().into_any_element();
     }
-    let edge: Hsla = rgb(TABLE_BORDER).into();
+    let edge = paper_palette().paper_rule;
     let col_count = table.rows.iter().map(|row| row.iter().map(|cell| cell.col_span.max(1)).sum::<usize>()).max().unwrap_or(0);
     if col_count == 0 {
         return div().w_full().into_any_element();
@@ -1124,7 +1121,7 @@ fn paint_table(
                     run.font.family = ui.family.clone();
                     run.font.weight = FontWeight::SEMIBOLD;
                 }
-                el = el.bg(rgb(TABLE_HEADER_GROUND)).ui(TextRole::Micro).font_weight(FontWeight::SEMIBOLD);
+                el = el.bg(paper_palette().paper_head).ui(TextRole::Micro).font_weight(FontWeight::SEMIBOLD);
             } else {
                 el = el.font_family(PAPER_FONT).role_size(TextRole::Micro);
             }
@@ -1164,7 +1161,7 @@ fn page_runs(runs: &[DocRun], ink: Hsla) -> (String, Vec<TextRun>) {
             DocRun::Text(_) => {}
             DocRun::Bold(_) => style.font.weight = FontWeight::BOLD,
             DocRun::Changed(_) => {
-                let accent: Hsla = rgb(CHANGE_INK).into();
+                let accent = paper_palette().paper_change;
                 style.background_color = Some(accent.alpha(CHANGE_GROUND_ALPHA));
                 style.underline = Some(UnderlineStyle { thickness: px(CHANGE_UNDERLINE), color: Some(accent), wavy: false });
             }

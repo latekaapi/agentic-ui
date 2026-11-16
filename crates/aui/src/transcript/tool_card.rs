@@ -660,9 +660,9 @@ fn browser_body(p: &Palette, id: &ElementId, screenshot: Option<&str>, caption: 
                     .py(px(SHOT_LABEL_PAD_Y))
                     .px(px(SHOT_LABEL_PAD_X))
                     .rounded(px(scale::R_XS))
-                    .bg(gpui::rgba(0x121215d9))
+                    .bg(p.media_scrim)
                     .ui(TextRole::Micro)
-                    .text_color(gpui::rgb(0xF2F2F4))
+                    .text_color(p.media_ink)
                     .child(caption.to_string())
             })),
     )

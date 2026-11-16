@@ -38,7 +38,7 @@ pub struct Entry {
     pub title: &'static str,
     /// Card subtitle from the `ds:` header.
     pub subtitle: &'static str,
-    /// Card width in logical pixels (the reference PNG size).
+    /// Card width in logical pixels (the baseline PNG size).
     pub width: f32,
     /// Card height in logical pixels.
     pub height: f32,

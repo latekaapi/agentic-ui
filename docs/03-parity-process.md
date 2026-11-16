@@ -3,13 +3,13 @@
 The design is the contract. Three artefacts define it, in this order of authority:
 1. `design/src/cards/*.html` + `design/src/base.css` + `design/tokens/tokens.css` (exact values).
 2. `docs/02-component-spec.md` (anatomy, states, motion, keys, data) — corrected when it disagrees with the CSS.
-3. `design/reference/cards/*.png` and `design/reference/screens/*.png` (what it must look like, rendered at the card's declared size).
+3. `design/baseline/<group>/<name>-<dark|light>.png` — every gallery entry rendered by the gallery itself, in both themes, checked in (task 2.12, harness docs/82). They replace the v1 `design/reference/` Chrome renders of the HTML cards, deleted on 16 Nov 2026 because they described a design two generations old (audit C-17). The parity column in the checklist below records those historical comparisons.
 
 ## Per-component loop
 1. Read the card HTML/CSS and the spec entry. List every state the card shows.
 2. Implement the component in `aui` using tokens from `aui-tokens` and motion from `aui-motion`. No literal colours, sizes or durations in components.
 3. Add a gallery entry in `aui-gallery` that reproduces the card: same states, same sample content, same frame size.
-4. Render the gallery entry to PNG at the card's size (the gallery has a `--screenshot <entry> <out.png>` flag) and place it beside the reference PNG. Compare: alignment, sizes, colours, type, spacing. A one-pixel misalignment on an intended shared edge is a defect.
+4. Render the gallery entry to PNG at the card's size (`--screenshot <entry> <out.png> --theme <dark|light>`) and look at it in both themes. Compare: alignment, sizes, colours, type, spacing. A one-pixel misalignment on an intended shared edge is a defect. Then run `scripts/gallery-baseline.py` (below): a changed entry shows as a difference; look at the diff, and when the change is the intended one, regenerate that entry's baselines in their own commit.
 5. Exercise every interaction listed in the spec (hover, press, expand, stream, drag, keys) and check the motion: correct spring, correct duration, readable resting state, reduced-motion path.
 6. Tick the row in the checklist below with the commit hash.
 
@@ -23,9 +23,9 @@ The design is the contract. Three artefacts define it, in this order of authorit
 - One implementation of the note card: `aui::transcript::diff_note` (and `diff_note_inset`, which takes the host's margins and body metrics). Card 10's mock in `aui-gallery` calls it rather than hand-building a note.
 
 ## Tooling
-- `scripts/parity.sh <entry-id> <reference-stem>` builds the gallery, renders the entry, writes `target/parity/<stem>.png` and `<stem>-diff.png`, and prints the ImageMagick RMSE and the count of pixels that differ at 6 % fuzz. Card 01 sits at 0.7 % differing pixels; anything above ~2 % on a static card needs a look.
+- `scripts/gallery-baseline.py` renders every gallery entry × {dark, light}, each twice (the two must agree, or the entry is reported as still animating), and compares them with `design/baseline/`: a pixel differs past 8/255 in any channel, an entry fails past 0.05 % differing pixels or a size change, and gets a magenta-marked diff in `target/gallery-baseline/diff/`. Exit 0 clean, 1 differences, 2 a render failed or a baseline is missing. `--update` regenerates the baselines — a deliberate act in its own commit, never to silence a difference. `--entry`, `--theme` and `--jobs` narrow or parallelise a run. Entries that cannot hold still (the motion playground) are listed in the script's `EXCLUDED` with their reason. The script waits for 60 s of machine idle before opening windows (`--no-idle-wait` skips it).
 - `aui-gallery --screenshot-window <out.png>` captures the whole gallery window (chrome included) for shell reviews.
-- References are re-rendered with headless Chrome when a design file changes: `python3 design/build.py`, then `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu --hide-scrollbars --window-size=<w>,<h> --virtual-time-budget=5000 --screenshot=design/reference/cards/<stem>.png "file://$PWD/design/dist/components/<group>/<stem>.html"`.
+- `scripts/visual_diff.py` gates one capture against a mock PNG of the same size (the canvas-mock workflow).
 
 ## Live behaviour (phase 4 step 2)
 
@@ -130,7 +130,7 @@ documented in `crates/aui-gallery/src/cards/views.rs`.
 - Syntax colours in code blocks come from a small lexer (keywords, calls, strings, numbers, comments); tree-sitter grammars are optional features of gpui-kit and not enabled yet.
 - Tabs in a strip keep their natural width (the card lets `Terminal 1` wrap onto two lines when the strip is short of room); a strip short of room clips at its edge. Shrinking tabs with truncated labels made taffy collapse the labels entirely and is left for a later pass.
 - CSS collapses the vertical margins between siblings; gpui does not. Rows carry a top margin only (`session_row`), which puts the last row 2 px closer to its container's bottom edge than the CSS.
-- Parity renders open at the display's top-left corner so the pointer does not hover anything; keep the pointer away from that corner while `scripts/parity.sh` runs.
+- Gallery renders open at the display's top-left corner so the pointer does not hover anything; keep the pointer away from that corner while `scripts/gallery-baseline.py` runs.
 - The sprite carries four symbols the HTML cards never use: `spinner-ring` / `spinner-arc` (gpui rotates SVGs, not divs, so the spinner's accent arc is an SVG), `check-bold` / `x-bold` (the stroke-3 glyph marks), and `chev` (the stroke-2 chevron).
 
 ## Checklist (card → component → gallery entry → parity commit)

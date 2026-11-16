@@ -1,5 +1,6 @@
 //! `--screenshot`: render the window off-screen after a couple of frames,
-//! downsample to logical pixels (the reference PNGs are 1×) and quit.
+//! downsample to logical pixels (the baselines in `design/baseline/` are 1×)
+//! and quit.
 
 use std::{path::PathBuf, time::Duration};
 

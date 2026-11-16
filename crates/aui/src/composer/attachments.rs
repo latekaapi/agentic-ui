@@ -107,7 +107,7 @@ impl RenderOnce for DropOverlay {
                     .rounded(px(8.0))
                     .border(px(OVERLAY_BORDER))
                     .border_dashed()
-                    .border_color(if p.is_dark() { gpui::white().alpha(0.2) } else { gpui::black().alpha(0.2) })
+                    .border_color(p.overlay_ink(0.2))
                     .opacity(style.opacity)
                     .child(
                         v_flex()

@@ -127,7 +127,7 @@ fn track_selection(
 }
 
 /// A picture the repo carries, for the tiles and the annotation strip.
-const PICTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/reference/cards/10-app-shell.png");
+const PICTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/fixtures/app-shell.png");
 
 fn sent(name: &str, kind: AttachmentKind, size: Option<u64>, meta: Option<&str>, path: Option<&str>) -> Attachment {
     Attachment { name: name.into(), kind, size_bytes: size, meta: meta.map(Into::into), state: UploadState::Ready, path: path.map(Into::into), quote_of: None }

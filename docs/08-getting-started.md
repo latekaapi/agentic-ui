@@ -297,5 +297,5 @@ Arm the flag when you move focus with the keyboard:
 - [`docs/04-design-rules.md`](04-design-rules.md) — the taste guide.
 - [`docs/07-backends.md`](07-backends.md) — the webview and terminal panes.
 - [`docs/03-parity-process.md`](03-parity-process.md) — how a component is
-  checked against its design reference.
+  checked against its design and its baseline renders.
 - `cargo run -p aui-gallery` — every component in every state, live.

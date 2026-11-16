@@ -36,11 +36,9 @@ const PARAGRAPH_GAP: f32 = 9.0;
 const FOOTER_TOP: f32 = 22.0;
 /// `.hl{background:rgba(accent,.16)}`.
 const HIGHLIGHT_ALPHA: f32 = 0.16;
-/// Paper is paper in both themes: the page is white with near-black ink and
-/// a muted grey footer, as the design's `.pg` rule sets it.
-const PAPER_BG: u32 = 0xFFFFFF;
-const PAPER_INK: u32 = 0x1A1C22;
-const PAPER_MUTED: u32 = 0x7B818F;
+/// Paper is paper in both themes: the page is white (`paper`) with
+/// near-black ink (`paper-ink`) and a muted grey footer (`paper-muted`), as
+/// the design's `.pg` rule sets it; see [`super::docs::paper_palette`].
 /// The page's serif face (`Georgia, "Times New Roman", serif`).
 pub const PAPER_SERIF: &str = "Georgia";
 
@@ -238,12 +236,13 @@ impl RenderOnce for PdfPane {
             toolbar = toolbar.child(button((id.clone(), "insert"), "Insert quote").xs().on_click(emit(PdfAction::InsertQuote)));
         }
 
-        let paper_ink = gpui::rgb(PAPER_INK).into();
+        let paper = super::docs::paper_palette();
+        let paper_ink = paper.paper_ink;
         let highlight = p.accent.alpha(HIGHLIGHT_ALPHA);
         let page: AnyElement = match self.raster.clone() {
             Some((source, width, height)) => v_flex()
                 .flex_none()
-                .bg(gpui::rgb(PAPER_BG))
+                .bg(paper.paper)
                 .border_1()
                 .border_color(p.line)
                 .child(gpui::img(source).w(px(width)).h(px(height)))
@@ -254,7 +253,7 @@ impl RenderOnce for PdfPane {
                     .flex_none()
                     .py(px(PAGE_PAD_Y))
                     .px(px(PAGE_PAD_X))
-                    .bg(gpui::rgb(PAPER_BG))
+                    .bg(paper.paper)
                     .border_1()
                     .border_color(p.line)
                     .font_family(PAPER_SERIF)
@@ -266,7 +265,7 @@ impl RenderOnce for PdfPane {
                 for (i, para) in self.page.paragraphs.iter().enumerate() {
                     text = text.child(div().w_full().when(i + 1 < count, |d| d.mb(px(PARAGRAPH_GAP))).child(paragraph(para, paper_ink, highlight)));
                 }
-                text.child(div().mt(px(FOOTER_TOP)).role_size(TextRole::Micro).text_color(gpui::rgb(PAPER_MUTED)).child(self.page.footer.clone())).into_any_element()
+                text.child(div().mt(px(FOOTER_TOP)).role_size(TextRole::Micro).text_color(paper.paper_muted).child(self.page.footer.clone())).into_any_element()
             }
         };
 

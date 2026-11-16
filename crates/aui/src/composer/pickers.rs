@@ -626,7 +626,7 @@ impl RenderOnce for EffortSliderMenu {
             _ => self.default_row.detail.clone(),
         };
 
-        let line = if p.is_dark() { gpui::white() } else { gpui::black() };
+        let line = p.overlay_ink(1.0);
         let mut track = div()
             .id((id.clone(), "slider"))
             .relative()

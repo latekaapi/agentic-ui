@@ -1,9 +1,9 @@
-//! A realistic sample session, used by `aui-gallery` and the parity screenshots.
+//! A realistic sample session, used by `aui-gallery` and its baseline renders.
 //!
 //! The texts, commands, file names and counts here are copied verbatim from the
 //! design source of truth — `design/src/cards/transcript/*.html` and
-//! `design/reference/screens/harness-Main.png` — so a gallery entry rendered from
-//! [`session()`] can be diffed pixel for pixel against the reference renders.
+//! `design/fixtures/harness-main.png` — so a gallery entry rendered from
+//! [`session()`] reads like the design it was drawn from.
 //! Change these strings only when the design cards change.
 
 use crate::block::{
@@ -906,7 +906,7 @@ fn browser_call() -> Block {
         duration_ms: Some(2_400),
         body: ToolBody::Browser {
             action: "3 actions".into(),
-            screenshot: Some("design/reference/screens/harness-Main.png".into()),
+            screenshot: Some("design/fixtures/harness-main.png".into()),
             caption: Some("click \u{201c}Try free\u{201d}".into()),
         },
         diff_stat: None,

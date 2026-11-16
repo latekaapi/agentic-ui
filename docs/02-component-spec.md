@@ -1,6 +1,6 @@
 # Component spec (source of truth for the gpui port)
 
-Every entry maps one design-system card (`design/src/cards/…`, rendered in `design/reference/cards/…png`) to the gpui component that must reproduce it. Values are the ones in the cards; when the CSS and this file disagree, the CSS wins and this file should be corrected. Tokens are named as in `design/tokens/tokens.json`; motion as in `design/tokens/motion.json`.
+Every entry maps one design-system card (`design/src/cards/…`; the gallery's renders of it are the baselines in `design/baseline/`) to the gpui component that must reproduce it. Values are the ones in the cards; when the CSS and this file disagree, the CSS wins and this file should be corrected. Tokens are named as in `design/tokens/tokens.json`; motion as in `design/tokens/motion.json`.
 
 Conventions used below: **anatomy** (parts, left to right / top to bottom), **size** (px), **states**, **motion**, **keys**, **data** (what the app supplies). "ink" = `--ink`, "ink-2/3/4" = secondary/tertiary/quaternary text. All radii: xs 4, sm 6, md 8 (cards, tool cards), lg 12 (dialogs, panels), xl 16, full.
 
@@ -219,7 +219,7 @@ Conventions used below: **anatomy** (parts, left to right / top to bottom), **si
 
 ---
 
-## 6. Screens (design/reference/screens)
+## 6. Screens (design/screens)
 - harness-Main: projects sidebar view, transcript with thought / activity / approval pending, block terminal on the right.
 - harness-DiffReview: status sidebar view, summary card, diff pane with one saved and one pending note.
 - harness-TerminalMode: date sidebar view, terminal-only centre with docked TUI input, file tree with type icons.

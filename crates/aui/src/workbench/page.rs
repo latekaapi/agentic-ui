@@ -13,7 +13,7 @@ use aui_tokens::TextRole;
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
-use gpui::{div, prelude::*, px, relative, AnyElement, App, ClickEvent, ElementId, FontWeight, Hsla, IntoElement, SharedString, Window};
+use gpui::{div, prelude::*, px, relative, AnyElement, App, ClickEvent, ElementId, FontWeight, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::interact::paint::{PaintStates, StatePaint};
@@ -27,8 +27,6 @@ use crate::data::{icon_button, spinner};
 pub const PAGE_NAV_H: f32 = scale::SUB_HEADER;
 /// Under this pane width back / forward leave the nav row.
 pub const PAGE_NAV_NARROW: f32 = 300.0;
-/// Muse blue: the annotation outline.
-const ANNOTATE_BLUE: u32 = 0x3B6DF2;
 
 /// Where the address field starts in the bar, from the pane's left edge:
 /// padding 6, then back, forward and reload (28 each, gap 2) — reload only
@@ -247,20 +245,24 @@ pub fn agent_pill(id: impl Into<ElementId>, provider: Provider, text: impl Into<
         .child(spinner((id, "spin")).size(px(12.0)).colors(ring.0, ring.1))
 }
 
-/// The hovered element while annotating: 1.5 px Muse blue, r 4, a 6 % fill.
+/// The hovered element while annotating: 1.5 px `annotate` blue, r 4, a 6 %
+/// fill. Drawn over the web page, which has no theme, so the token is the
+/// same in both palettes.
 pub fn annotate_outline(width: f32, height: f32) -> gpui::Div {
-    let blue = Hsla::from(gpui::rgb(ANNOTATE_BLUE));
+    let blue = aui_tokens::dark().annotate;
     div().w(px(width)).h(px(height)).rounded(px(4.0)).border(px(1.5)).border_color(blue).bg(blue.alpha(0.06))
 }
 
-/// A pinned note's marker: a 20 px dark circle, 11 / 600 white, a 2 px white
-/// ring.
+/// A pinned note's marker: a 20 px `annotate-pin` circle, 11 / 600 in
+/// `paper`, a 2 px `paper` ring. On the web page, so one palette serves both
+/// themes.
 pub fn annotate_pin(index: usize) -> gpui::Div {
+    let p = aui_tokens::dark();
     div()
         .size(px(24.0))
         .flex_none()
         .rounded_full()
-        .bg(gpui::white())
+        .bg(p.paper)
         .flex()
         .items_center()
         .justify_center()
@@ -268,14 +270,14 @@ pub fn annotate_pin(index: usize) -> gpui::Div {
             div()
                 .size(px(20.0))
                 .rounded_full()
-                .bg(Hsla::from(gpui::rgb(0x18181B)))
+                .bg(p.annotate_pin)
                 .flex()
                 .items_center()
                 .justify_center()
                 .font_family(scale::FONT_UI)
                 .role_size(TextRole::Micro)
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(gpui::white())
+                .text_color(p.paper)
                 .child(index.to_string()),
         )
 }

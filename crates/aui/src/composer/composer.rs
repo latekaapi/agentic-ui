@@ -481,8 +481,8 @@ const QUOTE_RULE_ALPHA: f32 = 0.18;
 /// ✕ (20, r 4) top-right "Remove quote". A code quote: mono 12.65 / 20,
 /// 3 lines, then `rust · 2 lines` in faint 12.1.
 fn composer_quote_block(id: &ElementId, q: &ComposerQuote, p: &aui_tokens::Palette, remove: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> gpui::AnyElement {
-    // Between FG and muted: #C9C9D0 on dark, #3F3F46 on light (docs/43 §0).
-    let code_ink: gpui::Hsla = if p.is_dark() { gpui::rgb(0xC9C9D0).into() } else { gpui::rgb(0x3F3F46).into() };
+    // Between FG and muted: the `code-ink` token (docs/43 §0).
+    let code_ink = p.code_ink;
     let body = match &q.code {
         Some((lang, lines)) => v_flex()
             .child(

@@ -1,5 +1,5 @@
 //! `aui-webview` — the embedded browser pane of the workbench (spec §5.2,
-//! `design/reference/cards/51-browser.png`).
+//! `design/src/cards`, card 51 "Browser and annotator").
 //!
 //! The crate is four layers, and the top one does not know which bottom one it
 //! is running on:
