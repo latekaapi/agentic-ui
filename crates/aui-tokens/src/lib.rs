@@ -156,10 +156,10 @@ impl Palette {
         }
     }
 
-    /// The hover tint: white at 6 % in dark (lightens), black at 4 % in
+    /// The hover tint: white at 6 % in dark (lightens), black at 5 % in
     /// light (darkens). Surface-relative: paint it over whatever step it
     /// sits on. The ladder is hover < selected < pressed in both themes
-    /// (dark 6 / 12 / 16 %, light 4 / 7 / 10 %; docs/83 §2.1).
+    /// (dark 6 / 12 / 16 %, light 5 / 8 / 10 %; docs/83 §2.1, §9).
     pub fn hover_overlay(&self) -> gpui::Hsla {
         if self.is_dark() {
             gpui::white().alpha(scale::OV_HOVER_DARK)
@@ -410,7 +410,7 @@ mod tests {
         assert!(l.hover_overlay().l < 0.01);
         // docs/83 §2.1: hover < selected < pressed, in both themes.
         assert_eq!((scale::OV_HOVER_DARK, scale::OV_SELECTED_DARK, scale::OV_PRESSED_DARK), (0.06, 0.12, 0.16));
-        assert_eq!((scale::OV_HOVER_LIGHT, scale::OV_SELECTED_LIGHT, scale::OV_PRESSED_LIGHT), (0.04, 0.07, 0.10));
+        assert_eq!((scale::OV_HOVER_LIGHT, scale::OV_SELECTED_LIGHT, scale::OV_PRESSED_LIGHT), (0.05, 0.08, 0.10));
         // Lines are solid colours, not alphas (docs/83 §2.1).
         for pal in [d, l] {
             for c in [pal.line, pal.line_region, pal.line_strong] {

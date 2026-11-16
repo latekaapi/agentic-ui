@@ -121,7 +121,6 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         "d6-nopage",
         address_field_frame(false, cx).child(div().text_color(cx.aui().colors.fg_muted).child("Search or enter an address")),
         "Muse",
-        cx,
     );
     let s4 = screen("No page yet", W, empty, cx);
     let err = div().flex_1().child(page_error_state("d6-err", "localhost:3000", "refused the connection. Is the dev server running?", |_, _, _| {}, cx));

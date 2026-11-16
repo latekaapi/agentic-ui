@@ -268,7 +268,7 @@ const SEG_PAD_X: f32 = 10.0;
 type SelectHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 
 /// The segmented control (docs/83 §7): a `surface-4` track on radius 8
-/// ([`R_ITEM`]), the active segment on `surface-6` (radius 8 − 2, the
+/// ([`R_ITEM`]), the active segment on [`segment_on`] (radius 8 − 2, the
 /// concentric rule), the others hovering with the one model. No sliding
 /// thumb: the active segment is a fill, not a motion. Build with
 /// [`segmented`].
@@ -284,6 +284,14 @@ pub struct Segmented {
     accessibility_label: Option<SharedString>,
     on_select: Option<SelectHandler>,
     preview: Option<(usize, InteractState)>,
+}
+
+/// The active segment's fill: `surface-6` in dark (§7). Light's `surface-6`
+/// (`#E8E8E8`) on its `surface-4` track (`#EEEEEE`) is a 1.03:1 step the eye
+/// does not see, so light lifts the segment to `overlay` (white) instead —
+/// the chip lighter than its track, as dark's is (docs/83 §9, task 2.11).
+pub(crate) fn segment_on(p: &aui_tokens::Palette) -> gpui::Hsla {
+    if p.is_dark() { p.surface_6 } else { p.overlay }
 }
 
 /// A segmented control over `labels` with `active` selected.
@@ -367,7 +375,7 @@ impl RenderOnce for Segmented {
             let preview = self.preview.and_then(|(at, s)| (at == i).then_some(s));
             let mut paint = StatePaint::new().ink(p.fg_muted, p.ink).preview(preview);
             if on {
-                paint = paint.on(p.surface_6).ink(p.ink, p.ink).pressable(false);
+                paint = paint.on(segment_on(&p)).ink(p.ink, p.ink).pressable(false);
             }
             let select = self.on_select.clone();
             track = track.child(

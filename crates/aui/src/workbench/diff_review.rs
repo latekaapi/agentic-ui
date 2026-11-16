@@ -331,7 +331,7 @@ fn note_badge(p: &Palette, label: String) -> impl IntoElement {
         .mono(TextRole::Micro)
         .line_height(px(BADGE))
         .semibold()
-        .text_color(gpui::white())
+        .text_color(p.bg)
         .child(label)
 }
 
@@ -625,7 +625,7 @@ impl RenderOnce for DiffReview {
                             .justify_center()
                             .reveal_on_hover(false)
                             .cursor_pointer()
-                            .child(icon(IconName::Plus).size(px(PLUS_GLYPH)).color(gpui::white())),
+                            .child(icon(IconName::Plus).size(px(PLUS_GLYPH)).color(p.bg)),
                     )
                     .child(div().flex_none().w(px(OLD_W)).pr(px(GUTTER_PAD)).flex().justify_end().text_color(old_color).child(line.old_no.map(|n| n.to_string()).unwrap_or_default()))
                     .child(div().flex_none().w(px(NEW_W)).pr(px(GUTTER_PAD)).flex().justify_end().text_color(p.ink_4).child(line.new_no.map(|n| n.to_string()).unwrap_or_default()))

@@ -304,16 +304,17 @@ impl RenderOnce for SetupSheet {
                     .into_any_element(),
             );
         }
-        let well = div()
-            .id((self.id.clone(), "terminal"))
-            .mx(px(PAD_X))
-            .mt(px(10.0))
-            .h(px(TERM_H))
-            // A recessed well, told apart by its fill alone: nothing nested
-            // in a sheet wears an edge (docs/83 §1 rule 3).
-            .rounded(px(TERM_R))
-            .bg(p.well)
-            .overflow_hidden()
+        // A recessed well, told apart by its fill alone in dark: nothing
+        // nested in a sheet wears an edge (docs/83 §1 rule 3). Light's well
+        // (`#F7F7F7`) on the sheet's `surface-2` (`#FAFAFA`) is no step at
+        // all, so light keeps the `line` hairline, as transcript blocks do
+        // (`flat_block`, docs/83 §9).
+        let well = crate::util::flat_block(
+            div().id((self.id.clone(), "terminal")).mx(px(PAD_X)).mt(px(10.0)).h(px(TERM_H)).rounded(px(TERM_R)),
+            &p,
+            p.well,
+        )
+        .overflow_hidden()
             .role(gpui::Role::Group)
             .aria_label("Terminal")
             .children(self.terminal);

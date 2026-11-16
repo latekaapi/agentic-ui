@@ -142,13 +142,13 @@
         "base.cyan.light": "#22a6b8"
       },
       "highlight": {
-        "editor.background": "#fbfbfd",
-        "editor.foreground": "#1c1e26",
+        "editor.background": "#f7f7f7",
+        "editor.foreground": "#1a1a1a",
         "editor.active_line.background": "#fafafa",
-        "editor.line_number": "#7b818f",
+        "editor.line_number": "#666666",
         "editor.active_line_number": "#1a1a1a",
         "editor.invisible": "#9a9a9a66",
-        "editor.gutter.background": "#fbfbfd",
+        "editor.gutter.background": "#f7f7f7",
         "conflict": "#b91c1c",
         "created": "#15803d",
         "modified": "#a16207",
@@ -164,11 +164,11 @@
             "color": "#b8770e"
           },
           "comment": {
-            "color": "#7b818f",
+            "color": "#666666",
             "font_style": "italic"
           },
           "comment.doc": {
-            "color": "#7b818f",
+            "color": "#666666",
             "font_style": "italic"
           },
           "constant": {
@@ -178,7 +178,7 @@
             "color": "#2c6fd1"
           },
           "embedded": {
-            "color": "#1c1e26"
+            "color": "#1a1a1a"
           },
           "emphasis": {
             "font_style": "italic"
@@ -202,7 +202,7 @@
             "color": "#b8770e"
           },
           "property": {
-            "color": "#1c1e26"
+            "color": "#1a1a1a"
           },
           "string": {
             "color": "#1e9c5d"
@@ -236,7 +236,7 @@
             "color": "#1a8e9e"
           },
           "variable": {
-            "color": "#1c1e26"
+            "color": "#1a1a1a"
           },
           "variable.special": {
             "color": "#9a4bc5"

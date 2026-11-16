@@ -983,7 +983,7 @@ impl RenderOnce for DiffBlock {
                             .justify_center()
                             .reveal_on_hover(false)
                             .cursor_pointer()
-                            .child(icon(IconName::Plus).size(px(ADD_NOTE_GLYPH)).color(gpui::white())),
+                            .child(icon(IconName::Plus).size(px(ADD_NOTE_GLYPH)).color(p.bg)),
                     )
                     .child(div().flex_none().w(px(OLD_W)).pr(px(GUTTER_PAD)).flex().justify_end().text_color(if line.kind == DiffKind::Del { p.danger } else { p.ink_4 }).child(line.old_no.map(|n| n.to_string()).unwrap_or_default()))
                     .child(div().flex_none().w(px(NEW_W)).pr(px(GUTTER_PAD)).flex().justify_end().text_color(if line.kind == DiffKind::Add { p.success } else { p.ink_4 }).child(line.new_no.map(|n| n.to_string()).unwrap_or_default()))

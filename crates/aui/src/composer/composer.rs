@@ -821,7 +821,7 @@ impl RenderOnce for Composer {
             )
         } else {
             let sample = icon_morph((id.clone(), "send-stop"), self.streaming, window, cx);
-            let glyph_color = if enabled { gpui::white() } else { p.ink_4 };
+            let glyph_color = if enabled { p.bg } else { p.ink_4 };
             let send_bg = tween((id.clone(), "send-bg"), if enabled { p.accent } else { p.surface_3 }, Tween::FAST, window, cx);
             let glyph = |name: IconName| icon(name).size(px(SEND_ICON)).color(glyph_color);
             div().flex_none().size(control).flex().items_center().justify_center().child(

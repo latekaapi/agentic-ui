@@ -3,15 +3,16 @@
 //! reload; the address on the Well; annotate, screenshot to the composer,
 //! open in Browse), the page below. While the agent acts, one pill floats 16
 //! above the page's foot; annotating outlines elements, pins numbered notes
-//! and collects them in a panel 8 in from the bottom. The pill, the pins and
-//! the panel stay dark in both themes. Over a native page every one of them
+//! and collects them in a panel 8 in from the bottom. The pill and the panel
+//! take the app's theme (docs/83 §8 item 6); the pins stay dark in both, as
+//! marks on the page, whose colours are its own. Over a native page every one of them
 //! is an overlay window in the host; these draw the content.
 
 use std::rc::Rc;
 use aui_tokens::TextRole;
 
 use aui_icons::{icon, provider_mark, IconName, Provider};
-use aui_tokens::{dark, scale, ActiveAui, AuiStyled, Palette};
+use aui_tokens::{scale, ActiveAui, AuiStyled, Palette};
 use gpui::{div, prelude::*, px, relative, AnyElement, App, ClickEvent, ElementId, FontWeight, Hsla, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
@@ -212,12 +213,13 @@ pub fn page_nav_row(
 
 // ─────────────────────────────────────────────────────────────── over the page
 
-/// The agent pill (docs/43 §2.7): Floating dark (a `line-strong` border + the
-/// float shadow, full radius), 32 tall, padding 0 14 / 0 10, gap 8 — the provider
-/// mark 16, the action 13.2, a 12 px spinner. Dark in both themes; centre it
-/// 16 above the page's foot.
+/// The agent pill (docs/43 §2.7): Floating (`overlay`, a `line-strong` border +
+/// the float shadow, full radius), 32 tall, padding 0 14 / 0 10, gap 8 — the
+/// provider mark 16, the action 13.2, a 12 px spinner. In the app's theme (it
+/// was dark in both until docs/83 §8 item 6: light renders light everywhere);
+/// centre it 16 above the page's foot.
 pub fn agent_pill(id: impl Into<ElementId>, provider: Provider, text: impl Into<SharedString>, cx: &App) -> gpui::Stateful<gpui::Div> {
-    let d = dark();
+    let d = cx.aui().colors;
     let id: ElementId = id.into();
     let text: SharedString = text.into();
     let ring = (d.fg_muted.alpha(0.35), d.fg_muted);
@@ -242,12 +244,7 @@ pub fn agent_pill(id: impl Into<ElementId>, provider: Provider, text: impl Into<
         .whitespace_nowrap()
         .child(provider_mark(provider).size(px(16.0)))
         .child(text)
-        .child(dark_spinner((id, "spin"), ring, cx))
-}
-
-fn dark_spinner(id: impl Into<ElementId>, (track, arc): (Hsla, Hsla), cx: &App) -> impl IntoElement {
-    let _ = cx;
-    spinner(id).size(px(12.0)).colors(track, arc)
+        .child(spinner((id, "spin")).size(px(12.0)).colors(ring.0, ring.1))
 }
 
 /// The hovered element while annotating: 1.5 px Muse blue, r 4, a 6 % fill.
@@ -299,7 +296,8 @@ type Click = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 /// The notes panel (docs/43 §2.7): Floating r 10, padding 6, 8 in from the
 /// page's bottom and sides; rows 13.2 (number cap 18 at 9 %, selector mono
 /// 12.1 muted, the note); a footer over a rule: "Click an element to pin a
-/// note" faint, Clear, **Send N to <agent>**. Dark in both themes.
+/// note" faint, Clear, **Send N to <agent>**. In the app's theme, like the
+/// agent pill.
 #[allow(clippy::too_many_arguments)]
 pub fn notes_panel(
     id: impl Into<ElementId>,
@@ -310,8 +308,7 @@ pub fn notes_panel(
     compact: bool,
     cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
-    let d: Palette = dark();
-    let _ = cx;
+    let d: Palette = cx.aui().colors;
     let id: ElementId = id.into();
     let rows = notes.iter().map(|n| {
         h_flex()
@@ -416,7 +413,7 @@ pub fn notes_panel(
 
 /// No page yet (docs/43 §2.7): the state block over a 32 px address field
 /// "Search or enter an address" (the host's input in a Well frame).
-pub fn no_page_state(id: impl Into<ElementId>, field: impl IntoElement, agent: &str, cx: &App) -> gpui::Div {
+pub fn no_page_state(id: impl Into<ElementId>, field: impl IntoElement, agent: &str) -> gpui::Div {
     v_flex()
         .size_full()
         .items_center()
@@ -430,7 +427,6 @@ pub fn no_page_state(id: impl Into<ElementId>, field: impl IntoElement, agent: &
             ),
         )
         .child(div().w_full().max_w(px(320.0)).child(field))
-        .when(cx.aui().colors.is_dark(), |d| d)
 }
 
 /// The address field of [`no_page_state`]: 32 tall on the Well with a field border.

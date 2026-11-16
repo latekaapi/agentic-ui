@@ -316,7 +316,7 @@ fn annotate_toggle(id: impl Into<ElementId>, on: bool, compact: bool, handler: O
                     .px(px(KBD_PAD_X))
                     .rounded(px(scale::R_XS))
                     .border_1()
-                    .border_color(gpui::white().alpha(MODE_KBD_BORDER_ALPHA))
+                    .border_color(text.alpha(MODE_KBD_BORDER_ALPHA))
                     .font_family(scale::FONT_MONO)
                     .role_size(TextRole::Micro)
                     .line_height(relative(1.0))
@@ -445,7 +445,7 @@ impl RenderOnce for AnnotationPin {
             .rounded_br(px(round))
             .rounded_bl(px(PIN_CORNER))
             .bg(p.accent)
-            .text_color(gpui::white())
+            .text_color(p.bg)
             .font_family(scale::FONT_UI)
             .role_size(TextRole::Micro)
             .line_height(relative(1.0))
@@ -811,7 +811,7 @@ fn annotation_row(
     disc = if annotation.pending {
         disc.bg(p.surface_3).text_color(p.fg_muted).border_1().border_dashed().border_color(p.ink_4)
     } else {
-        disc.bg(p.accent).text_color(gpui::white())
+        disc.bg(p.accent).text_color(p.bg)
     };
 
     let mut row = h_flex()

@@ -192,7 +192,7 @@ pub fn page_body() -> Div {
 
 /// `.pc`: one pricing card of the sample page.
 fn plan_card(w: Palette, title: &'static str, price: &'static str, detail: &'static str, cta: &'static str, primary: bool) -> impl IntoElement {
-    let (cta_bg, cta_ink) = if primary { (w.accent, gpui::white()) } else { (w.surface_2, w.ink) };
+    let (cta_bg, cta_ink) = if primary { (w.accent, w.bg) } else { (w.surface_2, w.ink) };
     v_flex()
         .flex_none()
         .w(px(CARD_W))
