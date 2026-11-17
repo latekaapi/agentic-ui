@@ -1010,6 +1010,7 @@ impl WebviewState {
     /// re-render.
     fn apply_pending(&mut self) -> (bool, bool, bool) {
         let url_before = self.url.clone();
+        let (title_before, favicon_before) = (self.title.clone(), self.favicon.clone());
         let events = self.backend.poll_events();
         let eval_results = self.backend.take_eval_results();
         let hovered = self.backend.hovered();
@@ -1123,7 +1124,11 @@ impl WebviewState {
             self.eval_results.extend(eval_results);
             changed = true;
         }
-        (changed, screenshot, self.url != url_before)
+        // The third answer is "the page's heading moved": its address, title
+        // or icon. A host lists hidden pages by these (a background tab's row),
+        // so they are told even while the page is hidden.
+        let heading_moved = self.url != url_before || self.title != title_before || self.favicon != favicon_before;
+        (changed, screenshot, heading_moved)
     }
 
     /// The poll timer's tick: fold and, if anything moved, re-render.
@@ -1136,7 +1141,7 @@ impl WebviewState {
     /// once any webview existed. A visible page notifies only when the fold
     /// changed something, never merely because the backend is native.
     fn drain(&mut self, cx: &mut Context<Self>) {
-        let (changed, screenshot, url_moved) = self.apply_pending();
+        let (changed, screenshot, heading_moved) = self.apply_pending();
         // A cover's picture that never came: give up on it at the deadline.
         if self.cover_capture_until.is_some_and(|until| std::time::Instant::now() >= until) {
             self.cover_capture_until = None;
@@ -1151,8 +1156,9 @@ impl WebviewState {
         // tab stays covered), so a page that committed its first navigation
         // while covered stayed dark until some unrelated event re-rendered
         // the host (seen live 2026-10-13: Browse dark at launch until the
-        // pointer moved).
-        if screenshot || became_visible || url_moved || (changed && !hidden) {
+        // pointer moved). Its title and icon count too: a host that observes
+        // its pages lists a background tab by them.
+        if screenshot || became_visible || heading_moved || (changed && !hidden) {
             cx.notify();
         }
     }
@@ -1975,10 +1981,10 @@ mod tests {
         state.update(cx, |state, _| {
             let _ = state.apply_pending();
             state.backend.navigate("https://news.ycombinator.com/");
-            let (_, _, url_moved) = state.apply_pending();
-            assert!(url_moved, "a new address is reported");
-            let (_, _, url_moved) = state.apply_pending();
-            assert!(!url_moved, "nothing new, nothing reported");
+            let (_, _, heading_moved) = state.apply_pending();
+            assert!(heading_moved, "a new address is reported");
+            let (_, _, heading_moved) = state.apply_pending();
+            assert!(!heading_moved, "nothing new, nothing reported");
         });
     }
 
@@ -3369,6 +3375,29 @@ mod tests {
         assert_eq!(count.get(), 1, "the un-obscure repaints on the next drain");
         tick(&state, cx);
         assert_eq!(count.get(), 1, "the transition notifies exactly once");
+    }
+
+    /// A hidden page still notifies when its title or icon changes (a host
+    /// lists a background tab by them), and stays quiet for a hidden
+    /// loading change.
+    #[gpui::test]
+    fn hidden_title_and_icon_notify_but_loading_does_not(cx: &mut TestAppContext) {
+        let (state, _, _, events) = native_state(cx);
+        let (count, _keep) = notify_count(&state, cx);
+        tick(&state, cx);
+        let base = count.get();
+        events.borrow_mut().push(WebEvent::Loading(true));
+        tick(&state, cx);
+        assert_eq!(count.get(), base, "a hidden loading change stays quiet");
+        events.borrow_mut().push(WebEvent::Title(String::from("Background title")));
+        tick(&state, cx);
+        assert_eq!(count.get(), base + 1, "a hidden title change notifies");
+        events.borrow_mut().push(WebEvent::Favicon(Some(String::from("https://example.com/i.png"))));
+        tick(&state, cx);
+        assert_eq!(count.get(), base + 2, "a hidden icon change notifies");
+        events.borrow_mut().push(WebEvent::Title(String::from("Background title")));
+        tick(&state, cx);
+        assert_eq!(count.get(), base + 2, "the same title again stays quiet");
     }
 
     /// L5fix: a visible title, URL or loading change repaints.
