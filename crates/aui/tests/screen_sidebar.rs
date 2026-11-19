@@ -148,7 +148,7 @@ fn browse_mode_labels_every_interactive_element(cx: &mut TestAppContext) {
             "Forward",
             "Reload",
             "New tab",
-            "Ask Claude about this page",
+            "Ask about this page",
             "Page menu",
             "Unified dashboard",
             "Tab State scores 2023-24",

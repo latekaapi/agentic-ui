@@ -1058,7 +1058,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
                 .child(control(ctx, "reload", IconName::Refresh, "Reload", BrowseIntent::Reload, true, cx))
                 .child(control(ctx, "new-tab-button", IconName::Plus, "New tab", BrowseIntent::NewTab, true, cx))
                 .child(div().flex_1())
-                .child(control(ctx, "ask", IconName::Sparkle, "Ask Claude about this page", BrowseIntent::Ask, true, cx))
+                .child(control(ctx, "ask", IconName::Sparkle, "Ask about this page", BrowseIntent::Ask, true, cx))
                 .child({
                     // The page menu opens under its button, so the click
                     // carries the button's bounds from this frame's layout.

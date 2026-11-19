@@ -578,7 +578,7 @@ pub enum BrowseIntent {
     Reload,
     /// New tab (the + beside reload, or the New tab row).
     NewTab,
-    /// Ask Claude about this page.
+    /// Ask the agent about this page.
     Ask,
     /// The downloads button, with its bounds in window coordinates: the
     /// popover opens under it. A click while it is open closes it.
