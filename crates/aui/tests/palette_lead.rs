@@ -103,3 +103,41 @@ fn lead_only_section_selects_the_first_row(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("enter");
     assert_eq!(&*log.borrow(), &["select:one".to_string()]);
 }
+
+/// A palette whose query left nothing: sections that are empty (or none),
+/// and the caller's empty line.
+struct EmptyHost {
+    rows: Vec<SharedString>,
+}
+
+impl Render for EmptyHost {
+    fn render(&mut self, _window: &mut gpui::Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let items = self
+            .rows
+            .iter()
+            .map(|id| PaletteItem::new(id.clone(), PaletteIcon::Glyph(aui::icons::IconName::Search), id.clone()))
+            .collect();
+        div().child(command_palette("test-palette-empty", "zz", vec![PaletteSection::new("Commands", items)], 0).at_rest().empty("Nothing matches"))
+    }
+}
+
+/// Gate 4: a query that matched nothing drew an empty "Commands" heading.
+/// The body now says "Nothing matches" instead, and only when it is empty.
+#[gpui::test]
+fn an_empty_palette_says_nothing_matches_and_only_then(cx: &mut TestAppContext) {
+    init(cx);
+    aui::data::arm_ax_probe(true);
+    aui::data::take_ax_labels();
+    let (host, cx) = cx.add_window_view(|_, _| EmptyHost { rows: Vec::new() });
+    cx.run_until_parked();
+    let labels = aui::data::take_ax_labels();
+    assert!(labels.iter().any(|label| label == "Nothing matches"), "the empty line draws: {labels:?}");
+    host.update(cx, |host, cx| {
+        host.rows = vec!["one".into()];
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let labels = aui::data::take_ax_labels();
+    aui::data::arm_ax_probe(false);
+    assert!(!labels.iter().any(|label| label == "Nothing matches"), "a palette with a row draws no empty line: {labels:?}");
+}

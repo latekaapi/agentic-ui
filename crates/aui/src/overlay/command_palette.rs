@@ -210,6 +210,8 @@ pub struct CommandPalette {
     on_select: Option<SelectHandler>,
     on_hover: Option<HoverHandler>,
     on_dismiss: Option<DismissHandler>,
+    /// The line the body shows when no section draws ([`Self::empty`]).
+    empty: Option<SharedString>,
 }
 
 /// The 640 px palette. `selected` indexes the rows of all sections in order,
@@ -227,6 +229,7 @@ pub fn command_palette(id: impl Into<ElementId>, query: impl Into<SharedString>,
         on_select: None,
         on_hover: None,
         on_dismiss: None,
+        empty: None,
     }
 }
 
@@ -277,6 +280,16 @@ impl CommandPalette {
         self.on_dismiss = Some(Rc::new(f));
         self
     }
+
+    /// What the body says when nothing in it draws — every section has
+    /// neither a row nor a lead ("Nothing matches" for a query that left no
+    /// row). One row-high line, `t-body` `fg-muted`, at a row's inset (the
+    /// hand-off menu's empty line; docs/83 §9, 19 Nov 2026). Without it an
+    /// empty palette is its query row and footer alone.
+    pub fn empty(mut self, text: impl Into<SharedString>) -> Self {
+        self.empty = Some(text.into());
+        self
+    }
 }
 
 /// What the list asked its scroll container for: the selection it scrolled
@@ -293,13 +306,14 @@ struct PaletteScroll {
 /// The direct-child index of the `selected`th row inside the scrolling body:
 /// every section draws its group label, its optional lead and then its rows
 /// as direct children, so the child index leads the row index by the titles
-/// and leads before it. Sections with no rows still draw their title (and
-/// lead); `None` when `selected` is past the last row.
+/// and leads before it. A section with a lead and no rows draws its title
+/// and lead (one with neither is dropped before this is asked, see
+/// [`drawn_sections`]); `None` when `selected` is past the last row.
 fn selected_child_index(counts: &[usize], leads: &[bool], selected: usize) -> Option<usize> {
     let mut child = 0usize;
     let mut remaining = selected;
     for (i, count) in counts.iter().enumerate() {
-        // The group label every section draws, even an empty one.
+        // The group label every drawn section has, even one with no rows.
         child += 1;
         if leads.get(i).copied().unwrap_or(false) {
             child += 1;
@@ -311,6 +325,14 @@ fn selected_child_index(counts: &[usize], leads: &[bool], selected: usize) -> Op
         child += *count;
     }
     None
+}
+
+/// The sections the body draws: a section with neither a row nor a lead has
+/// nothing under its group label, and a label over nothing reads as a list
+/// that failed to load (Gate 4: an empty "Commands" heading when nothing
+/// matched). Dropping one moves no row index — it had no rows.
+fn drawn_sections(sections: Vec<PaletteSection>) -> Vec<PaletteSection> {
+    sections.into_iter().filter(|section| !section.items.is_empty() || section.lead.is_some()).collect()
 }
 
 /// The per-section shapes `selected_child_index` needs: the row count and
@@ -360,13 +382,14 @@ impl RenderOnce for CommandPalette {
             .occlude()
             .on_scroll(|_, _, cx| cx.stop_propagation())
             .child(query_row(&id, &p, &self.query, &self.placeholder, self.query_slot, self.on_dismiss.clone()));
+        let sections = drawn_sections(self.sections);
         // The list scrolls inside a bounded body; the query row and the
         // footer stay put. Every section draws its group label, its optional
         // lead and then its rows as direct children of the body, so the
         // scroll handle can address the selected row (see
         // [`selected_child_index`]); the paddings match the old per-section
         // blocks exactly, so a list that fits draws as before.
-        let (counts, leads) = child_shapes(&self.sections);
+        let (counts, leads) = child_shapes(&sections);
         let scroll: ScrollHandle =
             window.use_keyed_state((id.clone(), "scroll"), cx, |_, _| ScrollHandle::new()).read(cx).clone();
         let scrolled: Rc<RefCell<PaletteScroll>> = window
@@ -390,7 +413,7 @@ impl RenderOnce for CommandPalette {
         // without a caller wired to `on_hover`.
         let mut rows: Vec<(ElementId, gpui::Entity<Interaction>)> = Vec::new();
         let mut hovered_row = None;
-        for (s, section) in self.sections.iter().enumerate() {
+        for (s, section) in sections.iter().enumerate() {
             for _ in &section.items {
                 let index = rows.len();
                 let key: ElementId = (id.clone(), SharedString::from(format!("row-{s}-{index}"))).into();
@@ -426,8 +449,13 @@ impl RenderOnce for CommandPalette {
         }
 
         let mut index = 0usize;
-        let last_section = self.sections.len().saturating_sub(1);
-        for (s, section) in self.sections.into_iter().enumerate() {
+        let last_section = sections.len().saturating_sub(1);
+        if sections.is_empty() {
+            if let Some(text) = self.empty {
+                body = body.child(empty_line(&id, &p, text, cx));
+            }
+        }
+        for (s, section) in sections.into_iter().enumerate() {
             body = body.child(
                 div()
                     .flex_none()
@@ -471,6 +499,25 @@ impl RenderOnce for CommandPalette {
 
         pal.child(body).child(footer(&p))
     }
+}
+
+/// The body's one line when nothing in it draws ([`CommandPalette::empty`]):
+/// where a section's first row would sit, as tall as a row, inset like one.
+fn empty_line(id: &ElementId, p: &Palette, text: SharedString, cx: &App) -> impl IntoElement {
+    crate::data::record_ax_label(&text);
+    div()
+        .id((id.clone(), "empty"))
+        .flex_none()
+        .mt(px(SEC_PAD_TOP))
+        .h(px(ITEM_H))
+        .px(px(ITEM_PAD_X))
+        .flex()
+        .items_center()
+        .role(gpui::Role::Label)
+        .aria_label(text.clone())
+        .role_in(TextRole::Body, cx)
+        .text_color(p.fg_muted)
+        .child(text)
 }
 
 /// `.q`: the search icon, the query (or its placeholder) and the `esc` keycap.
@@ -692,6 +739,21 @@ mod tests {
         assert_eq!(selected_child_index(&counts, &leads, 1), Some(5));
         assert_eq!(selected_child_index(&counts, &leads, 2), Some(7));
         assert_eq!(selected_child_index(&counts, &leads, 3), None);
+    }
+
+    /// Gate 4: a section with nothing in it drew its group label alone (an
+    /// empty "Commands" heading when nothing matched). It is not drawn; a
+    /// lead keeps its section, and no row index moves.
+    #[test]
+    fn a_section_with_no_row_and_no_lead_is_not_drawn() {
+        let sections = vec![section("gone", false, 0), section("add", true, 0), section("rows", false, 2), section("also-gone", false, 0)];
+        let drawn = drawn_sections(sections);
+        let titles: Vec<&str> = drawn.iter().map(|s| s.title.as_ref()).collect();
+        assert_eq!(titles, ["add", "rows"]);
+        let (counts, leads) = child_shapes(&drawn);
+        // Children: title, lead (add); title, rows at 3–4 (rows).
+        assert_eq!(selected_child_index(&counts, &leads, 0), Some(3));
+        assert!(drawn_sections(vec![section("none", false, 0)]).is_empty(), "nothing left to draw: the empty line's case");
     }
 
     #[test]
