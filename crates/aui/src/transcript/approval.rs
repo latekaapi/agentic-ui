@@ -294,9 +294,15 @@ impl ApprovalCard {
 
 impl ApprovalCard {
     /// The footer for a server-minted choice list: the server's choices in
-    /// the server's order, as text controls, the approving one primary. The
-    /// row wraps rather than truncating, because a label like "Always allow
-    /// in this workspace: echo ..." is the rule being installed.
+    /// the server's order, as text controls, the approving one primary.
+    ///
+    /// A choice's rule preview (the rule "Always here" would install, Muse's
+    /// "Always allow in this workspace: echo ...") is one quiet mono line
+    /// under the buttons, cut with an ellipsis where it runs out of room —
+    /// never inside its button: there it made the row wrap at Large text,
+    /// and Deny landed on a line of its own (docs/82 5.9). The row of
+    /// buttons still wraps rather than clipping one, at a width too narrow
+    /// for its labels alone.
     fn choices_row(self, id: ElementId, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let count = self.choices.len();
@@ -311,12 +317,8 @@ impl ApprovalCard {
         let mut buttons: Vec<AnyElement> = Vec::new();
         for (index, choice) in self.choices.iter().enumerate() {
             let kind = if Some(index) == primary { ControlKind::Primary } else { ControlKind::Text };
-            let mut b = control((id.clone(), SharedString::from(format!("choice-{index}"))), choice.label.clone(), kind, &p);
-            // The rule a policy amendment would install, spelled out in the
-            // mono face — unless the label already is that rule.
-            if let Some(rule) = choice.rule_preview.clone().filter(|r| *r != choice.label) {
-                b = b.child(div().font_family(scale::FONT_MONO).opacity(RULE_OPACITY).child(SharedString::from(rule)));
-            }
+            let mut b = control((id.clone(), SharedString::from(format!("choice-{index}"))), choice.label.clone(), kind, &p)
+                .debug_selector(|| format!("approval-choice-{index}"));
             let choice_id = choice.id.clone();
             let opens_field = choice.accepts_feedback && self.feedback_open.as_deref() != Some(choice.id.as_str());
             if opens_field {
@@ -330,7 +332,29 @@ impl ApprovalCard {
             }
             buttons.push(b.into_any_element());
         }
-        footer(&p).flex_wrap().child(key_hints(hints, &p)).child(div().flex_1().min_w(px(0.0))).children(buttons)
+        // The rule a policy amendment would install, spelled out in the mono
+        // face — unless the label already is that rule.
+        let rule = self.choices.iter().find_map(|choice| choice.rule_preview.clone().filter(|rule| *rule != choice.label));
+        let row = move |frame: gpui::Div| frame.flex_wrap().child(key_hints(hints, &p)).child(div().flex_1().min_w(px(0.0))).children(buttons);
+        match rule {
+            None => row(footer(&p)).into_any_element(),
+            Some(rule) => footer(&p)
+                .flex_col()
+                .items_end()
+                .gap(px(scale::SP_1))
+                .child(row(h_flex().w_full().items_center().gap(px(FOOT_GAP))))
+                .child(
+                    div()
+                        .debug_selector(|| "approval-rule".into())
+                        .max_w_full()
+                        .min_w(px(0.0))
+                        .truncate()
+                        .mono(TextRole::Micro)
+                        .text_color(p.fg_muted)
+                        .child(SharedString::from(rule)),
+                )
+                .into_any_element(),
+        }
     }
 }
 

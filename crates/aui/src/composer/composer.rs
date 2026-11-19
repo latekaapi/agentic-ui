@@ -270,10 +270,39 @@ pub struct Composer {
     single_provider: bool,
 }
 
+/// The names hosts gave their marks ([`name_provider`]), read before the
+/// table below.
+static PROVIDER_NAMES: std::sync::RwLock<Vec<(Provider, SharedString)>> = std::sync::RwLock::new(Vec::new());
+
+/// Name the agent that wears `provider`'s mark, for every chip, row and
+/// card that prints a provider's name (the composer's provider chip, the
+/// connect rows, the default-provider picker, the hand-off cards).
+///
+/// A mark is an icon, not an identity: a host may hang one on an agent
+/// that is not the one the icon set drew it for (an ACP agent wears the
+/// neutral block that the table below calls "Cursor"). Without its own
+/// name the chip printed the icon's (docs/82 5.9). A host names every
+/// agent it registers, from its own declaration; a later name for the same
+/// mark replaces the earlier one.
+pub fn name_provider(provider: Provider, name: impl Into<SharedString>) {
+    let name = name.into();
+    let mut names = PROVIDER_NAMES.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+    match names.iter_mut().find(|(mark, _)| *mark == provider) {
+        Some(slot) => slot.1 = name,
+        None => names.push((provider, name)),
+    }
+}
+
 /// The human label for a provider on the provider chip (`Muse`,
-/// `Claude Code`, `Codex`, …). This is a user-visible string, so it is an
-/// explicit table — never the `Debug` form of the enum.
+/// `Claude Code`, `Codex`, …): the name its host gave it
+/// ([`name_provider`]), else the icon set's own. This is a user-visible
+/// string, so it is an explicit table — never the `Debug` form of the enum.
 pub fn provider_display_name(provider: Provider) -> SharedString {
+    let names = PROVIDER_NAMES.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, name)) = names.iter().find(|(mark, _)| *mark == provider) {
+        return name.clone();
+    }
+    drop(names);
     match provider {
         Provider::Muse => "Muse".into(),
         Provider::Claude => "Claude Code".into(),

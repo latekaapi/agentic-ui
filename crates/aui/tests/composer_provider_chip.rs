@@ -106,3 +106,18 @@ fn provider_display_names_are_human_readable() {
         assert!(!provider_display_name(*provider).is_empty(), "{provider:?} needs a display name");
     }
 }
+
+/// A mark the host hangs on another agent prints the host's name for it,
+/// never the icon set's (docs/82 5.9: an ACP agent wears the neutral block
+/// the table calls "Cursor", and its chip read "Cursor"). The chip, the
+/// connect rows, the default picker and the hand-off cards all print
+/// [`provider_display_name`], so naming the mark names it everywhere.
+#[test]
+fn a_named_mark_prints_its_hosts_name() {
+    assert_eq!(provider_display_name(Provider::Cursor).to_string(), "Cursor", "unnamed, the icon set's own");
+    aui::composer::name_provider(Provider::Cursor, "Borrowed agent");
+    assert_eq!(provider_display_name(Provider::Cursor).to_string(), "Borrowed agent");
+    aui::composer::name_provider(Provider::Cursor, "Another agent");
+    assert_eq!(provider_display_name(Provider::Cursor).to_string(), "Another agent", "a later name replaces the earlier");
+    assert_eq!(provider_display_name(Provider::Codex).to_string(), "Codex", "naming one mark leaves the rest");
+}
