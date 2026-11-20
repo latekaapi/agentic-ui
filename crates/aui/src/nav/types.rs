@@ -54,6 +54,11 @@ pub struct SessionSummary {
     /// default ([`crate::nav::RowDensity::Two`]). Lets a host whose rows
     /// are built inside the group views choose One or Two.
     pub density: Option<crate::nav::RowDensity>,
+    /// How many commands the session started that still run (a dev
+    /// server, a watcher). Above zero, the sidebar screen's trailing slot
+    /// says "N running" whenever no state mark claims it, and the hovered
+    /// row says it beside its `⋯`; a click sends [`crate::nav::RowAction::Tasks`].
+    pub running_tasks: u32,
 }
 
 impl SessionSummary {
@@ -77,12 +82,19 @@ impl SessionSummary {
             pinned: false,
             children: Vec::new(),
             density: None,
+            running_tasks: 0,
         }
     }
 
     /// The row density this row renders at (see [`Self::density`]).
     pub fn density(mut self, density: crate::nav::RowDensity) -> Self {
         self.density = Some(density);
+        self
+    }
+
+    /// How many commands the session started still run ([`Self::running_tasks`]).
+    pub fn running_tasks(mut self, count: u32) -> Self {
+        self.running_tasks = count;
         self
     }
 

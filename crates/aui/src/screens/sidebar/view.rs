@@ -583,15 +583,63 @@ impl Ctx {
                         .child(gpui::deferred(gpui::anchored().anchor(gpui::Anchor::TopRight).snap_to_window().child(menu)).with_priority(1)),
                 );
             }
+            // A row with running tasks says so here instead of its age:
+            // that is the news, and the hovered row is where a click on it
+            // is easiest to aim.
+            let tasks = if tasks_take_the_slot(session, true) { self.tasks_button(session, cx) } else { None };
             return h_flex()
                 .flex_none()
                 .items_center()
                 .gap(px(scale::SP_2))
-                .when(!session.elapsed.is_empty(), |d| d.child(div().flex_none().role_in(TextRole::Micro, cx).text_color(p.ink_4).child(session.elapsed.clone())))
+                .when(tasks.is_none() && !session.elapsed.is_empty(), |d| d.child(div().flex_none().role_in(TextRole::Micro, cx).text_color(p.ink_4).child(session.elapsed.clone())))
+                .children(tasks)
                 .child(wrap)
                 .into_any_element();
         }
+        // At rest a state mark wins the slot (running, needs you, failed,
+        // unread: each asks for the person); an empty slot says "N running"
+        // while the session's commands run.
+        if tasks_take_the_slot(session, false) {
+            if let Some(tasks) = self.tasks_button(session, cx) {
+                return tasks;
+            }
+        }
         self.state_mark(format!("{id}"), session.state, session.unread, cx)
+    }
+
+    /// "N running" (Micro, `fg-muted`, `fg` on hover): the session's
+    /// commands that still run, as a button that asks the host for its
+    /// tasks view ([`RowAction::Tasks`]). The press stays off the row, so
+    /// the row does not also open. `None` when nothing runs.
+    fn tasks_button(&self, session: &SessionSummary, cx: &mut App) -> Option<AnyElement> {
+        let count = session.running_tasks;
+        if count == 0 {
+            return None;
+        }
+        let p = cx.aui().colors;
+        let noun = if count == 1 { "task" } else { "tasks" };
+        let label: SharedString = format!("Show {count} running {noun} of session {}", session.name).into();
+        record_ax_label(&label);
+        let ctx = self.clone();
+        let id = session.id.clone();
+        Some(
+            div()
+                .id(self.child(format!("{id}-tasks")))
+                .flex_none()
+                .role(gpui::Role::Button)
+                .aria_label(label)
+                .cursor_pointer()
+                .role_in(TextRole::Micro, cx)
+                .text_color(p.fg_muted)
+                .hover(move |style| style.text_color(p.fg))
+                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(move |_, w, cx| {
+                    cx.stop_propagation();
+                    ctx.emit(SidebarIntent::RowAction(id.clone(), RowAction::Tasks), w, cx);
+                })
+                .child(SharedString::from(format!("{count} running")))
+                .into_any_element(),
+        )
     }
 
     /// The 20 px state mark for a session row or a closed project header:
@@ -953,6 +1001,16 @@ pub fn second_line_for(session: &SessionSummary, bylines: Bylines) -> Option<Sha
         None => None,
     };
     said.or_else(|| session.branch.as_ref().and_then(nonblank))
+}
+
+/// Whether a session row's trailing slot says "N running" (docs/83 §4: one
+/// trailing slot). Hovered (or with its menu open) the row shows it beside
+/// the `⋯` in place of the age; at rest it shows only where no state mark
+/// claims the slot — running, needs you, failed and unread each ask for the
+/// person, so they win.
+fn tasks_take_the_slot(session: &SessionSummary, hovered: bool) -> bool {
+    session.running_tasks > 0
+        && (hovered || (matches!(session.state, AgentState::Idle | AgentState::Done) && !session.unread))
 }
 
 /// Builds the Sessions-mode chrome and list, or the Browse-mode rows, into
@@ -1968,6 +2026,24 @@ mod tests {
         s.byline = Some(Byline::Placeholder("  ".into()));
         s.branch = Some("dev".into());
         assert_eq!(second_line_for(&s, Bylines::Summary).as_deref(), Some("dev"));
+    }
+
+    #[test]
+    fn running_tasks_take_only_a_quiet_or_hovered_slot() {
+        let mut s = session();
+        assert!(!tasks_take_the_slot(&s, true), "nothing runs: no words");
+        s.running_tasks = 2;
+        assert!(tasks_take_the_slot(&s, false), "an idle, read row says it at rest");
+        assert!(tasks_take_the_slot(&s, true));
+        s.unread = true;
+        assert!(!tasks_take_the_slot(&s, false), "the unread dot wins at rest");
+        assert!(tasks_take_the_slot(&s, true), "hovered, it shows beside the menu");
+        s.unread = false;
+        for state in [AgentState::Running, AgentState::Waiting, AgentState::Failed] {
+            s.state = state;
+            assert!(!tasks_take_the_slot(&s, false), "{state:?} keeps its mark at rest");
+            assert!(tasks_take_the_slot(&s, true), "{state:?}: hovered, it shows");
+        }
     }
 
     #[test]

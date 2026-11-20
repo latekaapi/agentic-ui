@@ -718,6 +718,16 @@ impl Pty {
         &self.nonce
     }
 
+    /// The shell's pid while the session runs. The shell leads the pty's
+    /// session, so a host can ask which process group holds the terminal's
+    /// foreground (the command running at the prompt) and end that group
+    /// alone. Read it before handing the `Pty` to a `TerminalSession`, which
+    /// owns it from then on. `None` before a spawn and after
+    /// [`shutdown`](Self::shutdown).
+    pub fn child_pid(&self) -> Option<u32> {
+        self.child.as_ref().and_then(|child| child.process_id())
+    }
+
     /// The throwaway `ZDOTDIR` this session's shell was started with, while
     /// the session lasts.
     pub fn zdotdir(&self) -> Option<&Path> {
@@ -2905,7 +2915,7 @@ mod tests {
         }
         let mut pty = Pty::new();
         pty.spawn(&shell, &std::env::temp_dir()).expect("the shell spawns");
-        let pid = pty.child.as_ref().and_then(|c| c.process_id()).expect("a live child");
+        let pid = pty.child_pid().expect("a live child");
         // Let it get as far as its first prompt.
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline && pty.poll().is_empty() {
@@ -2920,6 +2930,21 @@ mod tests {
             .map(|s| s.success())
             .unwrap_or(false);
         assert!(!alive, "pid {pid} survived the drop");
+    }
+
+    #[test]
+    fn the_child_pid_lives_only_while_the_shell_does() {
+        let mut pty = Pty::new();
+        assert_eq!(pty.child_pid(), None, "no pid before a spawn");
+        let shell = login_shell();
+        if !Path::new(&shell).exists() {
+            eprintln!("skipped: no {shell}");
+            return;
+        }
+        pty.spawn(&shell, &std::env::temp_dir()).expect("the shell spawns");
+        assert!(pty.child_pid().is_some_and(|pid| pid > 1), "a live shell has a pid");
+        pty.shutdown();
+        assert_eq!(pty.child_pid(), None, "no pid after shutdown");
     }
 
     #[test]

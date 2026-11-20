@@ -115,6 +115,10 @@ pub enum RowAction {
     Archive,
     /// More…
     More,
+    /// Show the commands the session started that still run (the row's
+    /// "N running"): the host opens its tasks view. Never in a tray; the
+    /// sidebar screen's trailing slot sends it.
+    Tasks,
 }
 
 impl RowAction {
@@ -131,6 +135,7 @@ impl RowAction {
             RowAction::Hide => IconName::Eye,
             RowAction::Archive => IconName::Archive,
             RowAction::More => IconName::Dots,
+            RowAction::Tasks => IconName::Terminal,
         }
     }
 
@@ -143,6 +148,7 @@ impl RowAction {
             RowAction::Hide => "hide",
             RowAction::Archive => "archive",
             RowAction::More => "more",
+            RowAction::Tasks => "tasks",
         }
     }
 }
