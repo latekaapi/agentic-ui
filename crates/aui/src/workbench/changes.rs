@@ -10,13 +10,14 @@ use std::sync::Arc;
 
 use aui_icons::{icon, IconName};
 use aui_motion::{collapse_fluid, collapse_fluid_opacity, open_close, SpringKind, COLLAPSE_EXIT};
-use aui_protocol::{ChangeKind, Diff, DiffKind, FileChange};
+use aui_protocol::{ChangeKind, Diff, DiffKind, DiffLine, FileChange};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::{div, prelude::*, px, radians, AnyElement, App, ClickEvent, ElementId, FontWeight, Hsla, IntoElement, Pixels, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
 use crate::interact::paint::{PaintHover, PaintStates, StatePaint};
 use crate::data::{icon_button, spinner};
+use super::line_select::{note_line, selectable_row, DragState, LineSelectGeometry, SelectLinesHandler};
 
 
 type Click = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -228,17 +229,24 @@ pub fn unchanged_between(diff: &Diff, i: usize) -> Range<u32> {
 /// for deletions), the sign, the text; adds and deletes tinted. Unchanged
 /// runs between hunks fold into a 24 px "N unchanged lines" row that expands
 /// in place from `gap_lines` (the host reads the file).
+///
+/// Lines select (docs/82 7.1, [`super::line_select`]): the index space is
+/// [`diff_rows`] — every drawn line in order, hunk headers and the folded
+/// "N unchanged lines" rows left out, an opened gap's lines counted.
 #[derive(IntoElement)]
 pub struct DiffBody {
     id: ElementId,
     diff: Arc<Diff>,
     open_gaps: Vec<(usize, Arc<Vec<String>>)>,
     on_gap: Option<GapHandler>,
+    selected: Option<Range<usize>>,
+    on_select: Option<SelectLinesHandler>,
+    geometry: Option<LineSelectGeometry>,
 }
 
 /// The diff body for `diff`.
 pub fn diff_body(id: impl Into<ElementId>, diff: Arc<Diff>) -> DiffBody {
-    DiffBody { id: id.into(), diff, open_gaps: Vec::new(), on_gap: None }
+    DiffBody { id: id.into(), diff, open_gaps: Vec::new(), on_gap: None, selected: None, on_select: None, geometry: None }
 }
 
 impl DiffBody {
@@ -254,9 +262,134 @@ impl DiffBody {
         self.on_gap = Some(Rc::new(f));
         self
     }
+
+    /// The selected lines, over [`diff_rows`]' indices (end exclusive).
+    pub fn selected(mut self, range: Option<Range<usize>>) -> Self {
+        self.selected = range;
+        self
+    }
+
+    /// A press or drag over the lines: the new range. Without it the lines
+    /// do not select.
+    pub fn on_select_lines(mut self, f: impl Fn(Range<usize>, &mut Window, &mut App) + 'static) -> Self {
+        self.on_select = Some(Rc::new(f));
+        self
+    }
+
+    /// Where the selected lines are drawn, for the host's selection bar.
+    pub fn selection_geometry(mut self, geometry: &LineSelectGeometry) -> Self {
+        self.geometry = Some(geometry.clone());
+        self
+    }
 }
 
-fn diff_line(p: &Palette, gutter: f32, n: Option<u32>, sign: &'static str, text: &str, kind: DiffKind) -> gpui::Div {
+/// One drawn piece of a diff, in order.
+enum DiffItem {
+    /// Hunk `i`'s `@@` header.
+    Header(usize),
+    /// A selectable line.
+    Line(DiffLine),
+    /// The folded run after hunk `i`: `n` unchanged lines.
+    Gap(usize, u32),
+}
+
+/// The diff as drawn: headers, lines (opened gaps' lines among them, as
+/// context on both sides) and folded gaps.
+fn diff_items(diff: &Diff, open_gaps: &[(usize, Arc<Vec<String>>)]) -> Vec<DiffItem> {
+    let mut out = Vec::new();
+    let hunks = diff.hunks.len();
+    for (i, hunk) in diff.hunks.iter().enumerate() {
+        out.push(DiffItem::Header(i));
+        out.extend(hunk.lines.iter().cloned().map(DiffItem::Line));
+        if i + 1 < hunks {
+            let gap = unchanged_between(diff, i);
+            if gap.is_empty() {
+                continue;
+            }
+            match open_gaps.iter().find(|(g, _)| *g == i) {
+                Some((_, lines)) => {
+                    // The old side runs parallel to the new across a gap:
+                    // offset by where the next hunk starts on each side.
+                    let next = &diff.hunks[i + 1].header;
+                    let shift = match (hunk_old_range(next), hunk_new_start(next)) {
+                        (Some((old, _)), Some(new)) => old as i64 - new as i64,
+                        _ => 0,
+                    };
+                    for (k, text) in lines.iter().enumerate() {
+                        let new_no = gap.start + k as u32;
+                        let old_no = u32::try_from(new_no as i64 + shift).ok();
+                        out.push(DiffItem::Line(DiffLine { kind: DiffKind::Context, old_no, new_no: Some(new_no), text: text.clone() }));
+                    }
+                }
+                None => out.push(DiffItem::Gap(i, gap.end - gap.start)),
+            }
+        }
+    }
+    out
+}
+
+/// The diff's selectable lines, in drawing order: what a [`DiffBody`]'s
+/// selection ranges index.
+pub fn diff_rows(diff: &Diff, open_gaps: &[(usize, Arc<Vec<String>>)]) -> Vec<DiffLine> {
+    diff_items(diff, open_gaps)
+        .into_iter()
+        .filter_map(|item| match item {
+            DiffItem::Line(line) => Some(line),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Which file a diff quote is numbered by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiffSide {
+    /// The new file: the selection holds an added or unchanged line.
+    New,
+    /// The old file: the selection holds removed lines only.
+    Old,
+}
+
+/// Selected diff lines as a quote: unified-diff text (`+`, `-`, space
+/// markers, so a `diff` fence reads it), and the lines it covers — on the
+/// new side, or on the old side when every selected line was removed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiffQuote {
+    /// The lines, each with its marker.
+    pub text: String,
+    /// How many lines.
+    pub lines: usize,
+    /// The side `first..=last` count on.
+    pub side: DiffSide,
+    /// The first line number on `side`.
+    pub first: u32,
+    /// The last line number on `side`.
+    pub last: u32,
+}
+
+/// `rows[range]` (from [`diff_rows`]) as a [`DiffQuote`]; `None` when the
+/// range selects nothing.
+pub fn diff_quote(rows: &[DiffLine], range: &Range<usize>) -> Option<DiffQuote> {
+    let r = super::line_select::clamp_lines(range, rows.len())?;
+    let picked = &rows[r];
+    let text = picked
+        .iter()
+        .map(|l| {
+            let mark = match l.kind {
+                DiffKind::Add => '+',
+                DiffKind::Del => '-',
+                DiffKind::Context => ' ',
+            };
+            format!("{mark}{}", l.text)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let new: Vec<u32> = picked.iter().filter_map(|l| l.new_no).collect();
+    let (side, nos) = if new.is_empty() { (DiffSide::Old, picked.iter().filter_map(|l| l.old_no).collect()) } else { (DiffSide::New, new) };
+    let (first, last) = (nos.iter().copied().min().unwrap_or(0), nos.iter().copied().max().unwrap_or(0));
+    Some(DiffQuote { text, lines: picked.len(), side, first, last })
+}
+
+fn diff_line(p: &Palette, gutter: f32, n: Option<u32>, sign: &'static str, text: &str, kind: DiffKind, selected: bool) -> gpui::Div {
     let (bg, sign_color) = match kind {
         DiffKind::Add => (Some(p.diff_add), p.success),
         DiffKind::Del => (Some(p.diff_del), p.danger),
@@ -269,13 +402,16 @@ fn diff_line(p: &Palette, gutter: f32, n: Option<u32>, sign: &'static str, text:
         .whitespace_nowrap()
         .overflow_hidden()
         .when_some(bg, |d, bg| d.bg(bg))
+        // A selected line: the selection tint over the add / delete tint,
+        // under the text (the first child paints first).
+        .when(selected, |d| d.relative().child(div().absolute().inset_0().bg(p.selection)))
         .child(div().w(px(gutter)).flex_none().pr(px(8.0)).whitespace_nowrap().text_right().text_color(p.ink_4).child(n.map(|n| n.to_string()).unwrap_or_default()))
         .child(div().w(px(14.0)).flex_none().text_color(sign_color).child(sign))
         .child(div().flex_none().text_color(p.fg).child(if text.is_empty() { " ".to_string() } else { text.replace('\t', "    ") }))
 }
 
 impl RenderOnce for DiffBody {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let mut col = v_flex()
             .id(self.id.clone())
@@ -286,64 +422,76 @@ impl RenderOnce for DiffBody {
             .font_family(scale::FONT_MONO)
             .role_size(TextRole::Caption)
             .line_height(px(20.0));
-        let hunks = self.diff.hunks.len();
         // One gutter, 36 wide (8 of it before the sign); wider when the
         // numbers need it (Geist Mono 12.1 runs ~8 px a digit).
         let widest = self.diff.hunks.iter().flat_map(|h| h.lines.iter()).filter_map(|l| l.new_no.max(l.old_no)).max().unwrap_or(0);
         let gutter = gutter_width(widest);
-        for (i, hunk) in self.diff.hunks.iter().enumerate() {
-            col = col.child(
-                div()
-                    .h(px(24.0))
-                    .flex()
-                    .items_center()
-                    .px(px(12.0))
-                    .bg(crate::util::raised_lit(&p, p.surface_2))
-                    .text_color(p.fg_muted)
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .child(hunk.header.clone()),
-            );
-            for line in &hunk.lines {
-                let (n, sign) = match line.kind {
-                    DiffKind::Add => (line.new_no, "+"),
-                    DiffKind::Del => (line.old_no, "−"),
-                    _ => (line.new_no, " "),
-                };
-                col = col.child(diff_line(&p, gutter, n, sign, &line.text, line.kind));
-            }
-            if i + 1 < hunks {
-                let gap = unchanged_between(&self.diff, i);
-                if !gap.is_empty() {
-                    let open = self.open_gaps.iter().find(|(g, _)| *g == i).map(|(_, l)| l.clone());
-                    match open {
-                        Some(lines) => {
-                            for (k, text) in lines.iter().enumerate() {
-                                col = col.child(diff_line(&p, gutter, Some(gap.start + k as u32), " ", text, DiffKind::Context));
-                            }
+        let select = self.on_select.clone().map(|on_select| {
+            let drag = window.use_keyed_state((self.id.clone(), "line-drag"), cx, |_, _| DragState::default());
+            (on_select, drag)
+        });
+        if let Some(g) = &self.geometry {
+            g.begin();
+        }
+        let selected = self.selected.clone();
+        let mut ix = 0usize;
+        for item in diff_items(&self.diff, &self.open_gaps) {
+            match item {
+                DiffItem::Header(i) => {
+                    col = col.child(
+                        div()
+                            .h(px(24.0))
+                            .flex()
+                            .items_center()
+                            .px(px(12.0))
+                            .bg(crate::util::raised_lit(&p, p.surface_2))
+                            .text_color(p.fg_muted)
+                            .whitespace_nowrap()
+                            .overflow_hidden()
+                            .child(self.diff.hunks[i].header.clone()),
+                    );
+                }
+                DiffItem::Line(line) => {
+                    let (n, sign, what) = match line.kind {
+                        DiffKind::Add => (line.new_no, "+", "Added line"),
+                        DiffKind::Del => (line.old_no, "−", "Removed line"),
+                        _ => (line.new_no, " ", "Line"),
+                    };
+                    let in_sel = select.is_some() && selected.as_ref().is_some_and(|r| r.contains(&ix));
+                    let row = diff_line(&p, gutter, n, sign, &line.text, line.kind, in_sel);
+                    let row = match &select {
+                        Some((on_select, drag)) => {
+                            let row = row.id((self.id.clone(), SharedString::from(format!("line-{ix}")))).role(gpui::Role::ListItem).aria_label(match n {
+                                Some(n) => SharedString::from(format!("{what} {n}")),
+                                None => SharedString::from(what),
+                            });
+                            let row = selectable_row(row, ix, selected.clone(), drag.clone(), on_select.clone());
+                            note_line(row, ix, selected.as_ref(), self.geometry.as_ref(), gutter + 14.0).into_any_element()
                         }
-                        None => {
-                            let n = gap.end - gap.start;
-                            let on_gap = self.on_gap.clone();
-                            col = col.child(
-                                h_flex()
-                                    .id((self.id.clone(), SharedString::from(format!("gap-{i}"))))
-                                    .h(px(24.0))
-                                    .pl(px(22.0))
-                                    .gap(px(6.0))
-                                    .items_center()
-                                    .cursor_pointer()
-                                    .role(gpui::Role::Button)
-                                    .aria_label(format!("Show {n} unchanged lines"))
-                                    .font_family(scale::FONT_UI)
-                                    .role_size(TextRole::Body)
-                                    .paint_states(StatePaint::new().tint(false).ink(p.fg_muted, p.fg), &p)
-                                    .child(icon(IconName::ChevronDown).size(px(11.0)))
-                                    .child(format!("{n} unchanged line{}", if n == 1 { "" } else { "s" }))
-                                    .when_some(on_gap, |d, f| d.on_click(move |_, w, cx| f(i, w, cx))),
-                            );
-                        }
-                    }
+                        None => row.into_any_element(),
+                    };
+                    col = col.child(row);
+                    ix += 1;
+                }
+                DiffItem::Gap(i, n) => {
+                    let on_gap = self.on_gap.clone();
+                    col = col.child(
+                        h_flex()
+                            .id((self.id.clone(), SharedString::from(format!("gap-{i}"))))
+                            .h(px(24.0))
+                            .pl(px(22.0))
+                            .gap(px(6.0))
+                            .items_center()
+                            .cursor_pointer()
+                            .role(gpui::Role::Button)
+                            .aria_label(format!("Show {n} unchanged lines"))
+                            .font_family(scale::FONT_UI)
+                            .role_size(TextRole::Body)
+                            .paint_states(StatePaint::new().tint(false).ink(p.fg_muted, p.fg), &p)
+                            .child(icon(IconName::ChevronDown).size(px(11.0)))
+                            .child(format!("{n} unchanged line{}", if n == 1 { "" } else { "s" }))
+                            .when_some(on_gap, |d, f| d.on_click(move |_, w, cx| f(i, w, cx))),
+                    );
                 }
             }
         }
@@ -783,6 +931,56 @@ mod tests {
         assert_eq!(unchanged_between(&diff, 1), 0..0);
     }
 
+    fn two_hunks() -> Diff {
+        let t = |kind, old, new, text: &str| DiffLine { kind, old_no: old, new_no: new, text: text.into() };
+        let a = Hunk {
+            header: "@@ -10,4 +10,4 @@".into(),
+            lines: vec![
+                t(DiffKind::Context, Some(10), Some(10), "a"),
+                t(DiffKind::Del, Some(11), None, "old one"),
+                t(DiffKind::Del, Some(12), None, "old two"),
+                t(DiffKind::Add, None, Some(11), "new one"),
+                t(DiffKind::Add, None, Some(12), "new two"),
+                t(DiffKind::Context, Some(13), Some(13), "b"),
+            ],
+        };
+        let b = Hunk { header: "@@ -20,1 +20,1 @@".into(), lines: vec![t(DiffKind::Context, Some(20), Some(20), "c")] };
+        Diff { path: "a.rs".into(), hunks: vec![a, b], added: 2, removed: 2 }
+    }
+
+    #[test]
+    fn diff_rows_skip_headers_and_folded_gaps_but_count_opened_ones() {
+        let diff = two_hunks();
+        // Folded: the six lines of hunk one and the one of hunk two.
+        assert_eq!(diff_rows(&diff, &[]).len(), 7);
+        // Opened: lines 14..20 between them, numbered on both sides.
+        let gap: Arc<Vec<String>> = Arc::new((14..20).map(|n| format!("g{n}")).collect());
+        let rows = diff_rows(&diff, &[(0, gap)]);
+        assert_eq!(rows.len(), 13);
+        assert_eq!((rows[6].old_no, rows[6].new_no, rows[6].text.as_str()), (Some(14), Some(14), "g14"));
+        assert_eq!(rows[12].text, "c");
+    }
+
+    #[test]
+    fn a_diff_quote_keeps_its_markers_and_counts_on_the_new_side() {
+        let rows = diff_rows(&two_hunks(), &[]);
+        let q = diff_quote(&rows, &(1..5)).unwrap();
+        assert_eq!(q.text, "-old one\n-old two\n+new one\n+new two");
+        assert_eq!((q.lines, q.side, q.first, q.last), (4, DiffSide::New, 11, 12));
+        let q = diff_quote(&rows, &(0..6)).unwrap();
+        assert_eq!((q.side, q.first, q.last), (DiffSide::New, 10, 13));
+        assert!(q.text.starts_with(" a\n"), "context keeps its space marker");
+    }
+
+    #[test]
+    fn removed_lines_alone_count_on_the_old_side() {
+        let rows = diff_rows(&two_hunks(), &[]);
+        let q = diff_quote(&rows, &(1..3)).unwrap();
+        assert_eq!((q.lines, q.side, q.first, q.last), (2, DiffSide::Old, 11, 12));
+        assert_eq!(q.text, "-old one\n-old two");
+        assert_eq!(diff_quote(&rows, &(40..41)), None);
+    }
+
     #[test]
     fn the_gutter_widens_for_long_numbers() {
         assert_eq!(gutter_width(99), 36.0);
@@ -853,6 +1051,71 @@ mod tests {
                 vc.run_until_parked();
                 assert_eq!(lit.get(), None, "the pointer at y {y} over the diff lights nothing");
             }
+        }
+    }
+
+    /// docs/82 7.1: a press on a diff line selects it, dragging extends,
+    /// shift-press extends from the anchor; the hunk header selects nothing.
+    mod select {
+        use super::super::diff_body;
+        use aui_protocol::{Diff, DiffKind, DiffLine, Hunk};
+        use gpui::{div, prelude::*, px, Context, Modifiers, MouseButton, Window};
+        use std::cell::RefCell;
+        use std::ops::Range;
+        use std::rc::Rc;
+        use std::sync::Arc;
+
+        struct Host {
+            got: Rc<RefCell<Option<Range<usize>>>>,
+        }
+
+        impl Render for Host {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let lines = (1..=10).map(|n| DiffLine { kind: DiffKind::Context, old_no: Some(n), new_no: Some(n), text: format!("line {n}") }).collect();
+                let diff = Arc::new(Diff { path: "a.txt".into(), hunks: vec![Hunk { header: "@@ -1,10 +1,10 @@".into(), lines }], added: 0, removed: 0 });
+                let got = self.got.clone();
+                let held = got.borrow().clone();
+                div().size_full().child(diff_body("diff", diff).selected(held).on_select_lines(move |r, _, _| *got.borrow_mut() = Some(r)))
+            }
+        }
+
+        /// The centre of selectable line `k` (2 above, the 24 px header,
+        /// 20 px rows).
+        fn line_y(k: usize) -> gpui::Pixels {
+            px(2.0 + 24.0 + 20.0 * k as f32 + 10.0)
+        }
+
+        #[gpui::test]
+        fn press_drag_and_shift_press_select_lines(cx: &mut gpui::TestAppContext) {
+            cx.update(|cx| crate::init(crate::tokens::ThemeKind::Dark, cx));
+            let got = Rc::new(RefCell::new(None));
+            let host = got.clone();
+            let (view, vc) = cx.add_window_view(move |_, _| Host { got: host });
+            vc.run_until_parked();
+            // The header is not a line.
+            vc.simulate_mouse_down(gpui::point(px(100.0), px(14.0)), MouseButton::Left, Modifiers::none());
+            vc.simulate_mouse_up(gpui::point(px(100.0), px(14.0)), MouseButton::Left, Modifiers::none());
+            vc.run_until_parked();
+            assert_eq!(*got.borrow(), None);
+            // Press line 2, drag to line 5.
+            vc.simulate_mouse_down(gpui::point(px(100.0), line_y(2)), MouseButton::Left, Modifiers::none());
+            vc.run_until_parked();
+            assert_eq!(*got.borrow(), Some(2..3));
+            vc.update(|_, cx| view.update(cx, |_, cx| cx.notify()));
+            for k in 3..=5 {
+                vc.simulate_mouse_move(gpui::point(px(100.0), line_y(k)), Some(MouseButton::Left), Modifiers::none());
+                vc.run_until_parked();
+                vc.update(|_, cx| view.update(cx, |_, cx| cx.notify()));
+            }
+            vc.simulate_mouse_up(gpui::point(px(100.0), line_y(5)), MouseButton::Left, Modifiers::none());
+            vc.run_until_parked();
+            assert_eq!(*got.borrow(), Some(2..6));
+            // Shift-press line 0: extends from the anchor (line 2).
+            vc.update(|_, cx| view.update(cx, |_, cx| cx.notify()));
+            vc.run_until_parked();
+            vc.simulate_mouse_down(gpui::point(px(100.0), line_y(0)), MouseButton::Left, Modifiers::shift());
+            vc.run_until_parked();
+            assert_eq!(*got.borrow(), Some(0..3));
         }
     }
 }

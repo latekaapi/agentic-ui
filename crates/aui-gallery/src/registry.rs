@@ -721,6 +721,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::d6_quote::build,
     },
     Entry {
+        id: "workbench/d7-line-quote",
+        group: "Workbench",
+        title: "Quote lines from the pane",
+        subtitle: "Line selection in the Changes diff and the file preview, the selection bar over the lines, the composer quote with path and range, the sent quote naming its file (docs/82 7.1)",
+        width: 880.0,
+        height: 820.0,
+        theme: CardTheme::Both,
+        build: crate::cards::d7_line_quote::build,
+    },
+    Entry {
         id: "workbench/files-docs",
         group: "Workbench",
         title: "File tree and document panes",

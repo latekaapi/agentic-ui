@@ -486,12 +486,49 @@ fn file_chip(p: &Palette, id: ElementId, attachment: &Attachment) -> gpui::State
 
 /// A quote attachment's code language: `meta` = `code` or `code:<lang>`
 /// marks a code quote (the quote flow, docs/43 §0); `None` is prose.
+///
+/// The meta's encoding: its **first line** is the kind — `code` or
+/// `code:<lang>` (absent for prose). Lines quoted from a file or a diff
+/// (docs/82 7.1) carry where they came from on everything **after the first
+/// newline**, verbatim (`code:rust\nsrc/a.rs:12–18`; read by
+/// [`quote_location`]). The language is a fence word and never holds a
+/// newline, so any path survives, and a meta written before 7.1 (one line)
+/// reads exactly as it did.
 pub fn quote_code(a: &Attachment) -> Option<&str> {
     let meta = a.meta.as_deref()?;
-    if meta == "code" {
+    let kind = meta.split_once('\n').map_or(meta, |(kind, _)| kind);
+    if kind == "code" {
         Some("")
     } else {
-        meta.strip_prefix("code:")
+        kind.strip_prefix("code:")
+    }
+}
+
+/// Where a quote attachment's lines came from (`src/a.rs:12–18`), for lines
+/// quoted from a file or a diff: the meta after its first newline (see
+/// [`quote_code`]). `None` for a quote from the transcript.
+pub fn quote_location(a: &Attachment) -> Option<&str> {
+    a.meta.as_deref()?.split_once('\n').map(|(_, at)| at).filter(|at| !at.is_empty())
+}
+
+/// The meta [`quote_code`] and [`quote_location`] read: `lang` (`""` when
+/// unknown) and, for lines from a file or a diff, where they came from.
+pub fn quote_meta(lang: &str, location: Option<&str>) -> String {
+    let kind = if lang.is_empty() { "code".to_string() } else { format!("code:{lang}") };
+    match location {
+        Some(at) if !at.is_empty() => format!("{kind}\n{at}"),
+        _ => kind,
+    }
+}
+
+/// The faint line under a sent quote: "from the reply above", with the
+/// language for a code quote; "from <location>" for lines quoted from a
+/// file or a diff.
+pub fn quote_source_line(code: Option<&str>, location: Option<&str>) -> String {
+    let from = location.map_or_else(|| "from the reply above".to_string(), |at| format!("from {at}"));
+    match code.filter(|l| !l.is_empty()) {
+        Some(lang) => format!("{from} · {lang}"),
+        None => from,
     }
 }
 
@@ -499,18 +536,17 @@ pub fn quote_code(a: &Attachment) -> Option<&str> {
 /// scale): a 2 px rule at 18 %, the words 14.3 / 22 muted clamped to 3
 /// lines, "from the reply above" faint 12.1 (−4 above, 8 below). A code
 /// quote (`code` = its language, or "" when unknown) is mono 12.65 / 20,
-/// 4 lines, "from the reply above · rust". A click scrolls to the source.
-fn quote_block(p: &Palette, id: ElementId, words: &str, code: Option<&str>, source: Option<String>, on_quote: Option<QuoteHandler>) -> impl IntoElement {
+/// 4 lines, "from the reply above · rust" — "from src/a.rs:12–18 · rust"
+/// for lines quoted from a file or a diff (`location`, docs/82 7.1). A
+/// click scrolls to the source.
+fn quote_block(p: &Palette, id: ElementId, words: &str, code: Option<&str>, location: Option<&str>, source: Option<String>, on_quote: Option<QuoteHandler>) -> impl IntoElement {
     // Between FG and muted: the `code-ink` token (docs/43 §0).
     let code_ink = p.code_ink;
     let text = match code {
         Some(_) => div().font_family(scale::FONT_MONO).role_size(TextRole::Caption).line_height(px(20.0)).text_color(code_ink).whitespace_nowrap().overflow_hidden().line_clamp(4).max_h(px(80.0)),
         None => div().font_family(scale::FONT_UI).role_size(TextRole::Body).line_height(px(22.0)).text_color(p.fg_muted).line_clamp(3).max_h(px(66.0)).overflow_hidden(),
     };
-    let source_line = match code.filter(|l| !l.is_empty()) {
-        Some(lang) => format!("from the reply above · {lang}"),
-        None => "from the reply above".to_string(),
-    };
+    let source_line = quote_source_line(code, location);
     // The canvas: the quote 1 / 0 / 1 / 12 with 8 below it; the source line
     // pulled up 4 (so 4 below the quote), 14 in, 8 above the person's words.
     let mut block = v_flex()
@@ -675,7 +711,7 @@ impl RenderOnce for UserTurn {
             .ui(TextRole::Read)
             .text_color(p.ink);
         for (index, quote) in quotes {
-            bubble = bubble.child(quote_block(&p, (id.clone(), SharedString::from(format!("quote-{index}"))).into(), &quote.name, quote_code(quote), quote.quote_of.clone(), self.on_quote.clone()));
+            bubble = bubble.child(quote_block(&p, (id.clone(), SharedString::from(format!("quote-{index}"))).into(), &quote.name, quote_code(quote), quote_location(quote), quote.quote_of.clone(), self.on_quote.clone()));
         }
         if let Some(batch) = &self.annotations {
             // An annotation batch is wide: the bubble takes the column.
@@ -1136,6 +1172,49 @@ mod tests {
     use crate::protocol::TurnMeta;
     use crate::transcript::{MessageSelection, SelectionEndpoint, SelectionKey, TextSelection};
     use gpui::SharedString;
+
+    fn quote(meta: Option<&str>) -> crate::protocol::Attachment {
+        crate::protocol::Attachment {
+            name: "x".into(),
+            kind: crate::protocol::AttachmentKind::Quote,
+            size_bytes: None,
+            meta: meta.map(str::to_string),
+            state: crate::protocol::UploadState::Ready,
+            path: None,
+            quote_of: None,
+        }
+    }
+
+    /// Metas written before 7.1 read exactly as they did.
+    #[test]
+    fn old_quote_metas_still_parse() {
+        use super::{quote_code, quote_location, quote_source_line};
+        assert_eq!(quote_code(&quote(None)), None);
+        assert_eq!(quote_code(&quote(Some("code"))), Some(""));
+        assert_eq!(quote_code(&quote(Some("code:rust"))), Some("rust"));
+        assert_eq!(quote_code(&quote(Some("180 lines"))), None);
+        for meta in [None, Some("code"), Some("code:rust")] {
+            assert_eq!(quote_location(&quote(meta)), None);
+        }
+        assert_eq!(quote_source_line(Some("rust"), None), "from the reply above · rust");
+        assert_eq!(quote_source_line(Some(""), None), "from the reply above");
+        assert_eq!(quote_source_line(None, None), "from the reply above");
+    }
+
+    /// Lines from a file or a diff carry their location after the first
+    /// newline, and any path survives the round trip.
+    #[test]
+    fn a_quote_location_round_trips_through_the_meta() {
+        use super::{quote_code, quote_location, quote_meta, quote_source_line};
+        for (lang, at) in [("rust", "src/a.rs:12–18"), ("diff", "odd: name\nwith newline.rs:40–42 (removed)"), ("", "README:3")] {
+            let a = quote(Some(&quote_meta(lang, Some(at))));
+            assert_eq!(quote_code(&a), Some(lang));
+            assert_eq!(quote_location(&a), Some(at));
+        }
+        assert_eq!(quote_meta("rust", None), "code:rust");
+        assert_eq!(quote_meta("", Some("")), "code");
+        assert_eq!(quote_source_line(Some("rust"), Some("src/a.rs:12–18")), "from src/a.rs:12–18 · rust");
+    }
 
     #[test]
     fn user_actions_default_to_all() {

@@ -534,7 +534,9 @@ impl Composer {
 
 /// A quote waiting in the composer (the quote flow, docs/43 §0): the
 /// selection's text, flattened for display; `code` = (language, lines) for a
-/// selection inside one code block or Well output.
+/// selection inside one code block or Well output; `location` = where lines
+/// quoted from a file or a diff came from (docs/82 7.1), e.g.
+/// `src/a.rs:12–18`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComposerQuote {
     /// Stable id; ✕ reports [`ComposerIntent::RemoveChip`] with it.
@@ -543,6 +545,21 @@ pub struct ComposerQuote {
     pub text: SharedString,
     /// A code quote: its language and line count.
     pub code: Option<(SharedString, usize)>,
+    /// Lines quoted from a file or a diff: the path and line range, which
+    /// the caption reads in place of the language (`src/a.rs:12–18 · 7
+    /// lines`). The language still names the prompt's fence.
+    pub location: Option<SharedString>,
+}
+
+impl ComposerQuote {
+    /// The faint line under a code quote: `rust · 2 lines`, or the
+    /// location in place of the language when the lines came from a file.
+    pub fn caption(&self) -> Option<String> {
+        let (lang, lines) = self.code.as_ref()?;
+        let count = format!("{lines} line{}", if *lines == 1 { "" } else { "s" });
+        let head = self.location.as_ref().unwrap_or(lang);
+        Some(if head.is_empty() { count } else { format!("{head} · {count}") })
+    }
 }
 
 /// The rule's alpha on a quote (white 18 % in dark: the foreground at 18 %).
@@ -551,12 +568,13 @@ const QUOTE_RULE_ALPHA: f32 = 0.18;
 /// One quote block inside the composer field (docs/43 §0): a 2 px rule at
 /// 18 %, padding 1 / 28 / 1 / 12, text 14.3 / 22 muted clamped to 2 lines,
 /// ✕ (20, r 4) top-right "Remove quote". A code quote: mono 12.65 / 20,
-/// 3 lines, then `rust · 2 lines` in faint 12.1.
+/// 3 lines, then `rust · 2 lines` in faint 12.1 — `src/a.rs:12–18 · 7
+/// lines` for lines quoted from a file or a diff ([`ComposerQuote::caption`]).
 fn composer_quote_block(id: &ElementId, q: &ComposerQuote, p: &aui_tokens::Palette, remove: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> gpui::AnyElement {
     // Between FG and muted: the `code-ink` token (docs/43 §0).
     let code_ink = p.code_ink;
-    let body = match &q.code {
-        Some((lang, lines)) => v_flex()
+    let body = match q.caption() {
+        Some(caption) => v_flex()
             .child(
                 div()
                     .font_family(scale::FONT_MONO)
@@ -576,7 +594,7 @@ fn composer_quote_block(id: &ElementId, q: &ComposerQuote, p: &aui_tokens::Palet
                     .role_size(TextRole::Caption)
                     .line_height(px(16.0))
                     .text_color(p.ink_4)
-                    .child(format!("{lang} · {lines} line{}", if *lines == 1 { "" } else { "s" })),
+                    .child(caption),
             ),
         None => v_flex().child(
             div().font_family(scale::FONT_UI).role_size(TextRole::Body).line_height(px(22.0)).text_color(p.fg_muted).line_clamp(2).max_h(px(44.0)).overflow_hidden().child(q.text.clone()),

@@ -41,8 +41,8 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .effort("Default")
         .can_send(true)
         .quotes(vec![
-            ComposerQuote { id: "q1".into(), text: "with focused tests over both. • CA outward codes accept the space form • GB outward codes still fail on the space".into(), code: None },
-            ComposerQuote { id: "q2".into(), text: "Country::Ca => CA_RE.is_match(code),\nCountry::Gb => GB_RE.is_match(code),".into(), code: Some(("rust".into(), 2)) },
+            ComposerQuote { id: "q1".into(), text: "with focused tests over both. • CA outward codes accept the space form • GB outward codes still fail on the space".into(), code: None, location: None },
+            ComposerQuote { id: "q2".into(), text: "Country::Ca => CA_RE.is_match(code),\nCountry::Gb => GB_RE.is_match(code),".into(), code: Some(("rust".into(), 2)), location: None },
         ]);
 
     let sent = v_flex()

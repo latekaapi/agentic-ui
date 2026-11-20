@@ -11,6 +11,7 @@ mod docs;
 mod file_card;
 mod files;
 mod git;
+mod line_select;
 mod output_view;
 mod page;
 mod pane;
@@ -43,9 +44,10 @@ pub use docs::{
 pub use citations::{cited_answer, citation, source_hover_card, sources_card, Citation, CitedAnswer, Source, SourceHoverCard, SourceTier, SourcesCard, ANSWER_MARGIN};
 pub use changes::{
     ahead_behind, base_and_head, base_picker, branch_label, draft_checkbox, form_field, well_input, change_letter, change_row, diff_fold, changes_caption, commit_foot, commit_frame, commit_message_view,
-    diff_body, hook_failed_note, hunk_new_start, hunk_old_range, pr_card, primary_action, split_path, text_action, unchanged_between, ChangeRow,
-    DiffBody, PrState, CHANGE_FOLDER_MIN_WIDTH,
+    diff_body, diff_quote, diff_rows, hook_failed_note, hunk_new_start, hunk_old_range, pr_card, primary_action, split_path, text_action, unchanged_between, ChangeRow,
+    DiffBody, DiffQuote, DiffSide, PrState, CHANGE_FOLDER_MIN_WIDTH,
 };
+pub use line_select::{clamp_lines, line_bar_top, line_quote_bar, line_range, press_range, selected_lines, LineSelectGeometry, LineSpan, SelectLinesHandler};
 pub use code_view::{code_skeleton, code_view, markdown_view, reveal_top_row, CodeView, REVEAL_LEAD_LINES};
 pub use output_view::{group_thousands, image_facts, image_missing, image_view, output_fetching, output_title, output_view, OutputView, OUTPUT_LINE_CAP};
 pub use page::{

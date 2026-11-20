@@ -5,7 +5,9 @@
 //! label 14.3, hover 5 %). Role toolbar "Selection". It enters in 80 ms and
 //! leaves in 60 ms (`EnterExit::POPUP`). The host places it: 6 px above the
 //! selection's first line at the selection's start, or 6 under the last line
-//! when that would sit within 38 px of the sheet's top.
+//! when that would sit within 38 px of the sheet's top. Lines selected in the
+//! pane's diff or file preview (docs/82 7.1) get the same bar through
+//! [`crate::workbench::line_quote_bar`], which places it by the same rule.
 
 use aui_icons::{icon, IconName};
 use aui_tokens::TextRole;

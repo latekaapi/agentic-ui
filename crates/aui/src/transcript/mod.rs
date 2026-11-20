@@ -45,7 +45,7 @@ pub use markdown_stream::MarkdownStream;
 pub use selectable::{selectable_text, MessageSelection, SelectableText, SelectionEndpoint, SelectionHandler, SelectionKey, SpanEvent, SpanHandler, SpanSession, TextSelection};
 pub use marker::{marker_row, HandOff, MarkerRow};
 pub use quote_bar::{quote_bar, quote_bar_top, QUOTE_BAR_GAP, QUOTE_BAR_H, QUOTE_BAR_TOP_CLEARANCE};
-pub use turns::{assistant_turn, quote_code, file_meta, footer_items, format_age, is_video, AnnotationBatch, AnnotationNote, turn_selected_text, turn_selected_text_settled, turn_span_selected_text, turn_span_selected_text_settled, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction, COPY_HOLD};
+pub use turns::{assistant_turn, quote_code, quote_location, quote_meta, quote_source_line, file_meta, footer_items, format_age, is_video, AnnotationBatch, AnnotationNote, turn_selected_text, turn_selected_text_settled, turn_span_selected_text, turn_span_selected_text_settled, user_turn, AssistantTurn, AssistantTurnAction, UserTurn, UserTurnAction, COPY_HOLD};
 pub use ansi::{ansi_runs, parse_ansi, AnsiSpan};
 pub use tool_card::{
     output_text,

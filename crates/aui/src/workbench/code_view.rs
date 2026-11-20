@@ -14,6 +14,10 @@
 //! every row of a banded line. [`CodeView::soft_wrap`]`(false)` is the old
 //! behaviour: one row per line, the list scrolling sideways.
 //!
+//! Lines select when the host asks ([`CodeView::on_select_lines`], docs/82
+//! 7.1; see [`super::line_select`]): every row of a selected line takes the
+//! selection tint, and the host hangs the quote bar over them.
+//!
 //! Every file is a virtual list: only the visible rows are built. The host
 //! splits the text once when the file loads and passes the lines in an `Arc`,
 //! so a render never re-splits or clones the file; the wrapped rows are kept
@@ -32,6 +36,7 @@ use gpui::{
 use gpui_kit::base::h_flex;
 
 use crate::transcript::syntax_runs_in;
+use super::line_select::{note_line, selectable_row, DragState, LineSelectGeometry, SelectLinesHandler};
 
 /// The gutter's width and the gap after it.
 const GUTTER_W: f32 = 48.0;
@@ -59,11 +64,14 @@ pub struct CodeView {
     scroll: Option<UniformListScrollHandle>,
     wrap: bool,
     width_hint: Option<f32>,
+    selected: Option<Range<usize>>,
+    on_select: Option<SelectLinesHandler>,
+    geometry: Option<LineSelectGeometry>,
 }
 
 /// A code view over `lines` (the file split once, newlines stripped).
 pub fn code_view(id: impl Into<ElementId>, lines: Arc<Vec<String>>) -> CodeView {
-    CodeView { id: id.into(), lines, language: None, band: None, reveal_token: 0, scroll: None, wrap: true, width_hint: None }
+    CodeView { id: id.into(), lines, language: None, band: None, reveal_token: 0, scroll: None, wrap: true, width_hint: None, selected: None, on_select: None, geometry: None }
 }
 
 /// The row a reveal of `band` scrolls to the top: three lines above the
@@ -216,6 +224,26 @@ impl CodeView {
         self.width_hint = Some(width);
         self
     }
+
+    /// The selected lines (docs/82 7.1): file lines, 0-based, end
+    /// exclusive. Every row of a wrapped line takes the tint.
+    pub fn selected(mut self, range: Option<Range<usize>>) -> Self {
+        self.selected = range;
+        self
+    }
+
+    /// A press or drag over the lines: the new range (see
+    /// [`super::line_select`]). Without it the lines do not select.
+    pub fn on_select_lines(mut self, f: impl Fn(Range<usize>, &mut Window, &mut App) + 'static) -> Self {
+        self.on_select = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Where the selected lines are drawn, for the host's selection bar.
+    pub fn selection_geometry(mut self, geometry: &LineSelectGeometry) -> Self {
+        self.geometry = Some(geometry.clone());
+        self
+    }
 }
 
 #[derive(Clone, Default)]
@@ -320,6 +348,16 @@ impl RenderOnce for CodeView {
         let language = self.language.clone();
         let band = self.band.clone();
         let rows = wrapped.as_ref().map(|(rows, _)| rows.clone());
+        let select = self.on_select.clone().map(|on_select| {
+            let drag = window.use_keyed_state((id.clone(), "line-drag"), cx, |_, _| DragState::default());
+            (on_select, drag)
+        });
+        let selected = self.selected.clone();
+        let geometry = self.geometry.clone();
+        if let Some(g) = &geometry {
+            g.begin();
+        }
+        let list_id = id.clone();
         let list = uniform_list((id.clone(), "lines"), row_count, move |range, window, cx| {
             let p = cx.aui().colors;
             let band_ground = p.overlay_ink(if p.is_dark() { 0.07 } else { 0.05 });
@@ -352,7 +390,8 @@ impl RenderOnce for CodeView {
                         StyledText::new(text).with_runs(runs)
                     };
                     let indent_px = advance.map_or(0.0, |a| a * indent as f32);
-                    h_flex()
+                    let in_sel = select.is_some() && selected.as_ref().is_some_and(|r| r.contains(&line_ix));
+                    let row = h_flex()
                         .h(px(LINE_H))
                         .when(rows.is_some(), |d| d.w_full().overflow_hidden())
                         .when(rows.is_none(), |d| d.min_w_full())
@@ -361,6 +400,9 @@ impl RenderOnce for CodeView {
                         .items_center()
                         .whitespace_nowrap()
                         .when(banded, |d| d.bg(band_ground))
+                        // A selected line: the selection tint, under the
+                        // text (the first child paints first).
+                        .when(in_sel, |d| d.relative().child(div().absolute().inset_0().bg(p.selection)))
                         .child(
                             div()
                                 .w(px(GUTTER_W))
@@ -381,7 +423,18 @@ impl RenderOnce for CodeView {
                                 .line_height(px(LINE_H))
                                 .text_color(p.term_fg)
                                 .child(styled),
-                        )
+                        );
+                    match &select {
+                        Some((on_select, drag)) => {
+                            let row = row
+                                .id((list_id.clone(), SharedString::from(format!("line-{ix}"))))
+                                .role(gpui::Role::ListItem)
+                                .aria_label(SharedString::from(format!("Line {line_no}")));
+                            let row = selectable_row(row, line_ix, selected.clone(), drag.clone(), on_select.clone());
+                            note_line(row, line_ix, selected.as_ref(), geometry.as_ref(), GUTTER_W + GUTTER_GAP + indent_px).into_any_element()
+                        }
+                        None => row.into_any_element(),
+                    }
                 })
                 .collect()
         })

@@ -66,3 +66,4 @@ pub mod d6_changes;
 pub mod d6_page;
 pub mod d6_views;
 pub mod d6_quote;
+pub mod d7_line_quote;
