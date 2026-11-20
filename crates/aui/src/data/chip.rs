@@ -40,12 +40,13 @@ pub struct Chip {
     active: bool,
     accent: bool,
     accessibility_label: Option<SharedString>,
+    role: Option<gpui::Role>,
     on_click: Option<ClickHandler>,
 }
 
 /// A chip with a label.
 pub fn chip(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Chip {
-    Chip { id: id.into(), label: label.into(), detail: None, leading: None, trailing: None, chevron: false, composer: false, text_control: false, active: false, accent: false, accessibility_label: None, on_click: None }
+    Chip { id: id.into(), label: label.into(), detail: None, leading: None, trailing: None, chevron: false, composer: false, text_control: false, active: false, accent: false, accessibility_label: None, role: None, on_click: None }
 }
 
 impl Chip {
@@ -113,6 +114,14 @@ impl Chip {
         self
     }
 
+    /// The role announced with [`Chip::accessibility_label`] in place of
+    /// the button role: a chip that holds an on/off state (the composer's
+    /// worktree toggle) is a check box to a screen reader.
+    pub fn role(mut self, role: gpui::Role) -> Self {
+        self.role = Some(role);
+        self
+    }
+
     /// Click handler.
     pub fn on_click(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Box::new(f));
@@ -148,7 +157,7 @@ impl RenderOnce for Chip {
             }
             el = el.children(self.trailing);
             if let Some(label) = self.accessibility_label {
-                el = el.role(gpui::Role::Button).aria_label(label);
+                el = el.role(self.role.unwrap_or(gpui::Role::Button)).aria_label(label);
             }
             if let Some(on_click) = self.on_click {
                 el = el.on_click(move |e, w, cx| on_click(e, w, cx));
@@ -197,7 +206,7 @@ impl RenderOnce for Chip {
             el = el.child(trailing);
         }
         if let Some(label) = self.accessibility_label {
-            el = el.role(gpui::Role::Button).aria_label(label);
+            el = el.role(self.role.unwrap_or(gpui::Role::Button)).aria_label(label);
         }
         if let Some(on_click) = self.on_click {
             el = el.on_click(move |e, w, cx| on_click(e, w, cx));

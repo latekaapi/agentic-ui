@@ -220,6 +220,16 @@ pub fn provider_menu(id: impl Into<ElementId>, rows: Vec<PickerRow>, selected: u
     menu
 }
 
+/// The new-session row's folder picker (docs/83 §5): the adopted
+/// projects, the current one first and checked, then "Choose a folder…" —
+/// as wide as the provider picker; it hangs from the control's left edge.
+pub fn folder_menu(id: impl Into<ElementId>, rows: Vec<PickerRow>, selected: usize, open: bool) -> PickerMenu {
+    let mut menu = menu(id, "Folder", rows, selected, open);
+    menu.width = PROVIDER_W;
+    menu.max_width = NARROW_W;
+    menu
+}
+
 impl PickerMenu {
     /// Hang from the chip's right edge instead of its left — for chips at
     /// the right of the controls row, so the panel grows into the sheet and

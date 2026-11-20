@@ -144,6 +144,35 @@ pub enum ComposerChipAnchor {
     Mode,
     /// The reasoning-effort chip.
     Effort,
+    /// The new-session row's folder control ([`Composer::new_row`]).
+    Folder,
+}
+
+/// Where a new session's worktree toggle stands ([`ComposerNewRow`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComposerWorktree {
+    /// The session runs in the project folder.
+    Off,
+    /// The session runs in its own worktree.
+    On,
+    /// The draft is moving (a worktree being made, or the folder
+    /// changing): a spinner in place of the glyph, and no click.
+    Busy,
+}
+
+/// The left side of the quiet row on a new session's unsent draft
+/// (docs/83 §5): the folder control (`name ▾`, opening the menu hung off
+/// [`ComposerChipAnchor::Folder`]) and, where the folder can have one, the
+/// "Own worktree" toggle. Both are text controls like the right side's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComposerNewRow {
+    /// The project's name, or the folder's last component.
+    pub folder: SharedString,
+    /// The worktree toggle; `None` hides it (not a git repository, or a
+    /// draft that cannot move).
+    pub worktree: Option<ComposerWorktree>,
+    /// The draft is moving: the folder control is inert too.
+    pub busy: bool,
 }
 
 /// A chip above the text.
@@ -223,6 +252,11 @@ pub enum ComposerIntent {
     Attach,
     /// Compact the context window now, from the context meter.
     Compact,
+    /// Open the new-session row's folder menu.
+    Folder,
+    /// Flip the new-session row's worktree toggle (reported only when it
+    /// is not [`ComposerWorktree::Busy`]).
+    Worktree,
 }
 
 type IntentHandler = std::rc::Rc<dyn Fn(ComposerIntent, &mut Window, &mut App)>;
@@ -268,6 +302,7 @@ pub struct Composer {
     on_intent: Option<IntentHandler>,
     model_choices: Option<usize>,
     single_provider: bool,
+    new_row: Option<ComposerNewRow>,
 }
 
 /// The names hosts gave their marks ([`name_provider`]), read before the
@@ -340,6 +375,7 @@ pub fn composer(id: impl Into<ElementId>, state: &Entity<TextareaState>, provide
         chip_menus: Vec::new(),
         on_intent: None,
         model_choices: None, single_provider: false,
+        new_row: None,
     }
 }
 
@@ -480,6 +516,13 @@ impl Composer {
     /// or unset (which keeps the current behaviour).
     fn model_selectable(&self) -> bool {
         self.model_choices.map(|n| n > 1).unwrap_or(true)
+    }
+
+    /// A new session's folder control and worktree toggle at the left of
+    /// the quiet row ([`ComposerNewRow`]); drawn by the raised variant only.
+    pub fn new_row(mut self, row: Option<ComposerNewRow>) -> Self {
+        self.new_row = row;
+        self
     }
 
     /// Intent handler.
@@ -939,6 +982,38 @@ impl RenderOnce for Composer {
             c = if raised { c.chevron() } else { c.leading(icon(IconName::Brain).size(px(CHIP_GLYPH))) };
             anchored(ComposerChipAnchor::Effort, c.into_any_element())
         });
+        // The new-session row (docs/83 §5): `folder ▾`, then "Own
+        // worktree" — its glyph a check when on, the branch when off, a
+        // spinner while the draft moves.
+        let new_row = self.new_row.as_ref().filter(|_| raised).map(|row| {
+            let mut folder = style(chip((id.clone(), "folder"), row.folder.clone()))
+                .chevron()
+                .accessibility_label(SharedString::from(format!("{}, folder", row.folder)));
+            if !row.busy {
+                folder = folder.on_click(emit(ComposerIntent::Folder));
+            }
+            let folder = anchored(ComposerChipAnchor::Folder, folder.into_any_element());
+            let worktree = row.worktree.map(|state| {
+                let (glyph, word): (gpui::AnyElement, &str) = match state {
+                    ComposerWorktree::On => (icon(IconName::Check).size(px(CHIP_GLYPH)).into_any_element(), "on"),
+                    ComposerWorktree::Off => (icon(IconName::Branch).size(px(CHIP_GLYPH)).into_any_element(), "off"),
+                    ComposerWorktree::Busy => (
+                        crate::data::spinner((id.clone(), "worktree-busy")).size(px(CHIP_GLYPH)).muted(cx).into_any_element(),
+                        "being set up",
+                    ),
+                };
+                let mut toggle = style(chip((id.clone(), "worktree"), SharedString::from("Own worktree")))
+                    .leading(glyph)
+                    .active(state == ComposerWorktree::On)
+                    .role(gpui::Role::CheckBox)
+                    .accessibility_label(SharedString::from(format!("Own worktree, {word}")));
+                if state != ComposerWorktree::Busy && !row.busy {
+                    toggle = toggle.on_click(emit(ComposerIntent::Worktree));
+                }
+                toggle
+            });
+            (folder, worktree)
+        });
         let plan_chip = self.plan.then(|| {
             // Plan mode is the app's own overlay, so its pill is an active chip
             // that turns itself off rather than a status pill.
@@ -1001,6 +1076,9 @@ impl RenderOnce for Composer {
             let mut left = h_flex().flex_none().items_center().gap(px(RAISED_GAP));
             let mut right = h_flex().flex_none().items_center().gap(px(RAISED_GAP));
             let dot = || div().flex_none().text_role(TextRole::Caption).text_color(p.ink_4).child("·");
+            if let Some((folder, worktree)) = new_row {
+                left = left.child(folder).children(worktree);
+            }
             if !self.single_provider {
                 right = right.child(provider_chip).child(dot());
             }
