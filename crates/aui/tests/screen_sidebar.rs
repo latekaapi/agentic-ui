@@ -474,16 +474,14 @@ fn view_options_menu_wording(cx: &mut TestAppContext) {
     init(cx);
     let mut model = sample_model();
     model.view_menu_open = true;
-    model.view_options = aui::screens::sidebar::ViewOptions {
-        hidden_count: 3,
-        show_hidden: false,
-        ..Default::default()
-    };
+    model.view_options = aui::screens::sidebar::ViewOptions::default();
     let labels = labels_of(cx, model);
     assert_has(
         &labels,
-        &["Show hidden", "Search all projects", "Clear empty sessions", "Group by", "Sort by"],
+        &["Show archived", "Search all projects", "Clear empty sessions", "Group by", "Sort by"],
     );
+    // Hide folded into Archive (docs/82 8.9): no "Show hidden" row.
+    assert!(!labels.iter().any(|l| l == "Show hidden"), "no Show hidden row: {labels:?}");
     // Rule 13: a row that does nothing ("Show PR status — Soon") is gone;
     // the rows show a pull request's state on their own.
     assert!(!labels.iter().any(|l| l == "Show PR status"), "no dead PR row: {labels:?}");

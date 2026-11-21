@@ -189,16 +189,10 @@ pub fn view_options_menu(id: impl Into<ElementId>, options: &ViewOptions, width:
     let id: ElementId = id.into();
     let metrics = cx.aui().metrics;
     let sub = window.use_keyed_state((id.clone(), "sub"), cx, |_, _| None::<ViewSub>);
-    let hidden = if options.show_hidden || options.hidden_count == 0 { None } else { Some(options.hidden_count.to_string()) };
-    let mut hidden_row = MenuRow::new("Show hidden", SidebarIntent::ViewOption(ViewOption::ToggleHidden)).checked(options.show_hidden);
-    if let Some(count) = hidden {
-        hidden_row = hidden_row.value(count);
-    }
     let rows = vec![
         MenuRow::new("Group by", SidebarIntent::MenuBackdrop).submenu(options.group_by.label()),
         MenuRow::new("Sort by", SidebarIntent::MenuBackdrop).submenu(options.sort_by.label()),
         MenuRow::new("Show empty projects", SidebarIntent::ViewOption(ViewOption::ToggleEmpty)).checked(options.show_empty).after_separator(),
-        hidden_row,
         MenuRow::new("Show archived", SidebarIntent::ViewOption(ViewOption::ToggleArchived)).checked(options.show_archived),
         MenuRow::new("Search all projects", SidebarIntent::ViewOption(ViewOption::ToggleSearchAll)).checked(options.search_all_projects).after_separator(),
         MenuRow::new("Clear empty sessions", SidebarIntent::ViewOption(ViewOption::ClearEmpty)),

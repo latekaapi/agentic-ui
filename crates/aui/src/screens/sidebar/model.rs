@@ -549,10 +549,6 @@ pub struct ViewOptions {
     pub sort_by: SortKey,
     /// Show projects with no sessions.
     pub show_empty: bool,
-    /// Show hidden sessions.
-    pub show_hidden: bool,
-    /// How many sessions are hidden (the row's trailing count; 0 = none).
-    pub hidden_count: usize,
     /// Show archived sessions.
     pub show_archived: bool,
     /// Whether search reaches every project, not just the current one.
@@ -565,8 +561,6 @@ impl Default for ViewOptions {
             group_by: GroupKey::Project,
             sort_by: SortKey::Recent,
             show_empty: false,
-            show_hidden: false,
-            hidden_count: 0,
             show_archived: false,
             search_all_projects: true,
         }
@@ -582,8 +576,6 @@ pub enum ViewOption {
     SortBy(SortKey),
     /// Show empty projects.
     ToggleEmpty,
-    /// Show hidden sessions.
-    ToggleHidden,
     /// Show archived.
     ToggleArchived,
     /// Search all projects.

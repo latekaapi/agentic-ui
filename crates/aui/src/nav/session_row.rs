@@ -109,8 +109,6 @@ pub enum RowAction {
     Pin,
     /// Rename the session in place.
     Rename,
-    /// Take the session out of the list.
-    Hide,
     /// Archive the session (confirm first; the app owns the flow).
     Archive,
     /// More…
@@ -147,7 +145,6 @@ impl RowAction {
             RowAction::Browser => IconName::Globe,
             RowAction::Pin => IconName::Pin,
             RowAction::Rename => IconName::Edit,
-            RowAction::Hide => IconName::Eye,
             RowAction::Archive => IconName::Archive,
             RowAction::More => IconName::Dots,
             RowAction::Tasks => IconName::Terminal,
@@ -165,7 +162,6 @@ impl RowAction {
             RowAction::Browser => "browser",
             RowAction::Pin => "pin",
             RowAction::Rename => "rename",
-            RowAction::Hide => "hide",
             RowAction::Archive => "archive",
             RowAction::More => "more",
             RowAction::Tasks => "tasks",

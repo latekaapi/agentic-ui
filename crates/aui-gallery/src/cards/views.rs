@@ -756,7 +756,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         // renamed in place through the editor slot.
         if i == COLUMNS - 1 {
             view = view
-                .row_actions(vec![RowAction::Rename, RowAction::Hide])
+                .row_actions(vec![RowAction::Rename, RowAction::Archive])
                 .editing("checkout", move |_, _| rename_field(&p).into_any_element());
         }
         let mut body = v_flex().w_full().child(nav(NAV_IDS[i]));

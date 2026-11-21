@@ -70,8 +70,6 @@ fn apply_steps(mut model: SidebarModel) -> SidebarModel {
             model.grouping = Rc::new(Grouping::Project(Vec::new()));
             model.pinned.clear();
             model.selected = None;
-        } else if let Some(rest) = step.strip_prefix("hidden:") {
-            model.view_options.hidden_count = rest.parse().unwrap_or(0);
         } else if let Some(browse) = model.browse.as_mut().filter(|_| {
             ["tab-menu:", "folder-menu:", "task-menu:", "space-menu:", "name-folder:"].iter().any(|p| step.starts_with(p)) || step == "name-space" || step == "no-tabs"
         }) {
