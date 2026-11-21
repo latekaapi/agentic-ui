@@ -1,6 +1,8 @@
 //! The agent cursor: where an agent last acted on a page, drawn over it.
 //!
-//! A dot in the accent colour inside a soft ring, at the point the host
+//! A dot in the focus blue (`accent-ring`, which reads on a white page and a
+//! dark one alike, where the neutral accent would vanish into either) inside
+//! a soft ring of the same blue, at the point the host
 //! gives (the centre of the element the agent clicked, typed into or
 //! scrolled), travelling there on the moderate spring when the point moves,
 //! so the person sees the agent move from one control to the next. It
@@ -26,7 +28,8 @@ pub fn agent_cursor(id: impl Into<ElementId>, at: Point<Pixels>, label: impl Int
     let x = spring_px((id.clone(), "x"), at.x, SpringKind::Moderate, window, cx);
     let y = spring_px((id.clone(), "y"), at.y, SpringKind::Moderate, window, cx);
     let ring = px(AGENT_CURSOR_RING);
-    let mut halo = p.accent;
+    let blue = p.accent_ring;
+    let mut halo = blue;
     halo.a *= 0.22;
     let origin = point(x - ring / 2.0, y - ring / 2.0);
     div()
@@ -38,12 +41,12 @@ pub fn agent_cursor(id: impl Into<ElementId>, at: Point<Pixels>, label: impl Int
         .rounded_full()
         .bg(halo)
         .border_1()
-        .border_color(p.accent)
+        .border_color(blue)
         .flex()
         .items_center()
         .justify_center()
         .role(gpui::Role::Image)
         .aria_label(label.into())
-        .child(div().size(px(AGENT_CURSOR_DOT)).rounded_full().bg(p.accent).border_2().border_color(p.bg))
+        .child(div().size(px(AGENT_CURSOR_DOT)).rounded_full().bg(blue).border_2().border_color(p.bg))
         .into_any_element()
 }
