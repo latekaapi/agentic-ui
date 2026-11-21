@@ -43,7 +43,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         .child(
             marker_row("card30-mk-2")
                 .hand_off(HandOff { from: (Provider::Muse, "Muse".into()), to: (Provider::Claude, "Claude Code".into()) })
-                .text("Handed off to Claude Code · opus 4.6 ·")
+                .text("Continued in Claude Code · opus 4.6 ·")
                 .link("Open the new session", |_, _, _| {}),
         )
         .child(marker_row("card30-mk-3").glyph(IconName::Refresh, None).text("Context compacted · 41k → 12k tokens ·").link("view summary", |_, _, _| {}))

@@ -1,7 +1,7 @@
 //! The handoff card: a session moved from one provider to another as an
 //! honest, lossy re-prompt — never pretended continuity.
 //!
-//! The header names the destination (`Handed off to Claude Code · opus 4.6`)
+//! The header names the destination (`Continued in Claude Code · opus 4.6`)
 //! with both provider marks (`from → to`) and the source underneath; the body
 //! keeps a compact state line, the two lists that say exactly what crossed
 //! over (`Carried`) and what did not (`Not carried`, always shown, never
@@ -12,7 +12,9 @@
 //! [`handoff_confirm`] is the dialog content the host shows before starting:
 //! the destination row with the provider mark, the same shared lists the
 //! card draws, the pack size, and the honest note that the new session
-//! starts fresh — over the existing modal, with Cancel / Hand off.
+//! starts fresh — over the existing modal, with Cancel / Continue. The
+//! words are the one verb the app uses for the move (docs/07 §1a, Provider):
+//! "Continue in…", never "hand off".
 
 use std::rc::Rc;
 
@@ -146,9 +148,9 @@ pub fn handoff_pill_text(state: &HandoffState) -> SharedString {
         | HandoffState::Quiescing
         | HandoffState::Checkpointed
         | HandoffState::Prepared
-        | HandoffState::Acknowledged => "Handing off…".into(),
-        HandoffState::Activated => "Handed off".into(),
-        HandoffState::Refused { .. } | HandoffState::Failed { .. } => "Hand-off failed".into(),
+        | HandoffState::Acknowledged => "Continuing…".into(),
+        HandoffState::Activated => "Continued".into(),
+        HandoffState::Refused { .. } | HandoffState::Failed { .. } => "Couldn't continue".into(),
         HandoffState::Cancelled => "Cancelled".into(),
     }
 }
@@ -164,10 +166,10 @@ pub fn handoff_marker(id: impl Into<ElementId>, from: WireProvider, to: WireProv
     let to_name = name(to);
     let model = if to_model.trim().is_empty() { String::new() } else { format!(" · {to_model}") };
     match state {
-        HandoffState::Activated => row.text(format!("Handed off to {to_name}{model} ·")),
-        HandoffState::Refused { reason } | HandoffState::Failed { reason } => row.text(format!("Hand-off to {to_name} failed · {reason}")),
-        HandoffState::Cancelled => row.text(format!("Hand-off to {to_name} cancelled")),
-        _ => row.text(format!("Handing off to {to_name}{model}…")),
+        HandoffState::Activated => row.text(format!("Continued in {to_name}{model} ·")),
+        HandoffState::Refused { reason } | HandoffState::Failed { reason } => row.text(format!("Couldn't continue in {to_name} · {reason}")),
+        HandoffState::Cancelled => row.text(format!("Continue in {to_name} cancelled")),
+        _ => row.text(format!("Continuing in {to_name}{model}…")),
     }
 }
 
@@ -324,11 +326,11 @@ impl HandoffCard {
         self
     }
 
-    /// The progress steps, drawn as the `Hand-off progress` list while the
+    /// The progress steps, drawn as the `Progress` list while the
     /// move is live. The host supplies short human labels (start from
     /// [`default_handoff_steps`]); the current step may carry the elapsed
     /// counter as its detail, a failed step its reason. Once the move
-    /// settles (handed off or cancelled) the list hides again, leaving the
+    /// settles (continued or cancelled) the list hides again, leaving the
     /// settled form.
     pub fn steps(mut self, steps: Vec<HandoffStep>) -> Self {
         self.steps = steps;
@@ -348,7 +350,7 @@ impl HandoffCard {
     }
 }
 
-/// The pill beside the title: quiet while moving, success once handed off,
+/// The pill beside the title: quiet while moving, success once continued,
 /// danger on refusal or failure. The text is plain words ([`handoff_pill_text`]),
 /// never the internal state name.
 fn state_pill(state: &HandoffState) -> (SharedString, PillVariant) {
@@ -360,14 +362,14 @@ fn state_pill(state: &HandoffState) -> (SharedString, PillVariant) {
     (handoff_pill_text(state), variant)
 }
 
-/// Whether the move has settled: handed off or cancelled. Settled cards hide
+/// Whether the move has settled: continued or cancelled. Settled cards hide
 /// the step list again, collapsing to the state line and the shared lists.
 fn settled(state: &HandoffState) -> bool {
     matches!(state, HandoffState::Activated | HandoffState::Cancelled)
 }
 
 /// The progress list: one row per step with its state mark, labelled
-/// `Hand-off progress` with every row naming its own state. The current step
+/// `Progress` with every row naming its own state. The current step
 /// spins and shows the host's elapsed counter; a failed step shows its
 /// reason in the danger tone.
 fn step_list(id: &ElementId, p: &Palette, steps: &[HandoffStep], halted: bool) -> AnyElement {
@@ -376,7 +378,7 @@ fn step_list(id: &ElementId, p: &Palette, steps: &[HandoffStep], halted: bool) -
         .w_full()
         .gap(px(2.0))
         .role(gpui::Role::List)
-        .aria_label("Hand-off progress");
+        .aria_label("Progress");
     for (i, step) in steps.iter().enumerate() {
         let label = handoff_step_label(step);
         record_ax_label(&label);
@@ -455,7 +457,7 @@ impl RenderOnce for HandoffCard {
         let from_name = provider_display_name(mark(self.from));
 
         let title: SharedString =
-            SharedString::from(format!("Handed off to {to_name} · {}", self.to_model));
+            SharedString::from(format!("Continued in {to_name} · {}", self.to_model));
         let source: SharedString =
             SharedString::from(format!("From {from_name} · {}", self.from_model));
         let (pill_label, pill_variant) = state_pill(&self.state);
@@ -485,12 +487,12 @@ impl RenderOnce for HandoffCard {
         let state_line: SharedString = match &self.state {
             HandoffState::Requested => "Preparing the context pack…".into(),
             HandoffState::Quiescing => "Quiescing the old session…".into(),
-            HandoffState::Checkpointed => "Preparing the handoff…".into(),
-            HandoffState::Prepared => SharedString::from(format!("Pack ready — handing over to {to_name}…")),
+            HandoffState::Checkpointed => "Preparing to continue…".into(),
+            HandoffState::Prepared => SharedString::from(format!("Pack ready — starting {to_name}…")),
             HandoffState::Acknowledged => SharedString::from(format!("{to_name} acknowledged — starting the new session…")),
             HandoffState::Activated => SharedString::from(format!("Continued in a new {to_name} session")),
             HandoffState::Refused { reason } | HandoffState::Failed { reason } => SharedString::from(reason.clone()),
-            HandoffState::Cancelled => "Handoff cancelled.".into(),
+            HandoffState::Cancelled => "Cancelled.".into(),
         };
         let failed = matches!(&self.state, HandoffState::Refused { .. } | HandoffState::Failed { .. });
         body = body.child(
@@ -544,7 +546,7 @@ impl RenderOnce for HandoffCard {
                 .child(div().flex_1().min_w(px(0.0)));
             if show_cancel {
                 let mut cancel = button((id.clone(), "cancel"), "Cancel").sm();
-                cancel = cancel.accessibility_label("Cancel the handoff");
+                cancel = cancel.accessibility_label(format!("Cancel continuing in {to_name}"));
                 if let Some(on_intent) = self.on_intent.clone() {
                     cancel = cancel.on_click(move |_, window, cx| on_intent(HandoffIntent::Cancel, window, cx));
                 }
@@ -572,7 +574,7 @@ impl RenderOnce for HandoffCard {
 /// and the structured body carries the destination row with the provider
 /// mark, the [`carried_list`] / [`lost_list`] rows the card draws, the pack
 /// size, and the honest note as its own paragraph in fg-muted. Actions are
-/// Cancel (secondary) and Hand off (primary); the host owns what they do
+/// Cancel (secondary) and Continue (primary); the host owns what they do
 /// through the dialog's own handlers.
 pub fn handoff_confirm(
     id: impl Into<ElementId>,
@@ -586,7 +588,7 @@ pub fn handoff_confirm(
     let to_model = to_model.into();
     let carried = carried.to_vec();
     let lost = lost.to_vec();
-    dialog(id, SharedString::from(format!("Hand off to {to_name}?")))
+    dialog(id, SharedString::from(format!("Continue in {to_name}?")))
         .width(HANDOFF_CONFIRM_WIDTH)
         .rich_body(move |p| {
             v_flex()
@@ -621,7 +623,7 @@ pub fn handoff_confirm(
                 .into_any_element()
         })
         .secondary("Cancel")
-        .primary("Hand off")
+        .primary("Continue")
 }
 
 #[cfg(test)]
@@ -643,14 +645,14 @@ mod tests {
             HandoffState::Prepared,
             HandoffState::Acknowledged,
         ] {
-            assert_eq!(handoff_pill_text(&state).to_string(), "Handing off…");
+            assert_eq!(handoff_pill_text(&state).to_string(), "Continuing…");
         }
-        assert_eq!(handoff_pill_text(&HandoffState::Activated).to_string(), "Handed off");
+        assert_eq!(handoff_pill_text(&HandoffState::Activated).to_string(), "Continued");
         assert_eq!(
             handoff_pill_text(&HandoffState::Refused { reason: "no".into() }).to_string(),
-            "Hand-off failed"
+            "Couldn't continue"
         );
-        assert_eq!(handoff_pill_text(&failed_state()).to_string(), "Hand-off failed");
+        assert_eq!(handoff_pill_text(&failed_state()).to_string(), "Couldn't continue");
         assert_eq!(handoff_pill_text(&HandoffState::Cancelled).to_string(), "Cancelled");
         for state in [
             HandoffState::Requested,
