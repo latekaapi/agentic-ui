@@ -59,6 +59,11 @@ pub struct SessionSummary {
     /// says "N running" whenever no state mark claims it, and the hovered
     /// row says it beside its `⋯`; a click sends [`crate::nav::RowAction::Tasks`].
     pub running_tasks: u32,
+    /// How many web pages the session owns (its own tabs). Above zero, the
+    /// sidebar screen's trailing slot says "N pages" whenever no state mark
+    /// and no "N running" claims it, and the hovered row says it beside its
+    /// `⋯`; a click sends [`crate::nav::RowAction::Pages`].
+    pub pages: u32,
 }
 
 impl SessionSummary {
@@ -83,6 +88,7 @@ impl SessionSummary {
             children: Vec::new(),
             density: None,
             running_tasks: 0,
+            pages: 0,
         }
     }
 
@@ -95,6 +101,12 @@ impl SessionSummary {
     /// How many commands the session started still run ([`Self::running_tasks`]).
     pub fn running_tasks(mut self, count: u32) -> Self {
         self.running_tasks = count;
+        self
+    }
+
+    /// How many web pages the session owns ([`Self::pages`]).
+    pub fn pages(mut self, count: u32) -> Self {
+        self.pages = count;
         self
     }
 

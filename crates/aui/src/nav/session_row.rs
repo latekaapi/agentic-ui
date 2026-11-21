@@ -119,6 +119,10 @@ pub enum RowAction {
     /// "N running"): the host opens its tasks view. Never in a tray; the
     /// sidebar screen's trailing slot sends it.
     Tasks,
+    /// Show the web pages the session owns (the row's "N pages"): the host
+    /// opens them. Never in a tray; the sidebar screen's trailing slot
+    /// sends it.
+    Pages,
 }
 
 impl RowAction {
@@ -136,6 +140,7 @@ impl RowAction {
             RowAction::Archive => IconName::Archive,
             RowAction::More => IconName::Dots,
             RowAction::Tasks => IconName::Terminal,
+            RowAction::Pages => IconName::Globe,
         }
     }
 
@@ -149,6 +154,7 @@ impl RowAction {
             RowAction::Archive => "archive",
             RowAction::More => "more",
             RowAction::Tasks => "tasks",
+            RowAction::Pages => "pages",
         }
     }
 }

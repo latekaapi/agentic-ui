@@ -19,8 +19,8 @@ use std::rc::Rc;
 use aui::interact::{surface, Shape};
 use aui::nav::{sidebar_list_state, Grouping};
 use aui::screens::sidebar::{
-    sample_model, screen_item_count, sidebar_screen, BrowseEditing, BrowseMenu, BrowseMenuTarget, BrowseNaming, EditingState, MenuOffers, Mode, SidebarModel,
-    SIDEBAR_WIDTH,
+    sample_model, screen_item_count, sidebar_screen, BrowseEditing, BrowseMenu, BrowseMenuTarget, BrowseNaming, EditingState, LastSession, MenuOffers, Mode,
+    SidebarModel, SIDEBAR_WIDTH,
 };
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Density, TextRole};
@@ -268,6 +268,50 @@ pub fn build_states(_window: &mut Window, cx: &mut App) -> AnyElement {
     ];
     // Five columns, four hairlines between them (`SP_2` = 4 px of borders).
     let mut row = h_flex().w(px(SIDEBAR_W * 5.0 + COLUMN_GAP * 4.0 + scale::SP_2)).h(px(COLUMN_H)).bg(p.bg).gap(px(COLUMN_GAP));
+    for (index, (id, model)) in columns.into_iter().enumerate() {
+        let mut column = div().flex_none().h(px(COLUMN_H)).flex();
+        if index > 0 {
+            column = column.border_l_1().border_color(p.line);
+        }
+        row = row.child(column.child(sidebar_column(id, model, SIDEBAR_W, COLUMN_H)));
+    }
+    row.into_any_element()
+}
+
+/// `screens/sidebar-mode-context` (docs/82 8.4): switching modes keeps the
+/// person's place. Browse's footer says "Needs you" with its count and the
+/// session Sessions stood on (with its state mark); in Sessions a row that
+/// owns pages says "N pages" in its empty slot at rest, and beside its `⋯`
+/// (after "N running") while hovered.
+pub fn build_mode_context(_window: &mut Window, cx: &mut App) -> AnyElement {
+    let p = cx.aui().colors;
+    let mut browse = sample_model();
+    browse.mode = Mode::Browse;
+    if let Some(model) = browse.browse.as_mut() {
+        model.needs_you = 2;
+        model.last_session = Some(LastSession { id: "browser-audit".into(), title: "Browser integration audit".into(), state: aui_tokens::AgentState::Running, unread: false });
+    }
+    let mut sessions = sample_model();
+    let pages = |grouping: &mut aui::nav::Grouping| {
+        if let Grouping::Project(groups) = grouping {
+            for session in groups.iter_mut().flat_map(|g| g.sessions.iter_mut()) {
+                match session.id.as_ref() {
+                    "token-ladder" => session.pages = 2,
+                    "relay-capture" => {
+                        session.pages = 1;
+                        session.running_tasks = 1;
+                    }
+                    "skeleton-rows" => session.pages = 3,
+                    _ => {}
+                }
+            }
+        }
+    };
+    pages(Rc::make_mut(&mut sessions.grouping));
+    sessions.hovered = Some("relay-capture".into());
+    sessions.highlighted = Some("relay-capture".into());
+    let columns = [("screens-sidebar-mode-browse", apply_steps(browse)), ("screens-sidebar-mode-sessions", apply_steps(sessions))];
+    let mut row = h_flex().w(px(SIDEBAR_W * 2.0 + COLUMN_GAP + 1.0)).h(px(COLUMN_H)).bg(p.bg).gap(px(COLUMN_GAP));
     for (index, (id, model)) in columns.into_iter().enumerate() {
         let mut column = div().flex_none().h(px(COLUMN_H)).flex();
         if index > 0 {

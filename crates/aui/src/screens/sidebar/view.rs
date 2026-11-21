@@ -15,7 +15,9 @@
 //! - a session row's trailing 20 px slot shows exactly one of: a spinner
 //!   (running), the amber dot (needs you), the `accent-ring` dot (finished,
 //!   unread), the danger dot (failed) — or, under the pointer, the `⋯` row
-//!   menu with the age left of it. Idle and read shows nothing;
+//!   menu with the age left of it ("N running" / "N pages" in the age's
+//!   place when the session has them). Idle and read shows nothing, or
+//!   "N running" / "N pages" (docs/82 6.5, 8.4);
 //! - group labels (Pinned, Projects, each project, each date bucket) are
 //!   Caption, `fg-muted`, sentence case, 28 tall, label at 18; a project's
 //!   chevron follows its name while hovered or closed, its actions appear
@@ -540,8 +542,10 @@ impl Ctx {
     /// (running), the amber dot (needs you), the `accent-ring` dot
     /// (finished, unread), the danger dot (failed) — or, while the pointer
     /// is on the row or its menu is open, the `⋯` menu with the age (Micro,
-    /// `ink-4`) left of it. Idle and read shows nothing, and the slot keeps
-    /// its 20 px either way so titles truncate at one edge.
+    /// `ink-4`) left of it — or "N running" / "N pages" in the age's place
+    /// ([`slot_words`]). Idle and read shows nothing (or one of those
+    /// words), and the slot keeps its 20 px either way so titles truncate
+    /// at one edge.
     fn state_slot(&self, session: &SessionSummary, _window: &mut Window, cx: &mut App) -> AnyElement {
         let p = cx.aui().colors;
         let metrics = cx.aui().metrics;
@@ -583,25 +587,36 @@ impl Ctx {
                         .child(gpui::deferred(gpui::anchored().anchor(gpui::Anchor::TopRight).snap_to_window().child(menu)).with_priority(1)),
                 );
             }
-            // A row with running tasks says so here instead of its age:
-            // that is the news, and the hovered row is where a click on it
-            // is easiest to aim.
-            let tasks = if tasks_take_the_slot(session, true) { self.tasks_button(session, cx) } else { None };
+            // A row with running tasks or pages of its own says so here
+            // instead of its age: that is the news, and the hovered row is
+            // where a click on it is easiest to aim.
+            let words = slot_words(session, true);
+            let tasks = if words.tasks { self.tasks_button(session, cx) } else { None };
+            let pages = if words.pages { self.pages_button(session, cx) } else { None };
+            let quiet = tasks.is_none() && pages.is_none();
             return h_flex()
                 .flex_none()
                 .items_center()
                 .gap(px(scale::SP_2))
-                .when(tasks.is_none() && !session.elapsed.is_empty(), |d| d.child(div().flex_none().role_in(TextRole::Micro, cx).text_color(p.ink_4).child(session.elapsed.clone())))
+                .when(quiet && !session.elapsed.is_empty(), |d| d.child(div().flex_none().role_in(TextRole::Micro, cx).text_color(p.ink_4).child(session.elapsed.clone())))
                 .children(tasks)
+                .children(pages)
                 .child(wrap)
                 .into_any_element();
         }
         // At rest a state mark wins the slot (running, needs you, failed,
         // unread: each asks for the person); an empty slot says "N running"
-        // while the session's commands run.
-        if tasks_take_the_slot(session, false) {
+        // while the session's commands run, else "N pages" while it owns
+        // pages.
+        let words = slot_words(session, false);
+        if words.tasks {
             if let Some(tasks) = self.tasks_button(session, cx) {
                 return tasks;
+            }
+        }
+        if words.pages {
+            if let Some(pages) = self.pages_button(session, cx) {
+                return pages;
             }
         }
         self.state_mark(format!("{id}"), session.state, session.unread, cx)
@@ -638,6 +653,41 @@ impl Ctx {
                     ctx.emit(SidebarIntent::RowAction(id.clone(), RowAction::Tasks), w, cx);
                 })
                 .child(SharedString::from(format!("{count} running")))
+                .into_any_element(),
+        )
+    }
+
+    /// "N pages" (Micro, `fg-muted`, `fg` on hover): the web pages the
+    /// session owns, as a button that asks the host to open them
+    /// ([`RowAction::Pages`]). The press stays off the row. `None` when it
+    /// owns none.
+    fn pages_button(&self, session: &SessionSummary, cx: &mut App) -> Option<AnyElement> {
+        let count = session.pages;
+        if count == 0 {
+            return None;
+        }
+        let p = cx.aui().colors;
+        let noun = if count == 1 { "page" } else { "pages" };
+        let label: SharedString = format!("Open the {count} {noun} of session {}", session.name).into();
+        record_ax_label(&label);
+        let ctx = self.clone();
+        let id = session.id.clone();
+        Some(
+            div()
+                .id(self.child(format!("{id}-pages")))
+                .flex_none()
+                .role(gpui::Role::Button)
+                .aria_label(label)
+                .cursor_pointer()
+                .role_in(TextRole::Micro, cx)
+                .text_color(p.fg_muted)
+                .hover(move |style| style.text_color(p.fg))
+                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(move |_, w, cx| {
+                    cx.stop_propagation();
+                    ctx.emit(SidebarIntent::RowAction(id.clone(), RowAction::Pages), w, cx);
+                })
+                .child(SharedString::from(format!("{count} {noun}")))
                 .into_any_element(),
         )
     }
@@ -1003,14 +1053,25 @@ pub fn second_line_for(session: &SessionSummary, bylines: Bylines) -> Option<Sha
     said.or_else(|| session.branch.as_ref().and_then(nonblank))
 }
 
-/// Whether a session row's trailing slot says "N running" (docs/83 §4: one
-/// trailing slot). Hovered (or with its menu open) the row shows it beside
-/// the `⋯` in place of the age; at rest it shows only where no state mark
-/// claims the slot — running, needs you, failed and unread each ask for the
-/// person, so they win.
-fn tasks_take_the_slot(session: &SessionSummary, hovered: bool) -> bool {
-    session.running_tasks > 0
-        && (hovered || (matches!(session.state, AgentState::Idle | AgentState::Done) && !session.unread))
+/// Which quiet words a session row's trailing area says (docs/83 §4: one
+/// trailing slot): "N running" (docs/82 6.5) and "N pages" (8.4). Hovered
+/// (or with its menu open) each shows beside the `⋯` in place of the age.
+/// At rest only an empty slot says one — "N running" first, then "N
+/// pages": running, needs you, failed and unread each ask for the person,
+/// so their mark wins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SlotWords {
+    tasks: bool,
+    pages: bool,
+}
+
+fn slot_words(session: &SessionSummary, hovered: bool) -> SlotWords {
+    let (tasks, pages) = (session.running_tasks > 0, session.pages > 0);
+    if hovered {
+        return SlotWords { tasks, pages };
+    }
+    let quiet = matches!(session.state, AgentState::Idle | AgentState::Done) && !session.unread;
+    SlotWords { tasks: quiet && tasks, pages: quiet && !tasks && pages }
 }
 
 /// Builds the Sessions-mode chrome and list, or the Browse-mode rows, into
@@ -1648,7 +1709,15 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
         // Always under a divider spanning the sidebar edge to edge, the
         // task pane's own (owner 2026-10-11): the strip is the foot's, not
         // the list's, whether or not task folders sit above it.
-        let foot = v_flex().w_full().flex_none().child(div().mx(-metrics.item_px).h(px(1.0)).bg(p.line)).child(chips);
+        let mut foot = v_flex().w_full().flex_none().child(div().mx(-metrics.item_px).h(px(1.0)).bg(p.line));
+        // docs/82 8.4: a mode switch keeps the person's place — what waits
+        // on them and the session they left stand above the spaces, each a
+        // way back to Sessions.
+        let context = browse_context(ctx, browse, cx);
+        if !context.is_empty() {
+            foot = foot.child(v_flex().w_full().pt(metrics.item_px).gap(px(ROW_GAP)).children(context));
+        }
+        let foot = foot.child(chips);
         // A toolbar: its chips and + answer the pointer, never the row above.
         list = list.item_static(next, foot);
         if let Some(index) = selected_index {
@@ -1669,6 +1738,49 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
         list = list.highlighted(highlighted);
     }
     list.into_any_element()
+}
+
+/// Browse's footer context (docs/82 8.4): "Needs you" with its count
+/// while any session waits, then the session Sessions stood on with its
+/// state mark. Each row is a button back to Sessions; none draws when there
+/// is nothing to say.
+fn browse_context(ctx: &Ctx, browse: &super::BrowseModel, cx: &mut App) -> Vec<AnyElement> {
+    let mut rows = Vec::new();
+    if browse.needs_you > 0 {
+        let n = browse.needs_you;
+        let row = ctx.row(Some(ctx.lead_icon(IconName::Bell, cx)), "Needs you", Some(ctx.trailing(n.to_string(), cx)), false, cx);
+        let noun = if n == 1 { "session waits" } else { "sessions wait" };
+        let label: SharedString = format!("Needs you: {n} {noun} on you, show them in Sessions").into();
+        record_ax_label(&label);
+        let c = ctx.clone();
+        rows.push(
+            interactive(ctx.child("browse-needs-you"), row)
+                .label(label)
+                .on_click(move |_, w, cx| {
+                    cx.stop_propagation();
+                    c.emit(SidebarIntent::Browse(BrowseIntent::NeedsYou), w, cx);
+                })
+                .into_any_element(),
+        );
+    }
+    if let Some(last) = browse.last_session.as_ref() {
+        let mark = ctx.state_mark(format!("last-{}", last.id), last.state, last.unread, cx);
+        let row = ctx.row(Some(ctx.lead_icon(IconName::ArrowLeft, cx)), last.title.clone(), Some(mark), false, cx);
+        let label: SharedString = format!("Back to session {}", last.title).into();
+        record_ax_label(&label);
+        let c = ctx.clone();
+        let id = last.id.clone();
+        rows.push(
+            interactive(ctx.child("browse-last-session"), row)
+                .label(label)
+                .on_click(move |_, w, cx| {
+                    cx.stop_propagation();
+                    c.emit(SidebarIntent::Browse(BrowseIntent::LastSession(id.clone())), w, cx);
+                })
+                .into_any_element(),
+        );
+    }
+    rows
 }
 
 /// What activating a list index means.
@@ -2031,19 +2143,39 @@ mod tests {
     #[test]
     fn running_tasks_take_only_a_quiet_or_hovered_slot() {
         let mut s = session();
-        assert!(!tasks_take_the_slot(&s, true), "nothing runs: no words");
+        assert!(!slot_words(&s, true).tasks, "nothing runs: no words");
         s.running_tasks = 2;
-        assert!(tasks_take_the_slot(&s, false), "an idle, read row says it at rest");
-        assert!(tasks_take_the_slot(&s, true));
+        assert!(slot_words(&s, false).tasks, "an idle, read row says it at rest");
+        assert!(slot_words(&s, true).tasks);
         s.unread = true;
-        assert!(!tasks_take_the_slot(&s, false), "the unread dot wins at rest");
-        assert!(tasks_take_the_slot(&s, true), "hovered, it shows beside the menu");
+        assert!(!slot_words(&s, false).tasks, "the unread dot wins at rest");
+        assert!(slot_words(&s, true).tasks, "hovered, it shows beside the menu");
         s.unread = false;
         for state in [AgentState::Running, AgentState::Waiting, AgentState::Failed] {
             s.state = state;
-            assert!(!tasks_take_the_slot(&s, false), "{state:?} keeps its mark at rest");
-            assert!(tasks_take_the_slot(&s, true), "{state:?}: hovered, it shows");
+            assert!(!slot_words(&s, false).tasks, "{state:?} keeps its mark at rest");
+            assert!(slot_words(&s, true).tasks, "{state:?}: hovered, it shows");
         }
+    }
+
+    #[test]
+    fn pages_take_an_empty_slot_after_running_tasks() {
+        let mut s = session();
+        assert_eq!(slot_words(&s, true), SlotWords { tasks: false, pages: false }, "no pages: no words");
+        s.pages = 2;
+        assert_eq!(slot_words(&s, false), SlotWords { tasks: false, pages: true }, "an idle, read row says it at rest");
+        s.running_tasks = 1;
+        assert_eq!(slot_words(&s, false), SlotWords { tasks: true, pages: false }, "running tasks come first at rest");
+        assert_eq!(slot_words(&s, true), SlotWords { tasks: true, pages: true }, "hovered, both show beside the menu");
+        s.running_tasks = 0;
+        for state in [AgentState::Running, AgentState::Waiting, AgentState::Failed] {
+            s.state = state;
+            assert!(!slot_words(&s, false).pages, "{state:?} keeps its mark at rest");
+            assert!(slot_words(&s, true).pages, "{state:?}: hovered, it shows");
+        }
+        s.state = AgentState::Idle;
+        s.unread = true;
+        assert!(!slot_words(&s, false).pages, "the unread dot wins at rest");
     }
 
     #[test]

@@ -1075,6 +1075,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::screen_sidebar::build_browse_page_offers,
     },
     Entry {
+        id: "screens/sidebar-mode-context",
+        group: "Screens v2",
+        title: "Sidebar · mode context",
+        subtitle: "A switch keeps your place: Browse's footer says Needs you and the last session; Sessions rows say N pages at rest and beside ⋯ on hover",
+        width: 545.0,
+        height: 720.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::screen_sidebar::build_mode_context,
+    },
+    Entry {
         id: "screens/sidebar-newtab",
         group: "Screens v2",
         title: "Sidebar · new tab",

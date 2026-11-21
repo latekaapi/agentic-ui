@@ -384,6 +384,20 @@ pub enum SpaceAction {
     SignIns,
 }
 
+/// The session Sessions stood on when the person left it (docs/82 8.4):
+/// the Browse footer's way back, with its state mark.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LastSession {
+    /// The session id, reported by [`BrowseIntent::LastSession`].
+    pub id: SharedString,
+    /// Its title, as its sidebar row says it.
+    pub title: SharedString,
+    /// Its state: the trailing mark (spinner, amber, danger dot).
+    pub state: AgentState,
+    /// Finished and not yet read: the `accent-ring` dot.
+    pub unread: bool,
+}
+
 /// Browse mode's rows.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BrowseModel {
@@ -420,6 +434,12 @@ pub struct BrowseModel {
     /// the page controls): always there; `Some(true)` draws its 6 px
     /// foreground dot while one runs. Its popover opens above it.
     pub downloads: Option<bool>,
+    /// How many sessions wait on the person (docs/82 8.4): above zero the
+    /// footer says "Needs you" with the count, a way to them from Browse.
+    pub needs_you: u32,
+    /// The session Sessions stood on (docs/82 8.4), drawn above the spaces
+    /// so a mode switch keeps the person's place.
+    pub last_session: Option<LastSession>,
 }
 
 /// How the session list is grouped (the Group by submenu).
@@ -644,6 +664,10 @@ pub enum BrowseIntent {
     CloseAll,
     /// The pointer entered or left the Today header.
     HoverTodayHeader(bool),
+    /// The footer's "Needs you" row: back to Sessions on what waits.
+    NeedsYou,
+    /// The footer's last-session row: back to Sessions on that session.
+    LastSession(SharedString),
     /// A right-click: open the menu for `target` at the pointer.
     OpenMenu(BrowseMenu),
     /// Close the open right-click menu (a click on its backdrop or Escape is
@@ -864,6 +888,8 @@ pub fn sample_model() -> SidebarModel {
             // A download running, so the sample shows the button (D4).
             downloads: Some(true),
             hovered_today_header: false,
+            needs_you: 0,
+            last_session: None,
         }),
     }
 }

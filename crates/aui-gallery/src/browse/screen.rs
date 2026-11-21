@@ -1225,6 +1225,8 @@ impl BrowseView {
             editing: None,
             menu: None,
             downloads: None,
+            needs_you: 0,
+            last_session: None,
         });
         model
     }
