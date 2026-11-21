@@ -350,15 +350,15 @@ pub fn build_browse(_window: &mut Window, cx: &mut App) -> AnyElement {
 }
 
 /// `screens/sidebar-browse-tab-offers`: the tab menu on a session's tab
-/// (its task folder) with every row the host can offer — Send page,
-/// Send selection, Keep this tab.
+/// (its task folder, near the foot) with every row the host can offer —
+/// Send page, Send selection, Keep this tab.
 pub fn build_browse_tab_offers(_window: &mut Window, cx: &mut App) -> AnyElement {
     let mut model = sample_model();
     model.mode = Mode::Browse;
     if let Some(browse) = model.browse.as_mut() {
         let tab = browse.task_folders.iter().flat_map(|f| f.tabs.iter()).chain(browse.tabs.iter()).next().map(|t| t.id.clone()).unwrap_or_default();
         let offers = MenuOffers { send_page: true, send_selection: true, keep: true, collapse: false };
-        browse.menu = Some(BrowseMenu { target: BrowseMenuTarget::Tab { id: tab, pinned: false, in_folder: false, offers }, at: gpui::point(px(150.0), px(540.0 - 300.0)) });
+        browse.menu = Some(BrowseMenu { target: BrowseMenuTarget::Tab { id: tab, pinned: false, in_folder: false, offers }, at: gpui::point(px(150.0), px(590.0)) });
     }
     let model = apply_steps(model);
     window_frame(sidebar_column("screens-sidebar-browse-tab-offers", model, SIDEBAR_W, WINDOW_H), site_page(cx), cx)
