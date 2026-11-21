@@ -95,8 +95,6 @@ impl Global for WebviewKeysInstalled {}
 pub enum WebviewIntent {
     /// `⌘L`: put the keyboard in the URL field.
     FocusUrl,
-    /// Show the page's console.
-    Console,
     /// Open the page in Browse (D6's nav row).
     OpenInBrowse,
     /// Send the page to a session (the nav row's offer, when the host
@@ -1352,7 +1350,6 @@ impl WebviewState {
                 self.backend.capture();
                 Some(WebviewIntent::Screenshot)
             }
-            BrowserAction::Console => Some(WebviewIntent::Console),
         }
     }
 

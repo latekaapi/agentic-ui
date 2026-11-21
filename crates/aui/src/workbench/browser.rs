@@ -137,8 +137,6 @@ pub enum BrowserAction {
     ToggleAnnotate,
     /// Capture the page.
     Screenshot,
-    /// Show the console.
-    Console,
 }
 
 type BrowserHandler = Rc<dyn Fn(BrowserAction, &mut Window, &mut App)>;
@@ -158,7 +156,8 @@ pub struct BrowserNav {
 }
 
 /// The nav row for `url`: history controls, the URL field, the annotate
-/// toggle, screenshot and console.
+/// toggle and screenshot. (No console button: no host has a console to
+/// show, and a control is drawn only where it works.)
 pub fn browser_nav(id: impl Into<ElementId>, url: impl Into<SharedString>) -> BrowserNav {
     BrowserNav {
         id: id.into(),
@@ -275,7 +274,6 @@ impl RenderOnce for BrowserNav {
             .child(url)
             .child(annotate_toggle((id.clone(), "annotate"), self.annotating, self.compact, handler.clone(), window, cx))
             .child(nav_button("screenshot", IconName::Camera, BrowserAction::Screenshot, false))
-            .child(nav_button("console", IconName::Terminal, BrowserAction::Console, false))
             .when(self.loading > 0.0, |d| {
                 d.child(div().absolute().left_0().bottom_0().w(relative(self.loading)).h(px(LOADING_HEIGHT)).bg(p.accent))
             })

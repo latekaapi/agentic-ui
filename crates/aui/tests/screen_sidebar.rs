@@ -477,14 +477,16 @@ fn view_options_menu_wording(cx: &mut TestAppContext) {
     model.view_options = aui::screens::sidebar::ViewOptions {
         hidden_count: 3,
         show_hidden: false,
-        pr_status_available: false,
         ..Default::default()
     };
     let labels = labels_of(cx, model);
     assert_has(
         &labels,
-        &["Show hidden", "Show PR status", "Search all projects", "Clear empty sessions", "Group by", "Sort by"],
+        &["Show hidden", "Search all projects", "Clear empty sessions", "Group by", "Sort by"],
     );
+    // Rule 13: a row that does nothing ("Show PR status — Soon") is gone;
+    // the rows show a pull request's state on their own.
+    assert!(!labels.iter().any(|l| l == "Show PR status"), "no dead PR row: {labels:?}");
 }
 
 #[gpui::test]

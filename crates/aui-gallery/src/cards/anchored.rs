@@ -40,7 +40,7 @@ struct AnchoredCard {
 fn menu_rows() -> Vec<MenuRow> {
     vec![
         MenuRow::Toggle { label: "Show empty groups".into(), checked: false },
-        MenuRow::Toggle { label: "Show PR status".into(), checked: true },
+        MenuRow::Toggle { label: "Show branches".into(), checked: true },
         MenuRow::Separator,
         MenuRow::Submenu { label: "Group by".into(), value: "Project".into(), highlighted: false },
         MenuRow::Toggle { label: "Show archived".into(), checked: false },

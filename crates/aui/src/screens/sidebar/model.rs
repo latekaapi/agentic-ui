@@ -555,11 +555,6 @@ pub struct ViewOptions {
     pub hidden_count: usize,
     /// Show archived sessions.
     pub show_archived: bool,
-    /// Show PR status on rows.
-    pub show_pr_status: bool,
-    /// Whether PR status exists at all: false draws the row disabled with
-    /// a "Soon" marker (owner 2026-10-11).
-    pub pr_status_available: bool,
     /// Whether search reaches every project, not just the current one.
     pub search_all_projects: bool,
 }
@@ -573,8 +568,6 @@ impl Default for ViewOptions {
             show_hidden: false,
             hidden_count: 0,
             show_archived: false,
-            show_pr_status: false,
-            pr_status_available: false,
             search_all_projects: true,
         }
     }
@@ -593,8 +586,6 @@ pub enum ViewOption {
     ToggleHidden,
     /// Show archived.
     ToggleArchived,
-    /// Show PR status (only reported while PR status is available).
-    TogglePrStatus,
     /// Search all projects.
     ToggleSearchAll,
     /// Clear empty sessions (hide every session with no turns).
@@ -690,9 +681,6 @@ pub enum BrowseIntent {
     /// The downloads button, with its bounds in window coordinates: the
     /// popover opens under it. A click while it is open closes it.
     Downloads(Option<gpui::Bounds<gpui::Pixels>>),
-    /// The footer's extensions button (R4), with its bounds in window
-    /// coordinates: the popover opens above it.
-    Extensions(Option<gpui::Bounds<gpui::Pixels>>),
     /// The page menu (the page controls' ⋯), with the button's bounds in
     /// window coordinates: the menu opens under it (FF: 6 px below, right
     /// edges aligned). A click while it is open closes it.

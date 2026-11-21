@@ -194,18 +194,12 @@ pub fn view_options_menu(id: impl Into<ElementId>, options: &ViewOptions, width:
     if let Some(count) = hidden {
         hidden_row = hidden_row.value(count);
     }
-    let pr_row = if options.pr_status_available {
-        MenuRow::new("Show PR status", SidebarIntent::ViewOption(ViewOption::TogglePrStatus)).checked(options.show_pr_status)
-    } else {
-        MenuRow { intent: None, ..MenuRow::new("Show PR status", SidebarIntent::MenuBackdrop) }.value("Soon").disabled(true)
-    };
     let rows = vec![
         MenuRow::new("Group by", SidebarIntent::MenuBackdrop).submenu(options.group_by.label()),
         MenuRow::new("Sort by", SidebarIntent::MenuBackdrop).submenu(options.sort_by.label()),
         MenuRow::new("Show empty projects", SidebarIntent::ViewOption(ViewOption::ToggleEmpty)).checked(options.show_empty).after_separator(),
         hidden_row,
         MenuRow::new("Show archived", SidebarIntent::ViewOption(ViewOption::ToggleArchived)).checked(options.show_archived),
-        pr_row,
         MenuRow::new("Search all projects", SidebarIntent::ViewOption(ViewOption::ToggleSearchAll)).checked(options.search_all_projects).after_separator(),
         MenuRow::new("Clear empty sessions", SidebarIntent::ViewOption(ViewOption::ClearEmpty)),
     ];

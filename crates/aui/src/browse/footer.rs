@@ -1,5 +1,7 @@
-//! The 44 px Browse footer: downloads and extensions ghost buttons,
-//! a spacer, and the bordered space chip.
+//! The 44 px Browse footer: the downloads ghost button, a spacer, and the
+//! bordered space chip. (No extensions button: extensions do not run in
+//! the browser this library hosts, and a control is drawn only where it
+//! works.)
 
 use aui_icons::IconName;
 use aui_tokens::ActiveAui;
@@ -22,12 +24,11 @@ pub struct BrowseFooter {
     space: SharedString,
     on_space: Option<ClickHandler>,
     on_downloads: Option<ClickHandler>,
-    on_extensions: Option<ClickHandler>,
 }
 
-/// The 44 px footer: Downloads, Extensions, spacer, `<Space name> ▾` chip.
+/// The 44 px footer: Downloads, spacer, `<Space name> ▾` chip.
 pub fn browse_footer(id: impl Into<ElementId>, space_name: impl Into<SharedString>) -> BrowseFooter {
-    BrowseFooter { id: id.into(), space: space_name.into(), on_space: None, on_downloads: None, on_extensions: None }
+    BrowseFooter { id: id.into(), space: space_name.into(), on_space: None, on_downloads: None }
 }
 
 impl BrowseFooter {
@@ -40,12 +41,6 @@ impl BrowseFooter {
     /// The downloads button was clicked.
     pub fn on_downloads(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_downloads = Some(Box::new(f));
-        self
-    }
-
-    /// The extensions button was clicked.
-    pub fn on_extensions(mut self, f: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.on_extensions = Some(Box::new(f));
         self
     }
 }
@@ -63,11 +58,6 @@ impl RenderOnce for BrowseFooter {
         if let Some(on_downloads) = self.on_downloads {
             downloads = downloads.on_click(move |e, w, cx| on_downloads(e, w, cx));
         }
-        let mut extensions =
-            icon_button((id.clone(), "extensions"), IconName::Layout).ghost().size(ButtonSize::Sm).accessibility_label("Extensions");
-        if let Some(on_extensions) = self.on_extensions {
-            extensions = extensions.on_click(move |e, w, cx| on_extensions(e, w, cx));
-        }
         let mut space = chip((id, "space"), self.space.clone()).chevron().accessibility_label(space_label);
         if let Some(on_space) = self.on_space {
             space = space.on_click(move |e, w, cx| on_space(e, w, cx));
@@ -82,7 +72,6 @@ impl RenderOnce for BrowseFooter {
             .border_t_1()
             .border_color(p.line)
             .child(downloads)
-            .child(extensions)
             .child(div().flex_1())
             .child(space)
     }

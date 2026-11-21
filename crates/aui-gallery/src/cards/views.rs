@@ -176,7 +176,7 @@ fn menu_rows() -> Vec<MenuRow> {
         MenuRow::Submenu { label: "Sort by".into(), value: "Last activity".into(), highlighted: false },
         MenuRow::Separator,
         MenuRow::Toggle { label: "Show empty groups".into(), checked: false },
-        MenuRow::Toggle { label: "Show PR status".into(), checked: true },
+        MenuRow::Toggle { label: "Show branches".into(), checked: true },
         MenuRow::Toggle { label: "Show archived".into(), checked: false },
     ]
 }
@@ -472,7 +472,7 @@ fn live_menu_rows(group_by: GroupBy, toggles: [bool; TOGGLES], highlight: Option
         MenuRow::Submenu { label: "Sort by".into(), value: "Last activity".into(), highlighted: lit(4) },
         MenuRow::Separator,
         MenuRow::Toggle { label: "Show empty groups".into(), checked: toggles[0] },
-        MenuRow::Toggle { label: "Show PR status".into(), checked: toggles[1] },
+        MenuRow::Toggle { label: "Show branches".into(), checked: toggles[1] },
         MenuRow::Toggle { label: "Show archived".into(), checked: toggles[2] },
     ]
 }

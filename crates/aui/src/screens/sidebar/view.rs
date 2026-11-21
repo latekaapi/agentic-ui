@@ -1688,8 +1688,9 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
             chips = chips.child(ctx.space_field(&editing.draft, editing.target.clone(), cx));
         } else {
             chips = chips.child(div().flex_1());
-            // R4 (board R4Daily 4a): downloads and extensions live in the
-            // footer; each popover opens above its button.
+            // R4 (board R4Daily 4a): downloads live in the footer; its
+            // popover opens above the button. (Extensions went in docs/82
+            // 8.9: they do not run, so no button offers them.)
             let running = browse.downloads == Some(true);
             let foot_button = |id: &str, glyph: IconName, label: &'static str, intent: fn(Option<gpui::Bounds<Pixels>>) -> BrowseIntent, dot: bool, cx: &mut App| {
                 let anchor: Rc<Cell<Option<gpui::Bounds<Pixels>>>> = Rc::new(Cell::new(None));
@@ -1713,7 +1714,6 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
             };
             chips = chips
                 .child(foot_button("browse-downloads", IconName::Download, if running { "Downloads, one running" } else { "Downloads" }, BrowseIntent::Downloads, running, cx))
-                .child(foot_button("browse-extensions", IconName::Puzzle, "Extensions", BrowseIntent::Extensions, false, cx))
                 .child(ctx.action("new-space".into(), IconName::Plus, "New space".into(), SidebarIntent::Browse(BrowseIntent::NewSpace), cx));
         }
         // Always under a divider spanning the sidebar edge to edge, the

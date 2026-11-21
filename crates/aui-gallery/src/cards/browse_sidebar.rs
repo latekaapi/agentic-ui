@@ -214,8 +214,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         .child(
             browse_footer("browse-footer", "Education")
                 .on_space(|_, _, _| {})
-                .on_downloads(|_, _, _| {})
-                .on_extensions(|_, _, _| {}),
+                .on_downloads(|_, _, _| {}),
         )
         .into_any_element()
 }

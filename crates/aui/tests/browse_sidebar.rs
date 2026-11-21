@@ -130,7 +130,6 @@ fn rows(window: &mut Window, cx: &mut gpui::App) -> AnyElement {
             browse_footer("t-footer", "Education")
                 .on_space(|_, _, _| {})
                 .on_downloads(|_, _, _| {})
-                .on_extensions(|_, _, _| {})
                 .into_any_element(),
             browse_nav_cluster("t-nav")
                 .can_go_back(true)
@@ -175,13 +174,13 @@ fn every_browse_row_has_an_accessibility_label(cx: &mut TestAppContext) {
         "done · 1 tab, Fix ledger chart",
         "Space, Education",
         "Downloads",
-        "Extensions",
         "Back",
         "Forward",
         "Reload",
     ] {
         assert!(labels.iter().any(|l| l == want), "missing label {want:?}; got {labels:?}");
-    }
+    }    // Extensions do not run: no footer button offers them (rule 13).
+    assert!(!labels.iter().any(|l| l == "Extensions"), "no dead Extensions button: {labels:?}");
 }
 
 /// The address splitter: host, path, locality and port.
