@@ -13,6 +13,7 @@
 mod address;
 /// The agent surface over a web page: the line, the card, the column.
 pub mod agent_window;
+mod cursor;
 pub mod handoff;
 mod face;
 /// The browser's Field: one input for addresses, tabs, history, commands, Ask and Task.
@@ -21,6 +22,7 @@ mod footer;
 mod rows;
 
 pub use address::{address_line, split_address, AddressLine};
+pub use cursor::{agent_cursor, AGENT_CURSOR_DOT, AGENT_CURSOR_RING};
 pub use face::{task_face, TaskFaceGlyph};
 pub use footer::{browse_footer, BrowseFooter};
 pub use rows::{

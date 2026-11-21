@@ -1195,6 +1195,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::browse_agent::build_handoff,
     },
     Entry {
+        id: "browse/agent-cursor",
+        group: "Browse",
+        title: "Agent cursor",
+        subtitle: "Where an agent last acted on a page: the dot in its ring, springing to each new point",
+        width: 520.0,
+        height: 320.0,
+        theme: CardTheme::Both,
+        build: crate::cards::browse_agent::build_agent_cursor,
+    },
+    Entry {
         id: "browse/agent-card",
         group: "Browse",
         title: "Agent card",

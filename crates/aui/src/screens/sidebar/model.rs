@@ -282,6 +282,9 @@ pub enum BrowseMenuTarget {
         annotating: bool,
         /// The rows the host offers for the page shown.
         offers: MenuOffers,
+        /// The page's zoom in percent, when the engine can zoom: the Zoom
+        /// row (− level +) shows only then.
+        zoom: Option<u16>,
     },
 }
 
@@ -371,6 +374,18 @@ pub enum PageAction {
     Keep,
     /// Back to the session's Page: the page shown, at the session's size.
     Collapse,
+    /// The Zoom row's −: one step smaller.
+    ZoomOut,
+    /// The Zoom row's +: one step larger.
+    ZoomIn,
+    /// The Zoom row's level: back to 100 %.
+    ZoomReset,
+    /// Site settings…: what the page's site may do, and its zoom.
+    SiteSettings,
+    /// Bookmarks: the page that lists and edits them.
+    Bookmarks,
+    /// History: the page that lists, searches and clears it.
+    History,
 }
 
 /// A space-chip menu row.

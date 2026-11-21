@@ -334,3 +334,39 @@ pub fn build_handoff(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(h_flex().items_start().gap(px(24.0)).child(picker).child(agent_card("browse-handoff-card", &transcript, &input)))
         .into_any_element()
 }
+
+/// `browse/agent-cursor`: the agent cursor resting on a page's button — the
+/// dot in its ring over a stand-in page, as a host draws it over the
+/// element the agent last acted on.
+pub fn build_agent_cursor(window: &mut Window, cx: &mut App) -> AnyElement {
+    let p = cx.aui().colors;
+    let page = div()
+        .relative()
+        .w(px(420.0))
+        .h(px(240.0))
+        .rounded(px(8.0))
+        .bg(p.bg)
+        .border_1()
+        .border_color(p.line)
+        .p(px(24.0))
+        .child(div().text_color(p.ink).child("Checkout"))
+        .child(
+            div()
+                .absolute()
+                .left(px(260.0))
+                .top(px(170.0))
+                .w(px(120.0))
+                .h(px(32.0))
+                .rounded(px(6.0))
+                .bg(p.surface_1)
+                .border_1()
+                .border_color(p.line)
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(p.ink)
+                .child("Next"),
+        )
+        .child(aui::browse::agent_cursor("browse-agent-cursor", gpui::point(px(320.0), px(186.0)), "Fix the checkout test is acting here", window, cx));
+    h_flex().w_full().justify_center().child(page).into_any_element()
+}

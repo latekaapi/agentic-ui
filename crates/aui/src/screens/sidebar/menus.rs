@@ -560,7 +560,7 @@ pub fn browse_menu(id: impl Into<ElementId>, browse: &BrowseModel, on_intent: Op
                 None,
             )
         }
-        BrowseMenuTarget::Page { safari, devtools, annotating, offers } => {
+        BrowseMenuTarget::Page { safari, devtools, annotating, offers, .. } => {
             let act = |a: PageAction| b(BrowseIntent::Page(a));
             let mut rows = vec![
                 MenuRow::new("New tab", act(PageAction::NewTab)).keys("⌘T"),
@@ -596,7 +596,9 @@ pub fn browse_menu(id: impl Into<ElementId>, browse: &BrowseModel, on_intent: Op
                 *first = first.clone().after_separator();
             }
             rows.extend(session);
-            let mut tools = vec![];
+            rows.push(MenuRow::new("Bookmarks", act(PageAction::Bookmarks)).keys("⇧⌘Y").after_separator());
+            rows.push(MenuRow::new("History", act(PageAction::History)).keys("⌘Y"));
+            let mut tools = vec![MenuRow::new("Site settings…", act(PageAction::SiteSettings))];
             if *devtools {
                 tools.push(MenuRow::new("Developer tools", act(PageAction::DevTools)).keys("⌥⌘I"));
             }
@@ -611,7 +613,20 @@ pub fn browse_menu(id: impl Into<ElementId>, browse: &BrowseModel, on_intent: Op
     let trigger_index = rows.iter().position(|r| r.label.as_ref() == "Move to folder");
     let separators_above_trigger = trigger_index.map_or(0, |t| rows.iter().take(t + 1).filter(|r| r.sep_before).count());
     let rows: Vec<MenuRow> = rows.into_iter().map(|r| if r.label.as_ref() == "Move to folder" { r.submenu("") } else { r }).collect();
-    let (rows, at) = entries(rows, &on_intent);
+    let (mut rows, mut at) = entries(rows, &on_intent);
+    // The page menu's Zoom row (− level +) closes the Copy link group in a
+    // group of its own: a row of controls, not a choice, so it never lights.
+    if let BrowseMenuTarget::Page { zoom: Some(zoom), safari, .. } = &menu.target {
+        let last = 2 + usize::from(*safari);
+        let insert = at.get(last).map_or(rows.len(), |entry| entry + 1);
+        rows.insert(insert, DropdownEntry::Separator);
+        rows.insert(insert + 1, DropdownEntry::Static(zoom_row(&id, *zoom, &on_intent, cx)));
+        for entry in &mut at {
+            if *entry >= insert {
+                *entry += 2;
+            }
+        }
+    }
     let trigger_entry = trigger_index.map(|t| at[t]);
     let flag = sub_open.clone();
     let main = panel(&menu_id, label, menu_width(), rows, &on_intent).on_highlight(move |index, _w, cx| {
@@ -648,6 +663,44 @@ pub fn browse_menu(id: impl Into<ElementId>, browse: &BrowseModel, on_intent: Op
     Some(gpui_kit::base::h_flex().items_start().child(div().flex_none().w(menu_width()).child(main)).children(submenu).into_any_element())
 }
 
+/// The page menu's Zoom row: the label, then − and + around the level,
+/// which resets to 100 % when pressed. Each control reports its own
+/// [`PageAction`]; the menu stays open, so the level can be walked.
+fn zoom_row(id: &ElementId, zoom: u16, on_intent: &Option<IntentHandler>, cx: &App) -> AnyElement {
+    let p = cx.aui().colors;
+    let metrics = cx.aui().metrics;
+    let emit = |action: PageAction| {
+        let handler = on_intent.clone();
+        move |_: &gpui::ClickEvent, w: &mut Window, cx: &mut App| {
+            cx.stop_propagation();
+            if let Some(emit) = handler.as_ref() {
+                emit(SidebarIntent::Browse(BrowseIntent::Page(action)), w, cx);
+            }
+        }
+    };
+    let level = crate::data::button((id.clone(), "zoom-level"), format!("{zoom}%"))
+        .ghost()
+        .sm()
+        .accessibility_label(if zoom == 100 { "Zoom 100%".to_owned() } else { format!("Zoom {zoom}%, reset to 100%") })
+        .on_click(emit(PageAction::ZoomReset));
+    let out = crate::data::button((id.clone(), "zoom-out"), "\u{2212}").ghost().sm().accessibility_label("Zoom out").on_click(emit(PageAction::ZoomOut));
+    let into = crate::data::button((id.clone(), "zoom-in"), "+").ghost().sm().accessibility_label("Zoom in").on_click(emit(PageAction::ZoomIn));
+    h_flex()
+        .id((id.clone(), "zoom"))
+        .w_full()
+        .h(metrics.control)
+        .px(metrics.item_px)
+        .items_center()
+        .gap(px(scale::SP_1))
+        .role(gpui::Role::Group)
+        .aria_label(format!("Zoom, {zoom}%"))
+        .child(div().flex_1().min_w(px(0.0)).ui(TextRole::Body).text_color(p.ink).child("Zoom"))
+        .child(out)
+        .child(level)
+        .child(into)
+        .into_any_element()
+}
+
 /// The box an overlay window needs to show [`browse_menu`] for `menu`:
 /// the menu's width plus room for its submenu, and its height — rows,
 /// separators and the inset. Hosts size their overlay with this before
@@ -667,11 +720,15 @@ pub fn browse_menu_size(menu: &BrowseMenu, folders: usize, cx: &App) -> gpui::Si
         BrowseMenuTarget::Folder(_) => (3, 1, None),
         BrowseMenuTarget::TaskFolder { running, .. } => (2 + usize::from(*running), 1, None),
         BrowseMenuTarget::Space { .. } => (3, 1, None),
-        BrowseMenuTarget::Page { safari, devtools, offers, .. } => {
+        BrowseMenuTarget::Page { safari, devtools, offers, zoom, .. } => {
             let send = usize::from(offers.send_page) + usize::from(offers.send_selection);
             let session = usize::from(offers.keep) + usize::from(offers.collapse);
-            let rows = 3 + usize::from(*safari) + send + 2 + session + usize::from(*devtools) + 1;
-            (rows, 3 + usize::from(send > 0) + usize::from(session > 0), None)
+            let zoom = usize::from(zoom.is_some());
+            // New tab, Find, Copy link · Zoom · Safari · send · Annotate,
+            // Screenshot · session · Bookmarks, History · Site settings,
+            // DevTools, Browser settings.
+            let rows = 3 + zoom + usize::from(*safari) + send + 2 + session + 2 + 1 + usize::from(*devtools) + 1;
+            (rows, 4 + zoom + usize::from(send > 0) + usize::from(session > 0), None)
         }
     };
     let height = metrics.control * rows as f32 + separator * separators as f32 + inset;
@@ -693,6 +750,20 @@ mod tests {
         menu(BrowseMenuTarget::Tab { id: "t".into(), pinned: false, in_folder, offers: MenuOffers::default() })
     }
 
+    /// The Zoom row shows only for an engine that zooms, as one row in its
+    /// own group, and the overlay's box grows by exactly that.
+    #[gpui::test]
+    fn the_page_menu_makes_room_for_its_zoom_row(cx: &mut TestAppContext) {
+        cx.update(|cx| crate::init(aui_tokens::ThemeKind::Dark, cx));
+        cx.update(|cx| {
+            let page = |zoom| menu(BrowseMenuTarget::Page { safari: true, devtools: false, annotating: false, offers: MenuOffers::default(), zoom });
+            let metrics = cx.aui().metrics;
+            let with = browse_menu_size(&page(Some(125)), 0, cx);
+            let without = browse_menu_size(&page(None), 0, cx);
+            assert_eq!(with.height - without.height, metrics.control + px(1.0) + metrics.item_px, "one row and its separator");
+        });
+    }
+
     /// Owner screenshot 2026-10-12: the page controls' ⋯ opened the Sessions
     /// header menu. The page menu is a Browse menu: no submenu, its rows
     /// (8 with Safari and DevTools, 6 without) under three separators.
@@ -700,7 +771,7 @@ mod tests {
     fn the_page_menu_sizes_its_optional_rows(cx: &mut TestAppContext) {
         cx.update(|cx| crate::init(aui_tokens::ThemeKind::Dark, cx));
         cx.update(|cx| {
-            let page = |safari, devtools| menu(BrowseMenuTarget::Page { safari, devtools, annotating: false, offers: MenuOffers::default() });
+            let page = |safari, devtools| menu(BrowseMenuTarget::Page { safari, devtools, annotating: false, offers: MenuOffers::default(), zoom: None });
             let full = browse_menu_size(&page(true, true), 0, cx);
             let bare = browse_menu_size(&page(false, false), 0, cx);
             assert_eq!(full.width, menu_width(), "no submenu room");
@@ -720,7 +791,7 @@ mod tests {
             let tab = |offers| menu(BrowseMenuTarget::Tab { id: "t".into(), pinned: false, in_folder: false, offers });
             let grown = browse_menu_size(&tab(all), 0, cx).height - browse_menu_size(&tab(MenuOffers::default()), 0, cx).height;
             assert!((f32::from(grown) - f32::from(control * 3.0)).abs() < 0.01, "send page, send selection and keep: {grown:?}");
-            let page = |offers| menu(BrowseMenuTarget::Page { safari: false, devtools: false, annotating: false, offers });
+            let page = |offers| menu(BrowseMenuTarget::Page { safari: false, devtools: false, annotating: false, offers, zoom: None });
             let grown = browse_menu_size(&page(all), 0, cx).height - browse_menu_size(&page(MenuOffers::default()), 0, cx).height;
             assert!((f32::from(grown) - f32::from(control * 4.0 + separator * 2.0)).abs() < 0.01, "four rows in two groups: {grown:?}");
         });

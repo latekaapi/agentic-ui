@@ -455,13 +455,14 @@ pub fn build_browse_tab_offers(_window: &mut Window, cx: &mut App) -> AnyElement
 
 /// `screens/sidebar-browse-page-offers`: the page controls' ⋯ on a
 /// session's page with every row the host can offer — Send page, Send
-/// selection, Keep this tab, Back to the session's Page.
+/// selection, Keep this tab, Back to the session's Page — and the Zoom
+/// row of an engine that zooms, at 125 %.
 pub fn build_browse_page_offers(_window: &mut Window, cx: &mut App) -> AnyElement {
     let mut model = sample_model();
     model.mode = Mode::Browse;
     if let Some(browse) = model.browse.as_mut() {
         let offers = MenuOffers { send_page: true, send_selection: true, keep: true, collapse: true };
-        browse.menu = Some(BrowseMenu { target: BrowseMenuTarget::Page { safari: true, devtools: true, annotating: false, offers }, at: gpui::point(px(40.0), px(116.0)) });
+        browse.menu = Some(BrowseMenu { target: BrowseMenuTarget::Page { safari: true, devtools: true, annotating: false, offers, zoom: Some(125) }, at: gpui::point(px(40.0), px(116.0)) });
     }
     let model = apply_steps(model);
     window_frame(sidebar_column("screens-sidebar-browse-page-offers", model, SIDEBAR_W, WINDOW_H), site_page(cx), cx)
