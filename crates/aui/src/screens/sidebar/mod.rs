@@ -13,7 +13,7 @@ mod menus;
 mod model;
 mod view;
 
-pub use menus::{account_menu, browse_menu, browse_menu_size, session_menu, view_options_menu};
+pub use menus::{account_menu, browse_menu, browse_menu_size, session_menu, session_menu_on, view_options_menu};
 pub use model::{
     sample_model, Account, AccountAction, AccountStatus, BrowseEditing, BrowseFolder, BrowseIntent, BrowseMenu, BrowseMenuTarget, BrowseModel, MenuOffers,
     BrowseNaming, BrowsePin, BrowseSpace, BrowseTab, Bylines, EditingState, FolderAction, FolderKind, GroupKey, LastSession, Mode, MoveTarget, NavItem,

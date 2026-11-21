@@ -132,6 +132,11 @@ pub enum RowAction {
     /// Delete the session, after a confirm that says what goes (the row
     /// menu; the host offers it only where a session can be deleted).
     Delete,
+    /// The host's own row `n` of
+    /// [`RowMenuOffers::host_rows`](crate::screens::sidebar::RowMenuOffers):
+    /// what only the open session has (the header's ⋯ — Run, Undo last
+    /// turn, …), drawn after the session menu's rows. Never in a tray.
+    Host(u8),
 }
 
 impl RowAction {
@@ -153,6 +158,7 @@ impl RowAction {
             RowAction::ContinueIn => IconName::ArrowRight,
             RowAction::Reveal => IconName::Folder,
             RowAction::Delete => IconName::Trash,
+            RowAction::Host(_) => IconName::Dots,
         }
     }
 
@@ -170,6 +176,7 @@ impl RowAction {
             RowAction::ContinueIn => "continue-in",
             RowAction::Reveal => "reveal",
             RowAction::Delete => "delete",
+            RowAction::Host(_) => "host",
         }
     }
 }

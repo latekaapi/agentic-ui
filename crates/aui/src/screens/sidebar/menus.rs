@@ -15,6 +15,7 @@
 //! The host owns what each row does through [`SidebarIntent`]; the screen
 //! never closes a menu itself.
 
+use crate::overlay::SubmenuSide;
 use std::rc::Rc;
 
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
@@ -265,10 +266,12 @@ pub(super) fn avatar_tile(initial: SharedString, status: AccountStatus, id: Elem
 /// The label of the row menu's Move to project row (its submenu trigger).
 const MOVE_TO: &str = "Move to project";
 
-/// A session row's menu rows, in order (docs/82 8.5): Rename, Pin or Unpin,
-/// Fork, Continue in…, Move to project, Reveal folder, then Archive and
-/// Delete… — each optional row only where `offers` says it works. An
-/// archived row offers Unarchive, Reveal folder and Delete… alone.
+/// A session's one menu's rows, in order (docs/82 8.5, 8.9): Rename, Pin
+/// or Unpin, Fork, Continue in…, Move to project, Reveal folder, then
+/// Archive and Delete… — each optional row only where `offers` says it
+/// works. An archived row offers Unarchive, Reveal folder and Delete…
+/// alone. Then, under a line, the host's rows only the open session has
+/// ([`RowMenuOffers::host_rows`]) — the header's ⋯ is this same menu.
 fn session_menu_rows(session: &SessionSummary, offers: &RowMenuOffers) -> Vec<MenuRow> {
     let sid = session.id.clone();
     let act = |action: RowAction| SidebarIntent::RowAction(sid.clone(), action);
@@ -281,6 +284,7 @@ fn session_menu_rows(session: &SessionSummary, offers: &RowMenuOffers) -> Vec<Me
         if offers.delete {
             rows.push(MenuRow::new("Delete…", act(RowAction::Delete)).danger().after_separator());
         }
+        push_host_rows(&mut rows, offers, &act);
         return rows;
     }
     rows.push(MenuRow::new("Rename", act(RowAction::Rename)));
@@ -301,19 +305,47 @@ fn session_menu_rows(session: &SessionSummary, offers: &RowMenuOffers) -> Vec<Me
     if offers.delete {
         rows.push(MenuRow::new("Delete…", act(RowAction::Delete)).danger());
     }
+    push_host_rows(&mut rows, offers, &act);
     rows
 }
 
+/// The host's own rows ([`RowMenuOffers::host_rows`]) after the menu's,
+/// the first under a line.
+fn push_host_rows(rows: &mut Vec<MenuRow>, offers: &RowMenuOffers, act: &dyn Fn(RowAction) -> SidebarIntent) {
+    for (index, label) in offers.host_rows.iter().enumerate() {
+        let row = MenuRow::new(label.clone(), act(RowAction::Host(index as u8)));
+        rows.push(if index == 0 { row.after_separator() } else { row });
+    }
+}
+
+
 /// A session row's menu (its trailing `⋯`, or a right-click on the row):
-/// the rows of [`session_menu_rows`], with the Move to project submenu
-/// beside it while the pointer rests on that row — the projects it can be
-/// listed under, the current one checked, under a line saying its folder
-/// stays where it is. Every row reports [`SidebarIntent::RowAction`] (or
-/// [`SidebarIntent::MoveToProject`]); the host closes the menu.
+/// [`session_menu_on`] with the submenu to the right.
 pub fn session_menu(
     id: impl Into<ElementId>,
     session: &SessionSummary,
     offers: &RowMenuOffers,
+    on_intent: Option<IntentHandler>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    session_menu_on(id, session, offers, SubmenuSide::Right, on_intent, window, cx)
+}
+
+/// A session's one menu — the row's `⋯`, a right-click on the row, and the
+/// session header's `⋯` (docs/82 8.9): the rows of [`session_menu_rows`],
+/// with the Move to project submenu on `side` while the pointer rests on
+/// that row — the projects it can be listed under, the current one
+/// checked, under a line saying its folder stays where it is. The header's
+/// ⋯ takes [`SubmenuSide::Left`]: seated by its right edge near the
+/// window's, the menu then never moves when the submenu opens. Every row
+/// reports [`SidebarIntent::RowAction`] (or [`SidebarIntent::MoveToProject`]);
+/// the host closes the menu.
+pub fn session_menu_on(
+    id: impl Into<ElementId>,
+    session: &SessionSummary,
+    offers: &RowMenuOffers,
+    side: SubmenuSide,
     on_intent: Option<IntentHandler>,
     window: &mut Window,
     cx: &mut App,
@@ -353,19 +385,19 @@ pub fn session_menu(
             let mut sub_entries = vec![DropdownEntry::Label("Its folder stays the same".into())];
             sub_entries.extend(targets);
             let top = metrics.control * trigger as f32 + (px(1.0) + metrics.item_px) * separators_above_trigger as f32;
-            Some(
-                div()
-                    .flex_none()
-                    .ml(px(scale::SP_1))
-                    .mt(top)
-                    .child(panel(&sub_id, MOVE_TO.into(), submenu_width(), sub_entries, &on_intent).side(DropdownSide::Beside))
-                    .into_any_element(),
-            )
+            let beside = div().flex_none().mt(top);
+            let beside = if side == SubmenuSide::Left { beside.mr(px(scale::SP_1)) } else { beside.ml(px(scale::SP_1)) };
+            Some(beside.child(panel(&sub_id, MOVE_TO.into(), submenu_width(), sub_entries, &on_intent).side(DropdownSide::Beside)).into_any_element())
         }
         _ => None,
     };
-    // Beside, in the menu's own box (see `view_options_menu`).
-    gpui_kit::base::h_flex().items_start().child(div().flex_none().w(submenu_width()).child(main)).children(submenu).into_any_element()
+    // Beside, in the menu's own box (see `view_options_menu`): after the
+    // menu, or before it on the leading side.
+    let main = div().flex_none().w(submenu_width()).child(main);
+    match side {
+        SubmenuSide::Right => gpui_kit::base::h_flex().items_start().child(main).children(submenu).into_any_element(),
+        SubmenuSide::Left => gpui_kit::base::h_flex().items_start().children(submenu).child(main).into_any_element(),
+    }
 }
 
 /// One provider's usage card: mark, name, plan, then a meter per line.
@@ -805,6 +837,7 @@ mod tests {
             reveal: true,
             delete: true,
             archived: false,
+            host_rows: Vec::new(),
         };
         let rows = session_menu_rows(&session.clone().pinned(), &all);
         assert_eq!(labels(&rows), ["Rename", "Unpin", "Fork", "Continue in…", MOVE_TO, "Reveal folder", "Archive", "Delete…"]);
@@ -812,10 +845,20 @@ mod tests {
         assert!(matches!(rows[4].trailing, Trailing::Submenu(_)), "Move to project opens its submenu");
         let draft = RowMenuOffers { fork: false, continue_in: false, ..all.clone() };
         assert!(!labels(&session_menu_rows(&session, &draft)).iter().any(|l| l == "Fork" || l == "Continue in…"), "a draft forks nothing");
-        let archived = RowMenuOffers { archived: true, ..all };
+        let archived = RowMenuOffers { archived: true, ..all.clone() };
         assert_eq!(labels(&session_menu_rows(&session, &archived)), ["Unarchive", "Reveal folder", "Delete…"]);
         let rows = session_menu_rows(&session, &archived);
         assert!(matches!(&rows[0].intent, Some(SidebarIntent::RowAction(_, RowAction::Archive))), "Unarchive is Archive's toggle");
+        // The header's ⋯ is the same menu plus the open session's own rows,
+        // after the menu's, under a line, each reporting its index.
+        let header = RowMenuOffers { host_rows: vec!["Run".into(), "Undo last turn".into()], ..all.clone() };
+        let rows = session_menu_rows(&session, &header);
+        assert_eq!(
+            labels(&rows),
+            ["Rename", "Pin", "Fork", "Continue in…", MOVE_TO, "Reveal folder", "Archive", "Delete…", "Run", "Undo last turn"]
+        );
+        assert!(rows[8].sep_before && !rows[9].sep_before, "one line above the host's rows");
+        assert!(matches!(&rows[9].intent, Some(SidebarIntent::RowAction(_, RowAction::Host(1)))));
     }
 
     #[gpui::test]

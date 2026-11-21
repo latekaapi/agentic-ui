@@ -340,11 +340,11 @@ pub fn build_row_menu(_window: &mut Window, cx: &mut App) -> AnyElement {
     let mut live = sample_model();
     live.hovered = Some("token-ladder".into());
     live.row_menu = Some("token-ladder".into());
-    live.row_menu_offers = RowMenuOffers { fork: true, continue_in: true, move_to: projects("harness"), reveal: true, delete: true, archived: false };
+    live.row_menu_offers = RowMenuOffers { fork: true, continue_in: true, move_to: projects("harness"), reveal: true, delete: true, archived: false, host_rows: Vec::new() };
     let mut right_click = sample_model();
     right_click.row_menu = Some("fluid-glide".into());
     right_click.row_menu_at = Some(gpui::point(px(SIDEBAR_W + COLUMN_GAP + 1.0 + 120.0), px(420.0)));
-    right_click.row_menu_offers = RowMenuOffers { fork: false, continue_in: true, move_to: projects("agentic-ui"), reveal: true, delete: false, archived: false };
+    right_click.row_menu_offers = RowMenuOffers { fork: false, continue_in: true, move_to: projects("agentic-ui"), reveal: true, delete: false, archived: false, host_rows: Vec::new() };
     let mut archived = sample_model();
     archived.hovered = Some("skeleton-rows".into());
     archived.row_menu = Some("skeleton-rows".into());

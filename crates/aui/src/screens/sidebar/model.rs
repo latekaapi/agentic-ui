@@ -429,6 +429,11 @@ pub struct RowMenuOffers {
     /// An archived row: Unarchive in Archive's place, and only what an
     /// archived session can do (Reveal folder, Delete…).
     pub archived: bool,
+    /// The host's own rows that only the open session has (the header's
+    /// ⋯: Run, Undo last turn, Move back to project folder, Open project
+    /// in …), drawn after the menu's own rows under a line, in this order;
+    /// row `n` reports [`RowAction::Host`]`(n)`. Empty in a row's menu.
+    pub host_rows: Vec<SharedString>,
 }
 
 /// The session Sessions stood on when the person left it (docs/82 8.4):
