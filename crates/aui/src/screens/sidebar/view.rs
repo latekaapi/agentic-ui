@@ -523,8 +523,16 @@ impl Ctx {
         }
         let label: SharedString = format!("Open session {}", session.name).into();
         record_ax_label(&label);
+        // A right-click opens the row's menu at the pointer (docs/82 8.5):
+        // the same menu its `⋯` opens.
+        let menu_ctx = self.clone();
+        let menu_id = id.clone();
         h_flex()
             .id(self.child(format!("session-{id}")))
+            .on_mouse_down(gpui::MouseButton::Right, move |event, w, cx| {
+                cx.stop_propagation();
+                menu_ctx.emit(SidebarIntent::RowMenuAt(menu_id.clone(), event.position), w, cx);
+            })
             .w_full()
             .h(session_row_height(second.is_some(), cx))
             .items_center()
@@ -546,7 +554,7 @@ impl Ctx {
     /// ([`slot_words`]). Idle and read shows nothing (or one of those
     /// words), and the slot keeps its 20 px either way so titles truncate
     /// at one edge.
-    fn state_slot(&self, session: &SessionSummary, _window: &mut Window, cx: &mut App) -> AnyElement {
+    fn state_slot(&self, session: &SessionSummary, window: &mut Window, cx: &mut App) -> AnyElement {
         let p = cx.aui().colors;
         let metrics = cx.aui().metrics;
         let id = session.id.clone();
@@ -569,16 +577,18 @@ impl Ctx {
                         ctx.emit(SidebarIntent::RowAction(more.clone(), RowAction::More), w, cx);
                     }),
             );
-            if menu_open {
+            if menu_open && self.model.row_menu_at.is_none() {
                 // Under the `⋯`, right edges aligned, on gpui's top layer so
-                // the list's clip and the sidebar's edge never cut it.
+                // the list's clip and the sidebar's edge never cut it. A
+                // right-click's menu stands at the pointer instead (the
+                // screen draws it).
                 let c = self.clone();
                 let menu = div()
                     .id(self.child(format!("{id}-menu-wrap")))
                     .mt(px(scale::SP_1))
                     .occlude()
                     .on_mouse_down_out(move |_, w, cx| c.emit(SidebarIntent::DismissMenus, w, cx))
-                    .child(session_menu(self.child(format!("{id}-menu")), session, self.on_intent.clone()));
+                    .child(session_menu(self.child(format!("{id}-menu")), session, &self.model.row_menu_offers, self.on_intent.clone(), window, cx));
                 wrap = wrap.child(
                     div()
                         .absolute()
@@ -1740,6 +1750,22 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
     list.into_any_element()
 }
 
+/// The session `id`'s summary, wherever the model lists it: pinned, or in
+/// any group of the grouping (children included).
+fn find_session<'a>(model: &'a SidebarModel, id: &SharedString) -> Option<&'a SessionSummary> {
+    fn within<'a>(sessions: &'a [SessionSummary], id: &SharedString) -> Option<&'a SessionSummary> {
+        sessions.iter().find_map(|s| if &s.id == id { Some(s) } else { within(&s.children, id) })
+    }
+    if let Some(found) = within(&model.pinned, id) {
+        return Some(found);
+    }
+    match model.grouping.as_ref() {
+        Grouping::Project(groups) => groups.iter().find_map(|g| within(&g.sessions, id)),
+        Grouping::Date(buckets) => buckets.iter().find_map(|b| within(&b.sessions, id)),
+        Grouping::Status(groups) => groups.iter().find_map(|g| within(&g.sessions, id)),
+    }
+}
+
 /// Browse's footer context (docs/82 8.4): "Needs you" with its count
 /// while any session waits, then the session Sessions stood on with its
 /// state mark. Each row is a button back to Sessions; none draws when there
@@ -2048,6 +2074,19 @@ impl RenderOnce for SidebarScreen {
                     .on_mouse_down_out(dismiss(&ctx))
                     .child(account_menu(ctx.child("account-menu"), account, menu_w, self.on_intent.clone(), window, cx)),
             );
+        }
+        // A session row's right-click menu at the pointer (docs/82 8.5): the
+        // same menu its `⋯` opens, seated where the click landed.
+        if let (Mode::Sessions, Some(at), Some(id)) = (self.model.mode, self.model.row_menu_at, self.model.row_menu.as_ref()) {
+            if let Some(session) = find_session(&self.model, id) {
+                let c = ctx.clone();
+                let menu = div()
+                    .id(ctx.child(format!("{id}-menu-at-wrap")))
+                    .occlude()
+                    .on_mouse_down_out(move |_, w, cx| c.emit(SidebarIntent::DismissMenus, w, cx))
+                    .child(session_menu(ctx.child(format!("{id}-menu")), session, &self.model.row_menu_offers, self.on_intent.clone(), window, cx));
+                column = column.child(gpui::deferred(gpui::anchored().position(at).snap_to_window().child(menu)).with_priority(1));
+            }
         }
         // Browse's right-click menu at the pointer — unless the host draws it
         // itself over a native page (an overlay window, [`Self::external_menus`]).

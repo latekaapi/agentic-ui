@@ -123,6 +123,17 @@ pub enum RowAction {
     /// opens them. Never in a tray; the sidebar screen's trailing slot
     /// sends it.
     Pages,
+    /// Fork the session from one of its turns (the row menu; the host
+    /// offers it only where the session's provider can fork).
+    Fork,
+    /// Continue the session on another provider: the hand-off (the row
+    /// menu; the host offers it only on a session with turns).
+    ContinueIn,
+    /// Show the session's folder in the file manager (the row menu).
+    Reveal,
+    /// Delete the session, after a confirm that says what goes (the row
+    /// menu; the host offers it only where a session can be deleted).
+    Delete,
 }
 
 impl RowAction {
@@ -141,6 +152,10 @@ impl RowAction {
             RowAction::More => IconName::Dots,
             RowAction::Tasks => IconName::Terminal,
             RowAction::Pages => IconName::Globe,
+            RowAction::Fork => IconName::Branch,
+            RowAction::ContinueIn => IconName::ArrowRight,
+            RowAction::Reveal => IconName::Folder,
+            RowAction::Delete => IconName::Trash,
         }
     }
 
@@ -155,6 +170,10 @@ impl RowAction {
             RowAction::More => "more",
             RowAction::Tasks => "tasks",
             RowAction::Pages => "pages",
+            RowAction::Fork => "fork",
+            RowAction::ContinueIn => "continue-in",
+            RowAction::Reveal => "reveal",
+            RowAction::Delete => "delete",
         }
     }
 }

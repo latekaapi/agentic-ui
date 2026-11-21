@@ -2,7 +2,9 @@
 //! one to one (`harness/docs/30-sidebar-spec`): the populated window, the
 //! five states, the Browse window, the new tab, collapsed + peek, and the
 //! compact density. Same sample data, same sizes, so a capture and the
-//! mock PNG diff pixel for pixel.
+//! mock PNG diff pixel for pixel. Later cards show what the mock did not
+//! have: the Browse menus' offers (docs/82 8.3), the mode context (8.4)
+//! and the session row menu (8.5).
 //!
 //! Every card honours `AUI_GALLERY_STEPS` (comma separated): `hover:<id>`
 //! puts the pointer highlight on that session (or `search` / `new-session`),
@@ -20,7 +22,7 @@ use aui::interact::{surface, Shape};
 use aui::nav::{sidebar_list_state, Grouping};
 use aui::screens::sidebar::{
     sample_model, screen_item_count, sidebar_screen, BrowseEditing, BrowseMenu, BrowseMenuTarget, BrowseNaming, EditingState, LastSession, MenuOffers, Mode,
-    SidebarModel, SIDEBAR_WIDTH,
+    MoveTarget, RowMenuOffers, SidebarModel, SIDEBAR_WIDTH,
 };
 use aui_icons::{icon, IconName};
 use aui_tokens::{scale, ActiveAui, AuiStyled, Density, TextRole};
@@ -312,6 +314,49 @@ pub fn build_mode_context(_window: &mut Window, cx: &mut App) -> AnyElement {
     sessions.highlighted = Some("relay-capture".into());
     let columns = [("screens-sidebar-mode-browse", apply_steps(browse)), ("screens-sidebar-mode-sessions", apply_steps(sessions))];
     let mut row = h_flex().w(px(SIDEBAR_W * 2.0 + COLUMN_GAP + 1.0)).h(px(COLUMN_H)).bg(p.bg).gap(px(COLUMN_GAP));
+    for (index, (id, model)) in columns.into_iter().enumerate() {
+        let mut column = div().flex_none().h(px(COLUMN_H)).flex();
+        if index > 0 {
+            column = column.border_l_1().border_color(p.line);
+        }
+        row = row.child(column.child(sidebar_column(id, model, SIDEBAR_W, COLUMN_H)));
+    }
+    row.into_any_element()
+}
+
+/// `screens/sidebar-row-menu` (docs/82 8.5): a session row's one menu.
+/// Left: its `⋯` on a live row with every row the host can offer (Fork,
+/// Continue in…, Move to project, Reveal folder, Delete…). Middle: the
+/// same menu opened by a right-click, at the pointer, on a row whose
+/// provider cannot fork. Right: an archived row's (Unarchive, Reveal
+/// folder, Delete…).
+pub fn build_row_menu(_window: &mut Window, cx: &mut App) -> AnyElement {
+    let p = cx.aui().colors;
+    let projects = |current: &str| {
+        ["harness", "agentic-ui", "lakshya"]
+            .into_iter()
+            .map(|name| MoveTarget { project: Some(name.into()), name: name.into(), current: name == current })
+            .chain(std::iter::once(MoveTarget { project: None, name: "Unfiled".into(), current: false }))
+            .collect::<Vec<_>>()
+    };
+    let mut live = sample_model();
+    live.hovered = Some("token-ladder".into());
+    live.row_menu = Some("token-ladder".into());
+    live.row_menu_offers = RowMenuOffers { fork: true, continue_in: true, move_to: projects("harness"), reveal: true, delete: true, archived: false };
+    let mut right_click = sample_model();
+    right_click.row_menu = Some("fluid-glide".into());
+    right_click.row_menu_at = Some(gpui::point(px(SIDEBAR_W + COLUMN_GAP + 1.0 + 120.0), px(420.0)));
+    right_click.row_menu_offers = RowMenuOffers { fork: false, continue_in: true, move_to: projects("agentic-ui"), reveal: true, delete: false, archived: false };
+    let mut archived = sample_model();
+    archived.hovered = Some("skeleton-rows".into());
+    archived.row_menu = Some("skeleton-rows".into());
+    archived.row_menu_offers = RowMenuOffers { reveal: true, delete: true, archived: true, ..Default::default() };
+    let columns = [
+        ("screens-sidebar-row-menu", apply_steps(live)),
+        ("screens-sidebar-row-menu-at", apply_steps(right_click)),
+        ("screens-sidebar-row-menu-archived", apply_steps(archived)),
+    ];
+    let mut row = h_flex().w(px(SIDEBAR_W * 3.0 + COLUMN_GAP * 2.0 + 2.0)).h(px(COLUMN_H)).bg(p.bg).gap(px(COLUMN_GAP));
     for (index, (id, model)) in columns.into_iter().enumerate() {
         let mut column = div().flex_none().h(px(COLUMN_H)).flex();
         if index > 0 {

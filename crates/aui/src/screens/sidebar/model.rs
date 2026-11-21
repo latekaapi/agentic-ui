@@ -384,6 +384,38 @@ pub enum SpaceAction {
     SignIns,
 }
 
+/// One place a session row's "Move to project" can list it (docs/82 8.5).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MoveTarget {
+    /// The project id; `None` is Unfiled.
+    pub project: Option<SharedString>,
+    /// Its name, as its group head says it.
+    pub name: SharedString,
+    /// Where the row is listed now: checked, and picking it changes nothing.
+    pub current: bool,
+}
+
+/// What a session row's menu offers beside Rename, Pin and Archive — the
+/// host says which work for that session (docs/82 8.5), and the menu draws
+/// a row only where it works.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RowMenuOffers {
+    /// Fork: the session's provider can fork and it has a turn to fork from.
+    pub fork: bool,
+    /// Continue in…: the hand-off to another provider (a session with
+    /// turns, another provider on).
+    pub continue_in: bool,
+    /// Move to project: where it can be listed (empty: no row).
+    pub move_to: Vec<MoveTarget>,
+    /// Reveal folder: its folder exists.
+    pub reveal: bool,
+    /// Delete…: the session can be deleted.
+    pub delete: bool,
+    /// An archived row: Unarchive in Archive's place, and only what an
+    /// archived session can do (Reveal folder, Delete…).
+    pub archived: bool,
+}
+
 /// The session Sessions stood on when the person left it (docs/82 8.4):
 /// the Browse footer's way back, with its state mark.
 #[derive(Debug, Clone, PartialEq)]
@@ -587,8 +619,14 @@ pub struct SidebarModel {
     pub highlighted: Option<SharedString>,
     /// The rename in flight, if any.
     pub editing: Option<EditingState>,
-    /// The session whose row menu (the trailing `⋯`) is open.
+    /// The session whose row menu (the trailing `⋯`, or a right-click on
+    /// the row) is open.
     pub row_menu: Option<SharedString>,
+    /// What the open row menu offers (docs/82 8.5).
+    pub row_menu_offers: RowMenuOffers,
+    /// Where a right-click opened the row menu, in window coordinates:
+    /// the menu stands at the pointer. `None`: under the row's `⋯`.
+    pub row_menu_at: Option<gpui::Point<gpui::Pixels>>,
     /// Whether sessions are still loading: skeleton rows, no text.
     pub loading: bool,
     /// Whether the view-options menu is open under the Projects header.
@@ -723,6 +761,11 @@ pub enum SidebarIntent {
     ToggleMore(SharedString),
     /// A session row's hover action.
     RowAction(SharedString, crate::nav::RowAction),
+    /// A right-click on a session row: open its menu at the pointer.
+    RowMenuAt(SharedString, gpui::Point<gpui::Pixels>),
+    /// The row menu's Move to project: list the session under that project
+    /// (`None`: Unfiled).
+    MoveToProject(SharedString, Option<SharedString>),
     /// A rename was committed; the arguments are the session and the text.
     Rename(SharedString, SharedString),
     /// A rename was abandoned.
@@ -796,6 +839,8 @@ pub fn sample_model() -> SidebarModel {
         highlighted: None,
         editing: None,
         row_menu: None,
+        row_menu_offers: RowMenuOffers::default(),
+        row_menu_at: None,
         loading: false,
         view_menu_open: false,
         view_options: ViewOptions::default(),

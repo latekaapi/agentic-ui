@@ -1085,6 +1085,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::screen_sidebar::build_mode_context,
     },
     Entry {
+        id: "screens/sidebar-row-menu",
+        group: "Screens v2",
+        title: "Sidebar · row menu",
+        subtitle: "A session row's one menu: its ⋯ with every offer, the same menu at a right-click, and an archived row's",
+        width: 834.0,
+        height: 720.0,
+        theme: CardTheme::Dark,
+        build: crate::cards::screen_sidebar::build_row_menu,
+    },
+    Entry {
         id: "screens/sidebar-newtab",
         group: "Screens v2",
         title: "Sidebar · new tab",

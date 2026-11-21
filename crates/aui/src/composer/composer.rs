@@ -302,6 +302,9 @@ pub struct Composer {
     on_intent: Option<IntentHandler>,
     model_choices: Option<usize>,
     single_provider: bool,
+    /// The session has started: its provider chip continues it elsewhere
+    /// (a hand-off), so the chip says so to assistive tech.
+    continue_in: bool,
     new_row: Option<ComposerNewRow>,
 }
 
@@ -374,7 +377,7 @@ pub fn composer(id: impl Into<ElementId>, state: &Entity<TextareaState>, provide
         plus_menu: None,
         chip_menus: Vec::new(),
         on_intent: None,
-        model_choices: None, single_provider: false,
+        model_choices: None, single_provider: false, continue_in: false,
         new_row: None,
     }
 }
@@ -502,6 +505,14 @@ impl Composer {
     /// keeps the current behaviour (chevron shown, clickable).
     pub fn model_choices(mut self, n: usize) -> Self {
         self.model_choices = Some(n);
+        self
+    }
+
+    /// The session has started, so picking another provider continues it
+    /// there (a hand-off) rather than switching in place: the provider
+    /// chip's label says "Continue in…". An unsent draft keeps "provider".
+    pub fn continue_in(mut self, started: bool) -> Self {
+        self.continue_in = started;
         self
     }
 
@@ -955,7 +966,11 @@ impl RenderOnce for Composer {
         let provider_label = provider_display_name(self.provider);
         let mut provider_chip = style(chip((id.clone(), "provider"), provider_label.clone()))
             .leading(provider_mark(self.provider).size(px(if raised { RAISED_MARK } else { CHIP_MARK })))
-            .accessibility_label(SharedString::from(format!("{provider_label}, provider")))
+            .accessibility_label(SharedString::from(if self.continue_in {
+                format!("{provider_label}, continue in…")
+            } else {
+                format!("{provider_label}, provider")
+            }))
             .on_click(emit(ComposerIntent::Provider));
         // `Provider · Model`: in the quiet row the provider reads as the
         // model's prefix, so only the model wears the chevron.
