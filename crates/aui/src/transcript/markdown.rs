@@ -1288,7 +1288,12 @@ struct SelCtx {
     color: Hsla,
     prefix: String,
     span: Option<SpanCtx>,
+    /// Find marks for this view and their two tints (docs/82 7.5).
+    find: Option<FindCtx>,
 }
+
+/// A view's find marks and their two tints (every match, the current one).
+type FindCtx = (Rc<Vec<super::find::FindMark>>, (Hsla, Hsla));
 
 /// Code-block intents arriving from fences ([`CodeBlockAction::Copy`]).
 type FenceCodeHandler = Rc<dyn Fn(CodeBlockAction, &mut Window, &mut App)>;
@@ -1334,6 +1339,12 @@ fn finish_cell(
     sel: &SelCtx,
     text_len: usize,
 ) -> SelectableText {
+    if let Some((marks, colors)) = &sel.find {
+        let local = super::find::cell_marks(marks, key, *colors);
+        if !local.is_empty() {
+            element = element.marks(local);
+        }
+    }
     if let Some(span) = &sel.span {
         if let Some(range) = span
             .current
@@ -1688,6 +1699,9 @@ fn render_block(
             // one key with byte offsets over the whole block text.
             let key = SelectionKey::code(&sel.prefix, index);
             fenced = fenced.selection_key(key.clone()).selection_color(sel.color);
+            if let Some((marks, colors)) = &sel.find {
+                fenced = fenced.find_marks(super::find::cell_marks(marks, &key, *colors));
+            }
             if let Some(span) = &sel.span {
                 if let Some(range) = span
                     .current
@@ -1882,6 +1896,7 @@ pub struct Markdown {
     on_code_action: Option<FenceCodeHandler>,
     image_root: Option<SharedString>,
     settled: bool,
+    find: Option<Rc<Vec<super::find::FindMark>>>,
 }
 
 /// Renders `source` as markdown blocks in `style`.
@@ -1903,6 +1918,7 @@ pub fn markdown(
         on_code_action: None,
         image_root: None,
         settled: false,
+        find: None,
     }
 }
 
@@ -1971,6 +1987,16 @@ impl Markdown {
     /// wires this instead of [`on_selection_change`](Self::on_selection_change).
     pub fn on_span_event(mut self, f: impl Fn(SpanEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_span = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Find marks (docs/82 7.5): the host's matches in this view, from
+    /// [`markdown_find`](super::markdown_find) over the same source and
+    /// settledness. Each paints behind its glyphs in the find tint, the
+    /// current one stronger; `None` (the default) paints nothing and costs
+    /// nothing.
+    pub fn find_marks(mut self, marks: Option<Rc<Vec<super::find::FindMark>>>) -> Self {
+        self.find = marks.filter(|marks| !marks.is_empty());
         self
     }
 
@@ -2049,6 +2075,21 @@ pub fn markdown_selected_text_settled(
     settled: bool,
 ) -> Option<String> {
     selected_text_in_blocks(&blocks_for(source, settled), selection)
+}
+
+/// The blocks [`super::find::markdown_find`] walks: exactly what
+/// [`blocks_for`] memoises, parsed fresh so the search can run off the UI
+/// thread.
+pub(super) fn blocks_for_find(source: &str, settled: bool) -> Vec<Block> {
+    parse_markdown_settled(source, settled)
+}
+
+/// Every selectable cell of `blocks` in render order: its key, its shaped
+/// text, and whether it is a code block (for find).
+pub(super) fn slice_cells(blocks: &[Block]) -> Vec<(SelectionKey, String, bool)> {
+    let mut cells = Vec::new();
+    walk_slices(blocks, "", 0, &mut cells);
+    cells.into_iter().map(|cell| (cell.key, cell.text, cell.code)).collect()
 }
 
 /// Slices `selection` out of already-parsed `blocks`: the shared lookup
@@ -2426,6 +2467,7 @@ impl RenderOnce for Markdown {
             color: palette.selection.alpha(palette.selection.a * self.selection_strength.clamp(0.0, 1.0)),
             prefix: String::new(),
             span,
+            find: self.find.clone().map(|marks| (marks, super::find::find_mark_colors(&palette))),
         };
         let mut fence = FenceCtx {
             on_action: self.on_code_action.clone(),

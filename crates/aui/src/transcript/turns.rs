@@ -184,6 +184,7 @@ pub struct UserTurn {
     span_strength: f32,
     on_span: Option<SpanHandler>,
     on_code_action: Option<CodeHandler>,
+    find: Option<std::rc::Rc<Vec<super::find::FindMark>>>,
 }
 
 /// A user turn; `markdown` may carry mentions as inline code (`` `@src/checkout` ``),
@@ -208,6 +209,7 @@ pub fn user_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) ->
         span_strength: 1.0,
         on_span: None,
         on_code_action: None,
+        find: None,
     }
 }
 
@@ -302,6 +304,13 @@ impl UserTurn {
     /// The stored cross-cell span the markdown body highlights.
     pub fn span_selection(mut self, selection: Option<&MessageSelection>) -> Self {
         self.span = selection.cloned();
+        self
+    }
+
+    /// Find marks for the body's markdown (docs/82 7.5): see
+    /// [`Markdown::find_marks`](super::markdown::Markdown::find_marks).
+    pub fn find_marks(mut self, marks: Option<std::rc::Rc<Vec<super::find::FindMark>>>) -> Self {
+        self.find = marks;
         self
     }
 
@@ -733,6 +742,7 @@ impl RenderOnce for UserTurn {
                     body = body.on_selection_change(move |next, window, cx| on_change(next, window, cx));
                 }
                 body = body.span_selection(self.span.as_ref()).selection_strength(self.span_strength);
+                body = body.find_marks(self.find.clone());
                 if let Some(on_span) = self.on_span.clone() {
                     body = body.on_span_event(move |event, window, cx| on_span(event, window, cx));
                 }
@@ -790,6 +800,7 @@ pub struct AssistantTurn {
     span_strength: f32,
     on_span: Option<SpanHandler>,
     on_code_action: Option<CodeHandler>,
+    find: Option<std::rc::Rc<Vec<super::find::FindMark>>>,
 }
 
 /// An assistant turn rendering `markdown`.
@@ -810,6 +821,7 @@ pub fn assistant_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString
         span_strength: 1.0,
         on_span: None,
         on_code_action: None,
+        find: None,
     }
 }
 
@@ -893,6 +905,13 @@ impl AssistantTurn {
     /// The stored cross-cell span the markdown body highlights.
     pub fn span_selection(mut self, selection: Option<&MessageSelection>) -> Self {
         self.span = selection.cloned();
+        self
+    }
+
+    /// Find marks for the body's markdown (docs/82 7.5): see
+    /// [`Markdown::find_marks`](super::markdown::Markdown::find_marks).
+    pub fn find_marks(mut self, marks: Option<std::rc::Rc<Vec<super::find::FindMark>>>) -> Self {
+        self.find = marks;
         self
     }
 
@@ -1127,6 +1146,7 @@ impl RenderOnce for AssistantTurn {
                         body = body.on_selection_change(move |next, window, cx| on_change(next, window, cx));
                     }
                     body = body.span_selection(self.span.as_ref()).selection_strength(self.span_strength);
+                    body = body.find_marks(self.find.clone());
                     if let Some(on_span) = self.on_span.clone() {
                         body = body.on_span_event(move |event, window, cx| on_span(event, window, cx));
                     }

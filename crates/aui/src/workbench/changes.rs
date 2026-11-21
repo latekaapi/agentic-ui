@@ -88,11 +88,12 @@ pub struct ChangeRow {
     flash: f32,
     on_toggle: Option<Click>,
     on_open_file: Option<Click>,
+    on_open_in: Option<(SharedString, Click)>,
 }
 
 /// A change row for `change`; `open` = its diff shows.
 pub fn change_row(id: impl Into<ElementId>, change: FileChange, open: bool) -> ChangeRow {
-    ChangeRow { id: id.into(), change, open, width: None, flash: 0.0, on_toggle: None, on_open_file: None }
+    ChangeRow { id: id.into(), change, open, width: None, flash: 0.0, on_toggle: None, on_open_file: None, on_open_in: None }
 }
 
 impl ChangeRow {
@@ -118,6 +119,13 @@ impl ChangeRow {
     /// The hover button: open the file in Files.
     pub fn on_open_file(mut self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_open_file = Some(Rc::new(f));
+        self
+    }
+
+    /// The second hover button (docs/82 7.5): open the file outside Baaz,
+    /// in the host's chosen editor. `label` names where ("Open in Zed").
+    pub fn on_open_in(mut self, label: impl Into<SharedString>, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_open_in = Some((label.into(), Rc::new(f)));
         self
     }
 }
@@ -172,6 +180,19 @@ impl RenderOnce for ChangeRow {
         // The "open file" button shows while the row is hovered; its box is
         // always laid out, so the counts never shift under the pointer.
         {
+            if let Some((label, f)) = self.on_open_in.clone() {
+                row = row.child(
+                    div().ml(px(4.0)).reveal_on_hover(false).child(
+                        icon_button((self.id.clone(), "open-in"), IconName::External)
+                            .ghost()
+                            .accessibility_label(label)
+                            .on_click(move |e, w, cx| {
+                                cx.stop_propagation();
+                                f(e, w, cx)
+                            }),
+                    ),
+                );
+            }
             if let Some(f) = self.on_open_file.clone() {
                 row = row.child(
                     div().ml(px(4.0)).reveal_on_hover(false).child(

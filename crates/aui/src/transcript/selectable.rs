@@ -674,6 +674,7 @@ pub struct SelectableText {
     key: SelectionKey,
     selection: Option<Range<usize>>,
     color: Option<Hsla>,
+    marks: Vec<(Range<usize>, Hsla)>,
     links: Vec<Range<usize>>,
     targets: Vec<LinkTarget>,
     on_link: Option<LinkHandler>,
@@ -698,6 +699,7 @@ pub fn selectable_text(
         key,
         selection: None,
         color: None,
+        marks: Vec::new(),
         links: Vec::new(),
         targets: Vec::new(),
         on_link: None,
@@ -725,6 +727,19 @@ impl SelectableText {
     /// token. Without it a selection range paints nothing.
     pub fn selection_color(mut self, color: Hsla) -> Self {
         self.color = Some(color);
+        self
+    }
+
+    /// Find-in-page marks (docs/82 7.5): ranges painted behind the glyphs in
+    /// their own colour, under the selection (a selection over a mark wins).
+    /// Ranges past the text or off a char boundary are dropped, so marks
+    /// computed for an older text never panic.
+    pub fn marks(mut self, marks: Vec<(Range<usize>, Hsla)>) -> Self {
+        let text = self.text.clone();
+        self.marks = marks
+            .into_iter()
+            .filter(|(range, _)| range.start < range.end && range.end <= text.len() && text.is_char_boundary(range.start) && text.is_char_boundary(range.end))
+            .collect();
         self
     }
 
@@ -798,13 +813,17 @@ impl SelectableText {
         // either, because `StyledText` with no runs inherits the element
         // style. Only the `(Some(range), Some(color))` arm reads the base run,
         // which is why this survived until a caller used it bare.
-        let base = base_runs(given, text_len, || window.text_style().to_run(text_len));
+        let mut base = base_runs(given, text_len, || window.text_style().to_run(text_len));
         let styled = StyledText::new(self.text.clone());
+        let marked = !self.marks.is_empty();
+        for (range, color) in std::mem::take(&mut self.marks) {
+            base = apply_selection(base, text_len, &range, color);
+        }
         match (&self.selection, self.color) {
             (Some(range), Some(color)) => {
                 styled.with_runs(apply_selection(base, text_len, range, color))
             }
-            _ if !had_runs => styled,
+            _ if !had_runs && !marked => styled,
             _ => styled.with_runs(base),
         }
     }

@@ -173,11 +173,12 @@ pub struct CodeBlock {
     selection_color: Option<Hsla>,
     on_selection_change: Option<SelectionHandler>,
     on_span: Option<SpanHandler>,
+    find_marks: Vec<(Range<usize>, Hsla)>,
 }
 
 /// A block showing `code` from `path`.
 pub fn code_block(id: impl Into<ElementId>, path: impl Into<SharedString>, code: impl Into<SharedString>) -> CodeBlock {
-    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, highlight: None, scroll_to_line: None, scroll_token: 0, fill: false, max_height: None, fold_long: false, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None, on_span: None }
+    CodeBlock { id: id.into(), path: path.into(), language: None, code: code.into(), start_line: 1, highlight: None, scroll_to_line: None, scroll_token: 0, fill: false, max_height: None, fold_long: false, on_action: None, selection_key: None, selection: None, selection_color: None, on_selection_change: None, on_span: None, find_marks: Vec::new() }
 }
 
 /// The command a fenced block carries, if it is runnable.
@@ -308,6 +309,14 @@ impl CodeBlock {
         self
     }
 
+    /// Find marks (docs/82 7.5) in block-wide byte indices with their tints:
+    /// each line paints the part it holds, under the selection. Only drawn
+    /// with a [`selection_key`](Self::selection_key) (the selectable rows).
+    pub fn find_marks(mut self, marks: Vec<(Range<usize>, Hsla)>) -> Self {
+        self.find_marks = marks;
+        self
+    }
+
     /// Selection intents from any line, translated to block-wide indices.
     /// Empty lines carry no bytes, so presses there clear instead.
     pub fn on_selection_change(
@@ -430,6 +439,8 @@ struct LineSelect {
     range: Option<Range<usize>>,
     on_change: Option<SelectionHandler>,
     on_span: Option<SpanHandler>,
+    /// Find marks over the block text (block-wide indices) and their tints.
+    marks: std::rc::Rc<Vec<(Range<usize>, Hsla)>>,
 }
 
 /// One numbered code row: the gutter plus the syntax-coloured line, with the
@@ -459,6 +470,16 @@ fn code_line_row(
                 sel.range.as_ref().and_then(|range| intersect_range(range, line_start, line.len()));
             let mut element =
                 selectable_text(line_id.clone(), sel.key.clone(), text).runs(runs).selection_color(sel.color).selection(local);
+            if !sel.marks.is_empty() {
+                let marks: Vec<(Range<usize>, Hsla)> = sel
+                    .marks
+                    .iter()
+                    .filter_map(|(range, color)| intersect_range(range, line_start, line.len()).map(|local| (local, *color)))
+                    .collect();
+                if !marks.is_empty() {
+                    element = element.marks(marks);
+                }
+            }
             if let Some(emit) = &sel.on_change {
                 let emit = emit.clone();
                 let key = sel.key.clone();
@@ -705,6 +726,7 @@ impl RenderOnce for CodeBlock {
             range: self.selection.clone(),
             on_change: self.on_selection_change.clone(),
             on_span: self.on_span.clone(),
+            marks: std::rc::Rc::new(self.find_marks.clone()),
         });
         let highlight = self.highlight.clone();
         if let Some(range) = highlight.as_ref().filter(|r| !r.is_empty()) {
