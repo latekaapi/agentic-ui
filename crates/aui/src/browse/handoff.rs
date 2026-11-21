@@ -61,6 +61,7 @@ pub struct HandoffPicker {
     projects: Vec<HandoffRow>,
     selected: usize,
     note: SharedString,
+    headings: (SharedString, SharedString),
     on_intent: Option<Handler>,
 }
 
@@ -79,6 +80,7 @@ pub fn handoff_picker(
         projects,
         selected,
         note: "Takes a summary of this chat and the pages it used. Its tabs move to that session's task folder. This chat stays here.".into(),
+        headings: ("Continue in a session".into(), "New session in".into()),
         on_intent: None,
     }
 }
@@ -101,6 +103,14 @@ impl HandoffPicker {
     /// Replaces the footnote.
     pub fn note(mut self, note: impl Into<SharedString>) -> Self {
         self.note = note.into();
+        self
+    }
+
+    /// Replaces the two section headings (sessions, then projects): a host
+    /// that picks a session for something other than a hand-off ("Add to
+    /// which session?") names them for that.
+    pub fn headings(mut self, sessions: impl Into<SharedString>, projects: impl Into<SharedString>) -> Self {
+        self.headings = (sessions.into(), projects.into());
         self
     }
 }
@@ -128,7 +138,8 @@ impl RenderOnce for HandoffPicker {
             );
         let mut body = v_flex().w_full().flex_none();
         let mut index = 0usize;
-        for (title, rows) in [("Continue in a session", &self.sessions), ("New session in", &self.projects)] {
+        let (sessions_heading, projects_heading) = self.headings.clone();
+        for (title, rows) in [(sessions_heading, &self.sessions), (projects_heading, &self.projects)] {
             if rows.is_empty() {
                 continue;
             }

@@ -391,7 +391,7 @@ pub fn browse_menu(id: impl Into<ElementId>, browse: &BrowseModel, on_intent: Op
     let metrics = cx.aui().metrics;
     let b = |intent: BrowseIntent| SidebarIntent::Browse(intent);
     let (key, label, rows, sub): MenuSpec = match &menu.target {
-        BrowseMenuTarget::Tab { id: tab, pinned, in_folder } => {
+        BrowseMenuTarget::Tab { id: tab, pinned, in_folder, offers } => {
             let title = browse
                 .tabs
                 .iter()
@@ -404,9 +404,19 @@ pub fn browse_menu(id: impl Into<ElementId>, browse: &BrowseModel, on_intent: Op
             let mut rows = vec![
                 MenuRow::new("Duplicate", act(TabAction::Duplicate)),
                 MenuRow::new("Copy link", act(TabAction::CopyLink)).keys("⇧⌘C"),
-                MenuRow::new(if *pinned { "Unpin tab" } else { "Pin tab" }, act(TabAction::TogglePin)),
-                MenuRow::new("Move to folder", SidebarIntent::MenuBackdrop).value("›"),
             ];
+            // The host offers these only where they work.
+            if offers.send_page {
+                rows.push(MenuRow::new("Send page to session…", act(TabAction::SendPage)));
+            }
+            if offers.send_selection {
+                rows.push(MenuRow::new("Send selection to session…", act(TabAction::SendSelection)));
+            }
+            rows.push(MenuRow::new(if *pinned { "Unpin tab" } else { "Pin tab" }, act(TabAction::TogglePin)));
+            rows.push(MenuRow::new("Move to folder", SidebarIntent::MenuBackdrop).value("›"));
+            if offers.keep {
+                rows.push(MenuRow::new("Keep this tab", act(TabAction::Keep)));
+            }
             if *in_folder {
                 rows.push(MenuRow::new("Remove from folder", act(TabAction::RemoveFromFolder)));
             }
@@ -460,7 +470,7 @@ pub fn browse_menu(id: impl Into<ElementId>, browse: &BrowseModel, on_intent: Op
                 None,
             )
         }
-        BrowseMenuTarget::Page { safari, devtools, annotating } => {
+        BrowseMenuTarget::Page { safari, devtools, annotating, offers } => {
             let act = |a: PageAction| b(BrowseIntent::Page(a));
             let mut rows = vec![
                 MenuRow::new("New tab", act(PageAction::NewTab)).keys("⌘T"),
@@ -470,8 +480,32 @@ pub fn browse_menu(id: impl Into<ElementId>, browse: &BrowseModel, on_intent: Op
             if *safari {
                 rows.push(MenuRow::new("Open in Safari", act(PageAction::OpenInSafari)));
             }
+            // The page and a session, each row only where the host says it
+            // works: one group to send, one for a session's own page.
+            let mut send = Vec::new();
+            if offers.send_page {
+                send.push(MenuRow::new("Send page to session…", act(PageAction::SendPage)));
+            }
+            if offers.send_selection {
+                send.push(MenuRow::new("Send selection to session…", act(PageAction::SendSelection)));
+            }
+            if let Some(first) = send.first_mut() {
+                *first = first.clone().after_separator();
+            }
+            rows.extend(send);
             rows.push(MenuRow::new(if *annotating { "Stop annotating" } else { "Annotate page" }, act(PageAction::Annotate)).after_separator());
             rows.push(MenuRow::new("Screenshot", act(PageAction::Screenshot)));
+            let mut session = Vec::new();
+            if offers.keep {
+                session.push(MenuRow::new("Keep this tab", act(PageAction::Keep)));
+            }
+            if offers.collapse {
+                session.push(MenuRow::new("Back to the session's Page", act(PageAction::Collapse)));
+            }
+            if let Some(first) = session.first_mut() {
+                *first = first.clone().after_separator();
+            }
+            rows.extend(session);
             let mut tools = vec![];
             if *devtools {
                 tools.push(MenuRow::new("Developer tools", act(PageAction::DevTools)).keys("⌥⌘I"));
@@ -533,8 +567,9 @@ pub fn browse_menu_size(menu: &BrowseMenu, folders: usize, cx: &App) -> gpui::Si
     let inset = metrics.item_px; // 4 above + 4 below
     let separator = px(1.0) + metrics.item_px; // 1 px + 4 above + 4 below
     let (rows, separators, submenu) = match &menu.target {
-        BrowseMenuTarget::Tab { in_folder, .. } => {
-            let rows = 4 + usize::from(*in_folder) + 2;
+        BrowseMenuTarget::Tab { in_folder, offers, .. } => {
+            let offered = usize::from(offers.send_page) + usize::from(offers.send_selection) + usize::from(offers.keep);
+            let rows = 4 + offered + usize::from(*in_folder) + 2;
             let sub_rows = folders + 1;
             let sub_height = metrics.control * sub_rows as f32 + inset + if folders > 0 { separator } else { px(0.0) };
             (rows, 1, Some(sub_height + metrics.control * 3.0))
@@ -542,7 +577,12 @@ pub fn browse_menu_size(menu: &BrowseMenu, folders: usize, cx: &App) -> gpui::Si
         BrowseMenuTarget::Folder(_) => (3, 1, None),
         BrowseMenuTarget::TaskFolder { running, .. } => (2 + usize::from(*running), 1, None),
         BrowseMenuTarget::Space { .. } => (3, 1, None),
-        BrowseMenuTarget::Page { safari, devtools, .. } => (3 + usize::from(*safari) + 2 + usize::from(*devtools) + 1, 3, None),
+        BrowseMenuTarget::Page { safari, devtools, offers, .. } => {
+            let send = usize::from(offers.send_page) + usize::from(offers.send_selection);
+            let session = usize::from(offers.keep) + usize::from(offers.collapse);
+            let rows = 3 + usize::from(*safari) + send + 2 + session + usize::from(*devtools) + 1;
+            (rows, 3 + usize::from(send > 0) + usize::from(session > 0), None)
+        }
     };
     let height = metrics.control * rows as f32 + separator * separators as f32 + inset;
     let width = if submenu.is_some() { menu_width() + px(scale::SP_1) + submenu_width() } else { menu_width() };
@@ -552,6 +592,7 @@ pub fn browse_menu_size(menu: &BrowseMenu, folders: usize, cx: &App) -> gpui::Si
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::screens::sidebar::MenuOffers;
     use gpui::{point, TestAppContext};
 
     fn menu(target: BrowseMenuTarget) -> BrowseMenu {
@@ -559,7 +600,7 @@ mod tests {
     }
 
     fn tab(in_folder: bool) -> BrowseMenu {
-        menu(BrowseMenuTarget::Tab { id: "t".into(), pinned: false, in_folder })
+        menu(BrowseMenuTarget::Tab { id: "t".into(), pinned: false, in_folder, offers: MenuOffers::default() })
     }
 
     /// Owner screenshot 2026-10-12: the page controls' ⋯ opened the Sessions
@@ -569,11 +610,29 @@ mod tests {
     fn the_page_menu_sizes_its_optional_rows(cx: &mut TestAppContext) {
         cx.update(|cx| crate::init(aui_tokens::ThemeKind::Dark, cx));
         cx.update(|cx| {
-            let page = |safari, devtools| menu(BrowseMenuTarget::Page { safari, devtools, annotating: false });
+            let page = |safari, devtools| menu(BrowseMenuTarget::Page { safari, devtools, annotating: false, offers: MenuOffers::default() });
             let full = browse_menu_size(&page(true, true), 0, cx);
             let bare = browse_menu_size(&page(false, false), 0, cx);
             assert_eq!(full.width, menu_width(), "no submenu room");
             assert_eq!(full.height - bare.height, cx.aui().metrics.control * 2.0, "Safari and DevTools are a row each");
+        });
+    }
+
+    /// The offered rows (send, keep, back to the session's Page) are a
+    /// row each, and each group the page menu gains brings its separator.
+    #[gpui::test]
+    fn offered_rows_size_the_menus(cx: &mut TestAppContext) {
+        cx.update(|cx| crate::init(aui_tokens::ThemeKind::Dark, cx));
+        cx.update(|cx| {
+            let control = cx.aui().metrics.control;
+            let separator = px(1.0) + cx.aui().metrics.item_px;
+            let all = MenuOffers { send_page: true, send_selection: true, keep: true, collapse: true };
+            let tab = |offers| menu(BrowseMenuTarget::Tab { id: "t".into(), pinned: false, in_folder: false, offers });
+            let grown = browse_menu_size(&tab(all), 0, cx).height - browse_menu_size(&tab(MenuOffers::default()), 0, cx).height;
+            assert!((f32::from(grown) - f32::from(control * 3.0)).abs() < 0.01, "send page, send selection and keep: {grown:?}");
+            let page = |offers| menu(BrowseMenuTarget::Page { safari: false, devtools: false, annotating: false, offers });
+            let grown = browse_menu_size(&page(all), 0, cx).height - browse_menu_size(&page(MenuOffers::default()), 0, cx).height;
+            assert!((f32::from(grown) - f32::from(control * 4.0 + separator * 2.0)).abs() < 0.01, "four rows in two groups: {grown:?}");
         });
     }
 

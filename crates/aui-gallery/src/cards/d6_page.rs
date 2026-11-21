@@ -139,3 +139,30 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         .child(h_flex().gap(px(16.0)).items_start().child(s7).child(s8))
         .into_any_element()
 }
+
+/// `workbench/page-nav-offers`: the nav row with its optional controls —
+/// Send page to session and Keep this tab — as a session's page offers
+/// them, wide and narrow.
+pub fn build_offers(_window: &mut Window, cx: &mut App) -> AnyElement {
+    let url = "http://localhost:3000/pricing";
+    let extras = aui::workbench::PageNavExtras { send_page: true, keep_tab: true };
+    let nav = |id: &str, w: f32, cx: &App| {
+        aui::workbench::page_nav_row_with(
+            SharedString::from(id.to_string()),
+            page_address(SharedString::from(format!("{id}-addr")), url, cx).into_any_element(),
+            true,
+            false,
+            false,
+            w,
+            None,
+            extras,
+            |_, _, _| {},
+            cx,
+        )
+    };
+    v_flex()
+        .gap(px(16.0))
+        .child(div().w(px(W)).child(nav("page-offers-wide", W, cx)))
+        .child(div().w(px(280.0)).child(nav("page-offers-narrow", 280.0, cx)))
+        .into_any_element()
+}

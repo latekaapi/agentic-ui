@@ -226,6 +226,22 @@ pub struct BrowseEditing {
     pub draft: SharedString,
 }
 
+/// The rows a tab or page menu offers beyond its own, each only where it
+/// works: the host says which. The screen builds every menu with none; the
+/// host fills them in when it opens the menu.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MenuOffers {
+    /// "Send page to session…": the tab shows a page that can be sent.
+    pub send_page: bool,
+    /// "Send selection to session…": the page has text selected.
+    pub send_selection: bool,
+    /// "Keep this tab": the tab belongs to a session and can become yours.
+    pub keep: bool,
+    /// "Back to the session's Page" (the page menu only): the page shown is
+    /// a session's, which its Page shows at its own size.
+    pub collapse: bool,
+}
+
 /// What a Browse right-click menu belongs to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BrowseMenuTarget {
@@ -237,6 +253,8 @@ pub enum BrowseMenuTarget {
         pinned: bool,
         /// A tab in a folder adds "Remove from folder".
         in_folder: bool,
+        /// The rows the host offers for this tab.
+        offers: MenuOffers,
     },
     /// One of your folders, by id.
     Folder(SharedString),
@@ -262,6 +280,8 @@ pub enum BrowseMenuTarget {
         devtools: bool,
         /// Annotate mode is on: the row reads "Stop annotating".
         annotating: bool,
+        /// The rows the host offers for the page shown.
+        offers: MenuOffers,
     },
 }
 
@@ -294,6 +314,12 @@ pub enum TabAction {
     Close,
     /// Close other tabs.
     CloseOthers,
+    /// Send page to session… (its title and address).
+    SendPage,
+    /// Send selection to session… (the selected text, with the page).
+    SendSelection,
+    /// Keep this tab: a session's tab becomes yours.
+    Keep,
 }
 
 /// A folder menu row.
@@ -337,6 +363,14 @@ pub enum PageAction {
     DevTools,
     /// Browser settings.
     Settings,
+    /// Send page to session… (its title and address).
+    SendPage,
+    /// Send selection to session… (the selected text, with the page).
+    SendSelection,
+    /// Keep this tab: the session's page shown becomes yours.
+    Keep,
+    /// Back to the session's Page: the page shown, at the session's size.
+    Collapse,
 }
 
 /// A space-chip menu row.

@@ -27,6 +27,8 @@ pub const CLICK_MARKER: &str = "aui-agent-click";
 pub const TYPE_MARKER: &str = "aui-agent-type";
 /// Marks a [`list_links`] script.
 pub const LINKS_MARKER: &str = "aui-agent-links";
+/// Marks [`selection_text`].
+pub const SELECTION_MARKER: &str = "aui-agent-selection";
 
 /// Encodes `value` as a JSON string literal, quotes included.
 ///
@@ -62,6 +64,15 @@ pub fn page_text(max_chars: usize) -> String {
     format!(
         "return (function () {{ /*{PAGE_TEXT_MARKER}:{max_chars}*/ var max = {max_chars}; var text = (document.body && document.body.innerText) || \"\"; \
          return {{ title: document.title, url: location.href, text: text.length > max ? text.slice(0, max) : text }}; }})()"
+    )
+}
+
+/// The page's selected text (empty with none), cut to `max_chars`
+/// characters: what a host sends as "the selection".
+pub fn selection_text(max_chars: usize) -> String {
+    format!(
+        "return (function () {{ /*{SELECTION_MARKER}*/ var s = window.getSelection ? String(window.getSelection() || \"\") : \"\"; \
+         return s.length > {max_chars} ? s.slice(0, {max_chars}) : s; }})()"
     )
 }
 

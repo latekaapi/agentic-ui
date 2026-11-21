@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use aui::workbench::Annotation;
 use gpui::SharedString;
 
-use crate::agent_js::{json_string, CLICK_MARKER, LINKS_MARKER, PAGE_TEXT_MARKER, TYPE_MARKER};
+use crate::agent_js::{json_string, CLICK_MARKER, LINKS_MARKER, PAGE_TEXT_MARKER, SELECTION_MARKER, TYPE_MARKER};
 use crate::backend::{BackendFeature, DownloadState, ElementInfo, FindState, PageAutomation, PageEvent, PageSecurity, PermissionDecision, PermissionKind, PermissionRequest, WebBackend, WebEvent, PAGE_EVENT_LIMIT};
 use crate::page::{fake_elements, FakeElement};
 
@@ -25,6 +25,10 @@ pub const HOME_TITLE: &str = "Pricing · Acme";
 /// The note a fresh pin carries until it is saved. The pane has no text input
 /// over the page yet, so this stands in for what is being typed.
 pub const PENDING_NOTE: &str = "Typing…";
+/// What the scripted page answers as its selection: one plan's line, so a
+/// host's "Send selection" has words to send.
+pub const FAKE_SELECTION: &str = "Team $24 / seat SSH + cloud VMs";
+
 /// What `document.body.innerText` reads on the scripted page: the headline,
 /// the lead and the three plan cards, one per line.
 pub const FAKE_PAGE_TEXT: &str = "Simple pricing\nStart free, upgrade when your team needs it. All plans include unlimited worktrees.\nStarter $0 / month 3 agents, local only Try free\nTeam $24 / seat SSH + cloud VMs Choose\nEnterprise Custom SSO, audit, support Contact";
@@ -348,6 +352,9 @@ impl FakeWebBackend {
                 json_string(&self.url()),
                 json_string(&text)
             ));
+        }
+        if js.contains(SELECTION_MARKER) {
+            return Ok(json_string(FAKE_SELECTION));
         }
         if js.contains(LINKS_MARKER) {
             // The scripted page has no links.
@@ -734,6 +741,13 @@ mod tests {
         assert_eq!(ask(&mut backend, 3, "document.body.innerText"), (3, Ok(json_string(FAKE_PAGE_TEXT))));
         // Drained: nothing lingers for the next take.
         assert!(backend.take_eval_results().is_empty());
+    }
+
+    #[test]
+    fn the_selection_answers_the_fixture_line() {
+        let mut backend = FakeWebBackend::new();
+        let (_, answer) = ask(&mut backend, 3, &agent_js::selection_text(20_000));
+        assert_eq!(answer, Ok(json_string(FAKE_SELECTION)));
     }
 
     #[test]

@@ -19,7 +19,7 @@ use std::rc::Rc;
 use aui::interact::{surface, Shape};
 use aui::nav::{sidebar_list_state, Grouping};
 use aui::screens::sidebar::{
-    sample_model, screen_item_count, sidebar_screen, BrowseEditing, BrowseMenu, BrowseMenuTarget, BrowseNaming, EditingState, Mode, SidebarModel,
+    sample_model, screen_item_count, sidebar_screen, BrowseEditing, BrowseMenu, BrowseMenuTarget, BrowseNaming, EditingState, MenuOffers, Mode, SidebarModel,
     SIDEBAR_WIDTH,
 };
 use aui_icons::{icon, IconName};
@@ -78,7 +78,7 @@ fn apply_steps(mut model: SidebarModel) -> SidebarModel {
             let at = |y: f32| gpui::point(px(150.0), px(y));
             if let Some(rest) = step.strip_prefix("tab-menu:") {
                 let in_folder = browse.folders.iter().any(|f| f.tabs.iter().any(|t| t.id.as_ref() == rest));
-                browse.menu = Some(BrowseMenu { target: BrowseMenuTarget::Tab { id: rest.to_string().into(), pinned: false, in_folder }, at: at(322.0) });
+                browse.menu = Some(BrowseMenu { target: BrowseMenuTarget::Tab { id: rest.to_string().into(), pinned: false, in_folder, offers: Default::default() }, at: at(322.0) });
             } else if let Some(rest) = step.strip_prefix("folder-menu:") {
                 browse.menu = Some(BrowseMenu { target: BrowseMenuTarget::Folder(rest.to_string().into()), at: at(386.0) });
             } else if let Some(rest) = step.strip_prefix("task-menu:") {
@@ -347,6 +347,35 @@ pub fn build_browse(_window: &mut Window, cx: &mut App) -> AnyElement {
     model.mode = Mode::Browse;
     let model = apply_steps(model);
     window_frame(sidebar_column("screens-sidebar-browse", model, SIDEBAR_W, WINDOW_H), site_page(cx), cx)
+}
+
+/// `screens/sidebar-browse-tab-offers`: the tab menu on a session's tab
+/// (its task folder) with every row the host can offer — Send page,
+/// Send selection, Keep this tab.
+pub fn build_browse_tab_offers(_window: &mut Window, cx: &mut App) -> AnyElement {
+    let mut model = sample_model();
+    model.mode = Mode::Browse;
+    if let Some(browse) = model.browse.as_mut() {
+        let tab = browse.task_folders.iter().flat_map(|f| f.tabs.iter()).chain(browse.tabs.iter()).next().map(|t| t.id.clone()).unwrap_or_default();
+        let offers = MenuOffers { send_page: true, send_selection: true, keep: true, collapse: false };
+        browse.menu = Some(BrowseMenu { target: BrowseMenuTarget::Tab { id: tab, pinned: false, in_folder: false, offers }, at: gpui::point(px(150.0), px(540.0 - 300.0)) });
+    }
+    let model = apply_steps(model);
+    window_frame(sidebar_column("screens-sidebar-browse-tab-offers", model, SIDEBAR_W, WINDOW_H), site_page(cx), cx)
+}
+
+/// `screens/sidebar-browse-page-offers`: the page controls' ⋯ on a
+/// session's page with every row the host can offer — Send page, Send
+/// selection, Keep this tab, Back to the session's Page.
+pub fn build_browse_page_offers(_window: &mut Window, cx: &mut App) -> AnyElement {
+    let mut model = sample_model();
+    model.mode = Mode::Browse;
+    if let Some(browse) = model.browse.as_mut() {
+        let offers = MenuOffers { send_page: true, send_selection: true, keep: true, collapse: true };
+        browse.menu = Some(BrowseMenu { target: BrowseMenuTarget::Page { safari: true, devtools: true, annotating: false, offers }, at: gpui::point(px(40.0), px(116.0)) });
+    }
+    let model = apply_steps(model);
+    window_frame(sidebar_column("screens-sidebar-browse-page-offers", model, SIDEBAR_W, WINDOW_H), site_page(cx), cx)
 }
 
 /// `screens/sidebar-newtab`: Browse mode with a new tab: the app's own

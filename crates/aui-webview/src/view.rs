@@ -99,6 +99,12 @@ pub enum WebviewIntent {
     Console,
     /// Open the page in Browse (D6's nav row).
     OpenInBrowse,
+    /// Send the page to a session (the nav row's offer, when the host
+    /// asked for it: [`WebviewPane::send_page`]).
+    SendPage,
+    /// Keep this tab: the session's page becomes the person's
+    /// ([`WebviewPane::keep_tab`]).
+    KeepTab,
     /// The person asked for a screenshot.
     Screenshot,
     /// Annotate mode was turned on or off.
@@ -1496,6 +1502,7 @@ pub struct WebviewPane {
     nav: bool,
     agent: SharedString,
     recent: Option<(bool, BarHandler)>,
+    extras: aui::workbench::PageNavExtras,
 }
 
 type BarHandler = Rc<dyn Fn(&mut Window, &mut App)>;
@@ -1503,7 +1510,7 @@ type BarHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 /// The pane for `state`: the nav row, the page with the annotator's overlays,
 /// and — only while annotate mode is on — the annotations panel.
 pub fn webview_pane(id: impl Into<ElementId>, state: &Entity<WebviewState>) -> WebviewPane {
-    WebviewPane { id: id.into(), state: state.clone(), on_intent: None, nav: true, agent: "the agent".into(), recent: None }
+    WebviewPane { id: id.into(), state: state.clone(), on_intent: None, nav: true, agent: "the agent".into(), recent: None, extras: Default::default() }
 }
 
 impl WebviewPane {
@@ -1511,6 +1518,18 @@ impl WebviewPane {
     /// the page (Baaz's Browse mode). The page fills the pane.
     pub fn without_nav(mut self) -> Self {
         self.nav = false;
+        self
+    }
+
+    /// Offers "Send page to session" in the nav row ([`WebviewIntent::SendPage`]).
+    pub fn send_page(mut self, offered: bool) -> Self {
+        self.extras.send_page = offered;
+        self
+    }
+
+    /// Offers "Keep this tab" in the nav row ([`WebviewIntent::KeepTab`]).
+    pub fn keep_tab(mut self, offered: bool) -> Self {
+        self.extras.keep_tab = offered;
         self
     }
 
@@ -1608,7 +1627,7 @@ impl RenderOnce for WebviewPane {
         let nav = {
             let nav_handler = nav_handler.clone();
             let handler = handler.clone();
-            aui::workbench::page_nav_row(
+            aui::workbench::page_nav_row_with(
                 (id.clone(), "nav"),
                 address,
                 view.backend.can_go_back(),
@@ -1616,6 +1635,7 @@ impl RenderOnce for WebviewPane {
                 annotate,
                 f32::from(view.page_size.width),
                 view.loading.then_some(0.6),
+                self.extras,
                 move |action, window, cx| {
                     use aui::workbench::PageNavAction as A;
                     let mapped = match action {
@@ -1625,13 +1645,18 @@ impl RenderOnce for WebviewPane {
                         A::FocusAddress => Some(BrowserAction::FocusUrl),
                         A::Annotate => Some(BrowserAction::ToggleAnnotate),
                         A::Screenshot => Some(BrowserAction::Screenshot),
-                        A::OpenInBrowse => None,
+                        A::OpenInBrowse | A::SendPage | A::KeepTab => None,
+                    };
+                    let intent = match action {
+                        A::SendPage => WebviewIntent::SendPage,
+                        A::KeepTab => WebviewIntent::KeepTab,
+                        _ => WebviewIntent::OpenInBrowse,
                     };
                     match mapped {
                         Some(a) => nav_handler(a, window, cx),
                         None => {
                             if let Some(h) = handler.clone() {
-                                h(WebviewIntent::OpenInBrowse, window, cx);
+                                h(intent, window, cx);
                             }
                         }
                     }

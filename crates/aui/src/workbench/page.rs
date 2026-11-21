@@ -87,6 +87,20 @@ pub enum PageNavAction {
     Screenshot,
     /// Open the page in Browse.
     OpenInBrowse,
+    /// Send the page to a session.
+    SendPage,
+    /// Keep this tab: a session's page becomes the person's.
+    KeepTab,
+}
+
+/// The nav row's optional controls, each shown only where the host says it
+/// works.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PageNavExtras {
+    /// "Send page to session".
+    pub send_page: bool,
+    /// "Keep this tab".
+    pub keep_tab: bool,
 }
 
 type NavHandler = Rc<dyn Fn(PageNavAction, &mut Window, &mut App) + 'static>;
@@ -175,6 +189,24 @@ pub fn page_nav_row(
     on_action: impl Fn(PageNavAction, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
+    page_nav_row_with(id, address, can_back, can_forward, annotating, width, loading, PageNavExtras::default(), on_action, cx)
+}
+
+/// [`page_nav_row`] with its optional controls: Send page and Keep this tab
+/// sit between Screenshot and Open in Browse when `extras` offers them.
+#[allow(clippy::too_many_arguments)]
+pub fn page_nav_row_with(
+    id: impl Into<ElementId>,
+    address: AnyElement,
+    can_back: bool,
+    can_forward: bool,
+    annotating: bool,
+    width: f32,
+    loading: Option<f32>,
+    extras: PageNavExtras,
+    on_action: impl Fn(PageNavAction, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
     let p = cx.aui().colors;
     let id: ElementId = id.into();
     let on: NavHandler = Rc::new(on_action);
@@ -201,6 +233,8 @@ pub fn page_nav_row(
             icon_button((id.clone(), "annotate"), IconName::MapPin).ghost().toggled(annotating).accessibility_label("Annotate").on_click(move |_, w, cx| on(PageNavAction::Annotate, w, cx))
         })
         .child(button("shot", IconName::Camera, "Screenshot to the composer", PageNavAction::Screenshot))
+        .when(extras.send_page, |row| row.child(button("send", IconName::MessagePlus, "Send page to session", PageNavAction::SendPage)))
+        .when(extras.keep_tab, |row| row.child(button("keep", IconName::Pin, "Keep this tab", PageNavAction::KeepTab)))
         .child(button("browse", IconName::External, "Open in Browse", PageNavAction::OpenInBrowse));
     if let Some(progress) = loading {
         // A 2 px muted bar grows under the address while the page loads.

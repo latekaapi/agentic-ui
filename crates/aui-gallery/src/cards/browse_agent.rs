@@ -277,6 +277,30 @@ pub fn build_line_answer(window: &mut Window, cx: &mut App) -> AnyElement {
         .into_any_element()
 }
 
+/// The same picker asking where a page's screenshot goes: the host's own
+/// headings and footnote, on the overlay surface alone.
+pub fn build_attach_picker(window: &mut Window, cx: &mut App) -> AnyElement {
+    use aui::browse::handoff::{handoff_height, handoff_picker, HandoffRow};
+    use aui::icons::Provider;
+    let p = cx.aui().colors;
+    let query = window.use_keyed_state("browse-attach-q", cx, |window, cx| composer_state_rows("Add to which session?", 1, 1, window, cx));
+    let sessions = vec![
+        HandoffRow { id: "s1".into(), title: "Fix login".into(), meta: "harness · 2 h".into(), provider: Some(Provider::Claude) },
+        HandoffRow { id: "s2".into(), title: "Checkout flow tests".into(), meta: "harness · yesterday".into(), provider: Some(Provider::Codex) },
+    ];
+    let projects = vec![HandoffRow { id: "p1".into(), title: "harness".into(), meta: "Claude Code".into(), provider: None }];
+    let h = handoff_height(sessions.len(), projects.len());
+    let picker = handoff_picker("browse-attach", &query, sessions, projects, 0)
+        .headings("Recent sessions", "New session in")
+        .note("Add this page to which session? It waits in its composer, unsent.");
+    div()
+        .bg(p.surface_2)
+        .rounded(px(scale::R_LG))
+        .p(px(STRIP_PAD))
+        .child(div().flex_none().h(px(h)).overflow_hidden().child(picker))
+        .into_any_element()
+}
+
 /// The handoff (harness R3 board 3a/3b): the picker beside the card that
 /// has been handed off.
 pub fn build_handoff(window: &mut Window, cx: &mut App) -> AnyElement {

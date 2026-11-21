@@ -1352,7 +1352,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
                 let c = ctx.clone();
                 let id = pin.id.clone();
                 tiles = tiles.child(
-                    div().id(ctx.child(format!("pin-wrap-{}", pin.id))).on_mouse_down(gpui::MouseButton::Right, menu_at(ctx, BrowseMenuTarget::Tab { id: pin.id.clone(), pinned: true, in_folder: false })).child(
+                    div().id(ctx.child(format!("pin-wrap-{}", pin.id))).on_mouse_down(gpui::MouseButton::Right, menu_at(ctx, BrowseMenuTarget::Tab { id: pin.id.clone(), pinned: true, in_folder: false, offers: Default::default() })).child(
                         interactive(ctx.child(format!("pin-{}", pin.id)), tile)
                             .label(pin.label.clone())
                             .on_click(move |_, w, cx| {
@@ -1429,7 +1429,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
                 .id(ctx.child(format!("tab-{}", tab.id)))
                 .role(gpui::Role::Tab)
                 .aria_label(label)
-                .on_mouse_down(gpui::MouseButton::Right, menu_at(ctx, BrowseMenuTarget::Tab { id: tab.id.clone(), pinned: false, in_folder }));
+                .on_mouse_down(gpui::MouseButton::Right, menu_at(ctx, BrowseMenuTarget::Tab { id: tab.id.clone(), pinned: false, in_folder, offers: Default::default() }));
             let highlighted = model.highlighted.as_ref() == Some(&tab.id);
             rows.push(ctx.items.wrap(index, built, StatePaint::new().selected(tab.active).highlighted(highlighted), cx));
         };
