@@ -289,11 +289,6 @@ fn report(what: &str, result: wry::Result<()>) {
 pub struct WryBackend {
     webview: WebView,
     shared: Arc<Shared>,
-    /// History depth is not observable through wry 0.55, so the pane's back
-    /// and forward controls are driven by what this backend has been asked to
-    /// do rather than by the page's real history.
-    behind: usize,
-    ahead: usize,
     /// What the native view was last told; `set_visible` is a no-op when it
     /// would not change anything, so an obscuring overlay can push the same
     /// value every frame.
@@ -363,7 +358,7 @@ impl WryBackend {
             })
             .build_as_child(parent)?;
 
-        Ok(Self { webview, shared, behind: 0, ahead: 0, visible: true })
+        Ok(Self { webview, shared, visible: true })
     }
 
     /// A child webview at `origin` with size `size`, in logical pixels
@@ -461,28 +456,19 @@ fn logical_rect(origin: (f32, f32), size: (f32, f32)) -> Rect {
 
 impl WebBackend for WryBackend {
     fn navigate(&mut self, url: &str) {
-        self.behind += 1;
-        self.ahead = 0;
         report("load_url", self.webview.load_url(url));
     }
 
     fn back(&mut self) {
-        if self.behind == 0 {
-            return;
-        }
-        self.behind -= 1;
-        self.ahead += 1;
-        // wry 0.55 has no history API; the page's own history is the history.
-        self.eval("history.back()");
+        // WebKit's own back-forward list: links, form posts, `pushState` and
+        // fragments are entries there whether or not this backend loaded them.
+        // Safety: a plain WKWebView call on the main thread, where the pane runs.
+        unsafe { self.webview.webview().goBack_(None) };
     }
 
     fn forward(&mut self) {
-        if self.ahead == 0 {
-            return;
-        }
-        self.ahead -= 1;
-        self.behind += 1;
-        self.eval("history.forward()");
+        // Safety: as in `back`.
+        unsafe { self.webview.webview().goForward_(None) };
     }
 
     fn reload(&mut self) {
@@ -515,11 +501,24 @@ impl WebBackend for WryBackend {
     }
 
     fn can_go_back(&self) -> bool {
-        self.behind > 0
+        // Safety: a WKWebView getter on the main thread.
+        unsafe { self.webview.webview().canGoBack() }
     }
 
     fn can_go_forward(&self) -> bool {
-        self.ahead > 0
+        // Safety: as in `can_go_back`.
+        unsafe { self.webview.webview().canGoForward() }
+    }
+
+    fn set_zoom(&mut self, percent: u16) {
+        // WKWebView's `pageZoom` (macOS 11+): the view keeps it across
+        // navigations, so a host that zooms per site sets it on each load.
+        report("zoom", self.webview.zoom(f64::from(percent) / 100.0));
+        locked(&self.shared.events).push(WebEvent::Zoom(percent));
+    }
+
+    fn supports(&self, feature: crate::backend::BackendFeature) -> bool {
+        matches!(feature, crate::backend::BackendFeature::Zoom)
     }
 
     fn element_info(&self, index: usize) -> Option<ElementInfo> {

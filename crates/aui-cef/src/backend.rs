@@ -146,6 +146,12 @@ struct Shared {
     pending_url: Option<String>,
     can_back: bool,
     can_forward: bool,
+    /// The page zoom [`WebBackend::set_zoom`] laid over the host's own level
+    /// as CSS `zoom` on the document root, in percent (`None`: none). The
+    /// host's zoom calls crash these windows (see `supports`), so the
+    /// backend's own zoom is the page's; load ends put it back on each
+    /// new document.
+    css_zoom: Option<u16>,
     closed: bool,
     /// The `(query, match_case)` the last [`WebBackend::find`] started, or
     /// `None` after [`WebBackend::stop_find`]. Find results carry no query of
@@ -831,6 +837,32 @@ fn zoom_for(browser: Option<&Browser>) -> u16 {
     zoom_level_to_percent(level)
 }
 
+/// What the person sees: the host's level (`host`, the Chrome-step percent
+/// Chromium's own ⌘+/⌘− set) times the CSS zoom laid over it.
+fn effective_zoom(host: u16, css: Option<u16>) -> u16 {
+    match css {
+        Some(css) => ((u32::from(host) * u32::from(css) + 50) / 100) as u16,
+        None => host,
+    }
+}
+
+/// The CSS zoom that makes `target` on top of the host's `host` level, or
+/// `None` when the host level is the target already.
+fn css_zoom_for(target: u16, host: u16) -> Option<u16> {
+    let host = host.max(1);
+    let css = ((u32::from(target) * 100 + u32::from(host) / 2) / u32::from(host)).clamp(10, 1000) as u16;
+    (css != 100).then_some(css)
+}
+
+/// The script that lays `css` (percent) on the document root; `None`
+/// takes it off.
+fn css_zoom_js(css: Option<u16>) -> String {
+    match css {
+        Some(css) => format!("document.documentElement && (document.documentElement.style.zoom = '{}')", f32::from(css) / 100.0),
+        None => String::from("document.documentElement && (document.documentElement.style.zoom = '')"),
+    }
+}
+
 /// Pushes `security` unless it repeats the last pushed value.
 fn push_security_deduped(shared: &mut Shared, security: PageSecurity) {
     if shared.last_security == Some(security) {
@@ -1129,6 +1161,7 @@ wrap_display_handler! {
                 let mut s = locked(&self.shared);
                 s.events.push(WebEvent::Url(url));
                 push_security_deduped(&mut s, security);
+                let zoom = effective_zoom(zoom, s.css_zoom);
                 s.events.push(WebEvent::Zoom(zoom));
             }
         }
@@ -1243,12 +1276,23 @@ wrap_load_handler! {
                     None => PageSecurity::Unknown,
                 };
                 let zoom = zoom_for(browser.as_deref());
-                let mut s = locked(&self.shared);
-                push_security_deduped(&mut s, security);
-                // Zoom is per-origin: the load may have landed on an origin
-                // with its own level, so re-read it here, not just on
-                // address changes.
-                s.events.push(WebEvent::Zoom(zoom));
+                let css = {
+                    let mut s = locked(&self.shared);
+                    push_security_deduped(&mut s, security);
+                    // Zoom is per-origin: the load may have landed on an origin
+                    // with its own level, so re-read it here, not just on
+                    // address changes.
+                    let effective = effective_zoom(zoom, s.css_zoom);
+                    s.events.push(WebEvent::Zoom(effective));
+                    s.css_zoom
+                };
+                // A new document has no CSS zoom of its own: lay the page's
+                // back on (a CEF call, outside the lock).
+                if css.is_some() {
+                    if let Some(frame) = browser.as_deref().and_then(|b| b.main_frame()) {
+                        frame.execute_java_script(Some(&CefString::from(css_zoom_js(css).as_str())), Some(&CefString::from("")), 0);
+                    }
+                }
             }
         }
     }
@@ -2740,8 +2784,18 @@ impl WebBackend for CefBackend {
         }
     }
 
-    fn set_zoom(&mut self, _percent: u16) {
-        // Unsupported (see `supports`): never call the host's zoom APIs.
+    fn set_zoom(&mut self, percent: u16) {
+        // Never the host's zoom APIs (see `supports`): CSS zoom on the
+        // document root, over whatever level Chromium's own keys left.
+        let browser = browser_of(&self.page);
+        let host = zoom_for(browser.as_ref());
+        let css = css_zoom_for(percent, host);
+        {
+            let mut s = locked(&self.page);
+            s.css_zoom = css;
+            s.events.push(WebEvent::Zoom(effective_zoom(host, css)));
+        }
+        self.eval(&css_zoom_js(css));
     }
 
     fn find(&mut self, query: &str, forward: bool, match_case: bool) {
@@ -2785,9 +2839,11 @@ impl WebBackend for CefBackend {
     fn supports(&self, feature: BackendFeature) -> bool {
         // Zoom through the browser host crashes inside Chromium for these
         // toolbar-less Chrome-style windows (SetZoomLevel and the zoom
-        // commands alike, found live). Until the fork, hosts hide zoom;
-        // Chromium's own ⌘+/⌘−/⌘0 still zoom a focused page.
-        !matches!(feature, BackendFeature::Zoom)
+        // commands alike, found live), so `set_zoom` zooms with CSS on the
+        // document root instead; Chromium's own ⌘+/⌘−/⌘0 still zoom a
+        // focused page through the host.
+        let _ = feature;
+        true
     }
 
     fn take_popup_backends(&mut self) -> Vec<(String, bool, Box<dyn WebBackend>)> {
@@ -2840,6 +2896,21 @@ impl WebBackend for CefBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The page zoom is the host's level times the CSS zoom laid over it,
+    /// and setting a target lays exactly what reaches it.
+    #[test]
+    fn css_zoom_reaches_the_target_over_the_hosts_level() {
+        assert_eq!(css_zoom_for(100, 100), None, "no zoom at the normal level");
+        assert_eq!(css_zoom_for(125, 100), Some(125));
+        assert_eq!(effective_zoom(100, Some(125)), 125);
+        // Chromium's own keys left 110 %: the CSS makes up the rest.
+        let css = css_zoom_for(150, 110);
+        assert_eq!(effective_zoom(110, css), 150);
+        assert_eq!(css_zoom_for(110, 110), None);
+        assert!(css_zoom_js(Some(125)).contains("'1.25'"));
+        assert!(css_zoom_js(None).contains("zoom = ''"));
+    }
 
     /// Owner screenshot 2026-10-11: Inspect's front end asked for a tab and
     /// landed in the sidebar. A `devtools:` address is never a host tab.

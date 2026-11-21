@@ -236,6 +236,17 @@ impl FakeWebBackend {
         self.queue.push(WebEvent::Zoom(percent));
     }
 
+    /// The page moves itself to `url` with `history.pushState` (or a
+    /// fragment link): a new history entry the host never asked for, which
+    /// drops the forward entries like any navigation, announced as a URL
+    /// change with no load.
+    pub fn script_push_state(&mut self, url: &str) {
+        self.history.truncate(self.position + 1);
+        self.history.push(SharedString::from(url.to_string()));
+        self.position = self.history.len() - 1;
+        self.queue.push(WebEvent::Url(url.to_owned()));
+    }
+
     /// Queues a [`WebEvent::PopupOpened`] and the popup page behind it: the
     /// next [`WebBackend::take_popup_backends`] hands back a scripted page on
     /// `url`.
@@ -615,7 +626,9 @@ impl WebBackend for FakeWebBackend {
     }
 
     fn set_zoom(&mut self, percent: u16) {
+        // A real engine answers a zoom with its new level; so does the fake.
         self.zoom_calls.push(percent);
+        self.queue.push(WebEvent::Zoom(percent));
     }
 
     fn find(&mut self, query: &str, forward: bool, match_case: bool) {

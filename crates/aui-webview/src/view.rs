@@ -458,6 +458,32 @@ impl WebviewState {
         self.backend.navigate(url);
     }
 
+    /// Steps back one entry in the engine's own history (links, form posts,
+    /// `pushState` and fragments included), as the nav row's back does.
+    pub fn go_back(&mut self) {
+        self.navigation_pending = true;
+        self.load_failed = None;
+        self.backend.back();
+    }
+
+    /// Steps forward one entry in the engine's own history.
+    pub fn go_forward(&mut self) {
+        self.navigation_pending = true;
+        self.load_failed = None;
+        self.backend.forward();
+    }
+
+    /// Whether the engine has an entry to go back to: what a host's back
+    /// control is enabled by.
+    pub fn can_go_back(&self) -> bool {
+        self.backend.can_go_back()
+    }
+
+    /// Whether the engine has an entry to go forward to.
+    pub fn can_go_forward(&self) -> bool {
+        self.backend.can_go_forward()
+    }
+
     /// Pins `points` (page coordinates) as clicks would, and saves each with
     /// the note beside it. This is how a card opens on a page that already has
     /// annotations on it, without a second code path for seeded pins.
@@ -1300,15 +1326,11 @@ impl WebviewState {
         cx.notify();
         match action {
             BrowserAction::Back => {
-                self.navigation_pending = true;
-                self.load_failed = None;
-                self.backend.back();
+                self.go_back();
                 None
             }
             BrowserAction::Forward => {
-                self.navigation_pending = true;
-                self.load_failed = None;
-                self.backend.forward();
+                self.go_forward();
                 None
             }
             BrowserAction::Reload => {
@@ -2066,6 +2088,12 @@ mod tests {
         fn stop(&mut self) {
             self.0.borrow_mut().stop();
         }
+        fn can_go_back(&self) -> bool {
+            self.0.borrow().can_go_back()
+        }
+        fn can_go_forward(&self) -> bool {
+            self.0.borrow().can_go_forward()
+        }
         fn set_zoom(&mut self, percent: u16) {
             self.0.borrow_mut().set_zoom(percent);
         }
@@ -2158,7 +2186,44 @@ mod tests {
         state.update(cx, |state, _| {
             assert_eq!(state.crashed(), None);
             assert_eq!(state.security(), PageSecurity::Secure);
-            assert_eq!(state.zoom(), 125);
+            assert_eq!(state.zoom(), 150, "the engine answered the zoom with its new level");
+        });
+    }
+
+    /// Back and forward are the engine's own history: an entry the page
+    /// made itself (`pushState`, a fragment) is one step, and the controls'
+    /// enabled state comes from the engine, not from what the host asked.
+    #[gpui::test]
+    fn back_and_forward_walk_the_engines_history(cx: &mut gpui::TestAppContext) {
+        use gpui::AppContext as _;
+        let fake = Rc::new(RefCell::new(FakeWebBackend::new()));
+        let state = cx.new(|cx| WebviewState::new(Box::new(SharedFake(fake.clone())), cx));
+        let settle = |cx: &mut gpui::TestAppContext| {
+            state.update(cx, |state, _| {
+                let _ = state.apply_pending();
+            })
+        };
+        state.update(cx, |state, _| state.navigate("https://a.example/"));
+        settle(cx);
+        // The page moves itself: the host never navigated there.
+        fake.borrow_mut().script_push_state("https://a.example/#step-2");
+        settle(cx);
+        state.update(cx, |state, _| {
+            assert_eq!(state.url().as_ref(), "https://a.example/#step-2");
+            assert!(state.can_go_back(), "the page's own entry is one to go back from");
+            assert!(!state.can_go_forward());
+            state.go_back();
+        });
+        settle(cx);
+        state.update(cx, |state, _| {
+            assert_eq!(state.url().as_ref(), "https://a.example/", "one step back is the page's own entry, not the host's last navigate");
+            assert!(state.can_go_forward());
+            state.go_forward();
+        });
+        settle(cx);
+        state.update(cx, |state, _| {
+            assert_eq!(state.url().as_ref(), "https://a.example/#step-2");
+            assert!(!state.can_go_forward());
         });
     }
 
