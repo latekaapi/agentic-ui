@@ -731,6 +731,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::d6_quote::build,
     },
     Entry {
+        id: "transcript/find-marks",
+        group: "Transcript",
+        title: "Find marks",
+        subtitle: "A transcript find's matches painted in a message: every match tinted, the current one stronger, in prose, a list and a fenced block (docs/82 7.5)",
+        width: 640.0,
+        height: 380.0,
+        theme: CardTheme::Both,
+        build: crate::cards::find_marks::build,
+    },
+    Entry {
         id: "workbench/d7-line-quote",
         group: "Workbench",
         title: "Quote lines from the pane",

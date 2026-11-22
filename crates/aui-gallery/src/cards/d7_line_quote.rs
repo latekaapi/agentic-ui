@@ -1,6 +1,7 @@
 //! Quote lines from the pane (docs/82 7.1): line selection in the Changes
 //! diff and the file preview, the selection bar hung over the selected
-//! lines, the composer's quote carrying the path and line range, and the
+//! lines (level with them, at their end: never over a line that is not
+//! selected), the composer's quote carrying the path and line range, and the
 //! sent bubble naming where the lines came from. Live: press a line, drag
 //! or shift-click to extend; Quote clears the selection here.
 
@@ -95,7 +96,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> AnyElement {
         s.selected = None;
         cx.notify();
     }), window, cx);
-    let diff_view = div().pt(px(48.0)).px(px(12.0)).child(diff).into_any_element();
+    let diff_view = div().pt(px(8.0)).px(px(12.0)).child(diff).into_any_element();
 
     // The preview, lines 6–8 held.
     let code_state = window.use_keyed_state("d7-code-sel", cx, |_, _| Sample { selected: Some(5..8), body: None });

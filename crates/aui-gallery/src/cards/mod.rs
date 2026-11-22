@@ -17,6 +17,7 @@ pub mod composer;
 pub mod dialog;
 pub mod diff_review;
 pub mod files_docs;
+pub mod find_marks;
 pub mod folder_drop;
 pub mod git_pr;
 pub mod gutter;

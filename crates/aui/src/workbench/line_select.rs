@@ -26,7 +26,7 @@ use std::rc::Rc;
 use gpui::{div, prelude::*, px, AnyElement, App, Bounds, ClickEvent, ElementId, Entity, MouseButton, Pixels, Window};
 use gpui_kit::base::ElementExt as _;
 
-use crate::transcript::{quote_bar, QUOTE_BAR_GAP, QUOTE_BAR_H, QUOTE_BAR_TOP_CLEARANCE};
+use crate::transcript::{quote_bar, QUOTE_BAR_H};
 
 /// A line selection's report: the new range over the view's selectable
 /// lines (end exclusive, never empty).
@@ -199,17 +199,17 @@ fn close(a: Option<f32>, b: Option<f32>) -> bool {
 
 /// The bar's top in a body `height` tall, for a selection whose first line
 /// starts at `first_top` and whose last ends at `last_bottom` (body
-/// coordinates; `None` for a line not drawn). Above the first line when that
-/// clears the body's top by 38 (the transcript's rule), else under the last
-/// line, else above anyway; `None` when neither end is in view.
+/// coordinates; `None` for a line not drawn). The bar sits **beside** the
+/// selection, level with its first line (the end of that line, see
+/// [`line_quote_bar`]), so it never hides a line the person did not select —
+/// hung above, it covered the line over the selection (22 Nov). When the first
+/// line has scrolled off the top, it stays level with the last line's foot
+/// instead; `None` when neither end is in view.
 pub fn line_bar_top(first_top: Option<f32>, last_bottom: Option<f32>, height: f32) -> Option<f32> {
-    let fits = |t: f32| t >= 0.0 && t + QUOTE_BAR_H <= height;
-    let above = first_top.map(|f| f - QUOTE_BAR_GAP - QUOTE_BAR_H);
-    let below = last_bottom.map(|l| l + QUOTE_BAR_GAP);
-    match (above, below) {
-        (Some(a), _) if a >= QUOTE_BAR_TOP_CLEARANCE && fits(a) => Some(a),
-        (_, Some(b)) if fits(b) => Some(b),
-        (Some(a), _) if fits(a) => Some(a),
+    let lowest = (height - QUOTE_BAR_H).max(0.0);
+    match (first_top, last_bottom) {
+        (Some(first), _) if first < height => Some(first.clamp(0.0, lowest)),
+        (None, Some(last)) if last > 0.0 => Some((last - QUOTE_BAR_H).clamp(0.0, lowest)),
         _ => None,
     }
 }
@@ -241,7 +241,9 @@ pub fn line_quote_bar(
             let top = line_bar_top(span.first_top.map(|t| t - origin_y), span.last_bottom.map(|b| b - origin_y), f32::from(body.size.height));
             top.map(|top| {
                 let width = f32::from(body.size.width);
-                let left = (span.left - f32::from(body.origin.x)).clamp(8.0, (width - 120.0).max(8.0));
+                // Right-aligned: the end of the line is the part of a code line
+                // that is usually empty.
+                let left = (width - 120.0).max(8.0);
                 (top, left)
             })
         }
@@ -298,15 +300,18 @@ mod tests {
     }
 
     #[test]
-    fn the_bar_hangs_above_then_below_then_hides() {
-        // Room above: 6 above the first line.
-        assert_eq!(line_bar_top(Some(200.0), Some(260.0), 600.0), Some(162.0));
-        // Too near the top: under the last line.
-        assert_eq!(line_bar_top(Some(40.0), Some(100.0), 600.0), Some(106.0));
-        // The last line is off the foot: above, even near the top.
-        assert_eq!(line_bar_top(Some(40.0), None, 600.0), Some(2.0));
-        // Only the last line in view (the first scrolled off the top).
-        assert_eq!(line_bar_top(None, Some(80.0), 600.0), Some(86.0));
+    fn the_bar_sits_level_with_the_selection_never_above_it() {
+        // Level with the first line, wherever it is.
+        assert_eq!(line_bar_top(Some(200.0), Some(260.0), 600.0), Some(200.0));
+        assert_eq!(line_bar_top(Some(40.0), Some(100.0), 600.0), Some(40.0));
+        // A first line a little above the body's top (partly scrolled): the top edge.
+        assert_eq!(line_bar_top(Some(-8.0), Some(60.0), 600.0), Some(0.0));
+        // Near the foot: kept inside the body.
+        assert_eq!(line_bar_top(Some(590.0), Some(610.0), 600.0), Some(568.0));
+        // The last line is off the foot: still level with the first.
+        assert_eq!(line_bar_top(Some(40.0), None, 600.0), Some(40.0));
+        // Only the last line in view (the first scrolled off the top): ends at its foot.
+        assert_eq!(line_bar_top(None, Some(80.0), 600.0), Some(48.0));
         // Neither end in view.
         assert_eq!(line_bar_top(None, None, 600.0), None);
         assert_eq!(line_bar_top(Some(900.0), Some(960.0), 600.0), None);
