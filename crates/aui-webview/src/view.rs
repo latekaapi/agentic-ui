@@ -2866,6 +2866,11 @@ mod tests {
         });
         let narrow = aui::data::take_ax_labels();
         assert!(!narrow.iter().any(|label| label == "Back" || label == "Forward"), "back / forward leave under 300 px (docs/43 §2.7), got {narrow:?}");
+        assert!(
+            !narrow.iter().any(|label| label == "Annotate" || label == "Screenshot to the composer"),
+            "annotate and screenshot leave under 300 px so the address can read (it showed \"ex…\" at 280), got {narrow:?}"
+        );
+        assert!(narrow.iter().any(|label| label == "Reload") && narrow.iter().any(|label| label == "Open in Browse"), "reload and Open in Browse stay, got {narrow:?}");
         aui::data::arm_ax_probe(false);
     }
 

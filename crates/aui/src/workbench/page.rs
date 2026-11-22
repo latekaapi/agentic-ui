@@ -25,7 +25,8 @@ use crate::data::{icon_button, spinner};
 /// the pane's tab row (which carries ✕), so the sub-header's 36 incl. its
 /// line.
 pub const PAGE_NAV_H: f32 = scale::SUB_HEADER;
-/// Under this pane width back / forward leave the nav row.
+/// Under this pane width back / forward, Annotate, Screenshot, Send and Keep
+/// leave the nav row (the address needs the room).
 pub const PAGE_NAV_NARROW: f32 = 300.0;
 
 /// Where the address field starts in the bar, from the pane's left edge:
@@ -225,17 +226,22 @@ pub fn page_nav_row_with(
                 dead_button((id.clone(), "forward").into(), IconName::ArrowRight, "Forward", cx).into_any_element()
             });
     }
-    row = row
-        .child(button("reload", IconName::Refresh, "Reload", PageNavAction::Reload))
-        .child(address)
-        .child({
-            let on = on.clone();
-            icon_button((id.clone(), "annotate"), IconName::MapPin).ghost().toggled(annotating).accessibility_label("Annotate").on_click(move |_, w, cx| on(PageNavAction::Annotate, w, cx))
-        })
-        .child(button("shot", IconName::Camera, "Screenshot to the composer", PageNavAction::Screenshot))
-        .when(extras.send_page, |row| row.child(button("send", IconName::MessagePlus, "Send page to session", PageNavAction::SendPage)))
-        .when(extras.keep_tab, |row| row.child(button("keep", IconName::Pin, "Keep this tab", PageNavAction::KeepTab)))
-        .child(button("browse", IconName::External, "Open in Browse", PageNavAction::OpenInBrowse));
+    row = row.child(button("reload", IconName::Refresh, "Reload", PageNavAction::Reload)).child(address);
+    // Under [`PAGE_NAV_NARROW`] the row keeps reload, the address and Open in
+    // Browse: with Annotate, Screenshot, Send and Keep beside it the address
+    // had room for "ex…" at 280 px. Those four are one Open in Browse away
+    // (the page menu there carries them all).
+    if !narrow {
+        row = row
+            .child({
+                let on = on.clone();
+                icon_button((id.clone(), "annotate"), IconName::MapPin).ghost().toggled(annotating).accessibility_label("Annotate").on_click(move |_, w, cx| on(PageNavAction::Annotate, w, cx))
+            })
+            .child(button("shot", IconName::Camera, "Screenshot to the composer", PageNavAction::Screenshot))
+            .when(extras.send_page, |row| row.child(button("send", IconName::MessagePlus, "Send page to session", PageNavAction::SendPage)))
+            .when(extras.keep_tab, |row| row.child(button("keep", IconName::Pin, "Keep this tab", PageNavAction::KeepTab)));
+    }
+    row = row.child(button("browse", IconName::External, "Open in Browse", PageNavAction::OpenInBrowse));
     if let Some(progress) = loading {
         // A 2 px muted bar grows under the address while the page loads.
         row = row.child(div().absolute().left(px(0.0)).bottom(px(0.0)).h(px(2.0)).w(relative(progress.clamp(0.0, 1.0))).bg(p.fg_muted));
