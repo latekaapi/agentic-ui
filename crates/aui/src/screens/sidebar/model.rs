@@ -332,7 +332,7 @@ pub enum FolderAction {
     Rename,
     /// Close its tabs.
     CloseTabs,
-    /// Delete folder (its tabs move up into Today).
+    /// Delete folder (its tabs move up into Open tabs).
     Delete,
 }
 
@@ -466,7 +466,7 @@ pub struct BrowseModel {
     pub can_go_forward: bool,
     /// The pinned sites, as tiles.
     pub pins: Vec<BrowsePin>,
-    /// Today's tabs.
+    /// The open tabs (the "Open tabs" section; "Today" is a date only).
     pub tabs: Vec<BrowseTab>,
     /// Your folders after them.
     pub folders: Vec<BrowseFolder>,

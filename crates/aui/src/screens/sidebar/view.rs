@@ -71,6 +71,11 @@ const BROWSE_BASE: usize = 500;
 /// The task pane's rows (after Browse's scrolling rows, before the virtual
 /// sessions): their own clip range.
 const TASK_BASE: usize = 800;
+/// The Browse sidebar's tabs section. It lists the tabs you have open, not the
+/// day's: "Today" is a date (Sessions' bucket, History's heading) and the two
+/// meanings were one word (22 Nov).
+pub const BROWSE_TABS_SECTION: &str = "Open tabs";
+
 /// The Pinned label's hover key (a reserved chrome key, like `"search"`).
 const PINNED_KEY: &str = "pinned-head";
 
@@ -450,7 +455,7 @@ impl Ctx {
 
     /// A section title: a group label (`control_md` tall, Caption muted,
     /// sentence case, no rule) with `SP_4` above and its label at 18;
-    /// optional count (Browse's Today) and hover actions.
+    /// optional count (Browse's Open tabs) and hover actions.
     fn section(&self, label: &str, count: Option<SharedString>, actions: Option<AnyElement>, cx: &App) -> gpui::Div {
         let p = cx.aui().colors;
         let mut head = h_flex()
@@ -1395,7 +1400,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
                 c.emit(SidebarIntent::Browse(BrowseIntent::OpenMenu(BrowseMenu { target: target.clone(), at: event.position })), w, cx);
             }
         };
-        // Pins, Today's tabs, your folders and New tab, built for the
+        // Pins, the open tabs, your folders and New tab, built for the
         // scrolling area below the fixed address / controls / search rows.
         let mut scroll_rows: Vec<AnyElement> = Vec::new();
         // Pinned sites as tiles, only when the space has any.
@@ -1436,7 +1441,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
             scroll_rows.push(tiles.into_any_element());
             next += 1;
         }
-        // Today: your tabs and folders, with new-folder / close-all while hovered.
+        // Open tabs: your tabs and folders, with new-folder / close-all while hovered.
         let today_actions = browse.hovered_today_header.then(|| {
             h_flex()
                 .flex_none()
@@ -1448,7 +1453,7 @@ fn build_list(ctx: &Ctx, mut list: RowList, window: &mut Window, cx: &mut App) -
         let tab_total = browse.tabs.len() + browse.folders.iter().map(|f| f.tabs.len()).sum::<usize>();
         let hover_ctx = ctx.clone();
         let today = ctx
-            .section("Today", (tab_total > 0).then(|| tab_total.to_string().into()), today_actions, cx)
+            .section(BROWSE_TABS_SECTION, (tab_total > 0).then(|| tab_total.to_string().into()), today_actions, cx)
             .id(ctx.child("today-head"))
             .on_hover(move |hovered: &bool, w: &mut Window, cx: &mut App| {
                 hover_ctx.emit(SidebarIntent::Browse(BrowseIntent::HoverTodayHeader(*hovered)), w, cx);
@@ -2126,6 +2131,12 @@ fn projects_header_bottom(model: &SidebarModel, cx: &App) -> Pixels {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn browse_tabs_are_not_called_today() {
+        assert_eq!(super::BROWSE_TABS_SECTION, "Open tabs");
+        assert_ne!(super::BROWSE_TABS_SECTION, "Today", "Today is a date; the section lists open tabs");
+    }
+
     use super::*;
     use crate::nav::{Byline, RowStatus, RowStatusKind};
 
