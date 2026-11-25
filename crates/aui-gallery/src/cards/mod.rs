@@ -44,6 +44,7 @@ pub mod secret_field;
 pub mod selection;
 pub mod sidebar;
 pub mod sidebar_virtual;
+pub mod memory;
 pub mod skills;
 pub mod summary_status;
 pub mod terminal;
