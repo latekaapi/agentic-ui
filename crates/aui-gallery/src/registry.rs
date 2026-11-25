@@ -965,6 +965,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::skills::build_page,
     },
     Entry {
+        id: "skills/catalog",
+        group: "Skills",
+        title: "Skills across providers",
+        subtitle: "One row per skill from every skill folder: where it lives and each provider's own switch; \"pasted\" where a provider loads no folder (harness docs/85 16.2)",
+        width: 900.0,
+        height: 320.0,
+        theme: CardTheme::Both,
+        build: crate::cards::skills::build_catalog,
+    },
+    Entry {
         id: "skills/row-narrow",
         group: "Skills",
         title: "Skills row, narrow column",

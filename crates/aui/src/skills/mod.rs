@@ -11,12 +11,14 @@
 //! app imports them from this path. The mode chip is the data
 //! [`crate::data::chip`] with the chip + menu pattern.
 
+mod catalog;
 mod controls;
 mod import;
 mod row;
 mod sections;
 
 pub use crate::data::{checkbox, segmented, switch, Checkbox, CheckboxIntent, CheckboxState, Segmented, Switch, SwitchIntent};
+pub use catalog::{catalog_row, CatalogIntent, CatalogProvider, CatalogReach, CatalogRow, CatalogRowModel};
 pub use controls::mode_chip;
 pub use import::{
     added_tokens, default_primary_label, format_tokens, import_preview, menu_row_two_line, selected_rows, ImportPreview,
