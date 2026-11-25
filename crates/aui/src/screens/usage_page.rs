@@ -108,7 +108,7 @@ impl RenderOnce for UsagePage {
         let p = cx.aui().colors;
         let m = self.model;
         let id = |s: &str| ElementId::from((self.id.clone(), SharedString::from(s.to_owned())));
-        let mut cards = h_flex().w_full().flex_wrap().items_start().gap(px(scale::SP_3));
+        let mut cards = h_flex().w_full().items_start().gap(px(scale::SP_3));
         for (i, l) in m.limits.iter().enumerate() {
             let mut card = usage_card(id(&format!("limits-{i}")), l.provider, l.windows.clone());
             if let Some(plan) = &l.plan {
@@ -117,8 +117,8 @@ impl RenderOnce for UsagePage {
             if let Some(as_of) = &l.as_of {
                 card = card.as_of(as_of.clone());
             }
-            // Three to a row on the Settings measure.
-            cards = cards.child(div().w(px(scale::SP_7 * 9.0)).child(card));
+            // Equal columns, one row for the usual three providers.
+            cards = cards.child(div().flex_1().min_w(px(0.0)).child(card));
         }
         let handler = self.on_intent.clone();
         let range = segmented(id("range"), USAGE_RANGES.iter().map(|s| SharedString::from(*s)).collect(), m.range)
