@@ -895,6 +895,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::memory::build_page,
     },
     Entry {
+        id: "goals/pill",
+        group: "Goals",
+        title: "Goal pill",
+        subtitle: "Above the composer while a session works toward a goal: condition, state, time, turns, tokens, the latest check, Pause/Resume and Stop; criteria when the session has them; the offer chip (harness docs/85 15.1, 15.2)",
+        width: 760.0,
+        height: 840.0,
+        theme: CardTheme::Both,
+        build: crate::cards::goals::build,
+    },
+    Entry {
         id: "workers/sidebar",
         group: "Workers",
         title: "Workers in the sidebar",

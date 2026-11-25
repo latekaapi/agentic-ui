@@ -46,6 +46,7 @@ pub mod sidebar;
 pub mod sidebar_virtual;
 pub mod memory;
 pub mod workers;
+pub mod goals;
 pub mod skills;
 pub mod summary_status;
 pub mod terminal;
