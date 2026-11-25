@@ -11,7 +11,8 @@ use aui_tokens::{scale, ActiveAui, AuiStyled, Palette, TextRole};
 use gpui::{div, prelude::*, px, App, ElementId, Hsla, IntoElement, SharedString, Window};
 use gpui_kit::base::{h_flex, v_flex};
 
-use crate::data::{button, record_ax_label};
+use crate::data::{button, icon_button, record_ax_label};
+use crate::icons::IconName;
 use crate::transcript::card::transcript_card;
 use crate::transcript::workers::{CriterionLine, CriterionState};
 
@@ -171,6 +172,83 @@ impl RenderOnce for GoalPill {
             header = header.body(body);
         }
         header
+    }
+}
+
+/// What the offer chip's controls ask for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GoalOfferAction {
+    /// Set the offered goal.
+    Accept,
+    /// Set nothing.
+    Dismiss,
+}
+
+type OfferHandler = Rc<dyn Fn(GoalOfferAction, &mut Window, &mut App)>;
+
+/// The one-tap chip above the composer when a message names a possible end
+/// ("make the login test pass"): "Keep going until …?", which sets nothing
+/// by itself (harness docs/85 15.1). Build with [`goal_offer`].
+#[derive(IntoElement)]
+pub struct GoalOffer {
+    id: ElementId,
+    condition: SharedString,
+    on_action: Option<OfferHandler>,
+}
+
+/// The chip offering `condition` as a goal.
+pub fn goal_offer(id: impl Into<ElementId>, condition: impl Into<SharedString>) -> GoalOffer {
+    GoalOffer { id: id.into(), condition: condition.into(), on_action: None }
+}
+
+impl GoalOffer {
+    /// What a control asks for.
+    pub fn on_action(mut self, f: impl Fn(GoalOfferAction, &mut Window, &mut App) + 'static) -> Self {
+        self.on_action = Some(Rc::new(f));
+        self
+    }
+}
+
+impl RenderOnce for GoalOffer {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let p = cx.aui().colors;
+        let question: SharedString = format!("Keep going until {}?", self.condition).into();
+        record_ax_label(&question);
+        let act = |action: GoalOfferAction| {
+            let handler = self.on_action.clone();
+            move |_: &gpui::ClickEvent, w: &mut Window, cx: &mut App| {
+                if let Some(h) = handler.as_ref() {
+                    h(action, w, cx);
+                }
+            }
+        };
+        let accept_label = format!("Keep going until {} is met", self.condition);
+        let dismiss_label = "Dismiss the goal offer".to_owned();
+        record_ax_label(&accept_label);
+        record_ax_label(&dismiss_label);
+        h_flex()
+            .id(self.id.clone())
+            .w_full()
+            .gap(px(scale::SP_2))
+            .items_center()
+            .px(px(scale::SP_3))
+            .py(px(scale::SP_1))
+            .rounded(px(scale::SP_2))
+            .border_1()
+            .border_color(p.line)
+            .child(div().flex_1().min_w(px(0.0)).truncate().role_in(TextRole::Caption, cx).text_color(p.fg).child(question))
+            .child(
+                button(ElementId::from((self.id.clone(), SharedString::from("accept"))), "Keep going")
+                    .sm()
+                    .accessibility_label(accept_label)
+                    .on_click(act(GoalOfferAction::Accept)),
+            )
+            .child(
+                icon_button(ElementId::from((self.id.clone(), SharedString::from("dismiss"))), IconName::X)
+                    .ghost()
+                    .accessibility_label(dismiss_label)
+                    .on_click(act(GoalOfferAction::Dismiss)),
+            )
     }
 }
 

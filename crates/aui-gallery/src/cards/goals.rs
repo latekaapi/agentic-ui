@@ -3,7 +3,7 @@
 //! with its latest check, met, paused at a budget, waiting for a usage
 //! limit, and with the session's acceptance criteria.
 
-use aui::transcript::{goal_pill, CriterionLine, CriterionState, GoalPillModel, GoalPillState};
+use aui::transcript::{goal_offer, goal_pill, CriterionLine, CriterionState, GoalPillModel, GoalPillState};
 use aui_tokens::{scale, ActiveAui, AuiStyled, TextRole};
 use gpui::{div, prelude::*, px, AnyElement, App, Window};
 use gpui_kit::base::v_flex;
@@ -40,5 +40,7 @@ pub fn build(_window: &mut Window, cx: &mut App) -> AnyElement {
         .child(goal_pill("goal-paused", model(GoalPillState::BudgetReached, Some("Reached 3 hours: Resume to keep going"), false)))
         .child(caption("Waiting for the usage limit"))
         .child(goal_pill("goal-usage", model(GoalPillState::UsageWait, Some("Resumes by itself at 14:05"), false)))
+        .child(caption("Offered: a possible end, set by one tap"))
+        .child(goal_offer("goal-offer", "the login test passes"))
         .into_any_element()
 }
