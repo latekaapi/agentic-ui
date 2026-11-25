@@ -391,3 +391,29 @@ pub fn build_import_preview(_window: &mut Window, _cx: &mut App) -> AnyElement {
     )
     .into_any_element()
 }
+
+/// `skills/catalog` (harness docs/85 16.2): one row per skill across
+/// providers — where it lives and each provider's own switch, or "pasted"
+/// for a provider that loads no skill folder.
+pub fn build_catalog(_window: &mut Window, cx: &mut App) -> AnyElement {
+    use aui::skills::{catalog_row, CatalogProvider, CatalogReach, CatalogRowModel};
+    let p = cx.aui().colors;
+    let prov = |id: &str, name: &str, reach: CatalogReach| CatalogProvider { id: id.to_owned().into(), name: name.to_owned().into(), reach };
+    let row = |id: &str, name: &str, desc: &str, place: &str, providers: Vec<CatalogProvider>| {
+        catalog_row(CatalogRowModel { id: id.to_owned().into(), name: name.to_owned().into(), description: desc.to_owned().into(), place: place.to_owned().into(), providers })
+    };
+    let muse = || prov("muse", "Muse", CatalogReach::Pasted);
+    gpui_kit::base::v_flex()
+        .w(gpui::px(860.0))
+        .p(gpui::px(aui_tokens::scale::SP_6))
+        .bg(p.bg)
+        .child(row("shared-review", "review-pr", "Review a pull request against the team checklist", "~/.agents/skills",
+            vec![prov("claude-code", "Claude Code", CatalogReach::Loads { on: true }), prov("codex", "Codex", CatalogReach::Loads { on: false }), muse()]))
+        .child(div().h(gpui::px(1.0)).w_full().bg(p.line))
+        .child(row("deploy", "deploy", "Ship the web app to staging", ".agents/skills",
+            vec![prov("codex", "Codex", CatalogReach::Loads { on: true }), muse()]))
+        .child(div().h(gpui::px(1.0)).w_full().bg(p.line))
+        .child(row("claude-notes", "release-notes", "Draft release notes from the merged PRs", "~/.claude/skills",
+            vec![prov("claude-code", "Claude Code", CatalogReach::Loads { on: true }), muse()]))
+        .into_any_element()
+}

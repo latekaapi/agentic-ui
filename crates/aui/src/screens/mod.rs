@@ -14,6 +14,7 @@ mod login;
 mod providers;
 mod setup_sheet;
 pub mod sidebar;
+mod usage_page;
 
 pub use login::{login, Login, LoginIntent, LoginMethod, LoginState};
 pub use providers::{
@@ -23,6 +24,7 @@ pub use providers::{
     ProviderHeadline, ProviderIntent, SignedOutBanner, StatusLine, StatusTone, UsageCard,
     UsageRowData, UsageRowState, UsageWindow,
 };
+pub use usage_page::{usage_page, UsageIntent, UsageLimits, UsageLine, UsagePage, UsagePageModel, USAGE_BLURB, USAGE_RANGES, USAGE_SPLITS};
 pub use setup_sheet::{
     dialog_sheet, setup_sheet, sheet_frame, sheet_scrim, SetupSheet, SetupStatus, SheetFrame, SETUP_W, SHEET_PAD_X, SIGN_IN_W,
 };

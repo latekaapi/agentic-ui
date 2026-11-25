@@ -651,6 +651,9 @@ pub enum AccountAction {
     Settings,
     /// Providers…
     Providers,
+    /// Usage…: every provider's limits and the spend, on one page
+    /// (harness docs/85 16.1).
+    Usage,
     /// Sign out.
     SignOut,
 }
