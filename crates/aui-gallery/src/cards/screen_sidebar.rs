@@ -552,3 +552,26 @@ pub fn build_compact(window: &mut Window, cx: &mut App) -> AnyElement {
     let model = apply_steps(sample_model());
     v_flex().child(sidebar_column("screens-sidebar-compact", model, SIDEBAR_W, COLUMN_H)).into_any_element()
 }
+
+/// `workers/sidebar` (harness docs/85 14.9): a lead session with its three
+/// workers nested under it, each with its own live state — one working,
+/// one waiting on the person, one passed — in the populated window.
+pub fn build_workers(_window: &mut Window, cx: &mut App) -> AnyElement {
+    use aui::nav::{RowStatusKind, SessionSummary};
+    use aui_tokens::AgentState;
+    let mut model = sample_model();
+    if let Grouping::Project(groups) = model.grouping.as_ref() {
+        let mut groups = groups.clone();
+        if let Some(session) = groups.first_mut().and_then(|g| g.sessions.iter_mut().find(|s| s.id.as_ref() == "token-ladder")) {
+            session.name = "Lakshya's 15 questions".into();
+            *session = session
+                .clone()
+                .child(SessionSummary::new("w-write", "Write 15 questions · Sonnet", AgentState::Running, "4m").pulse().status(RowStatusKind::Working, "Writing questions.md"))
+                .child(SessionSummary::new("w-review", "Review them · Codex", AgentState::Waiting, "").status(RowStatusKind::NeedsApproval, "Keep question 7?"))
+                .child(SessionSummary::new("w-import", "Import approved ones · Muse", AgentState::Idle, "1m"));
+        }
+        model.grouping = Rc::new(Grouping::Project(groups));
+    }
+    model.selected = Some("token-ladder".into());
+    window_frame(sidebar_column("workers-sidebar", apply_steps(model), SIDEBAR_W, WINDOW_H), pane(cx), cx)
+}

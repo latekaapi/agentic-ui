@@ -514,6 +514,31 @@ impl Ctx {
     /// list's item box, never from the row; the title keeps its weight when
     /// selected (docs/83 §4: selection is the fill).
     fn session_row(&self, session: &SessionSummary, window: &mut Window, cx: &mut App) -> AnyElement {
+        let row = self.session_row_at(session, false, window, cx);
+        if session.children.is_empty() {
+            return row;
+        }
+        // A lead's workers (harness docs/85 14.9): one indented row each,
+        // right under it, each selecting its own session.
+        let mut col = v_flex().w_full().child(row);
+        for child in &session.children {
+            let ctx = self.clone();
+            let id = child.id.clone();
+            col = col.child(
+                div()
+                    .w_full()
+                    .on_mouse_down(gpui::MouseButton::Left, move |_, w, cx| {
+                        cx.stop_propagation();
+                        ctx.emit(SidebarIntent::Select(id.clone()), w, cx);
+                    })
+                    .child(self.session_row_at(child, true, window, cx)),
+            );
+        }
+        col.into_any_element()
+    }
+
+    /// One session row; `nested` indents it one step under its lead.
+    fn session_row_at(&self, session: &SessionSummary, nested: bool, window: &mut Window, cx: &mut App) -> AnyElement {
         let p = cx.aui().colors;
         let metrics = cx.aui().metrics;
         let id = session.id.clone();
@@ -542,7 +567,7 @@ impl Ctx {
             .h(session_row_height(second.is_some(), cx))
             .items_center()
             .gap(metrics.gap)
-            .pl(px(ROW_PAD_X))
+            .pl(px(ROW_PAD_X) + if nested { metrics.inset } else { px(0.0) })
             .pr(px(scale::SP_2))
             .role(gpui::Role::ListItem)
             .aria_label(label)
