@@ -482,6 +482,7 @@ pub fn account_menu(id: impl Into<ElementId>, account: &Account, width: Pixels, 
         vec![
             MenuRow::new("Settings…", SidebarIntent::AccountAction(AccountAction::Settings)).keys("⌘,").after_separator(),
             MenuRow::new("Providers…", SidebarIntent::AccountAction(AccountAction::Providers)),
+            MenuRow::new("Usage…", SidebarIntent::AccountAction(AccountAction::Usage)),
         ],
         &on_intent,
     );
