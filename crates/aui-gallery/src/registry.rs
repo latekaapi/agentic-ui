@@ -895,6 +895,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::memory::build_page,
     },
     Entry {
+        id: "usage/page",
+        group: "Usage",
+        title: "Usage page",
+        subtitle: "Settings › Usage: each provider's limits (plan, a bar per window, its reset) and the ledger's tokens, cache % and cost over 7/30/90 days by day, model, project or provider (harness docs/85 16.1)",
+        width: 1000.0,
+        height: 820.0,
+        theme: CardTheme::Both,
+        build: crate::cards::usage::build_page,
+    },
+    Entry {
         id: "goals/pill",
         group: "Goals",
         title: "Goal pill",

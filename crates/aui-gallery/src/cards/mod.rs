@@ -45,6 +45,7 @@ pub mod selection;
 pub mod sidebar;
 pub mod sidebar_virtual;
 pub mod memory;
+pub mod usage;
 pub mod workers;
 pub mod goals;
 pub mod skills;
