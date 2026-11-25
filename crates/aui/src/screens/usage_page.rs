@@ -40,6 +40,9 @@ pub struct UsageLine {
     pub cost: SharedString,
 }
 
+/// The page's one-line description (the app's Settings header uses it too).
+pub const USAGE_BLURB: &str = "Each provider's limits, and what your sessions spent, from Baaz's own record.";
+
 /// The ranges the table offers, in order.
 pub const USAGE_RANGES: [&str; 3] = ["7 days", "30 days", "90 days"];
 /// The splits the table offers, in order.
@@ -77,14 +80,22 @@ pub struct UsagePage {
     id: ElementId,
     model: UsagePageModel,
     on_intent: Option<Handler>,
+    bare: bool,
 }
 
 /// The Usage page over `model`.
 pub fn usage_page(id: impl Into<ElementId>, model: UsagePageModel) -> UsagePage {
-    UsagePage { id: id.into(), model, on_intent: None }
+    UsagePage { id: id.into(), model, on_intent: None, bare: false }
 }
 
 impl UsagePage {
+    /// Without its own title and padding: the body under a Settings
+    /// page's header, which draws those.
+    pub fn bare(mut self) -> Self {
+        self.bare = true;
+        self
+    }
+
     /// What a control asks for.
     pub fn on_intent(mut self, f: impl Fn(UsageIntent, &mut Window, &mut App) + 'static) -> Self {
         self.on_intent = Some(Rc::new(f));
@@ -138,17 +149,20 @@ impl RenderOnce for UsagePage {
                     .control(div().role_in(TextRole::Body, cx).text_color(p.fg).child(line.cost.clone())),
             );
         }
+        let head = (!self.bare).then(|| {
+            v_flex()
+                .gap(px(scale::SP_1))
+                .child(div().role_in(TextRole::Title, cx).text_color(p.ink).child("Usage"))
+                .child(div().role_in(TextRole::Body, cx).text_color(p.fg_muted).child(USAGE_BLURB))
+        });
+        let pad = if self.bare { 0.0 } else { scale::SP_7 };
+        let top = if self.bare { 0.0 } else { scale::SP_6 };
         v_flex()
             .w_full()
-            .px(px(scale::SP_7))
-            .pt(px(scale::SP_6))
+            .px(px(pad))
+            .pt(px(top))
             .gap(px(scale::SP_7))
-            .child(
-                v_flex()
-                    .gap(px(scale::SP_1))
-                    .child(div().role_in(TextRole::Title, cx).text_color(p.ink).child("Usage"))
-                    .child(div().role_in(TextRole::Body, cx).text_color(p.fg_muted).child("Each provider's limits, and what your sessions spent, from Baaz's own record.")),
-            )
+            .children(head)
             .child(v_flex().gap(px(scale::SP_3)).child(div().role_in(TextRole::Caption, cx).text_color(p.fg_muted).child("Limits")).child(cards))
             .child(h_flex().gap(px(scale::SP_3)).items_center().child(range).child(split))
             .child(table)
