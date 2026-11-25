@@ -885,6 +885,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::secret_field::build,
     },
     Entry {
+        id: "memory/page",
+        group: "Memory",
+        title: "Memory page",
+        subtitle: "Per-project memory notes: title, type and date; open from the row, delete from the bin; personal notes; an empty project",
+        width: 1000.0,
+        height: 820.0,
+        theme: CardTheme::Both,
+        build: crate::cards::memory::build_page,
+    },
+    Entry {
         id: "skills/page",
         group: "Skills",
         title: "Skills page",
