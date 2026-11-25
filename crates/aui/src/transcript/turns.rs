@@ -78,13 +78,18 @@ pub const COPY_HOLD: Duration = Duration::from_millis(1200);
 /// File extensions drawn with the video treatment (a File by the wire).
 const VIDEO_EXTENSIONS: [&str; 6] = ["mp4", "mov", "m4v", "webm", "mkv", "avi"];
 
-/// Actions on a user turn: edit and copy (resend was removed, docs/41 §6).
+/// Actions on a user turn: edit and copy (resend was removed, docs/41 §6),
+/// and — where the app can fork — branch (harness docs/85 16.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UserTurnAction {
     /// Edit and resend.
     Edit,
     /// Copy the text.
     Copy,
+    /// Branch from here: a new session holding the conversation through
+    /// this message's answer. Not in [`UserTurnAction::ALL`]: an app adds
+    /// it where its provider forks.
+    Branch,
 }
 
 impl UserTurnAction {
@@ -105,6 +110,7 @@ fn user_action_label(action: UserTurnAction) -> &'static str {
     match action {
         UserTurnAction::Edit => "Edit message",
         UserTurnAction::Copy => "Copy message",
+        UserTurnAction::Branch => "Branch from here",
     }
 }
 
@@ -173,6 +179,8 @@ pub struct UserTurn {
     age: Option<SharedString>,
     max_width: f32,
     copied: bool,
+    /// `2 branches` under the bubble (harness docs/85 16.3), when any.
+    branches: Option<SharedString>,
     actions: Vec<UserTurnAction>,
     on_action: Option<UserHandler>,
     on_attachment: Option<IndexHandler>,
@@ -199,6 +207,7 @@ pub fn user_turn(id: impl Into<ElementId>, markdown: impl Into<SharedString>) ->
         max_width: USER_MAX,
         copied: false,
         actions: UserTurnAction::ALL.to_vec(),
+        branches: None,
         on_action: None,
         on_attachment: None,
         on_quote: None,
@@ -250,6 +259,12 @@ impl UserTurn {
     /// on the copy intent and clears it after [`COPY_HOLD`].
     pub fn copied(mut self, copied: bool) -> Self {
         self.copied = copied;
+        self
+    }
+
+    /// How many branches start at this message, worded (`2 branches`).
+    pub fn branches(mut self, branches: Option<SharedString>) -> Self {
+        self.branches = branches;
         self
     }
 
@@ -751,6 +766,20 @@ impl RenderOnce for UserTurn {
         }
         col = col.child(bubble);
 
+        // docs/85 16.3: how many branches start here — at rest, on its own
+        // line (the rail below shows only on hover).
+        if let Some(branches) = self.branches.clone() {
+            crate::data::record_ax_label(&branches);
+            col = col.child(
+                h_flex()
+                    .mt(px(4.0))
+                    .gap(px(4.0))
+                    .items_center()
+                    .child(icon(IconName::Branch).size(px(ACTS_GLYPH)).color(p.ink_4))
+                    .child(div().role_size(TextRole::Micro).text_color(p.ink_4).child(branches)),
+            );
+        }
+
         // The rail: always 24 px tall, its contents only while hovered.
         let mut rail = h_flex().h(px(RAIL_H)).mt(px(4.0)).gap(px(RAIL_GAP)).items_center().reveal_on_hover(false);
         let mut buttons = h_flex().gap(px(0.0)).my(px(-(ACT_SIZE - RAIL_H) / 2.0));
@@ -759,6 +788,7 @@ impl RenderOnce for UserTurn {
             let name = match action {
                 UserTurnAction::Edit => "edit",
                 UserTurnAction::Copy => "copy",
+                UserTurnAction::Branch => "branch",
             };
             let mut b = match action {
                 UserTurnAction::Copy => {
@@ -767,6 +797,9 @@ impl RenderOnce for UserTurn {
                 }
                 UserTurnAction::Edit => {
                     icon_button((id.clone(), name), IconName::Edit).ghost().size(ButtonSize::Md).icon_size(px(ACTS_GLYPH)).accessibility_label(user_action_label(action))
+                }
+                UserTurnAction::Branch => {
+                    icon_button((id.clone(), name), IconName::Branch).ghost().size(ButtonSize::Md).icon_size(px(ACTS_GLYPH)).accessibility_label(user_action_label(action))
                 }
             };
             if let Some(h) = self.on_action.clone() {

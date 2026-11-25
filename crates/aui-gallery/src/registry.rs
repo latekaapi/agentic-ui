@@ -895,6 +895,16 @@ pub static ENTRIES: &[Entry] = &[
         build: crate::cards::memory::build_page,
     },
     Entry {
+        id: "branches/message",
+        group: "Branches",
+        title: "Branch from here",
+        subtitle: "A user message with branches started at it: the count under the bubble at rest, Branch beside Edit and Copy on the rail (harness docs/85 16.3)",
+        width: 760.0,
+        height: 300.0,
+        theme: CardTheme::Both,
+        build: crate::cards::branches::build,
+    },
+    Entry {
         id: "usage/page",
         group: "Usage",
         title: "Usage page",
