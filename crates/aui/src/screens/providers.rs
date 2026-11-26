@@ -1303,6 +1303,8 @@ pub struct UsageCard {
     plan: Option<SharedString>,
     windows: Vec<UsageWindow>,
     as_of: Option<SharedString>,
+    /// Take the width it is given instead of the popover's (`fill`).
+    fill: bool,
 }
 
 /// A usage card for `provider` with `windows` quota bars.
@@ -1311,7 +1313,7 @@ pub fn usage_card(
     provider: Provider,
     windows: Vec<UsageWindow>,
 ) -> UsageCard {
-    UsageCard { id: id.into(), provider, plan: None, windows, as_of: None }
+    UsageCard { id: id.into(), provider, plan: None, windows, as_of: None, fill: false }
 }
 
 impl UsageCard {
@@ -1324,6 +1326,14 @@ impl UsageCard {
     /// The footnote (`"as of 2m ago"`): when the numbers were read.
     pub fn as_of(mut self, as_of: impl Into<SharedString>) -> Self {
         self.as_of = Some(as_of.into());
+        self
+    }
+
+    /// Fill the width the parent gives (the Usage page's equal columns)
+    /// instead of the account menu's fixed card width: two cards share a
+    /// row edge to edge rather than leaving a gap (harness docs/87 18.11).
+    pub fn fill(mut self) -> Self {
+        self.fill = true;
         self
     }
 }
@@ -1351,10 +1361,9 @@ impl RenderOnce for UsageCard {
             );
         }
 
-        let mut card = v_flex()
-            .id(self.id)
-            .w(px(USAGE_W))
-            .max_w_full()
+        let card = v_flex().id(self.id);
+        let card = if self.fill { card.w_full() } else { card.w(px(USAGE_W)).max_w_full() };
+        let mut card = card
             .gap(px(USAGE_GAP))
             .p(px(USAGE_PAD))
             .rounded(px(scale::R_SM))
