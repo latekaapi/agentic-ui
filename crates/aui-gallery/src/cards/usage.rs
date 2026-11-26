@@ -26,7 +26,8 @@ pub fn build_page(_window: &mut Window, _cx: &mut App) -> AnyElement {
                 windows: vec![UsageWindow::new("5-hour", 0.86, "34m"), UsageWindow::new("Weekly", 0.51, "2d 6h")],
                 as_of: Some("1m ago".into()),
             },
-            UsageLimits { provider: Provider::Muse, plan: Some("High Usage".into()), windows: vec![UsageWindow::new("5-hour", 0.05, "3h 40m"), UsageWindow::new("Weekly", 0.02, "4d 5h")], as_of: None },
+            // Two providers: the row the owner saw with a gap (harness
+            // docs/87 18.11); the cards share it equally.
         ],
         range: 1,
         split: 1,

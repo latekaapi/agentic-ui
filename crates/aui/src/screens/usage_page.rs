@@ -110,7 +110,7 @@ impl RenderOnce for UsagePage {
         let id = |s: &str| ElementId::from((self.id.clone(), SharedString::from(s.to_owned())));
         let mut cards = h_flex().w_full().items_start().gap(px(scale::SP_3));
         for (i, l) in m.limits.iter().enumerate() {
-            let mut card = usage_card(id(&format!("limits-{i}")), l.provider, l.windows.clone());
+            let mut card = usage_card(id(&format!("limits-{i}")), l.provider, l.windows.clone()).fill();
             if let Some(plan) = &l.plan {
                 card = card.plan(plan.clone());
             }
