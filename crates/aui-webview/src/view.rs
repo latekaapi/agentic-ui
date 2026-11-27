@@ -1660,7 +1660,10 @@ impl RenderOnce for WebviewPane {
                 view.backend.can_go_back(),
                 view.backend.can_go_forward(),
                 annotate,
-                f32::from(view.page_size.width),
+                // The pane's controls at the row's end leave the row's own
+                // contents that much less room: it narrows sooner, so the
+                // address keeps its width (owner 2026-11-27).
+                f32::from(view.page_size.width) - if self.trailing.is_some() { aui::workbench::PANE_CONTROLS_W } else { 0.0 },
                 view.loading.then_some(0.6),
                 self.extras,
                 move |action, window, cx| {

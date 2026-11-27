@@ -236,6 +236,11 @@ pub struct PaneControls {
     divider: bool,
 }
 
+/// About how wide [`pane_controls`] stand: the hairline and its margins (9),
+/// three 28 px buttons, the gaps between. A row that ends in them has that
+/// much less room for its own contents (the Page's nav row narrows sooner).
+pub const PANE_CONTROLS_W: f32 = 100.0;
+
 /// The pane's controls (see [`PaneControls`]).
 pub fn pane_controls(id: impl Into<ElementId>) -> PaneControls {
     PaneControls { id: id.into(), add: None, add_bounds: None, maximise: None, on_close: None, divider: true }

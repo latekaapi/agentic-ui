@@ -28,6 +28,11 @@ pub const PAGE_NAV_H: f32 = scale::BAR_DEFAULT;
 /// Under this pane width back / forward, Annotate, Screenshot, Send and Keep
 /// leave the nav row (the address needs the room).
 pub const PAGE_NAV_NARROW: f32 = 300.0;
+/// Under this width Annotate, Screenshot, Send and Keep leave the nav row but
+/// back and forward stay: a row that also ends in the pane's controls (the
+/// pane's title bar, owner 2026-11-27) left the address "ex…" at the
+/// default pane width with all four beside it.
+pub const PAGE_NAV_COMPACT: f32 = 400.0;
 
 /// Where the address field starts in the bar, from the pane's left edge:
 /// padding 6, then back, forward and reload (28 each, gap 2) — reload only
@@ -216,6 +221,7 @@ pub fn page_nav_row_with(
         icon_button((id.clone(), key), glyph).ghost().accessibility_label(label).on_click(move |_, w, cx| on(action, w, cx))
     };
     let narrow = width > 0.0 && width < PAGE_NAV_NARROW;
+    let compact = width > 0.0 && width < PAGE_NAV_COMPACT;
     let mut row = crate::workbench::pane_subheader(cx).id(id.clone()).relative().px(px(6.0)).gap(px(2.0));
     if !narrow {
         row = row
@@ -227,11 +233,11 @@ pub fn page_nav_row_with(
             });
     }
     row = row.child(button("reload", IconName::Refresh, "Reload", PageNavAction::Reload)).child(address);
-    // Under [`PAGE_NAV_NARROW`] the row keeps reload, the address and Open in
-    // Browse: with Annotate, Screenshot, Send and Keep beside it the address
-    // had room for "ex…" at 280 px. Those four are one Open in Browse away
+    // Under [`PAGE_NAV_COMPACT`] Annotate, Screenshot, Send and Keep leave
+    // (under [`PAGE_NAV_NARROW`] back and forward too): beside them the
+    // address had room for "ex…". Those four are one Open in Browse away
     // (the page menu there carries them all).
-    if !narrow {
+    if !compact {
         row = row
             .child({
                 let on = on.clone();
