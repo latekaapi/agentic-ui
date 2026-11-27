@@ -1,5 +1,5 @@
 //! D6's Page screen (docs/43 §2.7; canvas v49 `D6Page`, `D6StatesPage`):
-//! the session's one page. Under the pane's tab row a 36 px nav row (back, forward,
+//! the session's one page. Its 44 px nav row (back, forward,
 //! reload; the address on the Well; annotate, screenshot to the composer,
 //! open in Browse), the page below. While the agent acts, one pill floats 16
 //! above the page's foot; annotating outlines elements, pins numbered notes
@@ -21,13 +21,18 @@ use crate::data::{icon_button, spinner};
 
 /// The Page's nav row (owner 2026-10-21, canvas board `D6OneBar`; docs/83
 /// §6): back, forward, reload, the address (with the Recent pages chevron),
-/// annotate, screenshot, open in Browse. It is the Page's sub-header under
-/// the pane's tab row (which carries ✕), so the sub-header's 36 incl. its
-/// line.
-pub const PAGE_NAV_H: f32 = scale::SUB_HEADER;
+/// annotate, screenshot, open in Browse. It is the Page's own row — the
+/// column header's 44 incl. its line (owner 2026-11-27): in Sessions the
+/// pane's title bar, which the host ends with the pane's controls.
+pub const PAGE_NAV_H: f32 = scale::BAR_DEFAULT;
 /// Under this pane width back / forward, Annotate, Screenshot, Send and Keep
 /// leave the nav row (the address needs the room).
 pub const PAGE_NAV_NARROW: f32 = 300.0;
+/// Under this width Annotate, Screenshot, Send and Keep leave the nav row but
+/// back and forward stay: a row that also ends in the pane's controls (the
+/// pane's title bar, owner 2026-11-27) left the address "ex…" at the
+/// default pane width with all four beside it.
+pub const PAGE_NAV_COMPACT: f32 = 400.0;
 
 /// Where the address field starts in the bar, from the pane's left edge:
 /// padding 6, then back, forward and reload (28 each, gap 2) — reload only
@@ -216,6 +221,7 @@ pub fn page_nav_row_with(
         icon_button((id.clone(), key), glyph).ghost().accessibility_label(label).on_click(move |_, w, cx| on(action, w, cx))
     };
     let narrow = width > 0.0 && width < PAGE_NAV_NARROW;
+    let compact = width > 0.0 && width < PAGE_NAV_COMPACT;
     let mut row = crate::workbench::pane_subheader(cx).id(id.clone()).relative().px(px(6.0)).gap(px(2.0));
     if !narrow {
         row = row
@@ -227,11 +233,11 @@ pub fn page_nav_row_with(
             });
     }
     row = row.child(button("reload", IconName::Refresh, "Reload", PageNavAction::Reload)).child(address);
-    // Under [`PAGE_NAV_NARROW`] the row keeps reload, the address and Open in
-    // Browse: with Annotate, Screenshot, Send and Keep beside it the address
-    // had room for "ex…" at 280 px. Those four are one Open in Browse away
+    // Under [`PAGE_NAV_COMPACT`] Annotate, Screenshot, Send and Keep leave
+    // (under [`PAGE_NAV_NARROW`] back and forward too): beside them the
+    // address had room for "ex…". Those four are one Open in Browse away
     // (the page menu there carries them all).
-    if !narrow {
+    if !compact {
         row = row
             .child({
                 let on = on.clone();

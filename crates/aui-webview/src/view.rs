@@ -1522,6 +1522,7 @@ pub struct WebviewPane {
     agent: SharedString,
     recent: Option<(bool, BarHandler)>,
     extras: aui::workbench::PageNavExtras,
+    trailing: Option<gpui::AnyElement>,
 }
 
 type BarHandler = Rc<dyn Fn(&mut Window, &mut App)>;
@@ -1529,7 +1530,7 @@ type BarHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 /// The pane for `state`: the nav row, the page with the annotator's overlays,
 /// and — only while annotate mode is on — the annotations panel.
 pub fn webview_pane(id: impl Into<ElementId>, state: &Entity<WebviewState>) -> WebviewPane {
-    WebviewPane { id: id.into(), state: state.clone(), on_intent: None, nav: true, agent: "the agent".into(), recent: None, extras: Default::default() }
+    WebviewPane { id: id.into(), state: state.clone(), on_intent: None, nav: true, agent: "the agent".into(), recent: None, extras: Default::default(), trailing: None }
 }
 
 impl WebviewPane {
@@ -1537,6 +1538,13 @@ impl WebviewPane {
     /// the page (Baaz's Browse mode). The page fills the pane.
     pub fn without_nav(mut self) -> Self {
         self.nav = false;
+        self
+    }
+
+    /// What ends the nav row: the host pane's own controls when the nav row
+    /// is the pane's title bar (`aui::workbench::pane_controls`).
+    pub fn trailing(mut self, trailing: impl IntoElement) -> Self {
+        self.trailing = Some(trailing.into_any_element());
         self
     }
 
@@ -1575,7 +1583,7 @@ impl WebviewPane {
 }
 
 impl RenderOnce for WebviewPane {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = cx.aui().colors;
         let id = self.id.clone();
         let state = self.state.clone();
@@ -1652,7 +1660,10 @@ impl RenderOnce for WebviewPane {
                 view.backend.can_go_back(),
                 view.backend.can_go_forward(),
                 annotate,
-                f32::from(view.page_size.width),
+                // The pane's controls at the row's end leave the row's own
+                // contents that much less room: it narrows sooner, so the
+                // address keeps its width (owner 2026-11-27).
+                f32::from(view.page_size.width) - if self.trailing.is_some() { aui::workbench::PANE_CONTROLS_W } else { 0.0 },
                 view.loading.then_some(0.6),
                 self.extras,
                 move |action, window, cx| {
@@ -1682,6 +1693,7 @@ impl RenderOnce for WebviewPane {
                 },
                 cx,
             )
+            .children(self.trailing.take())
         };
 
         // The page area records its own box during prepaint, so a pointer

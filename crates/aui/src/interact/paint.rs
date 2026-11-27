@@ -82,9 +82,14 @@ pub enum Tint {
 }
 
 /// `tint` over `base` (or over nothing), with the overlay's colour chosen
-/// by the ground it lands on: white on a dark fill, black on a light one;
-/// over nothing, the theme's own overlay. The one place the overlay
-/// arithmetic lives.
+/// by the ground it lands on: white on a dark opaque fill, black on a light
+/// one; over nothing — or over a see-through ground such as the selected
+/// overlay — the theme's own overlay, so a hovered or pressed selected row
+/// lifts further the way the theme lifts (owner 2026-11-27: the selected
+/// overlay is white at a low alpha, its lightness 1.0, and read as a "light
+/// fill" it took black — a hovered selected row went darker than the
+/// selected one, and every hover change on it flickered). The one place the
+/// overlay arithmetic lives.
 pub fn tinted(base: Option<Hsla>, tint: Tint, p: &Palette) -> Hsla {
     let theme = match tint {
         Tint::Hover => p.hover_overlay(),
@@ -94,6 +99,9 @@ pub fn tinted(base: Option<Hsla>, tint: Tint, p: &Palette) -> Hsla {
     match base {
         None => theme,
         Some(base) if base.a <= 0.0 => theme,
+        // A see-through ground (an overlay, a tinted wash): the theme's own
+        // overlay on top, in the theme's direction.
+        Some(base) if base.a < 1.0 => over(base, theme),
         Some(base) => {
             // A light fill darkens, a dark fill lightens, at the theme's alpha.
             let overlay = if base.l > 0.6 { gpui::black().alpha(theme.a) } else { gpui::white().alpha(theme.a) };
@@ -408,6 +416,25 @@ mod tests {
         assert_eq!(rest, Some(p.hover_overlay()));
         let (rest, _, _) = StatePaint::new().highlighted(true).disabled(true).fills(&p);
         assert_eq!(rest, None, "disabled paints nothing");
+    }
+
+    /// Owner 2026-11-27: hovering or pressing a selected row lifts it the
+    /// theme's way — lighter over the dark ground, darker over the light
+    /// one — never the opposite (a selected row went darker when hovered,
+    /// and its every hover change read as a flicker).
+    #[test]
+    fn a_selected_row_lifts_the_themes_way_when_hovered_and_pressed() {
+        for (p, lighter) in [(aui_tokens::dark(), true), (aui_tokens::light(), false)] {
+            let ground = p.sidebar;
+            let (rest, hover, pressed) = StatePaint::new().selected(true).fills(&p);
+            let on = |fill: Hsla| over(ground, fill).l;
+            let (rest, hover, pressed) = (on(rest.expect("selected paints at rest")), on(hover), on(pressed));
+            if lighter {
+                assert!(rest < hover && hover < pressed, "dark: {rest} < {hover} < {pressed}");
+            } else {
+                assert!(rest > hover && hover > pressed, "light: {rest} > {hover} > {pressed}");
+            }
+        }
     }
 
     #[test]
