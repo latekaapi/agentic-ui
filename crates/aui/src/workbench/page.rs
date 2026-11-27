@@ -1,5 +1,5 @@
 //! D6's Page screen (docs/43 §2.7; canvas v49 `D6Page`, `D6StatesPage`):
-//! the session's one page. Under the pane's tab row a 36 px nav row (back, forward,
+//! the session's one page. Its 44 px nav row (back, forward,
 //! reload; the address on the Well; annotate, screenshot to the composer,
 //! open in Browse), the page below. While the agent acts, one pill floats 16
 //! above the page's foot; annotating outlines elements, pins numbered notes
@@ -21,10 +21,10 @@ use crate::data::{icon_button, spinner};
 
 /// The Page's nav row (owner 2026-10-21, canvas board `D6OneBar`; docs/83
 /// §6): back, forward, reload, the address (with the Recent pages chevron),
-/// annotate, screenshot, open in Browse. It is the Page's sub-header under
-/// the pane's tab row (which carries ✕), so the sub-header's 36 incl. its
-/// line.
-pub const PAGE_NAV_H: f32 = scale::SUB_HEADER;
+/// annotate, screenshot, open in Browse. It is the Page's own row — the
+/// column header's 44 incl. its line (owner 2026-11-27): in Sessions the
+/// pane's title bar, which the host ends with the pane's controls.
+pub const PAGE_NAV_H: f32 = scale::BAR_DEFAULT;
 /// Under this pane width back / forward, Annotate, Screenshot, Send and Keep
 /// leave the nav row (the address needs the room).
 pub const PAGE_NAV_NARROW: f32 = 300.0;

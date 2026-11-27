@@ -1,14 +1,15 @@
 //! The right pane's chrome (D6, docs/43 §2.2 and §2.11; flat since docs/83
 //! §3 and §6).
 //!
-//! The pane's own tab row ([`pane_tabs`]) sits in the right column's 44 px
-//! header (the shell draws the header and its 1 px `line-region`, at the same
-//! y as the centre's): one tab per view — `Changes`, `Files`, `Page`, and a
-//! file's name while one is open — the active one an `ov-selected` pill, then
-//! `＋` (the view menu), maximise and ✕. The centre header's view icons
-//! ([`pane_toggle`]) stay as shortcuts. Under the tab row a screen that has
-//! controls of its own draws a 36 px sub-header ([`pane_subheader`]); a view
-//! pushed on a screen draws [`pushed_row`] there (←, its title, ≤ 2 actions).
+//! Each screen draws its own 44 px row ([`pane_subheader`], on the column
+//! header's `line-region` so its line meets the centre's): a view pushed on
+//! a screen draws [`pushed_row`] there (←, its title, ≤ 2 actions). A host
+//! whose centre header's view icons ([`pane_toggle`]) pick the screen (Baaz's
+//! Sessions, owner 2026-11-27) shows no tab row: the screen's row is the
+//! pane's title bar, ending in the pane's own controls ([`pane_controls`]:
+//! `＋`, maximise, ✕). A host without them seats a tab row ([`pane_tabs`])
+//! in the column's 44 px header — one tab per view, the active one an
+//! `ov-selected` pill, then the same controls — over the screens' rows.
 //! Empty, error and loading states share [`state_block`] and
 //! [`skeleton_bar`].
 
@@ -22,13 +23,16 @@ use gpui_kit::base::{h_flex, v_flex, ElementExt as _};
 use crate::interact::paint::{PaintStates, StatePaint};
 use crate::data::{icon_button, Button};
 
-/// A screen's sub-header under the tab row (docs/83 §6): 36 px on the
-/// ground with a 1 px `line` under it — a line *inside* the region, so not
-/// the header's `line-region`. The file preview's path, a pushed view's row,
-/// Files' filter and the Page's nav row are built on it.
+/// A screen's own row, its title bar (owner 2026-11-27): the column
+/// header's 44 px with the header's `line-region` under it, so in Sessions —
+/// where the pane has no tab row and its screens start at the column's top
+/// — the row's line meets the centre header's at one y, and the pane reads
+/// full bleed. The file preview's path, a pushed view's row, Files' filter,
+/// the Page's nav row and the terminal's tabs are built on it; the host adds
+/// the pane's own controls ([`pane_controls`]) at its right end.
 pub fn pane_subheader(cx: &App) -> gpui::Div {
     let p = cx.aui().colors;
-    h_flex().w_full().h(px(scale::SUB_HEADER)).flex_none().items_center().bg(p.surface_1).border_b_1().border_color(p.line)
+    h_flex().w_full().h(cx.aui().metrics.header).flex_none().items_center().bg(p.surface_1).border_b_1().border_color(p.line_region)
 }
 /// The tab row's inset from the column's edges, and between its controls.
 const TABS_PAD_X: f32 = 6.0;
@@ -194,6 +198,88 @@ impl RenderOnce for PaneTabs {
             }
             tabs = tabs.child(el);
         }
+        // `＋` stays beside the tabs; maximise and ✕ at the row's end.
+        let add = self.add.map(|(open, f)| {
+            let button = icon_button((id.clone(), "add"), IconName::Plus).ghost().menu_open(open).accessibility_label("Open a view").on_click(move |e, w, cx| f(e, w, cx));
+            match self.add_bounds {
+                Some(seat) => div().flex_none().child(button).on_prepaint(move |bounds, w, cx| seat(bounds, w, cx)).into_any_element(),
+                None => button.into_any_element(),
+            }
+        });
+        let controls = PaneControls { id: (id.clone(), "controls").into(), add: None, add_bounds: None, maximise: self.maximise, on_close: self.on_close, divider: false };
+        h_flex()
+            .id(id)
+            .size_full()
+            .min_w(px(0.0))
+            .px(px(TABS_PAD_X))
+            .gap(px(TABS_GAP))
+            .items_center()
+            .overflow_hidden()
+            .child(tabs)
+            .children(add)
+            .child(div().flex_1().min_w(px(0.0)))
+            .child(controls)
+    }
+}
+
+/// The pane's own controls at a screen row's right end (owner 2026-11-27:
+/// the tab row is gone in Sessions, the centre header's toggles pick the
+/// screen): `＋` (the host's view menu), maximise / restore, and ✕ — after
+/// a 1 × 16 hairline that sets them apart from the screen's own actions.
+#[derive(IntoElement)]
+pub struct PaneControls {
+    id: ElementId,
+    add: Option<(bool, Handler)>,
+    add_bounds: Option<BoundsHandler>,
+    maximise: Option<(bool, Handler)>,
+    on_close: Option<Handler>,
+    divider: bool,
+}
+
+/// The pane's controls (see [`PaneControls`]).
+pub fn pane_controls(id: impl Into<ElementId>) -> PaneControls {
+    PaneControls { id: id.into(), add: None, add_bounds: None, maximise: None, on_close: None, divider: true }
+}
+
+impl PaneControls {
+    /// `＋`: opens the host's view menu; `open` holds it lit while the menu
+    /// is up.
+    pub fn on_add(mut self, open: bool, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.add = Some((open, Rc::new(f)));
+        self
+    }
+
+    /// Where `＋` was laid out this frame, in window coordinates: the seat
+    /// the host anchors its menu to.
+    pub fn on_add_bounds(mut self, f: impl Fn(Bounds<Pixels>, &mut Window, &mut App) + 'static) -> Self {
+        self.add_bounds = Some(Rc::new(f));
+        self
+    }
+
+    /// Maximise: `maximised` flips the glyph and the label to Restore.
+    pub fn on_maximise(mut self, maximised: bool, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.maximise = Some((maximised, Rc::new(f)));
+        self
+    }
+
+    /// ✕: close the pane.
+    pub fn on_close(mut self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_close = Some(Rc::new(f));
+        self
+    }
+
+    /// Whether the hairline stands before the controls (default true; the
+    /// tab row, which has nothing of the screen's before them, has none).
+    pub fn divider(mut self, divider: bool) -> Self {
+        self.divider = divider;
+        self
+    }
+}
+
+impl RenderOnce for PaneControls {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let p = cx.aui().colors;
+        let id = self.id;
         let add = self.add.map(|(open, f)| {
             let button = icon_button((id.clone(), "add"), IconName::Plus).ghost().menu_open(open).accessibility_label("Open a view").on_click(move |e, w, cx| f(e, w, cx));
             match self.add_bounds {
@@ -211,15 +297,11 @@ impl RenderOnce for PaneTabs {
         }
         h_flex()
             .id(id)
-            .size_full()
-            .min_w(px(0.0))
-            .px(px(TABS_PAD_X))
+            .flex_none()
             .gap(px(TABS_GAP))
             .items_center()
-            .overflow_hidden()
-            .child(tabs)
+            .when(self.divider, |d| d.child(div().w(px(1.0)).h(px(16.0)).mx(px(4.0)).flex_none().bg(p.line)))
             .children(add)
-            .child(div().flex_1().min_w(px(0.0)))
             .children(maximise)
             .child(close)
     }
@@ -228,13 +310,15 @@ impl RenderOnce for PaneTabs {
 /// The sub-header of a view pushed on a screen (file preview, Create PR,
 /// full output, image): ← (label "Back to …") when the host wires it, the
 /// title (`t-caption`, `fg-muted`: a file's path), ≤ 2 actions at the right.
-/// ✕ lives in the tab row.
+/// As the pane's title bar it ends in the pane's controls
+/// ([`PushedRow::trailing`]); under a tab row ✕ lives there.
 #[derive(IntoElement)]
 pub struct PushedRow {
     id: ElementId,
     title: AnyElement,
     back_label: SharedString,
     actions: Vec<AnyElement>,
+    trailing: Option<AnyElement>,
     on_back: Option<Handler>,
 }
 
@@ -247,13 +331,20 @@ pub fn pushed_row(id: impl Into<ElementId>, title: impl Into<SharedString>) -> P
 /// A pushed view's sub-header whose title is caller-built (the full
 /// output's command in mono with its exit code and time).
 pub fn pushed_row_with(id: impl Into<ElementId>, title: impl IntoElement) -> PushedRow {
-    PushedRow { id: id.into(), title: title.into_any_element(), back_label: "Back".into(), actions: Vec::new(), on_back: None }
+    PushedRow { id: id.into(), title: title.into_any_element(), back_label: "Back".into(), actions: Vec::new(), trailing: None, on_back: None }
 }
 
 impl PushedRow {
     /// ←'s accessible name: "Back to files", "Back to changes".
     pub fn back_label(mut self, label: impl Into<SharedString>) -> Self {
         self.back_label = label.into();
+        self
+    }
+
+    /// What stands after the actions at the row's end: the pane's own
+    /// controls ([`pane_controls`]) when the row is the pane's title bar.
+    pub fn trailing(mut self, trailing: impl IntoElement) -> Self {
+        self.trailing = Some(trailing.into_any_element());
         self
     }
 
@@ -294,6 +385,7 @@ impl RenderOnce for PushedRow {
             .children(back)
             .child(title)
             .children(self.actions)
+            .children(self.trailing)
     }
 }
 
@@ -441,8 +533,8 @@ pub fn strip_moving(position: f32, index: usize) -> bool {
 
 /// Changes · Files · Page as screens side by side on one strip, 6 apart; the
 /// pane is a window onto the one at `position` (from [`strip_position`]).
-/// Each screen sits square on the column's ground under the tab row (which
-/// does not move) and carries its own sub-header if it has one; screens out
+/// Each screen sits square on the column's ground and carries its own row;
+/// screens out
 /// of view are not built (pass `None`), so each one keeps its scroll and
 /// selection in the host's state, not in the element.
 #[derive(IntoElement)]
