@@ -52,7 +52,7 @@ use gpui_kit::base::{
 };
 
 use crate::data::{icon_button, record_ax_label, spinner, ButtonSize};
-use crate::interact::{interactive, row_list, surface, ListItems, RowList, Shape, StatePaint, ROW_GAP, ROW_PAD_X};
+use crate::interact::{interactive, row_list, surface, ListItems, PaintHover as _, RowList, Shape, StatePaint, HOVER_GROUP, ROW_GAP, ROW_PAD_X, R_ITEM};
 use crate::nav::{flatten_sidebar, Grouping, GroupAction, RowAction, SessionSummary, SidebarRow};
 
 use super::menus::{account_menu, avatar_tile, session_menu, view_options_menu};
@@ -564,6 +564,7 @@ impl Ctx {
                 menu_ctx.emit(SidebarIntent::RowMenuAt(menu_id.clone(), event.position), w, cx);
             })
             .w_full()
+            .relative()
             .h(session_row_height(second.is_some(), cx))
             .items_center()
             .gap(metrics.gap)
@@ -571,79 +572,20 @@ impl Ctx {
             .pr(px(scale::SP_2))
             .role(gpui::Role::ListItem)
             .aria_label(label)
+            .hover_group()
             .child(text)
-            .child(self.state_slot(session, window, cx))
+            .children(self.state_slot(session, cx))
+            .child(self.hover_tray(session, window, cx))
             .into_any_element()
     }
 
-    /// A session row's trailing slot (docs/83 §4): exactly one of a spinner
-    /// (running), the amber dot (needs you), the `accent-ring` dot
-    /// (finished, unread), the danger dot (failed) — or, while the pointer
-    /// is on the row or its menu is open, the `⋯` menu with the age (Micro,
-    /// `ink-4`) left of it — or "N running" / "N pages" in the age's place
-    /// ([`slot_words`]). Idle and read shows nothing (or one of those
-    /// words), and the slot keeps its 20 px either way so titles truncate
-    /// at one edge.
-    fn state_slot(&self, session: &SessionSummary, window: &mut Window, cx: &mut App) -> AnyElement {
-        let p = cx.aui().colors;
-        let metrics = cx.aui().metrics;
-        let id = session.id.clone();
-        let slot = metrics.control_xs;
-        let menu_open = self.model.row_menu.as_ref() == Some(&id);
-        let hovered = self.model.hovered.as_ref() == Some(&id);
-        if hovered || menu_open {
-            let ctx = self.clone();
-            let more = id.clone();
-            let mut wrap = div().relative().flex_none().size(slot).child(
-                icon_button(self.child(format!("{id}-more")), IconName::Dots)
-                    .menu_open(menu_open)
-                    .tooltip_within(self.width)
-                    .ghost()
-                    .size(ButtonSize::Xs)
-                    .icon_size(metrics.icon - px(scale::SP_1))
-                    .accessibility_label(format!("Options for session {}", session.name))
-                    .on_click(move |_, w, cx| {
-                        cx.stop_propagation();
-                        ctx.emit(SidebarIntent::RowAction(more.clone(), RowAction::More), w, cx);
-                    }),
-            );
-            if menu_open && self.model.row_menu_at.is_none() {
-                // Under the `⋯`, right edges aligned, on gpui's top layer so
-                // the list's clip and the sidebar's edge never cut it. A
-                // right-click's menu stands at the pointer instead (the
-                // screen draws it).
-                let c = self.clone();
-                let menu = div()
-                    .id(self.child(format!("{id}-menu-wrap")))
-                    .mt(px(scale::SP_1))
-                    .occlude()
-                    .on_mouse_down_out(move |_, w, cx| c.emit(SidebarIntent::DismissMenus, w, cx))
-                    .child(session_menu(self.child(format!("{id}-menu")), session, &self.model.row_menu_offers, self.on_intent.clone(), window, cx));
-                wrap = wrap.child(
-                    div()
-                        .absolute()
-                        .top(slot)
-                        .right(px(0.0))
-                        .child(gpui::deferred(gpui::anchored().anchor(gpui::Anchor::TopRight).snap_to_window().child(menu)).with_priority(1)),
-                );
-            }
-            // A row with running tasks or pages of its own says so here
-            // instead of its age: that is the news, and the hovered row is
-            // where a click on it is easiest to aim.
-            let words = slot_words(session, true);
-            let tasks = if words.tasks { self.tasks_button(session, cx) } else { None };
-            let pages = if words.pages { self.pages_button(session, cx) } else { None };
-            let quiet = tasks.is_none() && pages.is_none();
-            return h_flex()
-                .flex_none()
-                .items_center()
-                .gap(px(scale::SP_2))
-                .when(quiet && !session.elapsed.is_empty(), |d| d.child(div().flex_none().role_in(TextRole::Micro, cx).text_color(p.ink_4).child(session.elapsed.clone())))
-                .children(tasks)
-                .children(pages)
-                .child(wrap)
-                .into_any_element();
-        }
+    /// A session row's trailing slot at rest (docs/83 §4): exactly one of a
+    /// spinner (running), the amber dot (needs you), the `accent-ring` dot
+    /// (finished, unread), the danger dot (failed) — or "N running" /
+    /// "N pages" ([`slot_words`]). Idle and read shows nothing and keeps no
+    /// slot, so the title runs to the row's padding (owner 2026-11-27: the
+    /// empty 20 px slot read as a gap at the sidebar's right edge).
+    fn state_slot(&self, session: &SessionSummary, cx: &mut App) -> Option<AnyElement> {
         // At rest a state mark wins the slot (running, needs you, failed,
         // unread: each asks for the person); an empty slot says "N running"
         // while the session's commands run, else "N pages" while it owns
@@ -651,15 +593,105 @@ impl Ctx {
         let words = slot_words(session, false);
         if words.tasks {
             if let Some(tasks) = self.tasks_button(session, cx) {
-                return tasks;
+                return Some(tasks);
             }
         }
         if words.pages {
             if let Some(pages) = self.pages_button(session, cx) {
-                return pages;
+                return Some(pages);
             }
         }
-        self.state_mark(format!("{id}"), session.state, session.unread, cx)
+        self.state_mark(session.id.to_string(), session.state, session.unread, cx)
+    }
+
+    /// The row's hover tray: the `⋯` menu with the age (Micro, `ink-4`) left
+    /// of it — or "N running" / "N pages" in the age's place — standing over
+    /// the title's end and the rest slot on the row's own lit fill, fading in
+    /// over the title for a few px. It is always built and shown by the
+    /// row's paint-time hover ([`HOVER_GROUP`]), by the host's hover report
+    /// or while its menu is open — not by the report alone: a press makes
+    /// gpui report a leave, and the tray then vanished on every click until
+    /// the pointer moved again (owner 2026-11-27, "flicker after clicking").
+    /// Nothing under it reflows when the pointer arrives.
+    fn hover_tray(&self, session: &SessionSummary, window: &mut Window, cx: &mut App) -> AnyElement {
+        let p = cx.aui().colors;
+        let metrics = cx.aui().metrics;
+        let id = session.id.clone();
+        let slot = metrics.control_xs;
+        let menu_open = self.model.row_menu.as_ref() == Some(&id);
+        // The host's hover report holds it too (and `sidebar-hover:` in a
+        // capture, where no pointer paints): shown when either says so.
+        let held = menu_open || self.model.hovered.as_ref() == Some(&id);
+        let ctx = self.clone();
+        let more = id.clone();
+        let mut wrap = div().relative().flex_none().size(slot).child(
+            icon_button(self.child(format!("{id}-more")), IconName::Dots)
+                .menu_open(menu_open)
+                .tooltip_within(self.width)
+                .ghost()
+                .size(ButtonSize::Xs)
+                .icon_size(metrics.icon - px(scale::SP_1))
+                .accessibility_label(format!("Options for session {}", session.name))
+                .on_click(move |_, w, cx| {
+                    cx.stop_propagation();
+                    ctx.emit(SidebarIntent::RowAction(more.clone(), RowAction::More), w, cx);
+                }),
+        );
+        if menu_open && self.model.row_menu_at.is_none() {
+            // Under the `⋯`, right edges aligned, on gpui's top layer so
+            // the list's clip and the sidebar's edge never cut it. A
+            // right-click's menu stands at the pointer instead (the
+            // screen draws it).
+            let c = self.clone();
+            let menu = div()
+                .id(self.child(format!("{id}-menu-wrap")))
+                .mt(px(scale::SP_1))
+                .occlude()
+                .on_mouse_down_out(move |_, w, cx| c.emit(SidebarIntent::DismissMenus, w, cx))
+                .child(session_menu(self.child(format!("{id}-menu")), session, &self.model.row_menu_offers, self.on_intent.clone(), window, cx));
+            wrap = wrap.child(
+                div()
+                    .absolute()
+                    .top(slot)
+                    .right(px(0.0))
+                    .child(gpui::deferred(gpui::anchored().anchor(gpui::Anchor::TopRight).snap_to_window().child(menu)).with_priority(1)),
+            );
+        }
+        // A row with running tasks or pages of its own says so here
+        // instead of its age: that is the news, and the hovered row is
+        // where a click on it is easiest to aim.
+        let words = slot_words(session, true);
+        let tasks = if words.tasks { self.tasks_button(session, cx) } else { None };
+        let pages = if words.pages { self.pages_button(session, cx) } else { None };
+        let quiet = tasks.is_none() && pages.is_none();
+        let selected = self.model.selected.as_ref() == Some(&id);
+        // The fill the tray stands on: the row's lit look while the pointer
+        // is on it, its rest look while only its menu holds it open.
+        let (rest, lit) = (row_fill(selected, false, &p), row_fill(selected, true, &p));
+        let fade = |fill: gpui::Hsla| gpui::linear_gradient(90.0, gpui::linear_color_stop(fill.alpha(0.0), 0.0), gpui::linear_color_stop(fill, 1.0));
+        h_flex()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .right_0()
+            .reveal_on_hover(held)
+            .child(div().w(px(SLOT_FADE)).h_full().flex_none().bg(fade(rest)).group_hover(HOVER_GROUP, move |s| s.bg(fade(lit))))
+            .child(
+                h_flex()
+                    .h_full()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(scale::SP_2))
+                    .pr(px(scale::SP_2))
+                    .bg(rest)
+                    .group_hover(HOVER_GROUP, move |s| s.bg(lit))
+                    .rounded_r(px(R_ITEM))
+                    .when(quiet && !session.elapsed.is_empty(), |d| d.child(div().flex_none().role_in(TextRole::Micro, cx).text_color(p.ink_4).child(session.elapsed.clone())))
+                    .children(tasks)
+                    .children(pages)
+                    .child(wrap),
+            )
+            .into_any_element()
     }
 
     /// "N running" (Micro, `fg-muted`, `fg` on hover): the session's
@@ -736,7 +768,7 @@ impl Ctx {
     /// the spinner (running), the amber dot (needs you), the danger dot
     /// (failed), the `accent-ring` dot (idle and unread) — named for
     /// assistive tech — or an empty holder of the same size.
-    fn state_mark(&self, key: String, state: AgentState, unread: bool, cx: &mut App) -> AnyElement {
+    fn state_mark(&self, key: String, state: AgentState, unread: bool, cx: &mut App) -> Option<AnyElement> {
         let p = cx.aui().colors;
         let metrics = cx.aui().metrics;
         let slot = metrics.control_xs;
@@ -748,14 +780,12 @@ impl Ctx {
             AgentState::Idle | AgentState::Done if unread => (Some(dot(p.accent_ring)), "Unread"),
             AgentState::Idle | AgentState::Done => (None, ""),
         };
+        // Idle and read: no mark, and no slot either — the title runs to
+        // the row's padding (owner 2026-11-27).
+        let mark = mark?;
+        record_ax_label(said);
         let holder = div().flex_none().size(slot).flex().items_center().justify_center();
-        match mark {
-            Some(mark) => {
-                record_ax_label(said);
-                holder.id(self.child(format!("state-{key}"))).role(gpui::Role::Status).aria_label(SharedString::from(said)).child(mark).into_any_element()
-            }
-            None => holder.into_any_element(),
-        }
+        Some(holder.id(self.child(format!("state-{key}"))).role(gpui::Role::Status).aria_label(SharedString::from(said)).child(mark).into_any_element())
     }
 
     /// The inline rename field (owner 2026-10-11): it stands in the row's
@@ -973,7 +1003,7 @@ impl Ctx {
             // A closed group shows its strongest session state in the same
             // 20 px slot, on the same x, as a session row's mark (task 3.2):
             // what is inside can need you even when it is out of sight.
-            head = head.child(self.state_mark(format!("project-{}", group.id), group.state.unwrap_or(AgentState::Idle), group.unread, cx));
+            head = head.children(self.state_mark(format!("project-{}", group.id), group.state.unwrap_or(AgentState::Idle), group.unread, cx));
         }
         let label: SharedString = format!("Project {}", group.name).into();
         record_ax_label(&label);
@@ -1103,6 +1133,22 @@ pub fn second_line_for(session: &SessionSummary, bylines: Bylines) -> Option<Sha
 struct SlotWords {
     tasks: bool,
     pages: bool,
+}
+
+/// How far the hovered row's tray fades in over the title's end.
+const SLOT_FADE: f32 = scale::SP_4;
+
+/// The opaque colour a session row shows at rest or lit (hovered), on the
+/// sidebar's own fill: what the hover tray stands on so the title under it
+/// is hidden. The one paint model's fills ([`StatePaint::fills`]) composited
+/// over `sidebar`.
+fn row_fill(selected: bool, hovered: bool, p: &aui_tokens::Palette) -> gpui::Hsla {
+    let (rest, hover, _) = StatePaint::new().selected(selected).fills(p);
+    let top = if hovered { Some(hover) } else { rest };
+    match top {
+        Some(top) => crate::interact::paint::over(p.sidebar, top),
+        None => p.sidebar,
+    }
 }
 
 fn slot_words(session: &SessionSummary, hovered: bool) -> SlotWords {
@@ -1821,7 +1867,7 @@ fn browse_context(ctx: &Ctx, browse: &super::BrowseModel, cx: &mut App) -> Vec<A
     }
     if let Some(last) = browse.last_session.as_ref() {
         let mark = ctx.state_mark(format!("last-{}", last.id), last.state, last.unread, cx);
-        let row = ctx.row(Some(ctx.lead_icon(IconName::ArrowLeft, cx)), last.title.clone(), Some(mark), false, cx);
+        let row = ctx.row(Some(ctx.lead_icon(IconName::ArrowLeft, cx)), last.title.clone(), mark, false, cx);
         let label: SharedString = format!("Back to session {}", last.title).into();
         record_ax_label(&label);
         let c = ctx.clone();
@@ -1903,8 +1949,8 @@ fn screen_list(id: &ElementId, targets: Rc<RefCell<HashMap<usize, Target>>>, on_
 impl Ctx {
     /// Wraps a virtual row (index `index`) in the list's item box: a session
     /// row holds `ov-selected` when it is the selection and the hover look
-    /// when the keyboard is on it; the row being renamed is the field's and
-    /// paints nothing.
+    /// when the keyboard is on it, and no pressed tint; the row being renamed
+    /// is the field's and paints nothing.
     fn wrap_virtual(&self, index: usize, element: AnyElement, cx: &App) -> AnyElement {
         let session = match self.targets.borrow().get(&index) {
             Some(Target::Session(id)) => Some(id.clone()),
@@ -1916,7 +1962,12 @@ impl Ctx {
         }
         let selected = session.is_some() && model.selected.as_ref() == session.as_ref();
         let highlighted = session.is_some() && model.highlighted.as_ref() == session.as_ref();
-        self.items.wrap(index, element, StatePaint::new().selected(selected).highlighted(highlighted), cx)
+        // A session row opens on the press, so the selection is its answer:
+        // a pressed tint on top flashed brighter than the selected look for
+        // as long as the button was held, then dropped (owner 2026-11-27,
+        // "flicker after clicking").
+        let paint = StatePaint::new().selected(selected).highlighted(highlighted).pressable(session.is_none());
+        self.items.wrap(index, element, paint, cx)
     }
 }
 
