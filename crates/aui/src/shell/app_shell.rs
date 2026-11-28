@@ -19,7 +19,7 @@
 //!
 //! A maximised pane ([`AppShell::right_fill`]) is the right column filling
 //! everything right of the sidebar column — the whole window with it closed
-//! — while the centre column, header and all, takes no width.
+//! — while the centre column, header and all, is not drawn.
 //!
 //! Motion (Emil Kowalski's rules, owner 2026-10-13: smooth or none): the
 //! column opens and closes on an ease-out tween, 260 / 220 ms, the panel
@@ -235,10 +235,11 @@ impl AppShell {
     }
 
     /// The right column fills the window right of the sidebar column (a
-    /// maximised pane): the centre column, its header included, gets no
-    /// width. Its content stays laid out at the width it has beside the
-    /// pane, clipped away, so leaving the fill re-lays out nothing. The
-    /// sidebar keeps its own state; while the right column fills, the
+    /// maximised pane): the centre column, its header included, is not
+    /// drawn (`display: none`), so nothing in it paints, takes a press or
+    /// the keyboard, or reaches the accessibility tree; the host's views
+    /// in it keep their own state and draw as they were when the fill
+    /// ends. The sidebar keeps its own state; while the right column fills, the
     /// sidebar column opens and closes instantly (the right column is the
     /// host's, and a native page in it cannot follow a per-frame resize),
     /// and the fill itself comes and goes in one frame. With the shell
@@ -572,8 +573,7 @@ impl RenderOnce for AppShell {
 
         // The centre's content width at rest for the state the shell is
         // heading to: laid out once, it slides with the column's edge instead
-        // of re-measuring on every frame of the column's motion. Under a
-        // filling right column it keeps the width it has beside the pane.
+        // of re-measuring on every frame of the column's motion.
         let left_at_rest = if shell.sidebar_open { rest } else { px(0.0) };
         let right_at_rest = if shell.right_open { right_beside } else { px(0.0) };
         let content_w = (win_w - left_at_rest - right_at_rest).max(px(0.0));
@@ -618,11 +618,12 @@ impl RenderOnce for AppShell {
         // edge.
         let row_shown = !shell.page_sheet;
         let content_top = if row_shown { row_h } else { px(0.0) };
-        // Under a filling right column the centre takes no width; what it
-        // holds stays laid out, clipped away (see `right_fill`).
+        // Under a filling right column the centre is not drawn at all (see
+        // `right_fill`): clipped to no width it would still be in the
+        // accessibility tree and reachable by the keyboard.
         let mut centre_column = div()
-            .when(fill, |d| d.w(px(0.0)).flex_none())
-            .when(!fill, |d| d.flex_1())
+            .when(fill, |d| d.hidden())
+            .flex_1()
             .h_full()
             .min_w(px(0.0))
             .relative()

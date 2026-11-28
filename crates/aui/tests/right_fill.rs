@@ -104,8 +104,10 @@ fn filling_beside_an_open_sidebar_takes_everything_right_of_it(cx: &mut TestAppC
     let b = last(&pane);
     assert!((f32::from(b.origin.x) - SIDEBAR_WIDTH).abs() <= SLACK, "the pane starts at the sidebar's edge, got {:?}", b.origin.x);
     assert!((f32::from(b.size.width) - (WIN_W - SIDEBAR_WIDTH)).abs() <= SLACK, "the pane fills the rest, got {:?}", b.size.width);
-    // The centre header (and its column) has no width left to show in.
-    assert!(centre.borrow().iter().all(|c| f32::from(c.size.width) <= 0.5 || f32::from(c.origin.x) >= WIN_W), "no centre on screen: {:?}", centre.borrow());
+    // The centre header (and its column) is not drawn at all: nothing in it
+    // prepaints, so nothing in it reaches the accessibility tree, takes a
+    // press or the keyboard.
+    assert!(centre.borrow().is_empty(), "the centre prepainted under a filling pane: {:?}", centre.borrow());
 }
 
 #[gpui::test]
@@ -118,7 +120,8 @@ fn filling_with_the_sidebar_closed_takes_the_whole_window(cx: &mut TestAppContex
 
 #[gpui::test]
 fn the_fill_comes_and_goes_in_one_frame(cx: &mut TestAppContext) {
-    let (h, pane, _) = open(cx, false, true);
+    let (h, pane, centre) = open(cx, false, true);
+    assert!(!centre.borrow().is_empty(), "beside the pane the centre header draws");
     let beside = f32::from(last(&pane).size.width);
     assert!((beside - RIGHT_WIDTH).abs() <= SLACK, "beside the centre the pane is its own width, got {beside}");
     let filled = WIN_W - SIDEBAR_WIDTH;
