@@ -11,7 +11,7 @@ mod resize_handle;
 mod tab_strip;
 
 pub use app_shell::{
-    app_shell, clamp_right_width, clamp_sidebar_width, place_native_lights, AppShell, OverlayBoundsHandler, CHROME_LEAD, CHROME_SWITCH_INSET,
+    app_shell, clamp_right_width, clamp_sidebar_width, place_native_lights, right_fill_width, AppShell, OverlayBoundsHandler, CHROME_LEAD, CHROME_SWITCH_INSET,
     COLUMN_EASE, PEEK_STRIP, RIGHT_MAX_WIDTH, RIGHT_MIN_WIDTH, RIGHT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_WIDTH,
 };
 pub use drag_region::{drag_region, DragRegion};

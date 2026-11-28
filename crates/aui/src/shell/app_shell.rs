@@ -17,6 +17,10 @@
 //! its own row riding in with it; after a toggle the peek waits for the
 //! pointer to leave and come back.
 //!
+//! A maximised pane ([`AppShell::right_fill`]) is the right column filling
+//! everything right of the sidebar column — the whole window with it closed
+//! — while the centre column, header and all, takes no width.
+//!
 //! Motion (Emil Kowalski's rules, owner 2026-10-13: smooth or none): the
 //! column opens and closes on an ease-out tween, 260 / 220 ms, the panel
 //! sliding with the column's edge; while it moves, the centre's content is
@@ -63,6 +67,14 @@ pub fn clamp_right_width(width: f32) -> f32 {
     width.clamp(RIGHT_MIN_WIDTH, RIGHT_MAX_WIDTH)
 }
 
+/// The right column's width while it fills ([`AppShell::right_fill`]):
+/// every pixel of a `window_w` window right of a `sidebar_w` sidebar column
+/// (0 when the column is closed). No clamp: a filled pane is as wide as the
+/// window allows, past [`RIGHT_MAX_WIDTH`].
+pub fn right_fill_width(window_w: f32, sidebar_w: f32) -> f32 {
+    (window_w - sidebar_w).max(0.0)
+}
+
 /// The centre header: the title's inset from the column's left, the
 /// actions' from its right.
 const HEADER_PAD_LEFT: f32 = 16.0;
@@ -98,6 +110,7 @@ pub struct AppShell {
     right_min: Pixels,
     right_max: Pixels,
     right_open: bool,
+    right_fill: bool,
     sidebar_open: bool,
     traffic_lights: bool,
     native_lights: bool,
@@ -143,6 +156,7 @@ pub fn app_shell(id: impl Into<ElementId>) -> AppShell {
         right_min: px(RIGHT_MIN_WIDTH),
         right_max: px(RIGHT_MAX_WIDTH),
         right_open: true,
+        right_fill: false,
         sidebar_open: true,
         traffic_lights: false,
         native_lights: false,
@@ -217,6 +231,22 @@ impl AppShell {
     /// Whether the right column shows.
     pub fn right_open(mut self, open: bool) -> Self {
         self.right_open = open;
+        self
+    }
+
+    /// The right column fills the window right of the sidebar column (a
+    /// maximised pane): the centre column, its header included, gets no
+    /// width. Its content stays laid out at the width it has beside the
+    /// pane, clipped away, so leaving the fill re-lays out nothing. The
+    /// sidebar keeps its own state; while the right column fills, the
+    /// sidebar column opens and closes instantly (the right column is the
+    /// host's, and a native page in it cannot follow a per-frame resize),
+    /// and the fill itself comes and goes in one frame. With the shell
+    /// [`draggable`](Self::draggable), the right column's top row — its
+    /// screens' title bars, with no window header left above them — moves
+    /// the window like a header. Only while [`right_open`](Self::right_open).
+    pub fn right_fill(mut self, fill: bool) -> Self {
+        self.right_fill = fill;
         self
     }
 
@@ -461,17 +491,20 @@ impl RenderOnce for AppShell {
             aui_motion::request_frame(window);
         }
 
-        // The column: ease-out both ways, the panel sliding with its edge.
+        // The column: ease-out both ways, the panel sliding with its edge —
+        // instant while the right column fills (see `right_fill`).
+        let fill = shell.right_fill && shell.right_open;
+        let animate = shell.animate && !fill;
         let closed = !shell.sidebar_open;
         if shell.sidebar_open && st.peeking {
             // Opening out of a peek: the sidebar is already in view as the
             // card, so the column starts at rest.
             aui_motion::open_close_jump((id.clone(), "column"), true, window, cx);
         }
-        if !shell.animate || shell.resizing {
+        if !animate || shell.resizing {
             aui_motion::open_close_jump((id.clone(), "column"), shell.sidebar_open, window, cx);
         }
-        let column = if shell.resizing || !shell.animate {
+        let column = if shell.resizing || !animate {
             if shell.sidebar_open { 1.0 } else { 0.0 }
         } else {
             open_close_with((id.clone(), "column"), shell.sidebar_open, Enter::Tween(COLUMN_OPEN, COLUMN_EASE), COLUMN_CLOSE, COLUMN_EASE, window, cx)
@@ -521,11 +554,16 @@ impl RenderOnce for AppShell {
         }
 
         // The right column on the moderate tier (FF: panel width): exactly
-        // the pane's width, its left edge the divider.
+        // the pane's width, its left edge the divider. Filling, it is every
+        // pixel right of the sidebar column, with no spring: the spring is
+        // not sampled while the fill stands, so its state goes and the
+        // first frame after the fill adopts its target — the pane's own
+        // width back, or closed — with no slide from the filled width.
         let right_lo = f32::from(shell.right_min);
-        let right_rest = px(f32::from(shell.right_width).clamp(right_lo, f32::from(shell.right_max).max(right_lo)));
+        let right_beside = px(f32::from(shell.right_width).clamp(right_lo, f32::from(shell.right_max).max(right_lo)));
+        let right_rest = if fill { px(right_fill_width(f32::from(win_w), f32::from(sidebar_w))) } else { right_beside };
         let right_target = if shell.right_open { right_rest } else { px(0.0) };
-        let right_w = if shell.resizing || !shell.animate {
+        let right_w = if shell.resizing || !animate {
             right_target
         } else {
             spring_px((id.clone(), "right-width"), right_target, SpringKind::Moderate, window, cx).max(px(0.0))
@@ -534,9 +572,10 @@ impl RenderOnce for AppShell {
 
         // The centre's content width at rest for the state the shell is
         // heading to: laid out once, it slides with the column's edge instead
-        // of re-measuring on every frame of the column's motion.
+        // of re-measuring on every frame of the column's motion. Under a
+        // filling right column it keeps the width it has beside the pane.
         let left_at_rest = if shell.sidebar_open { rest } else { px(0.0) };
-        let right_at_rest = if shell.right_open { right_rest } else { px(0.0) };
+        let right_at_rest = if shell.right_open { right_beside } else { px(0.0) };
         let content_w = (win_w - left_at_rest - right_at_rest).max(px(0.0));
 
         // Region dividers (docs/83 §1 rule 2): one 1 px `line-region`.
@@ -579,8 +618,11 @@ impl RenderOnce for AppShell {
         // edge.
         let row_shown = !shell.page_sheet;
         let content_top = if row_shown { row_h } else { px(0.0) };
+        // Under a filling right column the centre takes no width; what it
+        // holds stays laid out, clipped away (see `right_fill`).
         let mut centre_column = div()
-            .flex_1()
+            .when(fill, |d| d.w(px(0.0)).flex_none())
+            .when(!fill, |d| d.flex_1())
             .h_full()
             .min_w(px(0.0))
             .relative()
@@ -605,7 +647,13 @@ impl RenderOnce for AppShell {
         // header row (Browse: the pane's tab strip) ends in its line. A pane
         // whose screens carry their own rows (D6, the strip) passes no
         // header, and its body fills the column; those rows are the same
-        // 44 px with the same line.
+        // 44 px with the same line. Filling, it draws no divider of its own
+        // (the sidebar column's edge is the line, or the window's edge), and
+        // a drag region under its top row moves the window: the screens'
+        // controls keep their clicks (they sit above it), only a press on
+        // the row followed by motion moves the window.
+        let fill_drag = (fill && shell.draggable && shell.header_right.is_none())
+            .then(|| div().absolute().top(px(0.0)).left(px(0.0)).right(px(0.0)).h(row_h).child(drag_region((id.clone(), "right-drag")).child(div().w_full().h(row_h))));
         let right_column = div().w(right_w).h_full().flex_none().overflow_hidden().when(right_mounted, |d| {
             d.child(
                 div()
@@ -614,8 +662,8 @@ impl RenderOnce for AppShell {
                     .relative()
                     .flex()
                     .flex_col()
-                    .border_l_1()
-                    .border_color(p.line_region)
+                    .when(!fill, |d| d.border_l_1().border_color(p.line_region))
+                    .children(fill_drag)
                     .when(shell.header_right.is_some(), |d| {
                         d.child(
                             div()
