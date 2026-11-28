@@ -143,11 +143,20 @@ pub fn page_address(id: impl Into<ElementId>, url: &str, cx: &App) -> gpui::Stat
         )
 }
 
-/// The address's frame, for the host's editing input to sit in.
+/// The address's frame, for the host's editing input to sit in. A press on
+/// it is the address's own, at rest as while editing: it marks the press as
+/// a text control's (`GlobalState::suppress_text_selection`), so a window
+/// drag region behind a title bar ([`crate::shell::drag_region`]) never
+/// moves the window from it.
 pub fn address_frame(id: impl Into<ElementId>, cx: &App) -> gpui::Stateful<gpui::Div> {
     let p = cx.aui().colors;
     h_flex()
         .id(id.into())
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+            if cx.has_global::<gpui_kit::base::GlobalState>() {
+                gpui_kit::base::GlobalState::suppress_text_selection(cx);
+            }
+        })
         .flex_1()
         .min_w(px(0.0))
         .h(px(28.0))

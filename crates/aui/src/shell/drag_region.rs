@@ -19,9 +19,14 @@
 //! Interactive children keep their clicks: pointer events hit the innermost
 //! element first, so a click on a button reaches the button — only a press
 //! *followed by motion* moves the window, exactly like `TitleBar`. Children
-//! that call `cx.stop_propagation()` on mouse-down opt out of arming entirely.
+//! that call `cx.stop_propagation()` on mouse-down opt out of arming entirely,
+//! and so does a press a text field takes (it suppresses the window's text
+//! selection for that press, `GlobalState::suppress_text_selection`): a drag
+//! that starts in a field selects its text rather than moving the window
+//! (live 2026-11-28, the maximised pane's address field).
 
 use gpui::{div, prelude::*, App, ElementId, IntoElement, MouseButton, Window};
+use gpui_kit::base::GlobalState;
 
 /// A window drag region over its children. Build with [`drag_region`].
 #[derive(IntoElement)]
@@ -71,8 +76,17 @@ impl RenderOnce for DragRegion {
             .on_mouse_down_out(move |_, _, cx: &mut App| {
                 release_out.update(cx, |armed, _| *armed = false);
             })
+            // A field in front takes the press first and marks it as its own
+            // (`suppress_text_selection`); the mark is reset here at capture
+            // so one left by an earlier press never holds the region back.
+            .capture_any_mouse_down(|_, _, cx: &mut App| {
+                if cx.has_global::<GlobalState>() {
+                    GlobalState::reset_text_selection_suppression(cx);
+                }
+            })
             .on_mouse_down(MouseButton::Left, move |_, _, cx: &mut App| {
-                press.update(cx, |armed, _| *armed = true);
+                let field_took_it = cx.has_global::<GlobalState>() && GlobalState::is_text_selection_suppressed(cx);
+                press.update(cx, |armed, _| *armed = !field_took_it);
             })
             .on_mouse_up(MouseButton::Left, move |_, _, cx: &mut App| {
                 release.update(cx, |armed, _| *armed = false);
@@ -86,8 +100,10 @@ impl RenderOnce for DragRegion {
             // No `on_double_click` on this gpui: a click with `click_count`
             // 2 is the double-click, the same test gpui-component's helper
             // uses. Single clicks (all the header buttons) fall through.
-            .on_click(move |event, window: &mut Window, _| {
-                if event.click_count() == 2 {
+            .on_click(move |event, window: &mut Window, cx: &mut App| {
+                // A double-click a field took selects a word there.
+                let field_took_it = cx.has_global::<GlobalState>() && GlobalState::is_text_selection_suppressed(cx);
+                if event.click_count() == 2 && !field_took_it {
                     if cfg!(target_os = "macos") {
                         window.titlebar_double_click();
                     } else {
