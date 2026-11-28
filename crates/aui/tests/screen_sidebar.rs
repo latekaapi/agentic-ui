@@ -216,7 +216,12 @@ fn rename_replaces_the_open_label_with_a_rename_label(cx: &mut TestAppContext) {
 }
 
 /// docs/83 §4: under the pointer the slot is the `⋯` menu (the age beside
-/// it), never the three loose buttons it used to stand in for.
+/// it), never the three loose buttons it used to stand in for. Since the
+/// 27 Nov round (c20cf81) the tray stands *over* the row's state mark on
+/// the row's own fill instead of replacing it: the mark keeps its place, so
+/// the title never reflows when the pointer arrives or a press drops gpui's
+/// hover report. Hidden under the tray, the mark is still the row's state
+/// to assistive tech, and the menu follows it.
 #[gpui::test]
 fn hovered_session_shows_its_row_menu_button(cx: &mut TestAppContext) {
     init(cx);
@@ -225,12 +230,16 @@ fn hovered_session_shows_its_row_menu_button(cx: &mut TestAppContext) {
     let labels = labels_of(cx, model);
     assert_has(&labels, &["Options for session Checklist run"]);
     assert!(!has(&labels, "Pin session Checklist run"), "{labels:?}");
-    // The hovered row's own mark is gone: the label after its open label
-    // is its menu, not "Needs you" (the closed lakshya header still says
-    // it, for the session it hides).
+    // The row's open label, then its mark (unmoved, under the tray), then
+    // its menu; the closed lakshya header says "Needs you" too, for the
+    // session it hides.
     let at = labels.iter().position(|l| l == "Open session Checklist run").expect("the row");
-    assert_eq!(labels.get(at + 1).map(String::as_str), Some("Options for session Checklist run"), "{labels:?}");
-    assert_eq!(labels.iter().filter(|l| *l == "Needs you").count(), 1, "only the closed header's mark: {labels:?}");
+    assert_eq!(
+        labels.get(at + 1..at + 3).map(|w| w.iter().map(String::as_str).collect::<Vec<_>>()),
+        Some(vec!["Needs you", "Options for session Checklist run"]),
+        "{labels:?}"
+    );
+    assert_eq!(labels.iter().filter(|l| *l == "Needs you").count(), 2, "the row's mark and the closed header's: {labels:?}");
 }
 
 #[gpui::test]
